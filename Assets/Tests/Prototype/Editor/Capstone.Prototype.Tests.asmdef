@@ -1,0 +1,6 @@
+{
+  "name": "Capstone.Prototype.Tests",
+  "references": ["Capstone.Prototype", "UnityEngine.UI", "Unity.TextMeshPro"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
