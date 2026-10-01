@@ -34,7 +34,7 @@ namespace CapstoneDesign.Runtime
         private void Awake()
         {
             ConfigureScrollablePanel();
-            GardenUi.Button(transform, "Charts", .58f, .82f, .38f, .13f, OpenCharts);
+            GardenUi.Button(transform, "심박 차트", .58f, .82f, .38f, .13f, OpenCharts);
             if(Debug.isDebugBuild || Application.isEditor)
             {
                 debugModeButton=GardenUi.Button(transform,"걸음 디버그 OFF",.04f,.16f,.44f,.085f,ToggleDebugWalk);
@@ -205,7 +205,7 @@ namespace CapstoneDesign.Runtime
             AppendStatus("Samsung Health app", health.samsungHealthStatus);
             AppendStatus("Raw debug capture", service.running ? "AVAILABLE/SAMPLING" : service.serviceStatus);
             AppendStatus("Samsung-origin data in Health Connect", health.watchData?.status ?? "NO_DATA");
-            builder.AppendLine("Daily acceleration: open Charts; Start/Stop controls the trial");
+            builder.AppendLine("Heart chart: hourly means from Health Connect. Trial On/Off controls acceleration separately.");
             if (health.permissionStatus == "PERMISSION_REQUIRED" || health.permissionStatus == "PERMISSION_DENIED")
                 builder.AppendLine("Health access needed: use Health Perm below");
             else if (health.watchData?.status == "NO_DATA")

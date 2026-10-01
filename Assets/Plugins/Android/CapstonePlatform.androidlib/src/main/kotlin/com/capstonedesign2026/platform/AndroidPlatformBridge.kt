@@ -84,7 +84,7 @@ object AndroidPlatformBridge {
     @JvmStatic
     fun openSensorHistory(activity: Activity): String = try {
         activity.startActivity(Intent(activity, SensorHistoryActivity::class.java))
-        resultJson(PlatformStatus.AVAILABLE, "Acceleration charts opened")
+        resultJson(PlatformStatus.AVAILABLE, "Hourly heart-rate chart opened")
     } catch (exception: Exception) {
         resultJson(PlatformStatus.ERROR, exception.safeMessage(), "CHART_OPEN_FAILED")
     }

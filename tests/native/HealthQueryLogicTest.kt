@@ -55,6 +55,22 @@ fun main() = runBlocking {
         check(result.complete && result.records.isEmpty())
     }
     fun sample(t: Long, source: String = "a", id: String = "record") = HealthQueryLogic.Sample(id, source, t, 70)
+    test("hourly heart means use measured timestamps, deduplicate and preserve empty hours") {
+        val start = 123_456L
+        val first = HealthQueryLogic.Sample("one", "a", start, 60)
+        val result = HealthQueryLogic.hourlyMeans(listOf(first, first,
+            first.copy(recordId="two", measuredAtEpochMs=start+3_599_999, beatsPerMinute=100),
+            first.copy(recordId="three", measuredAtEpochMs=start+3_600_000, beatsPerMinute=80),
+            first.copy(recordId="excluded", measuredAtEpochMs=start+24*3_600_000)), start, start+24*3_600_000)
+        check(result.size==24 && result[0].sampleCount==2 && result[0].meanBpm==80.0)
+        check(result[1].sampleCount==1 && result[1].meanBpm==80.0)
+        check(result.drop(2).all { it.sampleCount==0 && it.meanBpm==null })
+    }
+    test("hourly heart means retain all samples beyond display limit") {
+        val values=(0 until 1000).map { HealthQueryLogic.Sample(it.toString(), "a", it.toLong(), if(it<900)60 else 160) }
+        val result=HealthQueryLogic.hourlyMeans(values,0,24*3_600_000L)
+        check(result[0].sampleCount==1000 && result[0].meanBpm==70.0)
+    }
     test("sample timestamps filter half open window independently of record interval") {
         val result = HealthQueryLogic.series(listOf(sample(9), sample(10), sample(19), sample(20)), 10, 20)
         check(result.samples.map { it.measuredAtEpochMs } == listOf(10L,19L))

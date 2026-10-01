@@ -138,3 +138,33 @@ from the same app, interval overlap/clipping and independent metric fallback.
 See `artifacts/health-source-policy-tests/results.txt` (27 cases). The earlier
 validation sections describe historical builds; worker/reminder implementation
 has since been added, but background delivery is not validated by this S24 run.
+
+## Hourly heart chart — 2026-10-02
+
+The Settings chart now reads heart-rate records for a fixed rolling 24-hour
+window and displays 24 one-hour means in BPM. The x-axis labels mark each
+bucket's end in local time. The query uses only heart-rate read permission and
+the existing preferred-source policy; it does not modify the shared session
+snapshot or start a sensor service. Queries run off the UI thread, occur only
+on opening/manual refresh, and are cancelled when the activity is destroyed.
+
+Means use the complete, timestamp-filtered and deduplicated sample series before
+display downsampling. Missing hours remain blank and line segments stop at
+missing buckets. The UI distinguishes missing permission, unsupported provider,
+empty results, partial reads and errors, and displays the source, query interval
+and last measurement time. Partial averages are explicitly provisional.
+Existing acceleration data and manual Trial On/Off controls are retained;
+this chart no longer displays acceleration history.
+
+Native synthetic tests now pass 29 cases, including hourly boundaries,
+duplicates, empty intervals and all 1,000 samples beyond the 512-point display
+limit. Output: `artifacts/hourly-heart-tests/results.txt`.
+
+DEVICE_TESTED_S24: installed with data-preserving `--no-streaming -r`; actual
+Samsung-origin samples rendered as hourly means with missing hours left blank.
+Manual refresh updated the interval and chart successfully. No matched runtime
+exceptions were found in the current app's error log. Screen-off timeout was
+restored to its original 30,000 ms and read back after testing. Personal chart
+screenshots remain under ignored `artifacts/s24-hourly-heart-test/`.
+APK: `artifacts/s24-hourly-heart-build/build/capstone-mockup.apk`;
+SHA256: `cd234a7280067921ef137d1935d4009c9c182c19932e98899ad3c0bccf3ae173`.

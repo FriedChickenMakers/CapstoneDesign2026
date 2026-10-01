@@ -15,6 +15,19 @@ internal object HealthQueryLogic {
                       val beatsPerMinute: Long, val segmentId: Int = 0)
     data class Gap(val startEpochMs: Long, val endEpochMs: Long, val sourcePackage: String)
     data class Series(val samples: List<Sample>, val display: List<Sample>, val gaps: List<Gap>)
+    data class HourMean(val startEpochMs: Long, val sampleCount: Int, val meanBpm: Double?)
+
+    // Use the full, deduplicated series, never its downsampled display points.
+    fun hourlyMeans(input: List<Sample>, start: Long, end: Long): List<HourMean> {
+        require(end > start && (end - start) % 3_600_000L == 0L)
+        val samples = series(input, start, end).samples
+        val grouped = samples.groupBy { ((it.measuredAtEpochMs - start) / 3_600_000L).toInt() }
+        return (0 until ((end - start) / 3_600_000L).toInt()).map { index ->
+            val hour = grouped[index].orEmpty()
+            HourMean(start + index * 3_600_000L, hour.size,
+                if (hour.isEmpty()) null else hour.map { it.beatsPerMinute.toDouble() }.average())
+        }
+    }
 
     suspend fun <T> pages(maxPages: Int = 100, timeoutMs: Long = 30_000,
                           read: suspend (String?) -> Page<T>): Result<T> {

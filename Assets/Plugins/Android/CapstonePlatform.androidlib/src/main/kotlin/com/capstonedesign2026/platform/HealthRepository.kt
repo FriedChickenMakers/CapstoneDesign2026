@@ -383,7 +383,21 @@ internal object HealthRepository {
         return annotate(value, result, start, now)
     }
 
-    private suspend fun readHeartRate(client: HealthConnectClient, now: Instant, queryTime: Long, start: Instant): JSONObject {
+    suspend fun readHeartHistory(context: Context): JSONObject {
+        val now = Instant.now()
+        val start = now.minus(Duration.ofHours(24))
+        if (HealthConnectClient.getSdkStatus(context) != HealthConnectClient.SDK_AVAILABLE)
+            return window(noDataMetric("Health Connect is unavailable on this device", now.toEpochMilli())
+                .put("status", PlatformStatus.UNSUPPORTED), start, now)
+        val client = HealthConnectClient.getOrCreate(context)
+        if (HealthPermission.getReadPermission(HeartRateRecord::class) !in client.permissionController.getGrantedPermissions())
+            return window(noDataMetric("Allow heart-rate reading in Health Connect", now.toEpochMilli())
+                .put("status", PlatformStatus.PERMISSION_DENIED), start, now)
+        return readHeartRate(client, now, now.toEpochMilli(), start, includeHourly = true)
+    }
+
+    private suspend fun readHeartRate(client: HealthConnectClient, now: Instant, queryTime: Long, start: Instant,
+                                     includeHourly: Boolean = false): JSONObject {
         val result = readAll(client, HeartRateRecord::class, start, now)
         val selected = HealthSourcePolicy.select(result.records.flatMap { record -> record.samples.map { sample ->
             HealthSourcePolicy.Candidate(HealthQueryLogic.Sample(record.metadata.id,
@@ -396,6 +410,12 @@ internal object HealthRepository {
             metric(latest.beatsPerMinute.toDouble(), "${latest.beatsPerMinute} bpm", "bpm", latest.sourcePackage,
                 latest.measuredAtEpochMs, queryTime, Duration.ofHours(24).toMillis())
                 .put("source", sourceLabel(selected!!.source))
+        if (includeHourly) value.put("hourlyHeartRate", JSONArray().apply {
+            HealthQueryLogic.hourlyMeans(series.samples, start.toEpochMilli(), now.toEpochMilli()).forEach { hour ->
+                put(JSONObject().put("startEpochMs", hour.startEpochMs).put("sampleCount", hour.sampleCount)
+                    .put("meanBpm", hour.meanBpm ?: JSONObject.NULL))
+            }
+        })
         value.put("sampleCount", series.samples.size).put("displaySampleCount", series.display.size)
             .put("heartRateSamples", JSONArray().apply { series.display.forEach { sample -> put(JSONObject()
                 .put("recordId", sample.recordId).put("sourcePackage", sample.sourcePackage)
