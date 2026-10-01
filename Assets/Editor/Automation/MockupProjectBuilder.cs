@@ -493,10 +493,10 @@ namespace CapstoneDesign.EditorTools
             CreateActivityContent(activitiesPanel.transform);
 
             GameObject settingsPanel = CreatePanel("SettingsPanel", canvasObject.transform, Panel);
-            Text settingsText = CreateText("설정", settingsPanel.transform, 50, TextAnchor.MiddleCenter, TextPrimary);
-            SetRect(settingsText.rectTransform, new Vector2(0.1f, 0.35f), new Vector2(0.9f, 0.65f), Vector2.zero, Vector2.zero);
+            Text settingsText = CreateText("설정", settingsPanel.transform, 40, TextAnchor.MiddleLeft, TextPrimary);
+            SetRect(settingsText.rectTransform, new Vector2(0.07f, 0.94f), new Vector2(0.93f, 0.99f), Vector2.zero, Vector2.zero);
 
-            GameObject sensorPanel = CreatePanel("SensorPanel", canvasObject.transform, new Color(0.015f, 0.025f, 0.06f, 0.88f));
+            GameObject sensorPanel = CreatePanel("SensorPanel", canvasObject.transform, new Color(0.015f, 0.025f, 0.06f, 1f));
             SetRect(sensorPanel.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -1030f), new Vector2(620f, -24f));
             Text sensorText = CreateText("ANDROID PLATFORM", sensorPanel.transform, 18, TextAnchor.UpperLeft, TextMuted);
             SetRect(sensorText.rectTransform, new Vector2(0.04f, 0.18f), new Vector2(0.96f, 0.97f), Vector2.zero, Vector2.zero);

@@ -111,6 +111,8 @@ namespace CapstoneDesign.Runtime
 
             if (legacyBottomNavigation != null)
                 legacyBottomNavigation.SetActive(selected != islandPanel);
+            SetLegacyTabActive(activitiesButton, selected == activitiesPanel);
+            SetLegacyTabActive(settingsButton, selected == settingsPanel);
 
             if (activitiesPanel != null)
             {
@@ -123,21 +125,22 @@ namespace CapstoneDesign.Runtime
             }
             home?.Show(selected == islandPanel);
         }
-    }
 
-    /// <summary>
-    /// Small runtime quality guard. It is deliberately independent of the
-    /// project's Editor generated scene so it can also be used by a hand-made
-    /// test scene later.
-    /// </summary>
-    public sealed class MockupRuntime : MonoBehaviour
-    {
-        [SerializeField] private int targetFrameRate = 30;
-
-        private void Awake()
+        private static void SetLegacyTabActive(Button button, bool active)
         {
-            Application.targetFrameRate = targetFrameRate;
-            Screen.sleepTimeout = SleepTimeout.SystemSetting;
+            if (button == null) return;
+            var color = active
+                ? new Color(0.57f, 0.80f, 0.72f, 1f)
+                : new Color(0.20f, 0.29f, 0.39f, 1f);
+            var image = button.GetComponent<Image>();
+            if (image != null) image.color = color;
+            var colors = button.colors;
+            colors.normalColor = color;
+            colors.highlightedColor = Color.Lerp(color, Color.white, 0.16f);
+            colors.pressedColor = Color.Lerp(color, Color.black, 0.14f);
+            colors.selectedColor = colors.highlightedColor;
+            button.colors = colors;
         }
     }
+
 }

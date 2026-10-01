@@ -43,6 +43,7 @@ namespace CapstoneDesign.EditorTools
                 DeleteChildrenExcept(frame, "MainContent");
                 var content = Require(frame, "MainContent");
                 DeleteChildrenExcept(content, "Brand", "Date", "GardenAndGrowth", "BottomNavigation", "HomeTab", "MoodTab");
+                AlignHeaderDate(Require(content, "Date").GetComponent<TMP_Text>());
                 var backdrop = canvasObject.transform.Find("ModalBackdrop");
                 if (backdrop != null) UnityEngine.Object.DestroyImmediate(backdrop.gameObject);
 
@@ -66,9 +67,9 @@ namespace CapstoneDesign.EditorTools
                 settingsTab.GetComponentInChildren<PrototypeUiIcon>(true).symbol = PrototypeUiIcon.Symbol.Gear;
                 activityTab.name = "ActivityTab";
                 foreach (var button in new[] { homeTab, activityTab, settingsTab }) ClearPersistent(button);
-                Tab(homeTab, .04f, .31f);
-                Tab(activityTab, .36f, .64f);
-                Tab(settingsTab, .69f, .96f);
+                Tab(homeTab, 40f / 720f, 232f / 720f);
+                Tab(activityTab, 264f / 720f, 456f / 720f);
+                Tab(settingsTab, 488f / 720f, 680f / 720f);
 
                 // The home-owned camera is parked outside the other screens.
                 // Its independent palette needs no continuously active light.
@@ -187,8 +188,41 @@ namespace CapstoneDesign.EditorTools
             rect.anchorMin = new Vector2(left, 0);
             rect.anchorMax = new Vector2(right, 0);
             rect.pivot = new Vector2(.5f, 0);
-            rect.anchoredPosition = new Vector2(0, 24);
+            // Center the 54px tab in the 106px navigation card (bottom 10px).
+            rect.anchoredPosition = new Vector2(0, 36);
             rect.sizeDelta = new Vector2(0, 54);
+            var icon = button.GetComponentInChildren<PrototypeUiIcon>(true);
+            if (icon != null)
+            {
+                var image = icon.rectTransform;
+                image.anchorMin = image.anchorMax = new Vector2(0, 1);
+                image.pivot = new Vector2(0, 1);
+                image.anchoredPosition = new Vector2(18, -11);
+                image.sizeDelta = new Vector2(32, 32);
+            }
+            var label = button.GetComponentInChildren<TMP_Text>(true);
+            if (label != null)
+            {
+                var textRect = label.rectTransform;
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(60, 0);
+                textRect.offsetMax = new Vector2(-8, 0);
+                label.fontSize = label.fontSizeMin = label.fontSizeMax = 22;
+                label.enableAutoSizing = false;
+                label.alignment = TextAlignmentOptions.MidlineLeft;
+                label.textWrappingMode = TextWrappingModes.NoWrap;
+            }
+        }
+
+        static void AlignHeaderDate(TMP_Text date)
+        {
+            var rect = date.rectTransform;
+            rect.anchorMin = rect.anchorMax = Vector2.one;
+            rect.pivot = Vector2.one;
+            rect.anchoredPosition = new Vector2(-48, -32);
+            rect.sizeDelta = new Vector2(200, 48);
+            date.alignment = TextAlignmentOptions.MidlineRight;
         }
     }
 }

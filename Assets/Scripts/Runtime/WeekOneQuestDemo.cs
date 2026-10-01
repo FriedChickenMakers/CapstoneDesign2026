@@ -195,9 +195,10 @@ namespace CapstoneDesign.Runtime
                 GardenUi.Button(p,s.Status==ParticipationState.Paused?"이어서 하기":"일시정지",.07f,.35f,.86f,.075f,()=>{if(Apply(s.Status==ParticipationState.Paused?Service.ResumeSession(sessionId):Service.PauseSession(sessionId)) && walking)ScheduleMissionReminder();ShowSession();});
                 GardenUi.Button(p,"직접 완료 · 선택 기록",.07f,.25f,.86f,.075f,ShowReflection);
             }
-            if(walking && (s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused))
+            bool canRetrySteps=walking && (s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused);
+            if(canRetrySteps)
                 GardenUi.Button(p,"걸음 다시 조회",.07f,.15f,.41f,.075f,()=>{RequestStepSyncSoon(true,true);TickStepSync();ShowSession();});
-            GardenUi.Button(p,"오늘은 여기까지",walking ? .52f : .07f,.15f,.41f,.075f,()=>{if(Apply(Service.EndParticipation(sessionId))){if(walking)AndroidPlatformBridge.CancelMissionRewardReminder(sessionId);sessionId=null;}ShowHome();});
+            GardenUi.Button(p,"오늘은 여기까지",canRetrySteps ? .52f : .07f,.15f,walking && !canRetrySteps ? .86f : .41f,.075f,()=>{if(Apply(Service.EndParticipation(sessionId))){if(walking)AndroidPlatformBridge.CancelMissionRewardReminder(sessionId);sessionId=null;}ShowHome();});
             if(!walking)GardenUi.Button(p,"목록으로",.52f,.15f,.41f,.075f,ShowHome);
         }
         public void ShowReflection()
@@ -237,7 +238,7 @@ namespace CapstoneDesign.Runtime
         {
             pendingEnvironment=id;pendingPurchase=Guid.NewGuid().ToString("N");screen="placement";
             var p=Page("배치 미리보기");
-            GardenUi.Label(p,(MindfulnessContent.FindGardenContent(id)?.title ?? id)+"\n지정된 빈 자리 1곳에 배치합니다.\n비용 "+Balance.EnvironmentCost+" 영양제 · 아직 차감하지 않았어요",.07f,.62f,.86f,.18f,29);
+            GardenUi.Label(p,(MindfulnessContent.FindGardenContent(id)?.title ?? id)+"\n지정된 빈 자리 1곳에 배치합니다.\n비용 "+Balance.EnvironmentCost+" 영양제 · 아직 차감하지 않았어요",.07f,.73f,.86f,.10f,29);
             // A transparent central window reveals the real scene preview.
             view.GetComponent<Image>().color=new Color(.035f,.075f,.105f,.30f);
             ClearGhost();ghost=CreateEnvironment(id,true);
@@ -247,7 +248,7 @@ namespace CapstoneDesign.Runtime
         public void PreviewGrowth()
         {
             screen="growth";pendingPurchase=Guid.NewGuid().ToString("N");var p=Page("식물 성장 미리보기");
-            GardenUi.Label(p,"기존 식물의 크기가 한 단계 자라요.\n비용 "+Balance.GrowthCost+" 영양제 · 취소하면 그대로예요",.07f,.62f,.86f,.18f,30);
+            GardenUi.Label(p,"기존 식물의 크기가 한 단계 자라요.\n비용 "+Balance.GrowthCost+" 영양제 · 취소하면 그대로예요",.07f,.73f,.86f,.10f,30);
             view.GetComponent<Image>().color=new Color(.035f,.075f,.105f,.30f);
             if(rewardPlant!=null) rewardPlant.localScale*=1+Balance.GrowthAmount;
             GardenUi.Button(p,"확정",.07f,.23f,.41f,.08f,()=>{if(Apply(Service.GrowPlant(pendingPurchase,"plant:P06")))GoGarden();else {UpdateGarden();notice.text=error;}});
