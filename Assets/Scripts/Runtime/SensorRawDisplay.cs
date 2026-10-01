@@ -288,6 +288,8 @@ namespace CapstoneDesign.Runtime
             if(metric.measuredAtEpochMs>0)builder.Append("  Measured: ").AppendLine(FormatInstant(metric.measuredAtEpochMs));
             if(metric.sourcePackages!=null && metric.sourcePackages.Length>0)
                 builder.Append("  Sources: ").AppendLine(string.Join(", ",metric.sourcePackages));
+            if(!string.IsNullOrEmpty(metric.sourceBreakdown))
+                builder.Append("  Candidate totals (not added): ").AppendLine(metric.sourceBreakdown);
         }
 
         private void AppendStatus(string label, string status)

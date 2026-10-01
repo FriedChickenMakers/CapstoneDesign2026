@@ -66,6 +66,11 @@ internal object HealthSourcePolicy {
         return StepTotal(count.roundToLong(), selected.source, spans.size)
     }
 
+    /** Diagnostic candidates only; callers must never add these overlapping totals. */
+    fun stepCandidates(input: List<StepSpan>, startMs: Long, endMs: Long): List<StepTotal> =
+        input.groupBy { it.source }.values.mapNotNull { steps(it, startMs, endMs) }
+            .sortedWith(compareBy<StepTotal> { it.source.tier }.thenBy { it.source.id })
+
     private fun addCovered(covered: MutableList<Pair<Long, Long>>, from: Long, until: Long) {
         var start = from
         var end = until

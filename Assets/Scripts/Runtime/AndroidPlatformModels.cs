@@ -133,6 +133,7 @@ namespace CapstoneDesign.Runtime
         public int pagesRead;
         public int recordCount;
         public string sourceFilter = string.Empty;
+        public string sourceBreakdown = string.Empty;
         public string[] sourcePackages = Array.Empty<string>();
         public int sampleCount;
         public int displaySampleCount;
@@ -149,6 +150,7 @@ namespace CapstoneDesign.Runtime
         public string requestId = string.Empty;
         public string source = string.Empty;
         public string sourceLabel = string.Empty;
+        public string sourceBreakdown = string.Empty;
         public string message = string.Empty;
         public bool refreshing;
         public bool queryComplete;

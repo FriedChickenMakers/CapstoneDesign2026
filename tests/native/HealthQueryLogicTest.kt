@@ -93,9 +93,13 @@ fun main() = runBlocking {
     }
     test("one app exporting both watch and phone records still counts one device") {
         val samsungPhone = HealthSourcePolicy.Source("com.sec.android.app.shealth", 2)
-        val selected = HealthSourcePolicy.steps(listOf(span("watch", watch, 0, 100, 10),
-            span("phone", samsungPhone, 0, 100, 10)), 0, 100)!!
+        val records = listOf(span("watch", watch, 0, 100, 10),
+            span("phone", samsungPhone, 0, 100, 10))
+        val selected = HealthSourcePolicy.steps(records, 0, 100)!!
+        val candidates = HealthSourcePolicy.stepCandidates(records, 0, 100)
         check(selected.count == 10L && selected.source == watch)
+        check(candidates.map { it.count } == listOf(10L, 10L))
+        check(candidates.map { it.source } == listOf(watch, samsungPhone))
     }
     test("Samsung unknown device is preferred over phone, but phone is the fallback") {
         val samsung = HealthSourcePolicy.steps(listOf(span("s", samsungUnknown, 0, 100, 8),

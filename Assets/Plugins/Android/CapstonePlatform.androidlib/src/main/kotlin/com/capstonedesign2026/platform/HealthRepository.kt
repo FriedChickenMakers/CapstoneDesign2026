@@ -164,6 +164,9 @@ internal object HealthRepository {
                             .put("count", total?.count ?: 0L)
                             .put("source", total?.source?.id ?: "")
                             .put("sourceLabel", total?.source?.let(::sourceLabel) ?: "")
+                            .put("sourceBreakdown", query.candidates.joinToString("; ") {
+                                "${sourceLabel(it.source)} ${String.format(Locale.US, "%,d", it.count)}"
+                            })
                             .put("queryComplete", query.complete)
                             .put("message", if (query.complete) "" else "Step records incomplete: ${query.reason}")
                     }
@@ -261,19 +264,21 @@ internal object HealthRepository {
 
     internal data class PreferredStepsResult(val total: HealthSourcePolicy.StepTotal?,
                                              val complete: Boolean, val reason: String,
-                                             val sourcePackages: List<String>)
+                                             val sourcePackages: List<String>,
+                                             val candidates: List<HealthSourcePolicy.StepTotal>)
 
     internal suspend fun preferredSteps(client: HealthConnectClient, start: Instant,
                                         end: Instant): PreferredStepsResult {
         val result = readAll(client, StepsRecord::class, start, end)
-        if (!result.complete) return PreferredStepsResult(null, false, result.reason, emptyList())
+        if (!result.complete) return PreferredStepsResult(null, false, result.reason, emptyList(), emptyList())
         val records = result.records.distinctBy { it.metadata.id }
         val spans = records.map { record -> HealthSourcePolicy.StepSpan(
             record.metadata.id, source(record), record.startTime.toEpochMilli(),
             record.endTime.toEpochMilli(), record.count,
         ) }
         return PreferredStepsResult(HealthSourcePolicy.steps(spans, start.toEpochMilli(), end.toEpochMilli()),
-            true, result.reason, records.map { it.metadata.dataOrigin.packageName }.distinct().sorted())
+            true, result.reason, records.map { it.metadata.dataOrigin.packageName }.distinct().sorted(),
+            HealthSourcePolicy.stepCandidates(spans, start.toEpochMilli(), end.toEpochMilli()))
     }
 
     private suspend fun readPreferredSteps(client: HealthConnectClient, now: Instant,
@@ -293,6 +298,9 @@ internal object HealthRepository {
         }
         return window(value, start, now, zone)
             .put("sourcePackages", JSONArray(result.sourcePackages))
+            .put("sourceBreakdown", result.candidates.joinToString("; ") {
+                "${sourceLabel(it.source)} ${String.format(Locale.US, "%,d", it.count)}"
+            })
             .put("sourceFilter", total?.source?.id ?: "NONE")
             .put("queryComplete", result.complete)
             .put("completionReason", result.reason)
