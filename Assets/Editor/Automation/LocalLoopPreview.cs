@@ -20,18 +20,25 @@ namespace CapstoneDesign.EditorTools
             if(SystemInfo.graphicsDeviceType==GraphicsDeviceType.Null || SystemInfo.graphicsDeviceName.ToLowerInvariant().Contains("llvmpipe"))throw new Exception("Hardware rendering required");
             string root=Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS") ?? Path.Combine(Directory.GetCurrentDirectory(),"artifacts","local-loop");
             string output=Path.Combine(root,"visual");Directory.CreateDirectory(output);
-            var names=new[]{"first-launch","course","activity","paused","completed","m15-debug","environment-preview","environment-saved","visitor","no-visitor","records-heart","unsupported","permission-denied","query-error","save-error"};
-            foreach(var size in new[]{new Vector2Int(900,1600),new Vector2Int(1200,800)})
+            var names=new[]{"first-launch","growth-sprout","growth-bud","growth-bloom","growth-later","course","activity","paused","completed","m15-debug","environment-preview","environment-saved","visitor","no-visitor","records-heart","unsupported","permission-denied","query-error","save-error"};
+            foreach(var size in new[]{new Vector2Int(900,1600),new Vector2Int(900,1950),new Vector2Int(1200,800)})
             foreach(var name in names)
             {
                 EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity");
                 var nav=UnityEngine.Object.FindFirstObjectByType<MockupNavigation>(FindObjectsInactive.Include);
                 var loop=nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
                 var clock=new Clock();var store=new Store();var config=new DemoBalanceConfig{VisitorChancePercent=name=="visitor"?100:0};
-                var service=new GardenStateService(store,clock,config);
+                var service=new GardenStateService(store,clock,config,new LegacySnapshot { Nutrient=name.StartsWith("growth-")?50:0 });
                 loop.Balance=config;loop.Initialize(service,true);
                 nav.ShowActivities();
                 if(name=="first-launch")nav.ShowIsland();
+                else if(name.StartsWith("growth-"))
+                {
+                    int count=name=="growth-sprout"?1:name=="growth-bud"?2:name=="growth-bloom"?3:4;
+                    for(int i=0;i<count;i++)
+                        if(!service.GrowPlant("preview-growth-"+i,"plant:P06"))throw new Exception("Growth preview purchase failed");
+                    loop.UpdateGarden();nav.ShowIsland();
+                }
                 else if(name=="course")loop.ShowCourse();
                 else if(name=="m15-debug")
                 {
@@ -75,14 +82,22 @@ namespace CapstoneDesign.EditorTools
                 Render(size,Path.Combine(output,name+"-"+size.x+"x"+size.y+".png"));
                 service.Dispose();
             }
-            File.WriteAllText(Path.Combine(output,"manifest.json"),"{\"environment\":\"Linux Unity Editor hardware preview\",\"inputMode\":\"MOCK\",\"deviceTested\":false,\"images\":30,\"renderer\":\""+SystemInfo.graphicsDeviceName+"\"}");
-            Debug.Log("LOCAL_LOOP_PREVIEW_PASS 30 MOCK images at "+output);
+            File.WriteAllText(Path.Combine(output,"manifest.json"),"{\"environment\":\"Linux Unity Editor hardware preview\",\"inputMode\":\"MOCK\",\"deviceTested\":false,\"images\":57,\"renderer\":\""+SystemInfo.graphicsDeviceName+"\"}");
+            Debug.Log("LOCAL_LOOP_PREVIEW_PASS 57 MOCK images at "+output);
         }
         static void Render(Vector2Int size,string path)
         {
             var camera=GameObject.Find("MockupCamera").GetComponent<Camera>();
             var canvas=GameObject.Find("UiCanvas").GetComponent<Canvas>();
             canvas.renderMode=RenderMode.ScreenSpaceCamera;canvas.worldCamera=camera;canvas.planeDistance=1;
+            var home=canvas.GetComponent<GardenHomePresenter>();
+            if(home!=null && home.homeCanvas.gameObject.activeSelf)
+            {
+                home.homeCanvas.renderMode=RenderMode.ScreenSpaceCamera;
+                home.homeCanvas.worldCamera=camera;
+                home.homeCanvas.planeDistance=.75f;
+                home.gardenVisuals.GetComponentInChildren<Camera>(true)?.Render();
+            }
             var rt=new RenderTexture(size.x,size.y,24);var tex=new Texture2D(size.x,size.y,TextureFormat.RGB24,false);
             camera.targetTexture=rt;camera.aspect=(float)size.x/size.y;
             Canvas.ForceUpdateCanvases();

@@ -19,6 +19,8 @@ namespace CapstoneDesign.Runtime
         [SerializeField] public Button activitiesButton;
         [SerializeField] public Button islandButton;
         [SerializeField] public Button settingsButton;
+        [SerializeField] public GardenHomePresenter home;
+        [SerializeField] public GameObject legacyBottomNavigation;
 
         private void Awake()
         {
@@ -81,6 +83,7 @@ namespace CapstoneDesign.Runtime
             if(Time.unscaledTime < nextCycleCheck)return;
             nextCycleCheck=Time.unscaledTime+30;
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.RefreshCycle();
+            home?.RefreshDate();
         }
         private void OnApplicationFocus(bool focus)
         {
@@ -88,6 +91,7 @@ namespace CapstoneDesign.Runtime
             {
                 var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
                 loop?.OnAppReturned();
+                home?.RefreshFromState();
             }
         }
         private void SetActivePanel(GameObject selected)
@@ -102,8 +106,11 @@ namespace CapstoneDesign.Runtime
             }
             if (islandPanel != null)
             {
-                islandPanel.SetActive(selected == islandPanel);
+                islandPanel.SetActive(selected == islandPanel && home == null);
             }
+
+            if (legacyBottomNavigation != null)
+                legacyBottomNavigation.SetActive(selected != islandPanel);
 
             if (activitiesPanel != null)
             {
@@ -114,6 +121,7 @@ namespace CapstoneDesign.Runtime
             {
                 settingsPanel.SetActive(selected == settingsPanel);
             }
+            home?.Show(selected == islandPanel);
         }
     }
 
@@ -124,7 +132,7 @@ namespace CapstoneDesign.Runtime
     /// </summary>
     public sealed class MockupRuntime : MonoBehaviour
     {
-        [SerializeField] private int targetFrameRate = 60;
+        [SerializeField] private int targetFrameRate = 30;
 
         private void Awake()
         {

@@ -13,12 +13,19 @@ namespace CapstoneDesign.Prototype
 
         public void Render(PrototypeSession session, PrototypeDefinition definition)
         {
-            seed.SetActive(session.Stage == 0);
-            sprout.SetActive(session.Stage == 1);
-            bud.gameObject.SetActive(session.Stage == 2);
-            blossomAnchor.gameObject.SetActive(session.Stage == 3);
-            chamomileFlower.SetActive(session.FinalFlower?.shape == FlowerShape.Chamomile);
-            hydrangeaFlower.SetActive(session.FinalFlower?.shape == FlowerShape.Hydrangea);
+            RenderVisual(session.Stage, session.FinalFlower?.shape);
+        }
+
+        // The integrated home uses the saved garden state, while the standalone
+        // prototype can continue to render its own temporary session.
+        public void RenderVisual(int stage, FlowerShape? flower)
+        {
+            seed.SetActive(stage == 0);
+            sprout.SetActive(stage == 1);
+            bud.gameObject.SetActive(stage == 2);
+            blossomAnchor.gameObject.SetActive(stage >= 3);
+            chamomileFlower.SetActive(stage >= 3 && flower == FlowerShape.Chamomile);
+            hydrangeaFlower.SetActive(stage >= 3 && flower == FlowerShape.Hydrangea);
         }
     }
 }

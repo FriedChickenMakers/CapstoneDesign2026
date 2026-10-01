@@ -18,6 +18,7 @@ namespace CapstoneDesign.Runtime
         public Text summary;
         public Transform rewardPlant;
         public GardenStateService Service { get; private set; }
+        public bool HasOpenState => opened;
         public AndroidPlatformSnapshot PreviewHealth;
         public DemoBalanceConfig Balance = new DemoBalanceConfig();
         GameObject view, gardenObjects, ghost;
@@ -227,7 +228,7 @@ namespace CapstoneDesign.Runtime
             if(!opened){ShowHome();return;}
             screen="shop";ClearGhost();var p=Page("정원을 가꾸어요");
             GardenUi.Label(p,"미리보기와 취소에는 비용이 없어요.\n새 환경의 동물 후보는 다음 일일 회차에 반영돼요.",.07f,.64f,.86f,.14f,28);
-            GardenUi.Button(p,"기존 나무 성장 · "+Balance.GrowthCost+" 영양제",.07f,.52f,.86f,.085f,PreviewGrowth);
+            GardenUi.Button(p,"캐모마일 성장 · "+Balance.GrowthCost+" 영양제",.07f,.52f,.86f,.085f,PreviewGrowth);
             GardenUi.Button(p,"꽃밭 미리보기 · "+Balance.EnvironmentCost+" 영양제",.07f,.40f,.86f,.085f,()=>PreviewEnvironment("environment:E01"));
             GardenUi.Button(p,"쉼터 미리보기 · "+Balance.EnvironmentCost+" 영양제",.07f,.28f,.86f,.085f,()=>PreviewEnvironment("environment:E02"));
             GardenUi.Button(p,"돌아가기",.07f,.16f,.86f,.075f,ShowHome);
@@ -301,6 +302,7 @@ namespace CapstoneDesign.Runtime
         public void UpdateGarden()
         {
             if(!opened)return;var s=Service.Snapshot;
+            transform.root.GetComponent<GardenHomePresenter>()?.RefreshFromState();
             if(rewardPlant!=null) rewardPlant.localScale=basePlantScale*(1+Mathf.Clamp(s.LegacyGrowth+s.Plants.Sum(p=>p.Growth),0,2));
             if(islandStatus!=null)islandStatus.text=(mode=="LIVE"?"":"["+mode+"] ")+"영양제 "+s.Nutrient+"\n"+VisitorText();
             if(gardenObjects!=null){gardenObjects.SetActive(false);if(Application.isPlaying)Destroy(gardenObjects);else DestroyImmediate(gardenObjects);}

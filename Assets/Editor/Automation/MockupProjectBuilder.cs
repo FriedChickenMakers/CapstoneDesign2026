@@ -311,6 +311,7 @@ namespace CapstoneDesign.EditorTools
             CreateWorld();
             CreateUi();
             CreateEventSystem();
+            IntegratedHomeImporter.Import(scene);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -539,6 +540,7 @@ namespace CapstoneDesign.EditorTools
             nav.activitiesButton = activitiesButton;
             nav.islandButton = islandButton;
             nav.settingsButton = settingsButton;
+            nav.legacyBottomNavigation = navigation;
         }
 
         private static void CreateActivityContent(Transform parent)

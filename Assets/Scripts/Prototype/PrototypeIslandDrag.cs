@@ -75,6 +75,9 @@ namespace CapstoneDesign.Prototype
             if (previewCamera == null) return;
             Quaternion rotation = Quaternion.Euler(angles.y, angles.x, 0);
             previewCamera.transform.SetPositionAndRotation(focus + rotation * (Vector3.back * distance), rotation);
+            // The integrated home keeps its camera disabled between changes.
+            if (Application.isPlaying && !previewCamera.enabled && previewCamera.gameObject.activeInHierarchy)
+                previewCamera.Render();
         }
     }
 }

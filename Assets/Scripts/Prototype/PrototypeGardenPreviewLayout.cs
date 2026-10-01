@@ -51,8 +51,11 @@ namespace CapstoneDesign.Prototype
             var camera = orbit.previewCamera;
             // The RT is shared; override projection aspect to match the final UI rectangle.
             // This compensates the RawImage stretch without resizing/allocating a texture each frame.
-            if (Mathf.Abs(camera.aspect - aspect) > .00001f) camera.aspect = aspect;
-            if (Mathf.Abs(camera.orthographicSize - size) > .00001f) camera.orthographicSize = size;
+            bool changed = false;
+            if (Mathf.Abs(camera.aspect - aspect) > .00001f) { camera.aspect = aspect; changed = true; }
+            if (Mathf.Abs(camera.orthographicSize - size) > .00001f) { camera.orthographicSize = size; changed = true; }
+            if (changed && Application.isPlaying && !camera.enabled && camera.gameObject.activeInHierarchy)
+                camera.Render();
         }
 
         public void RecalculateBounds()

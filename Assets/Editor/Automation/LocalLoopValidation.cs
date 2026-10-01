@@ -32,6 +32,7 @@ namespace CapstoneDesign.EditorTools
                 throw new InvalidOperationException("Run validation in edit mode only.");
             var report = new Report { utc = DateTimeOffset.UtcNow.ToString("O"), unityVersion = Application.unityVersion };
             Check(report, "Serialized scene retains runtime component and control bindings", SceneBindings);
+            Check(report, "Integrated home restores growth, preserves cancellation and links navigation", IntegratedHome);
             Check(report, "Catalog typed IDs, order and candidate references", Catalog);
             Check(report, "UI completion without notes commits one reward and survives reopen", Completion);
             Check(report, "M15 debug steps, direct completion and garden purchase form one demo flow", M15DemoFlow);
@@ -97,6 +98,80 @@ namespace CapstoneDesign.EditorTools
             finally { if (opened) EditorSceneManager.CloseScene(scene, true); }
         }
 
+        static void IntegratedHome()
+        {
+            const string path = "Assets/Scenes/MockupMain.unity";
+            var store = new MemoryStore();
+            var clock = new FakeClock();
+            var balance = new DemoBalanceConfig { VisitorChancePercent = 0 };
+            Scene scene = default;
+            GardenStateService service = null;
+            try
+            {
+                scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+                var nav = scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<MockupNavigation>(true)).Single();
+                var home = nav.home;
+                var loop = nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
+                Assert(home != null && home.plant != null && home.gardenRoot != null && home.homeCanvas != null
+                    && home.missionButton != null && home.shopButton != null && home.activityTab != null && home.settingsTab != null,
+                    "Imported home references are incomplete.");
+                Assert(scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<CapstoneDesign.Prototype.PrototypeController>(true)).Count() == 0,
+                    "Temporary prototype controller is running in the app scene.");
+                service = new GardenStateService(store, clock, balance, new LegacySnapshot { Nutrient = 50 });
+                loop.Balance = balance; loop.Initialize(service, true);
+                home.RefreshFromState();
+                Assert(home.plant.seed.activeSelf && home.guide.text.Contains("영양제 50개"), "Fresh saved state did not show seed and nutrient.");
+                for (int i = 1; i <= 3; i++)
+                {
+                    Assert(service.GrowPlant("home-growth-" + i, "plant:P06"), "Growth purchase failed.");
+                    loop.UpdateGarden();
+                    Assert(GardenHomePresenter.StageForGrowth(service.Snapshot.Plants.Single().Growth) == i,
+                        "Saved growth did not advance exactly one visible stage.");
+                }
+                Assert(home.plant.blossomAnchor.gameObject.activeSelf && home.plant.chamomileFlower.activeSelf
+                    && !home.plant.hydrangeaFlower.activeSelf && home.guide.text.Contains("영양제 20개"),
+                    "Bloom or persisted nutrient disagrees with the garden state.");
+                float beforeScale = home.plant.blossomAnchor.localScale.x;
+                loop.ShowShop(); loop.PreviewGrowth(); Click(loop, "취소");
+                Assert(Mathf.Approximately(home.plant.blossomAnchor.localScale.x, beforeScale)
+                    && service.Snapshot.Nutrient == 20, "Cancelled purchase changed the new home.");
+                store.FailSave = true;
+                Assert(!service.GrowPlant("home-failed-save", "plant:P06"), "Injected save failure was not exercised.");
+                loop.UpdateGarden();
+                Assert(Mathf.Approximately(home.plant.blossomAnchor.localScale.x, beforeScale)
+                    && service.Snapshot.Nutrient == 20, "Failed purchase changed the new home.");
+                store.FailSave = false;
+                Assert(service.GrowPlant("home-growth-4", "plant:P06"), "Later growth purchase failed.");
+                loop.UpdateGarden();
+                Assert(home.plant.blossomAnchor.localScale.x > beforeScale, "Growth after bloom had no visible change.");
+
+                home.SendMessage("Awake", SendMessageOptions.RequireReceiver);
+                nav.ShowIsland();
+                home.missionButton.onClick.Invoke();
+                Assert(nav.activitiesPanel.activeSelf && !home.homeCanvas.gameObject.activeSelf, "Activity entry did not open the existing activity screen.");
+                nav.ShowIsland(); home.settingsTab.onClick.Invoke();
+                Assert(nav.settingsPanel.activeSelf && !home.gardenVisuals.activeSelf, "Settings entry left the garden camera active.");
+                nav.ShowIsland(); home.shopButton.onClick.Invoke();
+                Assert(nav.activitiesPanel.activeSelf && loop.CurrentScreen == "shop", "Garden entry did not open the existing shop.");
+                home.SendMessage("OnDestroy", SendMessageOptions.RequireReceiver);
+                service.Dispose(); service = null;
+                EditorSceneManager.CloseScene(scene, true); scene = default;
+
+                scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+                nav = scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<MockupNavigation>(true)).Single();
+                home = nav.home; loop = nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
+                service = new GardenStateService(store, clock, balance);
+                loop.Balance = balance; loop.Initialize(service, true); home.RefreshFromState();
+                Assert(home.plant.chamomileFlower.activeSelf && home.guide.text.Contains("영양제 10개")
+                    && home.plant.blossomAnchor.localScale.x > beforeScale, "Reopened saved growth was not restored on the home.");
+            }
+            finally
+            {
+                service?.Dispose();
+                if (scene.IsValid() && scene.isLoaded) EditorSceneManager.CloseScene(scene, true);
+            }
+        }
+
         static void Catalog()
         {
             Assert(MindfulnessContent.Course.Count == 28 && MindfulnessContent.FreeMissions.Count == 17, "Mission rows missing.");
@@ -152,7 +227,7 @@ namespace CapstoneDesign.EditorTools
                 Click(f.Ui, "기록 건너뛰고 완료");
                 Assert(f.Service.Snapshot.Nutrient == 11 && f.Service.Snapshot.RewardReceipts.Count == 1,
                     "M15 direct completion did not add its separate reward once.");
-                f.Ui.ShowShop(); Click(f.Ui, "기존 나무 성장"); Click(f.Ui, "확정");
+                f.Ui.ShowShop(); Click(f.Ui, "캐모마일 성장"); Click(f.Ui, "확정");
                 var garden = f.Service.Snapshot;
                 Assert(garden.Nutrient == 1 && garden.Plants.Any(p => p.PlantId == "plant:P06"),
                     "M15 reward could not be spent on garden growth.");

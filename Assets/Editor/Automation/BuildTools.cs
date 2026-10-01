@@ -35,11 +35,18 @@ namespace CapstoneDesign.EditorTools
                 throw new InvalidOperationException("Generated scene is missing the single moon light.");
             }
 
-            int lightCount = UnityEngine.Object.FindObjectsByType<Light>(FindObjectsSortMode.None).Length;
+            int lightCount = UnityEngine.Object.FindObjectsByType<Light>(FindObjectsInactive.Include, FindObjectsSortMode.None).Length;
             if (lightCount != 1)
             {
-                throw new InvalidOperationException("Mockup expects exactly one Light, found " + lightCount + ".");
+                throw new InvalidOperationException("Integrated garden expects only the original light, found " + lightCount + ".");
             }
+
+            var home = canvas.GetComponent<GardenHomePresenter>();
+            if (home == null || home.homeCanvas == null || home.plant == null || home.activity == null
+                || home.navigation == null || home.gardenVisuals == null || home.shopButton == null
+                || home.gardenCamera == null || home.gardenCamera.enabled
+                || home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeController>(true) != null)
+                throw new InvalidOperationException("Integrated home is missing visual links or still runs the prototype controller.");
 
             ValidateAndroidPlatformLayer();
 

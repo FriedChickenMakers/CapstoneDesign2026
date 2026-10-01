@@ -4,6 +4,7 @@ using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 using CapstoneDesign.Runtime;
 using CapstoneDesign.Runtime.LocalState;
 
@@ -50,9 +51,22 @@ namespace CapstoneDesign.EditorTools
                 nav.ShowActivities();
                 var ui=nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
                 if(ui?.Service==null)throw new Exception("Awake did not initialize local state");
+                var home=nav.home;
+                if(home==null || home.gardenCamera==null || home.gardenCamera.enabled)
+                    throw new Exception("Integrated home or on-demand garden camera missing in Play mode");
                 if(phase=="fresh")
                 {
                     if(ui.Service.Snapshot.Sessions.Count!=0)throw new Exception("Fresh fixture directory already contains sessions");
+                    nav.ShowIsland();
+                    if(!home.plant.seed.activeSelf || !home.homeCanvas.gameObject.activeSelf)
+                        throw new Exception("Fresh home did not show the saved seed");
+                    home.activityTab.onClick.Invoke();
+                    if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)
+                        throw new Exception("Activity tab did not park the garden camera");
+                    nav.ShowIsland();home.settingsTab.onClick.Invoke();
+                    if(!nav.settingsPanel.activeSelf || home.homeCanvas.gameObject.activeSelf)
+                        throw new Exception("Settings tab did not open existing settings");
+                    nav.ShowActivities();
                     ui.SelectMission(MindfulnessContent.Course[0]);
                     string id=ui.Service.Snapshot.Sessions.Single().SessionId;
                     if(!ui.Service.StartSession(id))throw new Exception(ui.Service.LastError);
@@ -60,12 +74,22 @@ namespace CapstoneDesign.EditorTools
                     if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.NextCourseOrder!=2)throw new Exception("Runtime completion mismatch");
                     ui.PreviewEnvironment("environment:E01");nav.ShowIsland();
                     if(GameObject.Find("PREVIEW environment:E01")!=null || ui.Service.Snapshot.Nutrient!=10)throw new Exception("Navigation did not cancel unpaid preview");
+                    home.shopButton.onClick.Invoke();
+                    if(ui.CurrentScreen!="shop")throw new Exception("Home shop button did not open the existing garden shop");
+                    ui.PreviewGrowth();nav.ShowIsland();
+                    if(!home.plant.seed.activeSelf || ui.Service.Snapshot.Nutrient!=10)
+                        throw new Exception("Cancelled growth changed the saved home");
+                    nav.ShowActivities();ui.PreviewGrowth();
+                    ui.GetComponentsInChildren<Button>(true).Single(b=>b.gameObject.activeInHierarchy && b.gameObject.name=="확정").onClick.Invoke();
+                    if(ui.Service.Snapshot.Nutrient!=0 || !home.plant.sprout.activeSelf)
+                        throw new Exception("Growth purchase did not update the saved home");
                 }
                 else
                 {
-                    if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.NextCourseOrder!=2 || ui.Service.Snapshot.Sessions.Count!=1)throw new Exception("Process restart failed to restore committed progress");
+                    if(ui.Service.Snapshot.Nutrient!=0 || ui.Service.Snapshot.NextCourseOrder!=2 || ui.Service.Snapshot.Sessions.Count!=1
+                        || !home.plant.sprout.activeSelf)throw new Exception("Process restart failed to restore committed progress and growth");
                     string id=ui.Service.Snapshot.Sessions.Single().SessionId;
-                    if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=10)throw new Exception("Restart retry duplicated reward");
+                    if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
                 }
                 File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"PASS\",\"mode\":\"MOCK\",\"environment\":\"Unity Editor Play mode\",\"phase\":\""+phase+"\"}");
                 Debug.Log("LOCAL_LOOP_PLAY_SMOKE_PASS "+phase);
