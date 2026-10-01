@@ -22,7 +22,7 @@ namespace CapstoneDesign.Runtime
         public AndroidPlatformSnapshot PreviewHealth;
         public DemoBalanceConfig Balance = new DemoBalanceConfig();
         GameObject view, gardenObjects, ghost;
-        Text islandStatus, notice;
+        Text islandStatus, notice, stateSummary;
         Vector3 basePlantScale;
         string draftNote;
         string sessionId, mood, pendingEnvironment, pendingPurchase, error, screen = "home";
@@ -124,7 +124,7 @@ namespace CapstoneDesign.Runtime
             view=GardenUi.Box(transform,"Local garden flow",0,.105f,1,.895f,new Color(.035f,.075f,.105f,.98f));
             GardenUi.Label(view.transform,title,.07f,.87f,.86f,.1f,44);
             var s=opened ? Service.Snapshot : null;
-            GardenUi.Label(view.transform,(mode=="LIVE"?"":"["+mode+"]  ")+ (s==null ? "저장 상태를 확인해 주세요" : "영양제 "+s.Nutrient+"  ·  코스 "+Math.Min(28,s.NextCourseOrder)+" / 28"),.07f,.81f,.86f,.05f,25);
+            stateSummary=GardenUi.Label(view.transform,(mode=="LIVE"?"":"["+mode+"]  ")+ (s==null ? "저장 상태를 확인해 주세요" : "영양제 "+s.Nutrient+"  ·  코스 "+Math.Min(28,s.NextCourseOrder)+" / 28"),.07f,.81f,.86f,.05f,25);
             notice=GardenUi.Label(view.transform,string.IsNullOrEmpty(error)?"": "저장/처리 오류 · 진행은 변경하지 않았어요\n"+error,.07f,.02f,.86f,.11f,23);
             notice.color=new Color(1,.78f,.6f);
             return view.transform;
@@ -303,6 +303,7 @@ namespace CapstoneDesign.Runtime
         public void UpdateGarden()
         {
             if(!opened)return;var s=Service.Snapshot;
+            if(stateSummary!=null)stateSummary.text=(mode=="LIVE"?"":"["+mode+"]  ")+"영양제 "+s.Nutrient+"  ·  코스 "+Math.Min(28,s.NextCourseOrder)+" / 28";
             transform.root.GetComponent<GardenHomePresenter>()?.RefreshFromState();
             if(rewardPlant!=null) rewardPlant.localScale=basePlantScale*(1+Mathf.Clamp(s.LegacyGrowth+s.Plants.Sum(p=>p.Growth),0,2));
             if(islandStatus!=null)islandStatus.text=(mode=="LIVE"?"":"["+mode+"] ")+"영양제 "+s.Nutrient+"\n"+VisitorText();

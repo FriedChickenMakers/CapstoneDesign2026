@@ -1,6 +1,7 @@
 # Health Connect query findings — 2026-09-23
 
-Status: IMPLEMENTED / UNIT_TESTED (synthetic JVM); S24 + Galaxy Watch NOT_TESTED.
+Status: IMPLEMENTED / UNIT_TESTED (synthetic JVM); basic S24 reads DEVICE_TESTED_S24
+on 2026-10-02. Multiple overlapping providers and Watch provenance remain NOT_TESTED.
 Android library remains Health Connect `connect-client:1.1.0`; no SDK upgrade.
 
 ## Query contract
@@ -24,13 +25,21 @@ queries (including two step aggregates) can each consume the budget.
 
 ## Steps
 
-`steps` is `aggregate(StepsRecord.COUNT_TOTAL)` across all sources; `samsungSteps`
-is a separate aggregate filtered to `com.sec.android.app.shealth`. Neither is
-SensorManager's cumulative counter. Raw overlapping records are never summed.
-Null aggregate means NO_DATA/hasValue=false, while numeric zero remains a valid
-AVAILABLE/hasValue=true count. Query range, zone, filter and returned origins are
-included. Aggregate timestamps are not measurement timestamps: `measuredAtEpochMs`
-is zero and the UI must show it as unavailable, not replace it with refresh time.
+As of 2026-10-02, `steps` selects one source from paged raw records using
+`HealthSourcePolicy`; daily display, mission ranges and the reward worker share
+this path. It prefers explicit wearable metadata, then Samsung records whose
+device is unspecified, then phone records, then other sources. Samsung origin
+alone does not prove wearable provenance. A source with no positive steps can
+fall back to another source. Overlaps within the chosen source contribute only
+uncovered duration; clipped records are prorated. Counts from different sources
+are never added. `sourceBreakdown` shows their separate candidate totals.
+
+`samsungSteps` remains a separate Samsung-only aggregate for diagnostics.
+Neither value adds SensorManager's cumulative counter. Empty data and zero are
+distinct, and incomplete reads do not drive rewards. Query range, zone, filter
+and selected origin are included. `measuredAtEpochMs` is unavailable for the
+step total, rather than being replaced with refresh time. Sleep, heart and
+exercise choose sources independently, including their own freshness rules.
 
 Android recommends aggregation for cumulative records to avoid double counting;
 its aggregation honors source deduplication rules. See [raw reads](https://developer.android.com/health-and-fitness/health-connect/read-data)
@@ -112,3 +121,20 @@ to the root execution report.
 P2 background HC Worker and notification delivery remain pending. Bounded sensor
 persistence hardening adds four JVM storage cases (20 total); see
 BACKGROUND_SENSOR_FINDINGS.md. Long-duration sensor behavior remains NOT_TESTED.
+
+## 2026-10-02 S24 follow-up
+
+The latest APK was installed with `adb install --no-streaming -r`, preserving
+existing game data and all four granted read permissions. On SM-S921N / Android
+16, settings displayed complete Samsung-origin step, sleep and heart results;
+exercise was NO_DATA. The daily step value matched its sole source candidate
+and the Samsung-only diagnostic. Device metadata was unspecified, so this run
+does not establish Watch provenance or verify overlapping-provider behavior.
+Raw sensor capture, refresh and chart navigation also worked. Personal values
+and screenshots remain in ignored private artifacts, not in this document.
+
+Synthetic source-policy tests cover overlapping origins, watch and phone records
+from the same app, interval overlap/clipping and independent metric fallback.
+See `artifacts/health-source-policy-tests/results.txt` (27 cases). The earlier
+validation sections describe historical builds; worker/reminder implementation
+has since been added, but background delivery is not validated by this S24 run.

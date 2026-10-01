@@ -90,6 +90,15 @@ namespace CapstoneDesign.EditorTools
                         || !home.plant.sprout.activeSelf)throw new Exception("Process restart failed to restore committed progress and growth");
                     string id=ui.Service.Snapshot.Sessions.Single().SessionId;
                     if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
+                    // A step sync may commit rewards while the activity page is hidden.
+                    // Reopening that existing page must agree with the main garden.
+                    ui.ShowHome();nav.ShowIsland();
+                    if(!ui.ToggleDebugWalk())throw new Exception("Could not enable synthetic debug walk");
+                    for(int i=0;i<10;i++)if(!ui.AddVirtualDebugStep())throw new Exception("Synthetic step failed");
+                    nav.ShowActivities();
+                    if(ui.Service.Snapshot.Nutrient!=1 || !home.guide.text.Contains("영양제 1개")
+                        || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  코스")))
+                        throw new Exception("Activity header retained stale nutrients after a hidden reward update");
                 }
                 File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"PASS\",\"mode\":\"MOCK\",\"environment\":\"Unity Editor Play mode\",\"phase\":\""+phase+"\"}");
                 Debug.Log("LOCAL_LOOP_PLAY_SMOKE_PASS "+phase);
