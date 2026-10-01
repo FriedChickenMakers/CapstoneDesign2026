@@ -398,9 +398,9 @@ namespace CapstoneDesign.Runtime
                 {
                     if(result.queryComplete && result.hasValue && result.status=="AVAILABLE")
                     {
-                        if(runningStepQuery.PeriodId!=null)Apply(Service.ObserveDebugWalk(runningStepQuery.PeriodId,result.count));
-                        if(runningStepQuery.SessionId!=null)Apply(Service.ObserveMissionSteps(runningStepQuery.SessionId,result.count));
-                        stepQueryStatus="실제 걸음 갱신됨 · "+DateTime.Now.ToString("HH:mm");
+                        if(runningStepQuery.PeriodId!=null)Apply(Service.ObserveDebugWalk(runningStepQuery.PeriodId,result.count,result.source));
+                        if(runningStepQuery.SessionId!=null)Apply(Service.ObserveMissionSteps(runningStepQuery.SessionId,result.count,result.source));
+                        stepQueryStatus="실제 걸음 갱신됨 · "+result.sourceLabel+" · "+DateTime.Now.ToString("HH:mm");
                         MaybeNotifyMissionReady();
                     }
                     else stepQueryStatus=(result.status=="NO_DATA"?"이 구간의 걸음 기록 없음 · 동기화 대기 가능":result.status+" · "+result.message)+" · "+DateTime.Now.ToString("HH:mm");
@@ -412,7 +412,7 @@ namespace CapstoneDesign.Runtime
             if(stepQueries.Count==0 && Time.unscaledTime>=nextStepSync)
             {
                 QueueStepQueries();
-                nextStepSync=Time.unscaledTime+30f;
+                nextStepSync=Time.unscaledTime+60f;
             }
             if(stepQueries.Count==0)return;
             var query=stepQueries.Dequeue();

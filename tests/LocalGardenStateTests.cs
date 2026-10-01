@@ -121,6 +121,19 @@ class Tests
         Assert(walk.DisableDebugWalk() && !walk.AddVirtualStep(),"debug off stops virtual steps");
         Assert(walk.ObserveDebugWalk(period,20) && walk.Snapshot.Nutrient==13,"closed period accepts final interval observation");
         Assert(walk.ObserveDebugWalk(period,20) && walk.ObserveDebugWalk(period,19) && walk.Snapshot.Nutrient==13,"closed period final observations remain idempotent");
+        Assert(walk.ObserveDebugWalk(period,5,"watch:Samsung") && walk.Snapshot.DebugWalkPeriods[0].RealStepHighWater==5 &&
+            walk.Snapshot.DebugWalkPeriods[0].RewardedUnits==3 && walk.Snapshot.Nutrient==13,
+            "preferred-source correction lowers displayed steps without clawing back or reissuing earned rewards");
+        Assert(walk.ObserveDebugWalk(period,30,"watch:Samsung") && walk.Snapshot.Nutrient==14,
+            "corrected source only pays the next previously uncredited threshold");
+        Assert(walk.ObserveMissionSteps("walk-m15",5,"watch:Samsung") &&
+            walk.Snapshot.Sessions.Last().RealStepHighWater==5,"mission progress recalibrates to the preferred source");
+        walk=Service(walkStore,clock);
+        Assert(walk.Snapshot.DebugWalkPeriods[0].StepSource=="watch:Samsung" &&
+            walk.Snapshot.Sessions.Last().StepSource=="watch:Samsung","preferred source survives restart");
+        var oldXml=StateCodec.Encode(walk.Snapshot).Replace("<StepSource>watch:Samsung</StepSource>","");
+        Assert(StateCodec.Decode(oldXml).DebugWalkPeriods[0].StepSource=="",
+            "state saved before source tracking remains readable");
         FileTests(clock);
         Console.WriteLine("PASS " + checks + " local-state assertions (synthetic data; no Unity/device required)");
     }

@@ -12,8 +12,6 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.HealthConnectFeatures
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.StepsRecord
-import androidx.health.connect.client.request.AggregateRequest
-import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
@@ -153,11 +151,11 @@ class MissionRewardWorker(context: Context, parameters: WorkerParameters) : Coro
             val granted = client.permissionController.getGrantedPermissions()
             if (!granted.contains(HealthPermission.getReadPermission(StepsRecord::class)) ||
                 !granted.contains(HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND)) return Result.success()
-            val count = client.aggregate(AggregateRequest(
-                metrics = setOf(StepsRecord.COUNT_TOTAL),
-                timeRangeFilter = TimeRangeFilter.between(Instant.ofEpochMilli(startEpochMs), Instant.now()),
-            ))[StepsRecord.COUNT_TOTAL] ?: return Result.success()
-            // A missing aggregate is NO_DATA, not zero steps and never a reward signal.
+            val query = HealthRepository.preferredSteps(client, Instant.ofEpochMilli(startEpochMs), Instant.now())
+            // The periodic schedule will try again; avoid repeated large reads after a partial query.
+            if (!query.complete) return Result.success()
+            val count = query.total?.count ?: return Result.success()
+            // A missing preferred source is NO_DATA, not zero steps or a reward signal.
             if (count >= goalSteps.toLong() - virtualSteps)
                 MissionRewardNotifications.postIfReady(applicationContext, sessionId)
             Result.success()

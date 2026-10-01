@@ -153,16 +153,19 @@ internal object HealthRepository {
                         JSONObject().put("status", PlatformStatus.PERMISSION_REQUIRED)
                             .put("message", "Health Connect step permission is required")
                     } else {
-                        val aggregate = withTimeout(30_000) { client.aggregate(AggregateRequest(
-                            metrics = setOf(StepsRecord.COUNT_TOTAL),
-                            timeRangeFilter = TimeRangeFilter.between(
-                                Instant.ofEpochMilli(startEpochMs), Instant.ofEpochMilli(endEpochMs)),
-                        )) }
-                        val count = aggregate[StepsRecord.COUNT_TOTAL]
-                        JSONObject().put("status", if (count == null) PlatformStatus.NO_DATA else PlatformStatus.AVAILABLE)
-                            .put("hasValue", count != null).put("count", count ?: 0L)
-                            .put("source", "Health Connect aggregate (all sources)")
-                            .put("queryComplete", true)
+                        val query = preferredSteps(client, Instant.ofEpochMilli(startEpochMs),
+                            Instant.ofEpochMilli(endEpochMs))
+                        val total = query.total
+                        JSONObject().put("status", when {
+                            !query.complete -> "PARTIAL"
+                            total == null -> PlatformStatus.NO_DATA
+                            else -> PlatformStatus.AVAILABLE
+                        }).put("hasValue", query.complete && total != null)
+                            .put("count", total?.count ?: 0L)
+                            .put("source", total?.source?.id ?: "")
+                            .put("sourceLabel", total?.source?.let(::sourceLabel) ?: "")
+                            .put("queryComplete", query.complete)
+                            .put("message", if (query.complete) "" else "Step records incomplete: ${query.reason}")
                     }
                 }
             } catch (exception: Exception) {
@@ -189,10 +192,10 @@ internal object HealthRepository {
         val permissionRequestCompleted = PermissionState.wasHealthRequestCompleted(context)
 
         val steps = if (granted.contains(stepsPermission)) {
-            readSteps(client, now, queryTime, zone, false)
+            readPreferredSteps(client, now, queryTime, zone)
         } else missingPermissionMetric("steps", permissionRequestCompleted)
         val samsungSteps = if (granted.contains(stepsPermission)) {
-            readSteps(client, now, queryTime, zone, true)
+            readSamsungSteps(client, now, queryTime, zone)
         } else missingPermissionMetric("Samsung steps", permissionRequestCompleted)
         val sleep = if (granted.contains(sleepPermission)) {
             readSleep(client, now, queryTime)
@@ -256,10 +259,51 @@ internal object HealthRepository {
         value.put("queryStartEpochMs", start.toEpochMilli()).put("queryEndEpochMs", end.toEpochMilli())
             .put("queryTimeZone", zone.id)
 
-    private suspend fun readSteps(client: HealthConnectClient, now: Instant, queryTime: Long,
-                                  zone: ZoneId, samsungOnly: Boolean): JSONObject {
+    internal data class PreferredStepsResult(val total: HealthSourcePolicy.StepTotal?,
+                                             val complete: Boolean, val reason: String,
+                                             val sourcePackages: List<String>)
+
+    internal suspend fun preferredSteps(client: HealthConnectClient, start: Instant,
+                                        end: Instant): PreferredStepsResult {
+        val result = readAll(client, StepsRecord::class, start, end)
+        if (!result.complete) return PreferredStepsResult(null, false, result.reason, emptyList())
+        val records = result.records.distinctBy { it.metadata.id }
+        val spans = records.map { record -> HealthSourcePolicy.StepSpan(
+            record.metadata.id, source(record), record.startTime.toEpochMilli(),
+            record.endTime.toEpochMilli(), record.count,
+        ) }
+        return PreferredStepsResult(HealthSourcePolicy.steps(spans, start.toEpochMilli(), end.toEpochMilli()),
+            true, result.reason, records.map { it.metadata.dataOrigin.packageName }.distinct().sorted())
+    }
+
+    private suspend fun readPreferredSteps(client: HealthConnectClient, now: Instant,
+                                           queryTime: Long, zone: ZoneId): JSONObject {
         val start = now.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()
-        val filter = if (samsungOnly) setOf(DataOrigin(SAMSUNG_HEALTH_PACKAGE)) else emptySet()
+        val result = preferredSteps(client, start, now)
+        val total = result.total
+        val value = when {
+            !result.complete -> noDataMetric("Step query incomplete: ${result.reason}", queryTime)
+                .put("status", "PARTIAL")
+            total == null -> noDataMetric("No steps in this interval", queryTime)
+            else -> metric(total.count.toDouble(), String.format(Locale.US, "%,d", total.count),
+                "steps", total.source.packageName, 0L, queryTime)
+                .put("source", sourceLabel(total.source))
+                .put("sourceId", total.source.id)
+                .put("recordCount", total.records)
+        }
+        return window(value, start, now, zone)
+            .put("sourcePackages", JSONArray(result.sourcePackages))
+            .put("sourceFilter", total?.source?.id ?: "NONE")
+            .put("queryComplete", result.complete)
+            .put("completionReason", result.reason)
+            .put("message", if (total == null) value.optString("message") else
+                "One preferred origin/device; overlapping sources are not added")
+    }
+
+    private suspend fun readSamsungSteps(client: HealthConnectClient, now: Instant,
+                                         queryTime: Long, zone: ZoneId): JSONObject {
+        val start = now.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant()
+        val filter = setOf(DataOrigin(SAMSUNG_HEALTH_PACKAGE))
         val result = try {
             val aggregate = withTimeout(30_000) { HealthQueryLogic.retry { client.aggregate(AggregateRequest(
                 metrics = setOf(StepsRecord.COUNT_TOTAL), timeRangeFilter = TimeRangeFilter.between(start, now),
@@ -267,7 +311,7 @@ internal object HealthRepository {
             val count = aggregate[StepsRecord.COUNT_TOTAL]
             val value = if (count == null) noDataMetric("No aggregated steps in this interval", queryTime) else
                 metric(count.toDouble(), String.format(Locale.US, "%,d", count), "steps", "", 0, queryTime)
-            value.put("source", if (samsungOnly) "Samsung Health aggregate" else "Health Connect aggregate (all sources)")
+            value.put("source", "Samsung Health aggregate (diagnostic)")
                 .put("sourcePackages", JSONArray(aggregate.dataOrigins.map { it.packageName }.sorted()))
                 .put("queryComplete", true).put("completionReason", "COMPLETE")
                 .put("message", "Aggregate; measurement timestamp unavailable; not phone step counter")
@@ -277,7 +321,24 @@ internal object HealthRepository {
             errorMetric("STEPS_AGGREGATE_FAILED", exception, queryTime).put("queryComplete", false)
                 .put("completionReason", if (exception is TimeoutCancellationException) "TIMEOUT" else "READ_FAILED")
         }
-        return window(result, start, now, zone).put("sourceFilter", if (samsungOnly) SAMSUNG_HEALTH_PACKAGE else "ALL")
+        return window(result, start, now, zone).put("sourceFilter", SAMSUNG_HEALTH_PACKAGE)
+    }
+
+    private fun source(record: Record): HealthSourcePolicy.Source = HealthSourcePolicy.Source(
+        record.metadata.dataOrigin.packageName, record.metadata.device?.type,
+    )
+
+    private fun sourceLabel(source: HealthSourcePolicy.Source): String {
+        val name = friendlySource(source.packageName).ifBlank { "Health Connect" }
+        val device = when (source.deviceType) {
+            1 -> "watch"
+            4 -> "ring"
+            6 -> "fitness band"
+            7 -> "chest strap"
+            2 -> "phone"
+            else -> "device unspecified"
+        }
+        return "$name · $device"
     }
 
     private suspend fun <T : Record> readAll(client: HealthConnectClient, type: KClass<T>, start: Instant, end: Instant) =
@@ -300,26 +361,33 @@ internal object HealthRepository {
     private suspend fun readSleep(client: HealthConnectClient, now: Instant, queryTime: Long): JSONObject {
         val start = now.minus(Duration.ofHours(48))
         val result = readAll(client, SleepSessionRecord::class, start, now)
-        val latest = result.records.maxByOrNull { it.endTime }
+        val selected = HealthSourcePolicy.select(result.records.map { record ->
+            HealthSourcePolicy.Candidate(record, source(record), record.endTime.toEpochMilli())
+        }, queryTime, Duration.ofHours(36).toMillis())
+        val latest = selected?.values?.maxByOrNull { it.endTime }
         val value = if (latest == null) noDataMetric("No sleep session in queried interval", queryTime) else {
             val minutes = Duration.between(latest.startTime, latest.endTime).toMinutes()
             metric(minutes.toDouble(), "${minutes / 60}h ${minutes % 60}m session", "session minutes",
                 latest.metadata.dataOrigin.packageName, latest.endTime.toEpochMilli(), queryTime,
                 Duration.ofHours(36).toMillis()).put("message", "Session length; sleep stages not analyzed")
+                .put("source", sourceLabel(selected!!.source))
         }
         return annotate(value, result, start, now)
     }
 
     private suspend fun readHeartRate(client: HealthConnectClient, now: Instant, queryTime: Long, start: Instant): JSONObject {
         val result = readAll(client, HeartRateRecord::class, start, now)
-        val series = HealthQueryLogic.series(result.records.flatMap { record -> record.samples.map { sample ->
-            HealthQueryLogic.Sample(record.metadata.id, record.metadata.dataOrigin.packageName,
-                sample.time.toEpochMilli(), sample.beatsPerMinute)
-        } }, start.toEpochMilli(), now.toEpochMilli())
+        val selected = HealthSourcePolicy.select(result.records.flatMap { record -> record.samples.map { sample ->
+            HealthSourcePolicy.Candidate(HealthQueryLogic.Sample(record.metadata.id,
+                record.metadata.dataOrigin.packageName, sample.time.toEpochMilli(), sample.beatsPerMinute),
+                source(record), sample.time.toEpochMilli())
+        } }, queryTime, Duration.ofHours(24).toMillis())
+        val series = HealthQueryLogic.series(selected?.values.orEmpty(), start.toEpochMilli(), now.toEpochMilli())
         val latest = series.samples.lastOrNull()
         val value = if (latest == null) noDataMetric("No measured heart-rate samples in queried interval", queryTime) else
             metric(latest.beatsPerMinute.toDouble(), "${latest.beatsPerMinute} bpm", "bpm", latest.sourcePackage,
                 latest.measuredAtEpochMs, queryTime, Duration.ofHours(24).toMillis())
+                .put("source", sourceLabel(selected!!.source))
         value.put("sampleCount", series.samples.size).put("displaySampleCount", series.display.size)
             .put("heartRateSamples", JSONArray().apply { series.display.forEach { sample -> put(JSONObject()
                 .put("recordId", sample.recordId).put("sourcePackage", sample.sourcePackage)
@@ -333,11 +401,15 @@ internal object HealthRepository {
     private suspend fun readExercise(client: HealthConnectClient, now: Instant, queryTime: Long): JSONObject {
         val start = now.minus(Duration.ofDays(7))
         val result = readAll(client, ExerciseSessionRecord::class, start, now)
-        val latest = result.records.maxByOrNull { it.endTime }
+        val selected = HealthSourcePolicy.select(result.records.map { record ->
+            HealthSourcePolicy.Candidate(record, source(record), record.endTime.toEpochMilli())
+        }, queryTime)
+        val latest = selected?.values?.maxByOrNull { it.endTime }
         val value = if (latest == null) noDataMetric("No exercise session in queried interval", queryTime) else {
             val minutes = Duration.between(latest.startTime, latest.endTime).toMinutes()
             metric(minutes.toDouble(), "$minutes min (type ${latest.exerciseType})", "minutes",
                 latest.metadata.dataOrigin.packageName, latest.endTime.toEpochMilli(), queryTime)
+                .put("source", sourceLabel(selected!!.source))
         }
         return annotate(value, result, start, now)
     }
@@ -438,6 +510,7 @@ internal object HealthRepository {
 
     private fun friendlySource(packageName: String): String = when (packageName) {
         SAMSUNG_HEALTH_PACKAGE -> "Samsung Health"
+        "com.android.healthconnect.phone" -> "Health Connect phone"
         "com.google.android.apps.fitness" -> "Google Fit"
         else -> packageName
     }

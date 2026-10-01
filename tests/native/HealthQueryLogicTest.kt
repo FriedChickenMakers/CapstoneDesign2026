@@ -81,6 +81,48 @@ fun main() = runBlocking {
         val zone = java.time.ZoneId.of("America/New_York")
         check(instant.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant().toString() == "2026-03-08T05:00:00Z")
     }
+    val watch = HealthSourcePolicy.Source("com.sec.android.app.shealth", 1)
+    val phone = HealthSourcePolicy.Source("com.android.healthconnect.phone", 2)
+    val samsungUnknown = HealthSourcePolicy.Source("com.sec.android.app.shealth", null)
+    fun span(id: String, source: HealthSourcePolicy.Source, from: Long, until: Long, count: Long) =
+        HealthSourcePolicy.StepSpan(id, source, from, until, count)
+    test("watch beats duplicate phone steps without adding origins") {
+        val selected = HealthSourcePolicy.steps(listOf(span("watch", watch, 0, 100, 10),
+            span("phone", phone, 0, 100, 10)), 0, 100)!!
+        check(selected.count == 10L && selected.source == watch)
+    }
+    test("Samsung unknown device is preferred over phone, but phone is the fallback") {
+        val samsung = HealthSourcePolicy.steps(listOf(span("s", samsungUnknown, 0, 100, 8),
+            span("p", phone, 0, 100, 10)), 0, 100)!!
+        val fallback = HealthSourcePolicy.steps(listOf(span("p", phone, 0, 100, 10)), 0, 100)!!
+        check(samsung.count == 8L && samsung.source == samsungUnknown)
+        check(fallback.count == 10L && fallback.source == phone)
+    }
+    test("zero watch record falls back to actual phone movement") {
+        val selected = HealthSourcePolicy.steps(listOf(span("w", watch, 0, 100, 0),
+            span("p", phone, 0, 100, 10)), 0, 100)!!
+        check(selected.count == 10L && selected.source == phone)
+    }
+    test("same-source replay and overlapping intervals are not added twice") {
+        val total = HealthSourcePolicy.steps(listOf(span("a", watch, 0, 100, 10),
+            span("b", watch, 0, 100, 10), span("c", watch, 50, 150, 10)), 0, 150)!!
+        check(total.count == 15L)
+    }
+    test("records crossing the requested start are clipped") {
+        val total = HealthSourcePolicy.steps(listOf(span("a", phone, 0, 100, 10)), 50, 100)!!
+        check(total.count == 5L)
+    }
+    test("health types choose sources independently and stale watch heart rate falls back") {
+        val steps = HealthSourcePolicy.steps(listOf(span("p", phone, 0, 100, 10)), 0, 100)!!
+        val heart = HealthSourcePolicy.select(listOf(
+            HealthSourcePolicy.Candidate(70, watch, 1L),
+            HealthSourcePolicy.Candidate(80, phone, 100L)), 100L, freshnessMs = 20L)!!
+        val sleep = HealthSourcePolicy.select(listOf(
+            HealthSourcePolicy.Candidate(420, watch, 90L),
+            HealthSourcePolicy.Candidate(360, phone, 100L)), 100L)!!
+        check(steps.source == phone && heart.source == phone && heart.values.single() == 80)
+        check(sleep.source == watch && sleep.values.single() == 420)
+    }
     test("sensor log bounded rotation retains previous generation") {
         val directory = java.nio.file.Files.createTempDirectory("synthetic-sensor-log").toFile()
         try {

@@ -148,6 +148,7 @@ namespace CapstoneDesign.Runtime
         public string status = "NO_DATA";
         public string requestId = string.Empty;
         public string source = string.Empty;
+        public string sourceLabel = string.Empty;
         public string message = string.Empty;
         public bool refreshing;
         public bool queryComplete;

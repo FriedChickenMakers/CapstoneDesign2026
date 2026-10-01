@@ -40,6 +40,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public string Mood, Note;
         public int CourseOrder;
         public long RealStepHighWater, VirtualSteps;
+        public string StepSource = "";
         public bool GoalNotificationCommitted;
         public ParticipationState Status;
     }
@@ -47,6 +48,7 @@ namespace CapstoneDesign.Runtime.LocalState
     {
         public string Id, StartedUtc, EndedUtc;
         public long RealStepHighWater, VirtualSteps, RewardedUnits;
+        public string StepSource = "";
     }
     public sealed class DailyDecision
     {
@@ -117,7 +119,7 @@ namespace CapstoneDesign.Runtime.LocalState
             foreach(var p in s.DebugWalkPeriods)
             {
                 DateTimeOffset started,ended;
-                if(!Timestamp(p.StartedUtc) || (!string.IsNullOrEmpty(p.EndedUtc) && (!Timestamp(p.EndedUtc) || !DateTimeOffset.TryParse(p.StartedUtc,out started) || !DateTimeOffset.TryParse(p.EndedUtc,out ended) || ended<started)) || p.RealStepHighWater<0 || p.VirtualSteps<0 || p.RealStepHighWater>long.MaxValue-p.VirtualSteps || p.RewardedUnits<0 || p.RewardedUnits!=(p.RealStepHighWater+p.VirtualSteps)/10)
+                if(!Timestamp(p.StartedUtc) || (!string.IsNullOrEmpty(p.EndedUtc) && (!Timestamp(p.EndedUtc) || !DateTimeOffset.TryParse(p.StartedUtc,out started) || !DateTimeOffset.TryParse(p.EndedUtc,out ended) || ended<started)) || p.RealStepHighWater<0 || p.VirtualSteps<0 || p.RealStepHighWater>long.MaxValue-p.VirtualSteps || p.RewardedUnits<0 || p.RewardedUnits<(p.RealStepHighWater+p.VirtualSteps)/10)
                     throw new InvalidDataException("Invalid debug walk period.");
             }
             string previous = "";
@@ -345,16 +347,21 @@ namespace CapstoneDesign.Runtime.LocalState
                 CreditDebugSteps(next,period);
             });
         }
-        public bool ObserveDebugWalk(string periodId,long actualSteps)
+        public bool ObserveDebugWalk(string periodId,long actualSteps,string source="legacy")
         {
             return Change(next =>
             {
                 if(actualSteps<0)throw new ArgumentOutOfRangeException("actualSteps");
+                if(string.IsNullOrWhiteSpace(source))throw new ArgumentException("Step source is required.");
                 var period=next.DebugWalkPeriods.FirstOrDefault(p=>p.Id==periodId);
                 if(period==null)throw new InvalidOperationException("Unknown debug walk period.");
                 // The coordinator may finish a Health Connect read after OFF. It must query
                 // exactly [StartedUtc, EndedUtc], so this late result cannot include OFF-time steps.
-                period.RealStepHighWater=Math.Max(period.RealStepHighWater,actualSteps);
+                // A new preferred source replaces a former all-source total. Previously
+                // credited units remain a ledger high-water; they are never paid again.
+                period.RealStepHighWater=period.StepSource==source
+                    ? Math.Max(period.RealStepHighWater,actualSteps) : actualSteps;
+                period.StepSource=source;
                 CreditDebugSteps(next,period);
             });
         }
@@ -366,14 +373,17 @@ namespace CapstoneDesign.Runtime.LocalState
             next.Nutrient=checked(next.Nutrient+checked((int)additional));
             period.RewardedUnits=earned;
         }
-        public bool ObserveMissionSteps(string id,long actualSteps)
+        public bool ObserveMissionSteps(string id,long actualSteps,string source="legacy")
         {
             return Change(next =>
             {
                 if(actualSteps<0)throw new ArgumentOutOfRangeException("actualSteps");
+                if(string.IsNullOrWhiteSpace(source))throw new ArgumentException("Step source is required.");
                 var session=Session(next,id);
                 if(session.MissionId!="free-mission:M15")throw new InvalidOperationException("Not M15.");
-                session.RealStepHighWater=Math.Max(session.RealStepHighWater,actualSteps);
+                session.RealStepHighWater=session.StepSource==source
+                    ? Math.Max(session.RealStepHighWater,actualSteps) : actualSteps;
+                session.StepSource=source;
             });
         }
         public bool MarkMissionGoalNotified(string id)

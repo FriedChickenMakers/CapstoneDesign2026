@@ -10,7 +10,7 @@ compiler_cp="$(find "$gradle_lib" -maxdepth 1 -name '*.jar' -printf '%p:' )"
 stdlib="$(find "$gradle_lib" -maxdepth 1 -name 'kotlin-stdlib-*.jar' | head -1)"
 coroutines="$(find "$gradle_lib" -maxdepth 1 -name 'kotlinx-coroutines-core-jvm-*.jar' | head -1)"
 "$java_bin" -cp "$compiler_cp" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -jvm-target 17 -classpath "$stdlib:$coroutines" -d "$output/tests.jar" \
- "$repo_root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/HealthQueryLogic.kt" "$repo_root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/BoundedSensorLog.kt" "$repo_root/tests/native/HealthQueryLogicTest.kt"
+ "$repo_root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/HealthQueryLogic.kt" "$repo_root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/HealthSourcePolicy.kt" "$repo_root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/BoundedSensorLog.kt" "$repo_root/tests/native/HealthQueryLogicTest.kt"
 "$java_bin" -cp "$output/tests.jar:$stdlib:$coroutines" com.capstonedesign2026.platform.HealthQueryLogicTestKt | tee "$output/results.txt"
 python3 - "$output/results.txt" "$output/results.json" <<'PYJSON'
 import json, pathlib, sys

@@ -228,7 +228,7 @@ namespace CapstoneDesign.Runtime
                 .Append(" memory / ").Append(service.persistedSampleCount).AppendLine(" persisted");
 
             builder.AppendLine("\nHEALTH");
-            AppendHealth("Steps (all-source aggregate)", health.steps);
+            AppendHealth("Steps (preferred source)", health.steps);
             AppendHealth("Steps (Samsung only)", health.samsungSteps);
             AppendHealth("Sleep session length", health.sleep);
             AppendHealth("Heart Rate", health.heartRate);
