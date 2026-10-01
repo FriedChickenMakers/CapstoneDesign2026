@@ -46,5 +46,31 @@ ADB_SERIAL=192.168.0.222:5555 ./scripts/test-a7.sh
 The script installs the APK, launches the mockup, collects a screenshot and
 logcat, and optionally records a short video with `A7_SCREENRECORD=1`.
 
+Android platform architecture, Health Connect findings, background-service
+testing, and the measured-only device matrix are under `docs/`. Once ADB is
+authorized, `scripts/test-platform-background.sh` validates sample timestamp
+advancement after Home and screen-off.
+
 Unity account authentication, Android SDK license acceptance, GitHub account
 authentication, and device approval are intentionally runtime/operator steps.
+
+## Local garden loop
+
+The current prototype adds a source-backed four-week mindfulness draft, optional
+activity reflection, atomic local progress/rewards, daily garden visits and
+nutrient spending. Existing POC PlayerPrefs are migrated without deleting them;
+new gameplay state lives in an app-private versioned file. LIVE, MOCK and REPLAY
+use separate game-save directories. No sensor permission is required to finish
+an activity. This is not a validated treatment program.
+
+Start with `docs/OVERNIGHT_PROGRESS.md` for this run's evidence and exact artifact
+paths, `docs/LOCAL_STATE_AND_CYCLE_RULES.md` for persistence/time policy, and
+`docs/PLAN_IMPLEMENTATION_GAPS.md` for pending work. The S24/Watch manual kit is
+`docs/S24_WATCH_TEST_CHECKLIST.md`; no device verification is implied by a build.
+
+```bash
+./scripts/test-local-state.sh
+./scripts/test-health-query.sh
+CAPSTONE_ARTIFACTS="$PWD/artifacts/local-loop" ./scripts/test-local-loop-unity.sh
+CAPSTONE_ARTIFACTS="$PWD/artifacts/local-loop" ./scripts/preview-local-loop.sh
+```

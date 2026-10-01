@@ -1,0 +1,6 @@
+<linker>
+  <!-- XmlSerializer DTOs are constructed by reflection; retain for IL2CPP. -->
+  <assembly fullname="Assembly-CSharp">
+    <type fullname="CapstoneDesign.Runtime.LocalState.*" preserve="all" />
+  </assembly>
+</linker>

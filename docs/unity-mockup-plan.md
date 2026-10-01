@@ -10,9 +10,9 @@ The initial screen follows the latest meeting direction:
 - a calm floating island as the central visual reward;
 - no score, ranking, streak pressure, or competitive language;
 - a bottom navigation bar with 오늘의 활동, 섬, and 설정;
-- five scrollable placeholder daily activities, presented as gentle steps;
+- four data-driven MBSR-inspired Week 1 daily/weekly activities;
 - a settings panel with only the 설정 label for now;
-- a raw sensor panel at the top left for Android hardware discovery.
+- an Android platform debug panel for sensors, service, permissions, and health.
 
 ## Editor generated assets
 
@@ -62,6 +62,14 @@ the scene remains functional when the optional archive is absent.
 - `VisualTestTools.CaptureMockupPreview` writes
   `/artifacts/visual/mockup-preview.png` when that mount exists.
 - `AndroidTestMode` reads the optional `testScene` Android Intent extra and
-  logs the selected mode (default: `GardenPreview`).
+  selects LIVE/MOCK/REPLAY platform input (default scene mode:
+  `GardenPreview`).
 - `AndroidTestTools` is represented by the shell scripts in `scripts/`; the
   scripts skip cleanly when the A7 is offline.
+
+The Week 1 quest loop only adds Nutrient, Garden XP, growth, or a seed unlock.
+Incomplete activities do not remove progress or damage the garden. It is a
+shortened gameplay POC and does not claim to deliver a clinical MBSR program.
+On the A7, completing the three daily activities and weekly reflection produced
+Nutrient 3, Garden XP 8, growth 0.06, and the Week 1 seed unlock with no
+negative reward path.

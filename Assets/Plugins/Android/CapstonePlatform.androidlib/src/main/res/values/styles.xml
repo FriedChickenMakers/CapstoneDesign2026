@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="CapstoneTransparentActivity" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorAccent">#4E8E8A</item>
+    </style>
+
+    <style name="CapstoneRationaleActivity" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#4E8E8A</item>
+        <item name="android:navigationBarColor">#10192B</item>
+        <item name="android:statusBarColor">#10192B</item>
+    </style>
+</resources>

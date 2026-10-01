@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_HEALTH" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
+    <uses-permission android:name="android.permission.health.READ_STEPS" />
+    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+    <uses-permission android:name="android.permission.health.READ_SLEEP" />
+    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.READ_EXERCISE" />
+
+    <queries>
+        <package android:name="com.google.android.apps.healthdata" />
+        <package android:name="com.sec.android.app.shealth" />
+    </queries>
+
+    <application>
+        <service
+            android:name="com.capstonedesign2026.platform.SensorForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="health"
+            android:process=":sensor"
+            android:stopWithTask="false" />
+
+        <service
+            android:name="com.capstonedesign2026.platform.DailyAccelerationService"
+            android:exported="false"
+            android:foregroundServiceType="health"
+            android:process=":daily_sensor"
+            android:stopWithTask="false" />
+
+        <activity
+            android:name="com.capstonedesign2026.platform.SensorHistoryActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar" />
+
+        <activity
+            android:name="com.capstonedesign2026.platform.HealthPermissionActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:theme="@style/CapstoneTransparentActivity" />
+
+        <activity
+            android:name="com.capstonedesign2026.platform.HealthPermissionsRationaleActivity"
+            android:exported="true"
+            android:theme="@style/CapstoneRationaleActivity">
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
+        </activity>
+
+        <activity-alias
+            android:name="com.capstonedesign2026.platform.ViewPermissionUsageActivity"
+            android:exported="true"
+            android:permission="android.permission.START_VIEW_PERMISSION_USAGE"
+            android:targetActivity="com.capstonedesign2026.platform.HealthPermissionsRationaleActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
+                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
+            </intent-filter>
+        </activity-alias>
+    </application>
+</manifest>

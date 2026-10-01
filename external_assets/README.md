@@ -19,3 +19,12 @@ Then replace the generated `RewardPlant` child in
 headless or offline CI. The builder already looks for `tree_default.fbx` and
 `plant_bush.fbx` at that location and instantiates them when imported. Do not
 check credentials or private asset-store files into the repository.
+
+## Korean UI font
+
+`Assets/Resources/Fonts/NanumGothic-Regular.ttf` is the unmodified Google Fonts
+copy of Nanum Gothic, distributed under SIL OFL 1.1. The original copyright and
+license are bundled as `Assets/Resources/Fonts/OFL.txt` (included in Resources).
+Source: https://github.com/google/fonts/tree/main/ofl/nanumgothic
+No audio recordings or transcripts were downloaded for the overnight loop.
+The new garden/animal placeholders are built from Unity primitives.

@@ -71,10 +71,35 @@ namespace CapstoneDesign.Runtime
         public void ShowSettings()
         {
             SetActivePanel(settingsPanel);
+            GetComponentInChildren<SensorRawDisplay>(true)?.OnSettingsOpened();
         }
 
+        private float nextCycleCheck;
+        private void Update()
+        {
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickStepSync();
+            if(Time.unscaledTime < nextCycleCheck)return;
+            nextCycleCheck=Time.unscaledTime+30;
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.RefreshCycle();
+        }
+        private void OnApplicationFocus(bool focus)
+        {
+            if(focus)
+            {
+                var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
+                loop?.OnAppReturned();
+            }
+        }
         private void SetActivePanel(GameObject selected)
         {
+            var sensor = GetComponentInChildren<SensorRawDisplay>(true);
+            if (sensor != null) sensor.gameObject.SetActive(selected == settingsPanel);
+            var loop = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
+            if (loop != null && loop.Service != null)
+            {
+                if(selected!=activitiesPanel && activitiesPanel.activeSelf)loop.LeaveActivityPanel();
+                loop.RefreshCycle();
+            }
             if (islandPanel != null)
             {
                 islandPanel.SetActive(selected == islandPanel);

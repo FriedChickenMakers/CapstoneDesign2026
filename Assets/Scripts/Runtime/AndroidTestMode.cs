@@ -7,6 +7,7 @@ namespace CapstoneDesign.Runtime
     /// mockup has one scene, so the mode is logged and exposed for later
     /// deterministic scene entry points without adding native Java code.
     /// </summary>
+    [DefaultExecutionOrder(-200)]
     public sealed class AndroidTestMode : MonoBehaviour
     {
         public const string DefaultMode = "GardenPreview";
@@ -16,10 +17,61 @@ namespace CapstoneDesign.Runtime
         private void Awake()
         {
             ActiveMode = ReadRequestedMode();
+            ConfigurePlatformInput();
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if(ActiveMode=="SensorSummaryExperiment")
+            {
+                using(var player=new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using(var activity=player.GetStatic<AndroidJavaObject>("currentActivity"))
+                using(var bridge=new AndroidJavaClass("com.capstonedesign2026.platform.AndroidPlatformBridge"))
+                {
+                    long window=long.Parse(ReadIntentString("summaryWindowMs"));
+                    long duration=long.Parse(ReadIntentString("summaryDurationMs"));
+                    bridge.CallStatic<string>("startSensorSummaryExperiment",activity,window,duration,ReadIntentString("summaryRunId"));
+                }
+            }
+            else if (ActiveMode == DefaultMode && AndroidPlatformBridge.InputMode == PlatformInputMode.Live)
+            {
+                // Retire the old implicit 48-hour trial. Explicitly started trials remain enabled.
+                AndroidPlatformBridge.StopLegacyAutoAccelerationTrial();
+            }
+#endif
             Debug.Log("Mockup test mode: " + ActiveMode);
         }
 
+        private static void ConfigurePlatformInput()
+        {
+#if UNITY_EDITOR
+            if (!string.IsNullOrEmpty(System.Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT")))
+            {
+                AndroidPlatformBridge.UseMockProvider(); return;
+            }
+#endif
+            string requested = ReadIntentString("platformInputMode");
+            if (string.Equals(requested, "MOCK", System.StringComparison.OrdinalIgnoreCase))
+            {
+                AndroidPlatformBridge.UseMockProvider();
+                return;
+            }
+
+            if (string.Equals(requested, "REPLAY", System.StringComparison.OrdinalIgnoreCase))
+            {
+                string path = ReadIntentString("platformReplayPath");
+                PlatformActionResult result = AndroidPlatformBridge.UseReplayProvider(path);
+                if (result.ParsedStatus == PlatformStatus.Available) return;
+                Debug.LogWarning("Replay mode could not start: " + result.message);
+            }
+
+            AndroidPlatformBridge.UseLiveProvider();
+        }
+
         private static string ReadRequestedMode()
+        {
+            string requested = ReadIntentString("testScene");
+            return string.IsNullOrEmpty(requested) ? DefaultMode : requested;
+        }
+
+        private static string ReadIntentString(string key)
         {
 #if UNITY_ANDROID && !UNITY_EDITOR
             try
@@ -28,19 +80,15 @@ namespace CapstoneDesign.Runtime
                 using (AndroidJavaObject activity = unityPlayer.GetStatic<AndroidJavaObject>("currentActivity"))
                 using (AndroidJavaObject intent = activity.Call<AndroidJavaObject>("getIntent"))
                 {
-                    string requested = intent.Call<string>("getStringExtra", "testScene");
-                    if (!string.IsNullOrEmpty(requested))
-                    {
-                        return requested;
-                    }
+                    return intent.Call<string>("getStringExtra", key);
                 }
             }
             catch (System.Exception exception)
             {
-                Debug.LogWarning("Test mode Intent read failed: " + exception.Message);
+                Debug.LogWarning("Intent extra read failed for " + key + ": " + exception.Message);
             }
 #endif
-            return DefaultMode;
+            return string.Empty;
         }
     }
 }

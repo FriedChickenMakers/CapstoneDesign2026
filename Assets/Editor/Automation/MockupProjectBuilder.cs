@@ -497,14 +497,31 @@ namespace CapstoneDesign.EditorTools
             Text settingsText = CreateText("설정", settingsPanel.transform, 50, TextAnchor.MiddleCenter, TextPrimary);
             SetRect(settingsText.rectTransform, new Vector2(0.1f, 0.35f), new Vector2(0.9f, 0.65f), Vector2.zero, Vector2.zero);
 
-            GameObject sensorPanel = CreatePanel("SensorPanel", canvasObject.transform, new Color(0.015f, 0.025f, 0.06f, 0.80f));
-            SetRect(sensorPanel.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -378f), new Vector2(500f, -24f));
-            Text sensorText = CreateText("SENSORS (raw)", sensorPanel.transform, 22, TextAnchor.UpperLeft, TextMuted);
-            SetRect(sensorText.rectTransform, new Vector2(0.05f, 0.05f), new Vector2(0.95f, 0.95f), Vector2.zero, Vector2.zero);
+            GameObject sensorPanel = CreatePanel("SensorPanel", canvasObject.transform, new Color(0.015f, 0.025f, 0.06f, 0.88f));
+            SetRect(sensorPanel.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -1030f), new Vector2(620f, -24f));
+            Text sensorText = CreateText("ANDROID PLATFORM", sensorPanel.transform, 18, TextAnchor.UpperLeft, TextMuted);
+            SetRect(sensorText.rectTransform, new Vector2(0.04f, 0.18f), new Vector2(0.96f, 0.97f), Vector2.zero, Vector2.zero);
             sensorText.horizontalOverflow = HorizontalWrapMode.Wrap;
             sensorText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            Button startSensors = CreateButton("StartSensorsButton", sensorPanel.transform, "Trial On", Accent, TextPrimary);
+            Button stopSensors = CreateButton("StopSensorsButton", sensorPanel.transform, "Trial Off", new Color(0.34f, 0.38f, 0.50f, 1f), TextPrimary);
+            Button sensorPermission = CreateButton("SensorPermissionButton", sensorPanel.transform, "Sensor Perm", new Color(0.29f, 0.45f, 0.55f, 1f), TextPrimary);
+            Button healthPermission = CreateButton("HealthPermissionButton", sensorPanel.transform, "Health Perm", new Color(0.30f, 0.48f, 0.43f, 1f), TextPrimary);
+            Button refreshHealth = CreateButton("RefreshHealthButton", sensorPanel.transform, "Refresh", new Color(0.35f, 0.43f, 0.58f, 1f), TextPrimary);
+            SetRect(startSensors.GetComponent<RectTransform>(), new Vector2(0.03f, 0.035f), new Vector2(0.205f, 0.145f), Vector2.zero, Vector2.zero);
+            SetRect(stopSensors.GetComponent<RectTransform>(), new Vector2(0.22f, 0.035f), new Vector2(0.395f, 0.145f), Vector2.zero, Vector2.zero);
+            SetRect(sensorPermission.GetComponent<RectTransform>(), new Vector2(0.41f, 0.035f), new Vector2(0.615f, 0.145f), Vector2.zero, Vector2.zero);
+            SetRect(healthPermission.GetComponent<RectTransform>(), new Vector2(0.63f, 0.035f), new Vector2(0.815f, 0.145f), Vector2.zero, Vector2.zero);
+            SetRect(refreshHealth.GetComponent<RectTransform>(), new Vector2(0.83f, 0.035f), new Vector2(0.97f, 0.145f), Vector2.zero, Vector2.zero);
+
             SensorRawDisplay sensors = sensorPanel.AddComponent<SensorRawDisplay>();
             sensors.output = sensorText;
+            sensors.startServiceButton = startSensors;
+            sensors.stopServiceButton = stopSensors;
+            sensors.sensorPermissionButton = sensorPermission;
+            sensors.healthPermissionButton = healthPermission;
+            sensors.refreshHealthButton = refreshHealth;
 
             GameObject navigation = CreatePanel("BottomNavigation", canvasObject.transform, PanelSoft);
             SetRect(navigation.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 190f));
@@ -528,11 +545,11 @@ namespace CapstoneDesign.EditorTools
         {
             Text header = CreateText("오늘의 활동", parent, 48, TextAnchor.MiddleCenter, TextPrimary);
             SetRect(header.rectTransform, new Vector2(0.05f, 0.84f), new Vector2(0.95f, 0.96f), Vector2.zero, Vector2.zero);
-            Text subheader = CreateText("천천히, 할 수 있는 만큼", parent, 25, TextAnchor.MiddleCenter, TextMuted);
-            SetRect(subheader.rectTransform, new Vector2(0.05f, 0.78f), new Vector2(0.95f, 0.85f), Vector2.zero, Vector2.zero);
+            Text summary = CreateText("천천히, 할 수 있는 만큼", parent, 23, TextAnchor.MiddleCenter, TextMuted);
+            SetRect(summary.rectTransform, new Vector2(0.05f, 0.72f), new Vector2(0.95f, 0.85f), Vector2.zero, Vector2.zero);
 
             GameObject scrollObject = CreateUiObject("ActivityScroll", parent);
-            SetRect(scrollObject.GetComponent<RectTransform>(), new Vector2(0.07f, 0.20f), new Vector2(0.93f, 0.77f), Vector2.zero, Vector2.zero);
+            SetRect(scrollObject.GetComponent<RectTransform>(), new Vector2(0.07f, 0.20f), new Vector2(0.93f, 0.71f), Vector2.zero, Vector2.zero);
             Image scrollBackground = scrollObject.AddComponent<Image>();
             scrollBackground.color = new Color(0.07f, 0.11f, 0.19f, 0.60f);
             ScrollRect scroll = scrollObject.AddComponent<ScrollRect>();
@@ -552,32 +569,43 @@ namespace CapstoneDesign.EditorTools
             contentRect.anchorMax = new Vector2(1f, 1f);
             contentRect.pivot = new Vector2(0.5f, 1f);
             contentRect.anchoredPosition = Vector2.zero;
-            contentRect.sizeDelta = new Vector2(0f, 5f * 142f + 28f);
+            IReadOnlyList<QuestDefinition> quests = WeekOneQuestLibrary.Create();
+            contentRect.sizeDelta = new Vector2(0f, quests.Count * 142f + 28f);
             scroll.content = contentRect;
 
-            string[] activities =
+            Button[] buttons = new Button[quests.Count];
+            Text[] labels = new Text[quests.Count];
+            for (int i = 0; i < quests.Count; i++)
             {
-                "창문을 열고 숨을 한 번 고르기",
-                "물 한 잔 마시고 몸을 돌보기",
-                "식물에게 오늘의 영양제 주기",
-                "하늘을 바라보며 잠시 쉬기",
-                "작은 마음을 한 줄 기록하기"
-            };
-
-            for (int i = 0; i < activities.Length; i++)
-            {
-                GameObject row = CreatePanel("Activity_" + (i + 1), contentObject.transform, new Color(0.12f, 0.18f, 0.27f, 0.94f));
+                Button row = CreateButton(
+                    "Activity_" + (i + 1),
+                    contentObject.transform,
+                    quests[i].title,
+                    new Color(0.12f, 0.18f, 0.27f, 0.94f),
+                    TextPrimary);
                 RectTransform rowRect = row.GetComponent<RectTransform>();
                 rowRect.anchorMin = new Vector2(0.04f, 1f);
                 rowRect.anchorMax = new Vector2(0.96f, 1f);
                 rowRect.pivot = new Vector2(0.5f, 1f);
                 rowRect.anchoredPosition = new Vector2(0f, -18f - i * 142f);
                 rowRect.sizeDelta = new Vector2(0f, 118f);
-                Text item = CreateText(activities[i], row.transform, 27, TextAnchor.MiddleLeft, TextPrimary);
+                Text item = row.GetComponentInChildren<Text>();
+                item.alignment = TextAnchor.MiddleLeft;
+                item.fontSize = 27;
                 SetRect(item.rectTransform, new Vector2(0.08f, 0f), new Vector2(0.94f, 1f), Vector2.zero, Vector2.zero);
                 item.horizontalOverflow = HorizontalWrapMode.Wrap;
                 item.verticalOverflow = VerticalWrapMode.Truncate;
+                buttons[i] = row;
+                labels[i] = item;
             }
+
+            WeekOneQuestDemo questDemo = parent.gameObject.AddComponent<WeekOneQuestDemo>();
+            questDemo.questButtons = buttons;
+            questDemo.questLabels = labels;
+            questDemo.summary = summary;
+            GameObject rewardPlant = GameObject.Find("RewardPlant_Kenney") ??
+                GameObject.Find("RewardPlant_Procedural");
+            questDemo.rewardPlant = rewardPlant == null ? null : rewardPlant.transform;
         }
 
         private static GameObject CreatePanel(string name, Transform parent, Color color)

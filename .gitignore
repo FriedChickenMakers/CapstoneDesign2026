@@ -31,6 +31,8 @@
 .DS_Store
 Thumbs.db
 desktop.ini
+__pycache__/
+*.pyc
 
 # Unity crash and build output
 sysinfo.txt
@@ -57,3 +59,8 @@ artifacts/
 .env.*
 !.env.example
 local-settings.json
+
+# Editor Play-mode test runner output and native crash memory (private artifacts only)
+Assets/Resources/PerformanceTestRunInfo.json*
+Assets/Resources/PerformanceTestRunSettings.json*
+mono_crash.*

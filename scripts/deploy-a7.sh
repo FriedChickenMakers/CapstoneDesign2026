@@ -42,10 +42,18 @@ fi
 echo "Installing ${apk_path} on ${serial}"
 adb -s "${serial}" install -r "${apk_path}"
 adb -s "${serial}" shell am force-stop "${package_name}"
-if [[ -n "${A7_TEST_MODE:-}" ]]; then
-  adb -s "${serial}" shell am start \
-    -n "${package_name}/${activity_name}" \
-    --es testScene "${A7_TEST_MODE}"
+if [[ -n "${A7_TEST_MODE:-}" || -n "${PLATFORM_INPUT_MODE:-}" ]]; then
+  launch_args=(-n "${package_name}/${activity_name}")
+  if [[ -n "${A7_TEST_MODE:-}" ]]; then
+    launch_args+=(--es testScene "${A7_TEST_MODE}")
+  fi
+  if [[ -n "${PLATFORM_INPUT_MODE:-}" ]]; then
+    launch_args+=(--es platformInputMode "${PLATFORM_INPUT_MODE}")
+  fi
+  if [[ -n "${PLATFORM_REPLAY_PATH:-}" ]]; then
+    launch_args+=(--es platformReplayPath "${PLATFORM_REPLAY_PATH}")
+  fi
+  adb -s "${serial}" shell am start "${launch_args[@]}"
 else
   adb -s "${serial}" shell monkey -p "${package_name}" 1 >/dev/null
 fi

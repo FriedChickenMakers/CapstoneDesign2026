@@ -10,7 +10,7 @@ fi
 
 # Visual rendering must initialize a graphics device. Xvfb supplies the
 # window context while MESA_VK_DEVICE_SELECT selects the worker iGPU.
-exec "${unity_bin}" \
+exec "${repo_root}/scripts/unity-run.sh" \
   -batchmode \
   -force-vulkan \
   -quit \

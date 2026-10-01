@@ -25,10 +25,18 @@ fi
 
 adb -s "${serial}" logcat -c
 adb -s "${serial}" shell am force-stop "${ANDROID_PACKAGE:-com.capstonedesign2026.mockup}"
-if [[ -n "${A7_TEST_MODE:-}" ]]; then
-  adb -s "${serial}" shell am start \
-    -n "${ANDROID_PACKAGE:-com.capstonedesign2026.mockup}/${UNITY_ACTIVITY:-com.unity3d.player.UnityPlayerGameActivity}" \
-    --es testScene "${A7_TEST_MODE}"
+if [[ -n "${A7_TEST_MODE:-}" || -n "${PLATFORM_INPUT_MODE:-}" ]]; then
+  launch_args=(-n "${ANDROID_PACKAGE:-com.capstonedesign2026.mockup}/${UNITY_ACTIVITY:-com.unity3d.player.UnityPlayerGameActivity}")
+  if [[ -n "${A7_TEST_MODE:-}" ]]; then
+    launch_args+=(--es testScene "${A7_TEST_MODE}")
+  fi
+  if [[ -n "${PLATFORM_INPUT_MODE:-}" ]]; then
+    launch_args+=(--es platformInputMode "${PLATFORM_INPUT_MODE}")
+  fi
+  if [[ -n "${PLATFORM_REPLAY_PATH:-}" ]]; then
+    launch_args+=(--es platformReplayPath "${PLATFORM_REPLAY_PATH}")
+  fi
+  adb -s "${serial}" shell am start "${launch_args[@]}"
 else
   adb -s "${serial}" shell monkey -p "${ANDROID_PACKAGE:-com.capstonedesign2026.mockup}" 1 >/dev/null
 fi

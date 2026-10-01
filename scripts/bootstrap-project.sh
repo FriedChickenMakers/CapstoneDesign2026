@@ -5,7 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 unity_bin="${UNITY_BIN:-unity-editor}"
 
 echo "Generating Unity mockup in ${repo_root}"
-exec "${unity_bin}" \
+exec "${repo_root}/scripts/unity-run.sh" \
   -batchmode \
   -quit \
   -projectPath "${repo_root}" \
