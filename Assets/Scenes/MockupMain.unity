@@ -1473,10 +1473,7 @@ PrefabInstance:
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents:
-    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: ce88e2bf8e4a93bbd99231f2eebb73f9, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 230470108}
+    m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: ce88e2bf8e4a93bbd99231f2eebb73f9, type: 3}
 --- !u!4 &230470106 stripped
 Transform:
@@ -1488,20 +1485,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: ce88e2bf8e4a93bbd99231f2eebb73f9, type: 3}
   m_PrefabInstance: {fileID: 230470105}
   m_PrefabAsset: {fileID: 0}
---- !u!114 &230470108
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 230470107}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 666136745}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::CapstoneDesign.Runtime.RewardPlantMotion
-  swayDegrees: 2.5
-  swayFrequency: 0.35
 --- !u!1 &238254092
 GameObject:
   m_ObjectHideFlags: 0
@@ -4081,21 +4064,6 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 663996773}
   m_CullTransparentMesh: 1
---- !u!115 &666136745
-MonoScript:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_Name: 
-  serializedVersion: 7
-  m_DefaultReferences: {}
-  m_Icon: {fileID: 0}
-  m_Type: 0
-  m_ExecutionOrder: 0
-  m_ClassName: RewardPlantMotion
-  m_Namespace: CapstoneDesign.Runtime
-  m_AssemblyName: Assembly-CSharp
 --- !u!1 &670428034
 GameObject:
   m_ObjectHideFlags: 0

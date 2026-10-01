@@ -387,14 +387,12 @@ namespace CapstoneDesign.EditorTools
                 GameObject tree = InstantiateExternal(treeAsset, "RewardPlant_Kenney", islandRoot.transform);
                 tree.transform.localPosition = new Vector3(-0.45f, 0.15f, 0.12f);
                 tree.transform.localScale = Vector3.one * 0.75f;
-                tree.AddComponent<RewardPlantMotion>();
             }
             else
             {
                 GameObject plant = new GameObject("RewardPlant_Procedural");
                 plant.transform.SetParent(islandRoot.transform, false);
                 plant.transform.localPosition = new Vector3(-0.45f, 0.2f, 0.12f);
-                plant.AddComponent<RewardPlantMotion>();
                 CreateTrunk(plant.transform, trunkMaterial);
                 CreateCanopy(plant.transform, plantMesh, leafMaterial, new Vector3(0f, 1.15f, 0f), 1f);
                 CreateCanopy(plant.transform, plantMesh, leafLightMaterial, new Vector3(0.28f, 1.8f, 0.05f), 0.67f);
