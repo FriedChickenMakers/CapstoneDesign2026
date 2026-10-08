@@ -3,16 +3,16 @@
 2026-10-03 후속: 이 문서의 Notion 4주 카탈로그는 이전 기록 조회를 위해 보존한다. 새 활동 화면은 MBCT 원리를 참고한 8주·48회 코스를 사용한다. 현재 구현 기준은 [MBCT 구현 문서](MBCT_IMPLEMENTATION.md)와 Docs 저장소의 `기획서/MBCT 활동 설계.md`를 따른다.
 
 상태: IMPLEMENTED (정의 및 메타데이터). 실제 사용자 대상 콘텐츠 검토와 음원 탑재는 NOT_TESTED / 미완료.
-조회 기준: 2026-09-23 실행에서 Notion 연결 도구로 아래 페이지 본문을 읽었다. 모두 Notion `verification.state=unverified`; 응답에 잘림 또는 unknown block 경고가 없었으며 코스 28행을 확인했다. 페이지 수정 시각은 출처의 최신성 단서이며 팀 확정 또는 전문가 검토의 증거가 아니다.
+조회 기준: 2026-09-23 실행에서 Notion 연결 도구로 아래 페이지 본문을 읽었다. 모두 Notion `verification.state=unverified`; 응답에 잘림 또는 unknown block 경고가 없었으며 코스 28행을 확인했다. 수정 날짜는 출처의 최신성 단서이며 팀 확정 또는 전문가 검토의 증거가 아니다. 내부 페이지 주소와 고유 ID는 저장소에 게시하지 않으며, 원문은 팀의 비공개 자료 목록에서 찾는다.
 
 ## 직접 읽은 자료
 
-| 출처 | Notion 수정 시각 (UTC) | 구현한 정의 |
-| --- | --- | --- |
-| [게임 기획 (09.18)](https://app.notion.com/p/3da7381534e2803db959e4833f848d69) | 2026-09-22 00:44:34.154 | course:P01–P28, 주차 주제, 선택 돌아보기, 권장 시간, 음원 A–E 후보 |
-| [미션 리스트](https://app.notion.com/p/3de7381534e281738240e43456c01ddd) | 2026-09-18 12:18:36.206 | free-mission:M01–M17, 원문 실천 안내 |
-| [식물/환경 리스트](https://app.notion.com/p/3de7381534e281dcb8eccd8c6b34fc17) | 2026-09-18 13:22:38.523 | plant:P01–P06, environment:E01–E06, 후보 동물 연결 |
-| [동물 리스트](https://app.notion.com/p/3de7381534e281078616f0f412921943) | 2026-09-18 12:17:40.204 | animal:A01–A12, 후보 환경, 자율 행동, 탭 반응 |
+| 출처 | 앱 내 출처 식별자 | Notion 수정 날짜 (UTC) | 구현한 정의 |
+| --- | --- | --- | --- |
+| 게임 기획 (09.18) (팀 내부 자료) | `source:team-course-draft` | 2026-09-22 | course:P01–P28, 주차 주제, 선택 돌아보기, 권장 시간, 음원 A–E 후보 |
+| 미션 리스트 (팀 내부 자료) | `source:team-free-missions` | 2026-09-18 | free-mission:M01–M17, 원문 실천 안내 |
+| 식물/환경 리스트 (팀 내부 자료) | `source:team-garden-catalog` | 2026-09-18 | plant:P01–P06, environment:E01–E06, 후보 동물 연결 |
+| 동물 리스트 (팀 내부 자료) | `source:team-animal-catalog` | 2026-09-18 | animal:A01–A12, 후보 환경, 자율 행동, 탭 반응 |
 
 Google Docs Proposal은 이 콘텐츠 작업에서 읽거나 변경하지 않았다. 외부 음원 페이지의 권리 조건을 독립 검증하거나 음원을 다운로드하지 않았다. 이 표에 없는 외부 자료를 직접 읽은 출처로 표시하지 않는다.
 

@@ -60,6 +60,33 @@ artifacts/
 !.env.example
 local-settings.json
 
+# Private credentials and device data (also reviewed by the privacy scanner)
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+id_rsa
+id_ed25519
+.netrc
+.npmrc.local
+local.properties
+google-services.json
+GoogleService-Info.plist
+shared_prefs/
+daily_accel/
+daily_acceleration/
+sensor_samples.jsonl
+platform_snapshots.jsonl
+garden-live/
+garden-mock/
+garden-replay/
+local-garden-state*.json
+screen-timeout-journal.json
+brightness-journal.json
+logcat*.txt
+*.logcat.txt
+
 # Editor Play-mode test runner output and native crash memory (private artifacts only)
 Assets/Resources/PerformanceTestRunInfo.json*
 Assets/Resources/PerformanceTestRunSettings.json*

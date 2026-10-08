@@ -41,16 +41,17 @@ namespace CapstoneDesign.Runtime
         public bool bundled;
     }
 
-    /// <summary>Bundled read-only catalog, faithfully transcribed from the fetched Notion draft.
+    /// <summary>Bundled read-only catalog, faithfully transcribed from the private team draft.
+    /// Source IDs preserve provenance without publishing private document URLs.
     /// Definitions never own balances, completion, rewards, visit rolls or saved progress.</summary>
     public static class MindfulnessContent
     {
         public const string ContentVersion = "notion-2026-09-22";
         public const string AudioReviewPending = "NOT_BUNDLED_CONTENT_AND_LICENSE_REVIEW_PENDING";
-        public const string CourseSource = "https://app.notion.com/p/3da7381534e2803db959e4833f848d69";
-        public const string GardenSource = "https://app.notion.com/p/3de7381534e281dcb8eccd8c6b34fc17";
-        public const string AnimalSource = "https://app.notion.com/p/3de7381534e281078616f0f412921943";
-        public const string FreeMissionSource = "https://app.notion.com/p/3de7381534e281738240e43456c01ddd";
+        public const string CourseSource = "source:team-course-draft";
+        public const string GardenSource = "source:team-garden-catalog";
+        public const string AnimalSource = "source:team-animal-catalog";
+        public const string FreeMissionSource = "source:team-free-missions";
 
         public static readonly IReadOnlyList<string> WeekTitles = Array.AsReadOnly(new[] {
             "현재의 감각 알아차리기", "감정과 생각 알아차리기", "자신에게 친절하게 반응하기", "생활 속에서 이어가기"

@@ -37,10 +37,11 @@ Xvfb display and Intel Vulkan device selection from `/etc/profile.d`.
 ## A7 hardware smoke test
 
 The A7 can stay offline without blocking the fast path. Set `ADB_SERIAL` to the
-authenticated wireless serial when it is available:
+current authenticated wireless endpoint shown on the device when it is available.
+Keep that value in your local shell; do not commit it:
 
 ```bash
-ADB_SERIAL=192.168.0.222:5555 ./scripts/test-a7.sh
+ADB_SERIAL="${ADB_SERIAL:?Set the target endpoint locally}" ./scripts/test-a7.sh
 ```
 
 The script installs the APK, launches the mockup, collects a screenshot and

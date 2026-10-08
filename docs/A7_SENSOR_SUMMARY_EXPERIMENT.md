@@ -1,7 +1,9 @@
 # A7 interval-summary experiment
 
 Purpose: test background **device** sensor capture, independently of Health
-Connect, Samsung Health, Watch data, game rewards or user analysis.
+Connect, Samsung Health, Watch data, game rewards or user analysis. Published
+results below retain elapsed-time coverage and delivery counts only; exact device
+timestamps and measured orientation values stay in ignored private artifacts.
 
 ## Implementation
 
@@ -55,24 +57,17 @@ Short-run totals: 0 movement episodes; 308 accelerometer, 289 linear acceleratio
 300 gyroscope and 277 orientation samples contributed to the summaries. The
 maximum recorded inter-event gap was 687 ms. Cumulative late arrivals dropped
 were 35, so passing coverage checks must not be interpreted as lossless delivery.
-Per-window mean angle ranges were 80.197–80.249° azimuth, 68.719–69.019° pitch,
-and 0.963–0.986° roll. The 80% span check is a coarse coverage check, not proof
-that every point inside that span was observed.
+Per-window mean orientation remained nearly constant on the stationary tablet.
+The 80% span check is a coarse coverage check, not proof that every point inside
+that span was observed.
 
 DEVICE_TESTED_A7: The 10-minute × 6-window test completed and passed all runner
-checks. Exact measurement bounds were 2026-09-23 14:23:48.737–15:23:48.737 UTC
-(23:23:48.737 KST to 00:23:48.737 KST the following day). The service stopped
-209 ms after the final window boundary, without a write error. A subsequent
+checks over one hour. The service stopped 209 ms after the final window boundary,
+without a write error. A subsequent
 `dumpsys activity services` for this package also returned no running service.
 
-| Elapsed minutes | Movement episodes | Mean azimuth ° | Mean pitch ° | Mean roll ° | Orientation samples |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 0–10 | 0 | 79.178 | 68.826 | 0.950 | 3011 |
-| 10–20 | 0 | 79.177 | 68.812 | 0.949 | 3011 |
-| 20–30 | 0 | 79.174 | 68.813 | 0.953 | 3010 |
-| 30–40 | 0 | 79.184 | 68.792 | 0.940 | 3010 |
-| 40–50 | 0 | 79.183 | 68.795 | 0.941 | 3011 |
-| 50–60 | 0 | 79.181 | 68.790 | 0.942 | 3011 |
+All six 10-minute windows had orientation samples; the stationary tablet showed
+no movement episodes and nearly constant mean orientation.
 
 The six on-device JSONL rows occupy **5,902 bytes** (metadata and termination
 files excluded). They aggregate 18,076 accelerometer, 18,070 linear acceleration,
@@ -129,20 +124,15 @@ OFF-before-start check without changing the APK or device settings.
 
 **DEVICE_TESTED_A7 — screen-off test completed.** The screen-off 5-second × 12
 test passed all checks, including OFF before start, at every flush, and at the
-end. The subsequent 10-minute × 6 test completed over exactly 3,600,000 ms:
-2026-09-24 **02:47:32.059–03:47:32.059 KST**. Screen OFF was verified 442 ms
+end. The subsequent 10-minute × 6 test completed over exactly 3,600,000 ms.
+Screen OFF was verified 442 ms
 before the first window; all six summary rows report non-interactive screen
 state, and the retrieval-time display remained OFF (`mWakefulness=Dozing`).
 No input or periodic ADB polling was sent during the hour.
 
-| Elapsed minutes | Movement episodes | Mean azimuth ° | Mean pitch ° | Mean roll ° | Orientation samples | Screen at flush |
-| --- | ---: | ---: | ---: | ---: | ---: | --- |
-| 0–10 | 0 | 90.681 | 68.695 | 0.715 | 3764 | OFF |
-| 10–20 | 0 | 90.695 | 68.696 | 0.700 | 3764 | OFF |
-| 20–30 | 0 | 90.686 | 68.702 | 0.711 | 3759 | OFF |
-| 30–40 | 0 | 90.691 | 68.688 | 0.702 | 3762 | OFF |
-| 40–50 | 0 | 90.695 | 68.683 | 0.698 | 3765 | OFF |
-| 50–60 | 0 | 90.697 | 68.681 | 0.695 | 3765 | OFF |
+All six 10-minute windows had orientation samples and reported the screen OFF
+at flush. The stationary tablet showed no movement episodes and nearly constant
+mean orientation.
 
 The six summary rows occupy **5,895 bytes** on device. They summarize 17,999
 accelerometer, 22,585 linear acceleration, 18,000 gyroscope and 22,579 orientation
@@ -241,17 +231,16 @@ The 5-second × 1-minute gate passed: 12 rows total, with 11 full windows starti
 after removal. Those post-removal rows all contained acceleration, gyro and
 orientation samples and were flushed while the screen was OFF.
 
-The 10-minute × 1-hour run also passed. Measurement bounds were
-2026-09-25 14:49:29.637–15:49:29.637 UTC (23:49:29.637–00:49:29.637 KST).
-The task was removed 1.650 seconds after measurement start. Six 10-minute rows
+The 10-minute × 1-hour run also passed. The task was removed 1.650 seconds after
+measurement start. Six 10-minute rows
 were saved; windows 1–5 began wholly after removal, covering 50 complete
 minutes. The remainder of window 0 after removal extends the observed period to
 about **59 minutes 58 seconds**. Every window had sensor events spanning almost
 the entire interval. The five wholly post-removal windows contained 15,004
 accelerometer, 18,765 linear acceleration, 15,004 gyro and 18,760 orientation
-samples. Movement episodes were 0 on the stationary tablet. Mean azimuth varied
-from 96.281–96.293°, pitch from 68.611–68.628°, and roll from 0.925–0.939°
-across all six rows. The six rows occupied 5,929 bytes on device.
+samples. Movement episodes were 0 on the stationary tablet, and mean orientation
+remained nearly constant across all six rows. The six rows occupied 5,929 bytes
+on device.
 
 Each flush reported the screen non-interactive, the final display check was OFF,
 and the service terminated automatically without a write error. The raw-sample

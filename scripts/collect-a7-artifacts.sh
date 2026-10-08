@@ -27,7 +27,7 @@ if [[ -z "${serial}" ]]; then
 fi
 
 if [[ "$(adb -s "${serial}" get-state 2>/dev/null || true)" != "device" ]]; then
-  echo "ADB target ${serial} is not ready" >&2
+  echo "Selected ADB target is not ready" >&2
   exit 2
 fi
 
@@ -56,7 +56,7 @@ commit="$(git -C "${artifact_root}/../workspace/CapstoneDesign2026" rev-parse HE
 jq -n \
   --arg commit "${commit}" \
   --arg device "Galaxy Tab A7" \
-  --arg serial "${serial}" \
+  --arg serial "redacted" \
   --arg androidVersion "${android_version:-unknown}" \
   --arg androidApi "${sdk_version:-unknown}" \
   --arg resolution "${resolution:-unknown}" \

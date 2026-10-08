@@ -1,5 +1,10 @@
 # Mockup scripts
 
+Before committing, pushing, or creating a source archive, follow
+[repository privacy checks](../docs/REPOSITORY_PRIVACY.md). With Gitleaks installed
+or `GITLEAKS_BIN` set, run `python3 scripts/check-repo-privacy.py`; after staging,
+also run `python3 scripts/check-repo-privacy.py --staged`.
+
 All scripts resolve the repository root from their own path and use the
 worker's `unity-editor` wrapper by default. Set `UNITY_BIN` when testing on a
 different machine.
@@ -13,10 +18,12 @@ different machine.
 
 The A7 scripts select the authenticated wireless device from `adb devices` or
 use `ADB_SERIAL` explicitly. A missing device is a clean skip unless
-`A7_REQUIRED=1` is set. Screen recording is opt-in:
+`A7_REQUIRED=1` is set. Set `ADB_SERIAL` in your local shell to the current
+authenticated endpoint shown on the device; never commit that value. Screen
+recording is opt-in:
 
 ```bash
-ADB_SERIAL=192.168.0.222:5555 A7_SCREENRECORD=1 ./scripts/test-a7.sh
+ADB_SERIAL="${ADB_SERIAL:?Set the target endpoint locally}" A7_SCREENRECORD=1 ./scripts/test-a7.sh
 ```
 
 Provider mode can be selected with `PLATFORM_INPUT_MODE=LIVE|MOCK|REPLAY`.
@@ -27,7 +34,7 @@ After authorizing ADB, verify foreground, Home/background, and screen-off
 sensor persistence with:
 
 ```bash
-ADB_SERIAL=192.168.0.222:5555 \
+ADB_SERIAL="${ADB_SERIAL:?Set the target endpoint locally}" \
 CAPSTONE_ARTIFACTS=/tmp/capstone-platform-build \
 ./scripts/test-platform-background.sh
 ```

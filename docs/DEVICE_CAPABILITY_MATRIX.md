@@ -23,8 +23,8 @@ the earlier APK with its previous wake-lock behavior.
 | Samsung Health source data | No Samsung-origin record returned; all-source steps present | `SERVICE_UNAVAILABLE` |
 | Watch-origin data | Not tested | N/A by test role |
 | Foreground sensor collection | Raw burst returned values; daily acceleration service active after app sent Home | Passed; seven requested sensors registered |
-| Background timestamp advance | Preserved prior daily summaries; post-update advance not tested | Passed (`1790085804394` → `1790085814757`) |
-| Screen-off timestamp advance | Not tested after update | Passed (`1790085814757` → `1790085825740`) |
+| Background timestamp advance | Preserved prior daily summaries; post-update advance not tested | Passed (timestamps advanced during the observation) |
+| Screen-off timestamp advance | Not tested after update | Passed (timestamps advanced during the observation) |
 | Service stop / release | Not tested | Passed; service removed and samples stopped advancing |
 
 ## How to update
@@ -33,8 +33,9 @@ the earlier APK with its previous wake-lock behavior.
    reports `device`, not `unauthorized`.
 2. Build/deploy the APK and use the in-app debug panel for capability statuses.
 3. Run `scripts/test-platform-background.sh` with the exact `ADB_SERIAL`.
-4. Copy observed sensor names/statuses and Health Connect values here. Do not
-   infer a capability from the model name.
+4. Copy observed sensor names and capability/status conclusions here. Keep actual
+   Health Connect values, personal timestamps, device identifiers and screenshots
+   in ignored private artifacts. Do not infer a capability from the model name.
 
 For the S24, verify at least two real Health Connect categories and preserve the
 reported `sourcePackage`. A value labelled Samsung Health is evidence that the
