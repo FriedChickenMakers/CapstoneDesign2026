@@ -56,8 +56,8 @@ authentication, and device approval are intentionally runtime/operator steps.
 
 ## Local garden loop
 
-The current prototype adds a source-backed four-week mindfulness draft, optional
-activity reflection, atomic local progress/rewards, daily garden visits and
+The current activity flow uses an app-authored eight-week MBCT-inspired course (48 practices), optional
+experience records and practice inputs, atomic local progress/rewards, daily garden visits and
 nutrient spending. Existing POC PlayerPrefs are migrated without deleting them;
 new gameplay state lives in an app-private versioned file. LIVE, MOCK and REPLAY
 use separate game-save directories. No sensor permission is required to finish
@@ -74,3 +74,17 @@ paths, `docs/LOCAL_STATE_AND_CYCLE_RULES.md` for persistence/time policy, and
 CAPSTONE_ARTIFACTS="$PWD/artifacts/local-loop" ./scripts/test-local-loop-unity.sh
 CAPSTONE_ARTIFACTS="$PWD/artifacts/local-loop" ./scripts/preview-local-loop.sh
 ```
+
+## Localized MBCT activities
+
+The MBCT-inspired course recommends one new practice per day, up to six per calendar week, with a temporary reward of five nutrients per new completion. Reviews and independent experience records have no additional reward. Earlier course and garden state remain readable. This app adaptation is not a validated clinical MBCT program.
+
+See [implementation and checks](docs/MBCT_IMPLEMENTATION.md); the team-facing content and purposes are in the companion `CapstoneDesign2026-Docs` repository under `기획서/MBCT 활동 설계.md`.
+
+```bash
+./scripts/test-mbct.sh
+./scripts/test-local-state.sh
+./scripts/test-local-loop-unity.sh
+```
+
+See [MBCT UI and response-time improvements](docs/MBCT_UI_POLISH.md).

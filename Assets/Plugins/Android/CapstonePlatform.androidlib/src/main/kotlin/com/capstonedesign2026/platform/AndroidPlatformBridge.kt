@@ -51,6 +51,7 @@ object AndroidPlatformBridge {
                 .put("inputMode", inputMode)
                 .put("device", deviceJson(context))
                 .put("sensorService", sensorSnapshot)
+                .put("dailyAcceleration", DailyAccelerationStatus.read(context))
                 .put("healthConnect", healthSnapshot)
                 .put("runtimePermissions", runtimePermissionsJson(context))
                 .toString()
@@ -132,8 +133,6 @@ object AndroidPlatformBridge {
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
         return try {
             val intent = Intent(context, DailyAccelerationService::class.java)
-            context.getSharedPreferences("daily_acceleration_trial", Context.MODE_PRIVATE)
-                .edit().putBoolean("userEnabled", true).commit()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -152,10 +151,9 @@ object AndroidPlatformBridge {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
         return try {
-            val stopped = context.stopService(Intent(context, DailyAccelerationService::class.java))
-            context.getSharedPreferences("daily_acceleration_trial", Context.MODE_PRIVATE)
-                .edit().putBoolean("active", false).putBoolean("userEnabled", false).commit()
-            resultJson(PlatformStatus.AVAILABLE, if (stopped) "Daily trial stopped" else "Daily trial was not running")
+            context.startForegroundService(Intent(context, DailyAccelerationService::class.java)
+                .setAction(DailyAccelerationService.ACTION_STOP))
+            resultJson(PlatformStatus.AVAILABLE, "가속도 수집 중지 요청됨")
         } catch (exception: Exception) {
             resultJson(PlatformStatus.ERROR, exception.safeMessage(), "FGS_STOP_FAILED")
         }
@@ -166,6 +164,8 @@ object AndroidPlatformBridge {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
         val preferences = context.getSharedPreferences("daily_acceleration_trial", Context.MODE_PRIVATE)
+        if (DailyAccelerationStatus.read(context).optString("status") != "UNKNOWN")
+            return resultJson(PlatformStatus.AVAILABLE, "Manual collector state retained")
         if (preferences.getBoolean("userEnabled", false))
             return resultJson(PlatformStatus.AVAILABLE, "User-enabled acceleration trial retained")
         return try {

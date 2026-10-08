@@ -20,6 +20,17 @@ internal class SensorWindowAccumulator(val windowMs: Long, val startElapsedMs: L
     private var episodes=0;private var moving=false;private var lastEpisode=Long.MIN_VALUE/2
     var lateSamples=0L;private set
     init {require(windowMs>=1000)}
+    /** Drain only acceleration samples for a durable checkpoint without advancing the minute. */
+    fun drainAcceleration(): Summary? {
+        if (acceleration.n == 0L) return null
+        val begin = startElapsedMs + index * windowMs
+        val row = Summary(index, startEpochMs + index * windowMs, startEpochMs + (index + 1) * windowMs,
+            begin, begin + windowMs, 0, acceleration.n, acceleration.value(), acceleration.max,
+            0, null, 0, listOf(null, null, null), listOf(null, null, null), 0, null, first, last, gap)
+        acceleration = Mean()
+        first = null; last = null; gap = 0
+        return row
+    }
     fun closeThrough(elapsedMs:Long):List<Summary> {
         val result=mutableListOf<Summary>()
         while(elapsedMs>=startElapsedMs+(index+1)*windowMs){

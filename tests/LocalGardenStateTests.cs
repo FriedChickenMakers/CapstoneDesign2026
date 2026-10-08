@@ -20,7 +20,7 @@ class Tests
     static int checks;
     static void Assert(bool ok, string message) { checks++; if (!ok) throw new Exception(message); }
     static GardenStateService Service(Store store, Clock clock, DemoBalanceConfig config = null, LegacySnapshot legacy = null)
-    { var service = new GardenStateService(store, clock, config ?? new DemoBalanceConfig(), legacy); Assert(service.Open(), "open"); return service; }
+    { var service = new GardenStateService(store, clock, config ?? new DemoBalanceConfig { CompletionNutrient=10 }, legacy); Assert(service.Open(), "open"); return service; }
     static void Session(GardenStateService s, string id, string mission = "course:P01", int order = 1)
     { Assert(s.BeginSession(id, mission, order), "select"); Assert(s.StartSession(id), "start"); }
     static void Main()
@@ -61,7 +61,7 @@ class Tests
         Assert(migrated.Snapshot.Nutrient == 77 && migrated.Snapshot.LegacyCompletedUnknownDate.Count == 1, "migration once");
         migrated.RefreshCycle(new string[0]); Session(migrated,"legacy", "free-mission:legacy",0); migrated.CompleteSession("legacy");
         Assert(migrated.Snapshot.Nutrient == 77, "legacy completion not rewarded");
-        var failedMigration = new Store { Fail = true }; var failed = new GardenStateService(failedMigration,clock,new DemoBalanceConfig(),legacy);
+        var failedMigration = new Store { Fail = true }; var failed = new GardenStateService(failedMigration,clock,new DemoBalanceConfig { CompletionNutrient=10 },legacy);
         Assert(!failed.Open() && failedMigration.State == null, "migration failure no publication"); failedMigration.Fail=false; Assert(failed.Open() && failed.Snapshot.Nutrient ==900,"migration retry once");
         var visitors = Service(new Store(),clock,new DemoBalanceConfig { VisitorChancePercent = 100 });
         visitors.RefreshCycle(new[] {"animal:A01"}); Assert(visitors.Snapshot.DailyDecisions[0].VisitorId == "animal:A01", "visitor");
@@ -87,7 +87,7 @@ class Tests
         restartStore.Fail=false; restartRoll=Service(restartStore,clock,new DemoBalanceConfig{VisitorChancePercent=100}); restartRoll.RefreshCycle(new[]{"animal:A01","animal:A02"}); Assert(restartRoll.Snapshot.DailyDecisions[0].VisitorId==attempted,"failed roll reproducible across restart with same inputs");
         var timeStore=new Store(); var timeService=Service(timeStore,clock); timeService.RefreshCycle(new string[0]); Session(timeService,"rollback"); var start=timeService.Snapshot.Sessions[0].StartedUtc;
         clock.Time=clock.Time.AddDays(-1); Assert(timeService.CompleteSession("rollback") && DateTimeOffset.Parse(timeService.Snapshot.Sessions[0].EndedUtc)>=DateTimeOffset.Parse(start),"rollback health interval nonnegative");
-        var poisoned=StateCodec.Clone(timeService.Snapshot); poisoned.Sessions=null; var invalidStore=new Store{State=poisoned}; var invalid=new GardenStateService(invalidStore,clock,new DemoBalanceConfig()); Assert(!invalid.Open(),"missing lists fail closed");
+        var poisoned=StateCodec.Clone(timeService.Snapshot); poisoned.Sessions=null; var invalidStore=new Store{State=poisoned}; var invalid=new GardenStateService(invalidStore,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(!invalid.Open(),"missing lists fail closed");
         poisoned=StateCodec.Clone(timeService.Snapshot); poisoned.Sessions.Add(poisoned.Sessions[0]); invalidStore.State=poisoned; Assert(!invalid.Open(),"duplicate session corruption fails closed");
         poisoned=StateCodec.Clone(timeService.Snapshot); poisoned.LastCycleId="2099-01-01"; invalidStore.State=poisoned; Assert(!invalid.Open(),"invalid high water fails closed");
         poisoned=StateCodec.Clone(timeService.Snapshot); poisoned.Nutrient=-1; invalidStore.State=poisoned; Assert(!invalid.Open(),"negative nutrient fails closed");
@@ -144,12 +144,12 @@ class Tests
         {
             using(var file=new FileStateStore(path))
             {
-                var s=new GardenStateService(file,clock,new DemoBalanceConfig()); Assert(s.Open(),"real file init"); Assert(s.RefreshCycle(new string[0]),"real replace"); Session(s,"persisted"); Assert(s.CompleteSession("persisted"),"real complete");
+                var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(s.Open(),"real file init"); Assert(s.RefreshCycle(new string[0]),"real replace"); Session(s,"persisted"); Assert(s.CompleteSession("persisted"),"real complete");
                 Directory.CreateDirectory(path+".tmp"); Assert(!s.GrowPlant("blocked-write","plant:P01") && s.Snapshot.Nutrient==10 && s.Snapshot.Plants.Count==0,"real staging IO failure preserves transaction"); Directory.Delete(path+".tmp");
                 Assert(s.GrowPlant("blocked-write","plant:P01") && s.Snapshot.Nutrient==0,"real staging failure retry once");
                 bool locked=false; try { using(var duplicate=new FileStateStore(path)) {} } catch(IOException) {locked=true;} Assert(locked,"exclusive writer");
             }
-            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig()); Assert(s.Open() && s.Snapshot.Nutrient==0,"real reload"); Assert(s.CompleteSession("persisted") && s.Snapshot.Nutrient==0,"real retry");}
+            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(s.Open() && s.Snapshot.Nutrient==0,"real reload"); Assert(s.CompleteSession("persisted") && s.Snapshot.Nutrient==0,"real retry");}
             string validEnvelope=File.ReadAllText(path); string validBody=validEnvelope.Substring(validEnvelope.IndexOf('\n')+1);
             var oldXml=new System.Xml.XmlDocument(); oldXml.LoadXml(validBody);
             oldXml.DocumentElement.RemoveChild(oldXml.DocumentElement["DebugWalkPeriods"]);
@@ -159,15 +159,15 @@ class Tests
             Assert(StateCodec.Decode(oldXml.OuterXml).DebugWalkPeriods.Count==0,"schema-1 save without walk fields remains readable");
             string missingBody=System.Text.RegularExpressions.Regex.Replace(validBody,@"<Sessions>.*?</Sessions>","",System.Text.RegularExpressions.RegexOptions.Singleline);
             File.WriteAllText(path,StateCodec.Hash(missingBody)+"\n"+missingBody);
-            using(var file=new FileStateStore(path)) {var bad=new GardenStateService(file,clock,new DemoBalanceConfig()); Assert(!bad.Open(),"checksummed structurally incomplete XML rejected");}
+            using(var file=new FileStateStore(path)) {var bad=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(!bad.Open(),"checksummed structurally incomplete XML rejected");}
             File.WriteAllText(path,validEnvelope);
             var released=new FileStateStore(path); released.Dispose(); bool rejected=false; try {released.Save(new GardenState{MigrationCompleted=true});} catch(ObjectDisposedException) {rejected=true;} Assert(rejected,"disposed file writer cannot write");
             Assert(File.Exists(path+".bak"),"backup preserved"); var backup=File.ReadAllBytes(path+".bak"); File.WriteAllText(path,"broken");
-            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig(),new LegacySnapshot{Nutrient=999}); Assert(!s.Open(),"corruption fails closed");}
+            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 },new LegacySnapshot{Nutrient=999}); Assert(!s.Open(),"corruption fails closed");}
             Assert(backup.SequenceEqual(File.ReadAllBytes(path+".bak")),"corruption backup untouched"); File.Delete(path);
-            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig()); Assert(!s.Open(),"missing primary backup not first run");}
+            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(!s.Open(),"missing primary backup not first run");}
             File.Delete(path+".bak"); File.WriteAllText(path+".tmp","partial first write");
-            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig()); Assert(!s.Open(),"partial initial write fails closed");}
+            using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(!s.Open(),"partial initial write fails closed");}
         }
         finally {Directory.Delete(dir,true);}
     }

@@ -29,11 +29,11 @@ namespace CapstoneDesign.EditorTools
         private const string KenneyBushPath = "Assets/Art/External/KenneyNatureKit/plant_bush.fbx";
 
         private static readonly Color Twilight = new Color(0.035f, 0.065f, 0.15f, 1f);
-        private static readonly Color Panel = new Color(0.055f, 0.09f, 0.16f, 0.94f);
-        private static readonly Color PanelSoft = new Color(0.10f, 0.15f, 0.22f, 0.92f);
-        private static readonly Color TextPrimary = new Color(0.92f, 0.95f, 1f, 1f);
-        private static readonly Color TextMuted = new Color(0.68f, 0.76f, 0.88f, 1f);
-        private static readonly Color Accent = new Color(0.57f, 0.80f, 0.72f, 1f);
+        private static readonly Color Panel = GardenUi.Background;
+        private static readonly Color PanelSoft = Color.white;
+        private static readonly Color TextPrimary = GardenUi.Ink;
+        private static readonly Color TextMuted = GardenUi.Muted;
+        private static readonly Color Accent = GardenUi.Green;
 
         [MenuItem("Capstone Mockup/Generate All")]
         public static void BuildMockup()
@@ -494,9 +494,10 @@ namespace CapstoneDesign.EditorTools
 
             GameObject settingsPanel = CreatePanel("SettingsPanel", canvasObject.transform, Panel);
             Text settingsText = CreateText("설정", settingsPanel.transform, 40, TextAnchor.MiddleLeft, TextPrimary);
+            settingsText.fontStyle=FontStyle.Bold;
             SetRect(settingsText.rectTransform, new Vector2(0.07f, 0.94f), new Vector2(0.93f, 0.99f), Vector2.zero, Vector2.zero);
 
-            GameObject sensorPanel = CreatePanel("SensorPanel", canvasObject.transform, new Color(0.015f, 0.025f, 0.06f, 1f));
+            GameObject sensorPanel = CreatePanel("SensorPanel", canvasObject.transform, GardenUi.Background);
             SetRect(sensorPanel.GetComponent<RectTransform>(), new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(24f, -1030f), new Vector2(620f, -24f));
             Text sensorText = CreateText("ANDROID PLATFORM", sensorPanel.transform, 18, TextAnchor.UpperLeft, TextMuted);
             SetRect(sensorText.rectTransform, new Vector2(0.04f, 0.18f), new Vector2(0.96f, 0.97f), Vector2.zero, Vector2.zero);
@@ -522,14 +523,16 @@ namespace CapstoneDesign.EditorTools
             sensors.healthPermissionButton = healthPermission;
             sensors.refreshHealthButton = refreshHealth;
 
-            GameObject navigation = CreatePanel("BottomNavigation", canvasObject.transform, PanelSoft);
-            SetRect(navigation.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 190f));
-            Button activitiesButton = CreateButton("ActivitiesButton", navigation.transform, "오늘의 활동", Accent, TextPrimary);
-            Button islandButton = CreateButton("IslandButton", navigation.transform, "하늘섬", new Color(0.25f, 0.46f, 0.50f, 1f), TextPrimary);
-            Button settingsButton = CreateButton("SettingsButton", navigation.transform, "설정", new Color(0.28f, 0.35f, 0.49f, 1f), TextPrimary);
-            SetRect(activitiesButton.GetComponent<RectTransform>(), new Vector2(0f, 0f), new Vector2(0.333f, 1f), Vector2.zero, Vector2.zero);
-            SetRect(islandButton.GetComponent<RectTransform>(), new Vector2(0.333f, 0f), new Vector2(0.667f, 1f), Vector2.zero, Vector2.zero);
-            SetRect(settingsButton.GetComponent<RectTransform>(), new Vector2(0.667f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+            GameObject navigation = CreatePanel("BottomNavigation", canvasObject.transform, GardenUi.Background);
+            SetRect(navigation.GetComponent<RectTransform>(), Vector2.zero, new Vector2(1f, .105f), Vector2.zero, Vector2.zero);
+            GameObject navigationCard=CreatePanel("NavigationCard",navigation.transform,Color.white);
+            SetRect(navigationCard.GetComponent<RectTransform>(),new Vector2(.035f,.10f),new Vector2(.965f,.96f),Vector2.zero,Vector2.zero);
+            Button activitiesButton = CreateButton("ActivitiesButton", navigationCard.transform, "오늘의 활동", Color.white, GardenUi.Green);
+            Button islandButton = CreateButton("IslandButton", navigationCard.transform, "홈 · 정원", Color.white, GardenUi.Green);
+            Button settingsButton = CreateButton("SettingsButton", navigationCard.transform, "설정", Color.white, GardenUi.Green);
+            SetRect(islandButton.GetComponent<RectTransform>(), new Vector2(.02f,.18f),new Vector2(.32f,.82f),Vector2.zero,Vector2.zero);
+            SetRect(activitiesButton.GetComponent<RectTransform>(), new Vector2(.35f,.18f),new Vector2(.65f,.82f),Vector2.zero,Vector2.zero);
+            SetRect(settingsButton.GetComponent<RectTransform>(), new Vector2(.68f,.18f),new Vector2(.98f,.82f),Vector2.zero,Vector2.zero);
 
             MockupNavigation nav = canvasObject.AddComponent<MockupNavigation>();
             nav.islandPanel = islandPanel;

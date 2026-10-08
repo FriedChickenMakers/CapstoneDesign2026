@@ -54,10 +54,10 @@ namespace CapstoneDesign.EditorTools
                 shopObject.name = "GardenShopAction";
                 var shopButton = shopObject.GetComponent<Button>();
                 ClearPersistent(shopButton);
-                HalfButton(missionButton.GetComponent<RectTransform>(), false);
-                HalfButton(shopButton.GetComponent<RectTransform>(), true);
-                missionButton.GetComponentInChildren<TMP_Text>(true).text = "오늘의 활동";
+                FullButton(shopButton.GetComponent<RectTransform>());
                 shopButton.GetComponentInChildren<TMP_Text>(true).text = "정원 가꾸기";
+                // Activity remains available once, in the bottom navigation.
+                UnityEngine.Object.DestroyImmediate(missionButton.gameObject);
 
                 var homeTab = Require(content, "HomeTab").GetComponent<Button>();
                 var activityTab = Require(content, "MoodTab").GetComponent<Button>();
@@ -96,11 +96,9 @@ namespace CapstoneDesign.EditorTools
                 presenter.stage = Require(home, "PlantStage").GetComponent<TMP_Text>();
                 presenter.dailyStatus = Require(home, "DailyStatus").GetComponent<TMP_Text>();
                 presenter.missionName = Require(home, "MissionName").GetComponent<TMP_Text>();
-                presenter.missionActionLabel = missionButton.GetComponentInChildren<TMP_Text>(true);
                 presenter.homeTabLabel = homeTab.GetComponentInChildren<TMP_Text>(true);
                 presenter.activityTabLabel = activityTab.GetComponentInChildren<TMP_Text>(true);
                 presenter.settingsTabLabel = settingsTab.GetComponentInChildren<TMP_Text>(true);
-                presenter.missionButton = missionButton;
                 presenter.shopButton = shopButton;
                 presenter.homeTab = homeTab;
                 presenter.activityTab = activityTab;
@@ -174,12 +172,12 @@ namespace CapstoneDesign.EditorTools
             for (int i = button.onClick.GetPersistentEventCount() - 1; i >= 0; i--)
                 UnityEventTools.RemovePersistentListener(button.onClick, i);
         }
-        static void HalfButton(RectTransform rect, bool right)
+        static void FullButton(RectTransform rect)
         {
             // Source uses a 720px portrait design frame with top-left anchored coordinates.
-            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 300);
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 624);
             var position = rect.anchoredPosition;
-            position.x = right ? 372 : 48;
+            position.x = 48;
             rect.anchoredPosition = position;
         }
         static void Tab(Button button, float left, float right)

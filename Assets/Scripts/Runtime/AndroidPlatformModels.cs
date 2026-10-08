@@ -192,6 +192,17 @@ namespace CapstoneDesign.Runtime
     }
 
     [Serializable]
+    public sealed class DailyAccelerationSnapshot
+    {
+        public string status = "UNKNOWN";
+        public string reason = "NO_STATUS_RECORD";
+        public long startedEpochMs;
+        public long updatedEpochMs;
+        public long lastSampleEpochMs;
+        public long lastWriteEpochMs;
+    }
+
+    [Serializable]
     public sealed class AndroidPlatformSnapshot
     {
         public string status = "NO_DATA";
@@ -201,6 +212,7 @@ namespace CapstoneDesign.Runtime
         public string inputMode = "LIVE";
         public AndroidDeviceSnapshot device = new AndroidDeviceSnapshot();
         public SensorServiceSnapshot sensorService = new SensorServiceSnapshot();
+        public DailyAccelerationSnapshot dailyAcceleration = new DailyAccelerationSnapshot();
         public HealthConnectSnapshot healthConnect = new HealthConnectSnapshot();
         public RuntimePermissionSnapshot runtimePermissions = new RuntimePermissionSnapshot();
 

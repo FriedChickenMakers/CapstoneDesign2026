@@ -17,10 +17,11 @@ namespace CapstoneDesign.EditorTools
         sealed class Store : IStateStore { GardenState state;public bool Fail;public GardenState Load()=>state==null?null:StateCodec.Clone(state);public void Save(GardenState candidate){if(Fail)throw new IOException("MOCK injected storage failure");state=StateCodec.Clone(candidate);} }
         public static void Capture()
         {
+            AndroidPlatformBridge.UseMockProvider();
             if(SystemInfo.graphicsDeviceType==GraphicsDeviceType.Null || SystemInfo.graphicsDeviceName.ToLowerInvariant().Contains("llvmpipe"))throw new Exception("Hardware rendering required");
             string root=Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS") ?? Path.Combine(Directory.GetCurrentDirectory(),"artifacts","local-loop");
             string output=Path.Combine(root,"visual");Directory.CreateDirectory(output);
-            var names=new[]{"first-launch","growth-sprout","growth-bud","growth-bloom","growth-later","course","activity","paused","completed","m15-debug","environment-preview","environment-saved","visitor","no-visitor","records-heart","unsupported","permission-denied","query-error","save-error"};
+            var names=new[]{"first-launch","today","settings","reflection","growth-preview","growth-sprout","growth-bud","growth-bloom","growth-later","course","activity","paused","completed","m15-debug","environment-preview","environment-saved","visitor","no-visitor","records-heart","unsupported","permission-denied","query-error","save-error"};
             foreach(var size in new[]{new Vector2Int(900,1600),new Vector2Int(900,1950),new Vector2Int(1200,800)})
             foreach(var name in names)
             {
@@ -32,7 +33,12 @@ namespace CapstoneDesign.EditorTools
                 loop.Balance=config;loop.Initialize(service,true);
                 nav.ShowActivities();
                 if(name=="first-launch")nav.ShowIsland();
-                else if(name.StartsWith("growth-"))
+                else if(name=="today")loop.ShowHome();
+                else if(name=="settings")
+                {
+                    nav.GetComponentInChildren<SensorRawDisplay>(true).PrepareView();nav.ShowSettings();
+                }
+                else if(name.StartsWith("growth-") && name!="growth-preview")
                 {
                     int count=name=="growth-sprout"?1:name=="growth-bud"?2:name=="growth-bloom"?3:4;
                     for(int i=0;i<count;i++)
@@ -54,12 +60,14 @@ namespace CapstoneDesign.EditorTools
                     loop.SelectMission(MindfulnessContent.Course[0]);var id=service.Snapshot.Sessions.Last().SessionId;
                     service.StartSession(id);clock.Now=clock.Now.AddMinutes(4);
                     if(name=="activity")loop.ShowSession();
+                    else if(name=="reflection")loop.ShowReflection();
                     else if(name=="paused"){service.PauseSession(id);loop.ShowSession();}
                     else if(name=="save-error"){store.Fail=true;loop.Finish(null,null);}
                     else
                     {
                         loop.Finish("잘 모르겠어요",null);
                         if(name=="completed"){}
+                        else if(name=="growth-preview")loop.PreviewGrowth();
                         else if(name=="environment-preview")loop.PreviewEnvironment("environment:E01");
                         else if(name=="environment-saved" || name=="visitor" || name=="no-visitor")
                         {
@@ -82,10 +90,10 @@ namespace CapstoneDesign.EditorTools
                 Render(size,Path.Combine(output,name+"-"+size.x+"x"+size.y+".png"));
                 service.Dispose();
             }
-            File.WriteAllText(Path.Combine(output,"manifest.json"),"{\"environment\":\"Linux Unity Editor hardware preview\",\"inputMode\":\"MOCK\",\"deviceTested\":false,\"images\":57,\"renderer\":\""+SystemInfo.graphicsDeviceName+"\"}");
-            Debug.Log("LOCAL_LOOP_PREVIEW_PASS 57 MOCK images at "+output);
+            File.WriteAllText(Path.Combine(output,"manifest.json"),"{\"environment\":\"Linux Unity Editor hardware preview\",\"inputMode\":\"MOCK\",\"deviceTested\":false,\"images\":"+(names.Length*3)+",\"renderer\":\""+SystemInfo.graphicsDeviceName+"\"}");
+            Debug.Log("LOCAL_LOOP_PREVIEW_PASS "+(names.Length*3)+" MOCK images at "+output);
         }
-        static void Render(Vector2Int size,string path)
+        internal static void Render(Vector2Int size,string path)
         {
             var camera=GameObject.Find("MockupCamera").GetComponent<Camera>();
             var canvas=GameObject.Find("UiCanvas").GetComponent<Canvas>();
@@ -96,10 +104,13 @@ namespace CapstoneDesign.EditorTools
                 home.homeCanvas.renderMode=RenderMode.ScreenSpaceCamera;
                 home.homeCanvas.worldCamera=camera;
                 home.homeCanvas.planeDistance=.75f;
-                home.gardenVisuals.GetComponentInChildren<Camera>(true)?.Render();
+                if(home.gardenVisuals.activeInHierarchy)home.gardenVisuals.GetComponentInChildren<Camera>(true)?.Render();
             }
             var rt=new RenderTexture(size.x,size.y,24);var tex=new Texture2D(size.x,size.y,TextureFormat.RGB24,false);
             camera.targetTexture=rt;camera.aspect=(float)size.x/size.y;
+            var texts=UnityEngine.Object.FindObjectsByType<Text>(FindObjectsSortMode.None);
+            foreach(var text in texts)text.font?.RequestCharactersInTexture(text.text,text.fontSize,text.fontStyle);
+            foreach(var text in texts){text.cachedTextGenerator.Invalidate();text.SetAllDirty();}
             Canvas.ForceUpdateCanvases();
             foreach(var graph in UnityEngine.Object.FindObjectsByType<HeartSampleGraph>(FindObjectsSortMode.None))
             {

@@ -44,7 +44,7 @@ namespace CapstoneDesign.EditorTools
             var home = canvas.GetComponent<GardenHomePresenter>();
             if (home == null || home.homeCanvas == null || home.plant == null || home.activity == null
                 || home.navigation == null || home.gardenVisuals == null || home.shopButton == null
-                || home.gardenCamera == null || home.gardenCamera.enabled
+                || home.gardenCamera == null || home.gardenCamera.enabled || home.missionButton != null
                 || home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeController>(true) != null)
                 throw new InvalidOperationException("Integrated home is missing visual links or still runs the prototype controller.");
 

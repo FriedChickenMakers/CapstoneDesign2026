@@ -18,7 +18,7 @@ namespace CapstoneDesign.Runtime.LocalState
     public sealed class DemoBalanceConfig
     {
         public int ResetHourLocal = 4;
-        public int CompletionNutrient = 10;
+        public int CompletionNutrient = 5;
         public int EnvironmentCost = 10;
         public int GrowthCost = 10;
         public float GrowthAmount = 0.1f;
@@ -33,12 +33,41 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<string> CompletedMissionIds = new List<string>();
         public List<string> UnlockIds = new List<string>();
     }
+    public sealed class PracticeAnswer { public string Key, Value; internal PracticeAnswer Copy() => (PracticeAnswer)MemberwiseClone(); }
+    public sealed class ExperienceRecord
+    {
+        internal ExperienceRecord Copy() => (ExperienceRecord)MemberwiseClone();
+        public string Id, CreatedUtc, Type, Event, Body, Emotion, Thought;
+    }
+    public static class MbctPolicy
+    {
+        public const int TotalPractices=48, PracticesPerWeek=6;
+        public static bool IsMbct(string id) => id != null && id.StartsWith("course:MBCT", StringComparison.Ordinal);
+        public static string MissionId(int order) => "course:MBCT"+order.ToString("00");
+        public static string WeekOf(string cycle)
+        {
+            var day=DateTime.ParseExact(cycle,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
+            return day.AddDays(-((int)day.DayOfWeek+6)%7).ToString("yyyy-MM-dd");
+        }
+        public static string Availability(GardenState state)
+        {
+            if(state.MbctNextOrder>TotalPractices)return "코스를 마쳤어요. 배운 활동을 다시 해볼 수 있어요.";
+            var completed=state.Sessions.Where(s=>IsMbct(s.MissionId) && state.MbctCompletedIds.Contains(s.MissionId)
+                && state.RewardReceipts.Contains(s.InstanceId+"|"+s.MissionId)).GroupBy(s=>s.MissionId).Select(g=>g.First()).ToArray();
+            if(completed.Any(s=>s.InstanceId==state.LastCycleId))return "오늘 추천 활동을 마쳤어요. 복습하거나 쉬어도 좋아요.";
+            if(completed.Count(s=>WeekOf(s.InstanceId)==WeekOf(state.LastCycleId))>=PracticesPerWeek)return "이번 주 6개 활동을 마쳤어요. 쉬거나 복습한 뒤 다음 주에 이어가요.";
+            return null;
+        }
+    }
     public enum ParticipationState { Selected, InProgress, Paused, Ended, RewardCommitted }
     public sealed class ActivitySession
     {
+        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); return copy; }
         public string SessionId, MissionId, InstanceId, SelectedUtc, StartedUtc, EndedUtc;
         public string Mood, Note;
         public int CourseOrder;
+        public int InstructionStep;
+        public List<PracticeAnswer> Answers = new List<PracticeAnswer>();
         public long RealStepHighWater, VirtualSteps;
         public string StepSource = "";
         public bool GoalNotificationCommitted;
@@ -46,19 +75,22 @@ namespace CapstoneDesign.Runtime.LocalState
     }
     public sealed class DebugWalkPeriod
     {
+        internal DebugWalkPeriod Copy() => (DebugWalkPeriod)MemberwiseClone();
         public string Id, StartedUtc, EndedUtc;
         public long RealStepHighWater, VirtualSteps, RewardedUnits;
         public string StepSource = "";
     }
     public sealed class DailyDecision
     {
+        internal DailyDecision Copy() => (DailyDecision)MemberwiseClone();
         public string CycleId, TimeZoneId, AppliedUtc, VisitorId;
     }
-    public sealed class PurchaseCommand { public string RequestId, Command; }
-    public sealed class EnvironmentPlacement { public string EnvironmentId, Slot; }
-    public sealed class PlantProgress { public string PlantId; public float Growth; }
+    public sealed class PurchaseCommand { public string RequestId, Command; internal PurchaseCommand Copy() => (PurchaseCommand)MemberwiseClone(); }
+    public sealed class EnvironmentPlacement { public string EnvironmentId, Slot; internal EnvironmentPlacement Copy() => (EnvironmentPlacement)MemberwiseClone(); }
+    public sealed class PlantProgress { public string PlantId; public float Growth; internal PlantProgress Copy() => (PlantProgress)MemberwiseClone(); }
     public sealed class GardenState
     {
+        internal GardenState Copy() => (GardenState)MemberwiseClone();
         public int SchemaVersion = 1;
         public bool MigrationCompleted;
         public string InstallationId = Guid.NewGuid().ToString("N");
@@ -66,6 +98,11 @@ namespace CapstoneDesign.Runtime.LocalState
         public float LegacyGrowth;
         public string LastUnlock = "";
         public int NextCourseOrder = 1;
+        // Optional fields preserve schema-1 legacy course progress and garden rewards.
+        public int MbctNextOrder = 1;
+        public List<string> MbctCompletedIds = new List<string>();
+        public List<PracticeAnswer> PracticePreferences = new List<PracticeAnswer>();
+        public List<ExperienceRecord> Experiences = new List<ExperienceRecord>();
         public string LastCycleId = "";
         public List<string> LegacyCompletedUnknownDate = new List<string>();
         public List<string> UnlockIds = new List<string>();
@@ -109,6 +146,15 @@ namespace CapstoneDesign.Runtime.LocalState
                 throw new InvalidDataException("Unsupported or invalid garden state; preserved for recovery.");
             Unique(s.LegacyCompletedUnknownDate); Unique(s.UnlockIds); Unique(s.CompletedCourseIds); Unique(s.RewardReceipts); Unique(s.PurchaseReceipts); Unique(s.DiscoveredAnimalIds);
             if(s.CompletedCourseIds.Count != s.NextCourseOrder-1) throw new InvalidDataException("Course progress inconsistent.");
+            if(s.MbctNextOrder<1 || s.MbctNextOrder>MbctPolicy.TotalPractices+1 || s.MbctCompletedIds==null || s.PracticePreferences==null || s.Experiences==null)
+                throw new InvalidDataException("Invalid MBCT state.");
+            Unique(s.MbctCompletedIds);
+            if(s.MbctCompletedIds.Count!=s.MbctNextOrder-1 || s.MbctCompletedIds.Any(id=>!MbctPolicy.IsMbct(id)))throw new InvalidDataException("Invalid MBCT progress.");
+            for(int i=0;i<s.MbctCompletedIds.Count;i++)if(s.MbctCompletedIds[i]!=MbctPolicy.MissionId(i+1))throw new InvalidDataException("MBCT progress order mismatch.");
+            if(s.PracticePreferences.Any(a=>a==null || a.Value==null))throw new InvalidDataException("Invalid practice preferences.");
+            Unique(s.PracticePreferences.Select(a=>a.Key));
+            if(s.Experiences.Any(e=>e==null || !Timestamp(e.CreatedUtc) || !new[]{"즐거움","불편함","중립","잘 모르겠음"}.Contains(e.Type)))throw new InvalidDataException("Invalid experience.");
+            Unique(s.Experiences.Select(e=>e.Id));
             if (s.Sessions == null || s.DailyDecisions == null || s.Environments == null || s.Plants == null || s.PurchaseCommands == null || s.DebugWalkPeriods == null || s.LastCycleId == null)
                 throw new InvalidDataException("State collections missing; recovery required.");
             if (s.Sessions.Any(x => x == null) || s.DailyDecisions.Any(x => x == null) || s.Environments.Any(x => x == null) || s.Plants.Any(x => x == null) || s.PurchaseCommands.Any(x => x == null) || s.DebugWalkPeriods.Any(x => x == null))
@@ -132,7 +178,10 @@ namespace CapstoneDesign.Runtime.LocalState
             if (previous != s.LastCycleId) throw new InvalidDataException("Daily high-water mark inconsistent.");
             foreach (var a in s.Sessions)
             {
-                if (!(Typed(a.MissionId,"course") || Typed(a.MissionId,"free-mission")) || !s.DailyDecisions.Any(d=>d.CycleId==a.InstanceId) || !Enum.IsDefined(typeof(ParticipationState),a.Status) || a.CourseOrder < 0 || a.CourseOrder > 28 || !Timestamp(a.SelectedUtc)) throw new InvalidDataException("Invalid session.");
+                if (!(Typed(a.MissionId,"course") || Typed(a.MissionId,"free-mission")) || !s.DailyDecisions.Any(d=>d.CycleId==a.InstanceId) || !Enum.IsDefined(typeof(ParticipationState),a.Status) || a.CourseOrder < 0 || a.CourseOrder > (MbctPolicy.IsMbct(a.MissionId)?MbctPolicy.TotalPractices:28) || !Timestamp(a.SelectedUtc)) throw new InvalidDataException("Invalid session.");
+                if(a.InstructionStep<0 || a.Answers==null || a.Answers.Any(x=>x==null || x.Value==null))throw new InvalidDataException("Invalid practice draft.");
+                if(MbctPolicy.IsMbct(a.MissionId) && (a.CourseOrder<1 || a.MissionId!=MbctPolicy.MissionId(a.CourseOrder)))throw new InvalidDataException("MBCT mission/order mismatch.");
+                Unique(a.Answers.Select(x=>x.Key));
                 if (a.CourseOrder > 0 && !Typed(a.MissionId,"course")) throw new InvalidDataException("Invalid session course type.");
                 if ((a.Status == ParticipationState.InProgress || a.Status == ParticipationState.Paused || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.StartedUtc)) throw new InvalidDataException("Session start missing.");
                 if ((a.Status == ParticipationState.Ended || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.EndedUtc)) throw new InvalidDataException("Session end missing.");
@@ -147,7 +196,25 @@ namespace CapstoneDesign.Runtime.LocalState
         static bool Cycle(string text) { DateTime value; return DateTime.TryParseExact(text,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture,System.Globalization.DateTimeStyles.None,out value); }
         static void Unique(IEnumerable<string> values)
         { if (values == null) throw new InvalidDataException("Missing state collection."); var ids=new HashSet<string>(StringComparer.Ordinal); foreach(var id in values) if(string.IsNullOrWhiteSpace(id) || !ids.Add(id)) throw new InvalidDataException("Missing or duplicate state identity."); }
-        public static GardenState Clone(GardenState value) { return Decode(Encode(value)); }
+        // Copies used for isolated reads/transactions do not need an XML round trip.
+        // Scalar fields use MemberwiseClone; every mutable list and nested record is detached.
+        public static GardenState Clone(GardenState value)
+        {
+            Validate(value);var copy=value.Copy();
+            copy.MbctCompletedIds=new List<string>(value.MbctCompletedIds);
+            copy.LegacyCompletedUnknownDate=new List<string>(value.LegacyCompletedUnknownDate);
+            copy.UnlockIds=new List<string>(value.UnlockIds);copy.CompletedCourseIds=new List<string>(value.CompletedCourseIds);
+            copy.RewardReceipts=new List<string>(value.RewardReceipts);copy.PurchaseReceipts=new List<string>(value.PurchaseReceipts);
+            copy.DiscoveredAnimalIds=new List<string>(value.DiscoveredAnimalIds);
+            copy.PracticePreferences=value.PracticePreferences.Select(a=>a.Copy()).ToList();
+            copy.Experiences=value.Experiences.Select(e=>e.Copy()).ToList();
+            copy.PurchaseCommands=value.PurchaseCommands.Select(c=>c.Copy()).ToList();
+            copy.DailyDecisions=value.DailyDecisions.Select(d=>d.Copy()).ToList();
+            copy.Sessions=value.Sessions.Select(a=>a.Copy()).ToList();
+            copy.DebugWalkPeriods=value.DebugWalkPeriods.Select(d=>d.Copy()).ToList();
+            copy.Environments=value.Environments.Select(e=>e.Copy()).ToList();
+            copy.Plants=value.Plants.Select(p=>p.Copy()).ToList();return copy;
+        }
         public static string Hash(string value)
         { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", ""); }
     }
@@ -202,6 +269,7 @@ namespace CapstoneDesign.Runtime.LocalState
         bool disposed;
         DailyDecision pendingDecision;
         public string LastError { get; private set; }
+        public long SnapshotReads { get; private set; }
         public GardenStateService(IStateStore store, IClock clock, DemoBalanceConfig config, LegacySnapshot legacy = null)
         {
             this.store = store; this.clock = clock; this.legacy = legacy ?? new LegacySnapshot();
@@ -209,7 +277,7 @@ namespace CapstoneDesign.Runtime.LocalState
             if (config.ResetHourLocal < 0 || config.ResetHourLocal > 23 || config.CompletionNutrient < 0 || config.EnvironmentCost < 0 || config.GrowthCost < 0 || config.GrowthAmount <= 0 || (float.IsInfinity(config.GrowthAmount) || float.IsNaN(config.GrowthAmount)) || config.VisitorChancePercent < 0 || config.VisitorChancePercent > 100)
                 throw new ArgumentException("Invalid DEV_DEFAULT configuration.");
         }
-        public GardenState Snapshot { get { lock (gate) { RequireOpen(); return StateCodec.Clone(state); } } }
+        public GardenState Snapshot { get { lock (gate) { RequireOpen(); SnapshotReads++; return StateCodec.Clone(state); } } }
         public bool Open()
         {
             lock (gate)
@@ -284,10 +352,17 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(existing!=null) { if(existing.MissionId!=missionId || existing.CourseOrder!=courseOrder) throw new InvalidOperationException("Session id already belongs to another activity."); return; }
                 if(next.Sessions.Any(s=>s.Status==ParticipationState.Selected || s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused)) throw new InvalidOperationException("An activity is already in progress.");
                 if (!(StateCodec.Typed(missionId,"course") || StateCodec.Typed(missionId,"free-mission"))) throw new ArgumentException("Mission id must be typed.");
-                if (courseOrder < 0 || courseOrder > 28 || (courseOrder > 0 && !missionId.StartsWith("course:")) || (missionId.StartsWith("course:") && courseOrder==0)) throw new ArgumentException("Invalid course order.");
-                if(courseOrder>next.NextCourseOrder) throw new InvalidOperationException("Future course step is not yet available.");
+                bool mbct=MbctPolicy.IsMbct(missionId);
+                if(mbct && missionId!=MbctPolicy.MissionId(courseOrder))throw new ArgumentException("MBCT mission/order mismatch.");
+                if (courseOrder < 0 || courseOrder > (mbct?MbctPolicy.TotalPractices:28) || (courseOrder > 0 && !missionId.StartsWith("course:")) || (missionId.StartsWith("course:") && courseOrder==0)) throw new ArgumentException("Invalid course order.");
+                if(courseOrder>(mbct?next.MbctNextOrder:next.NextCourseOrder)) throw new InvalidOperationException("Future course step is not yet available.");
                 if(next.Sessions.Any(s=>s.MissionId==missionId && s.CourseOrder!=courseOrder)) throw new InvalidOperationException("Mission course order changed without migration.");
                 if (next.LastCycleId.Length == 0) throw new InvalidOperationException("Refresh daily cycle first.");
+                if(mbct && courseOrder==next.MbctNextOrder)
+                {
+                    var unavailable=MbctPolicy.Availability(next);
+                    if(unavailable!=null)throw new InvalidOperationException(unavailable);
+                }
                 next.Sessions.Add(new ActivitySession { SessionId = sessionId, MissionId = missionId, InstanceId = next.LastCycleId, SelectedUtc = Now, Status = ParticipationState.Selected, CourseOrder = courseOrder });
             });
         }
@@ -310,12 +385,52 @@ namespace CapstoneDesign.Runtime.LocalState
             {
                 var s = Session(next, id); if (s.Status == ParticipationState.RewardCommitted) return;
                 if (s.Status != ParticipationState.InProgress && s.Status != ParticipationState.Paused) throw new InvalidOperationException("Start activity before completing.");
+                bool mbct=MbctPolicy.IsMbct(s.MissionId);
+                bool advancing=mbct && s.CourseOrder==next.MbctNextOrder;
+                if(advancing)
+                {
+                    var unavailable=MbctPolicy.Availability(next);
+                    if(unavailable!=null)throw new InvalidOperationException(unavailable);
+                    // Charge daily/weekly quota to completion, including sessions resumed after midnight.
+                    s.InstanceId=next.LastCycleId;
+                }
                 string receipt = s.InstanceId + "|" + s.MissionId;
                 s.EndedUtc = SessionTime(s.StartedUtc ?? s.SelectedUtc); s.Mood = mood; s.Note = note; s.Status = ParticipationState.RewardCommitted;
-                if (!next.RewardReceipts.Contains(receipt) && !next.LegacyCompletedUnknownDate.Contains(s.MissionId))
+                if ((!mbct || advancing) && !next.RewardReceipts.Contains(receipt) && !next.LegacyCompletedUnknownDate.Contains(s.MissionId))
                 { next.RewardReceipts.Add(receipt); next.Nutrient = checked(next.Nutrient + config.CompletionNutrient); }
-                if (s.CourseOrder == next.NextCourseOrder && s.CourseOrder > 0 && !next.CompletedCourseIds.Contains(s.MissionId))
+                if(advancing) { next.MbctCompletedIds.Add(s.MissionId); next.MbctNextOrder++; }
+                if(mbct) foreach(var answer in s.Answers) SetAnswer(next.PracticePreferences,answer.Key,answer.Value);
+                if (!mbct && s.CourseOrder == next.NextCourseOrder && s.CourseOrder > 0 && !next.CompletedCourseIds.Contains(s.MissionId))
                 { next.CompletedCourseIds.Add(s.MissionId); next.NextCourseOrder = Math.Min(29, next.NextCourseOrder + 1); }
+            });
+        }
+        static void SetAnswer(List<PracticeAnswer> answers,string key,string value)
+        {
+            if(string.IsNullOrWhiteSpace(key) || key.Length>80 || key.Contains("|"))throw new ArgumentException("Invalid answer key.");
+            if(value==null || value.Length>500)throw new ArgumentException("Answer too long.");
+            var answer=answers.FirstOrDefault(a=>a.Key==key);
+            if(answer==null)answers.Add(new PracticeAnswer{Key=key,Value=value});else answer.Value=value;
+        }
+        public bool SavePracticeStep(string id,int step,string key=null,string value=null)
+        {
+            return Change(next=>
+            {
+                var session=Session(next,id);
+                if(!MbctPolicy.IsMbct(session.MissionId) || session.Status!=ParticipationState.InProgress)throw new InvalidOperationException("Practice is not active.");
+                if(step<0 || step>20)throw new ArgumentException("Invalid instruction step.");
+                if(key!=null)SetAnswer(session.Answers,key,value??"");
+                session.InstructionStep=step;
+            });
+        }
+        public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??""));
+        public bool SaveExperience(string id,string type,string eventText,string body,string emotion,string thought)
+        {
+            return Change(next=>
+            {
+                if(next.Experiences.Any(e=>e.Id==id))return;
+                if(string.IsNullOrWhiteSpace(id) || id.Contains("|"))throw new ArgumentException("Invalid record id.");
+                if(new[]{eventText,body,emotion,thought}.Any(v=>v!=null && v.Length>500))throw new ArgumentException("Record too long.");
+                next.Experiences.Add(new ExperienceRecord{Id=id,CreatedUtc=Now,Type=type,Event=eventText??"",Body=body??"",Emotion=emotion??"",Thought=thought??""});
             });
         }
         public bool EnableDebugWalk()

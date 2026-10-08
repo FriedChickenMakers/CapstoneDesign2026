@@ -6,6 +6,9 @@ namespace CapstoneDesign.Runtime
     [Serializable]
     public sealed class MissionDefinition
     {
+        public int mbctActivity;
+        public string purpose;
+        public MbctStep[] steps = Array.Empty<MbctStep>();
         public string id, sourceId, type, title, instructions;
         public int week, recommendedOrder, suggestedDurationSeconds, suggestedDurationMinSeconds, suggestedDurationMaxSeconds;
         public string suggestedDurationLabel, optionalReflection, audioReference, source, contentVersion, licenseReviewStatus;
@@ -147,6 +150,7 @@ namespace CapstoneDesign.Runtime
 
         public static MissionDefinition FindMission(string typedId)
         {
+            var mbct=MbctContent.Find(typedId); if(mbct!=null)return mbct;
             foreach (var item in Course) if (item.id == typedId) return item;
             foreach (var item in FreeMissions) if (item.id == typedId) return item;
             return null;

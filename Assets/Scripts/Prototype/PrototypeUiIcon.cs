@@ -7,7 +7,7 @@ namespace CapstoneDesign.Prototype
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class PrototypeUiIcon : MaskableGraphic
     {
-        public enum Symbol { Leaf, Journal, Check, Arrow, Gear }
+        public enum Symbol { Leaf, Journal, Check, Arrow, Gear, Lock }
         public Symbol symbol;
         protected override void OnPopulateMesh(VertexHelper mesh)
         {
@@ -33,6 +33,10 @@ namespace CapstoneDesign.Prototype
                     Path(mesh, new Vector2(.20f,.50f), new Vector2(.78f,.50f));
                     Path(mesh, new Vector2(.53f,.77f), new Vector2(.80f,.50f), new Vector2(.53f,.23f));
                     break;
+                case Symbol.Lock:
+                    Path(mesh,new Vector2(.28f,.18f),new Vector2(.72f,.18f),new Vector2(.72f,.58f),new Vector2(.28f,.58f),new Vector2(.28f,.18f));
+                    Path(mesh,new Vector2(.36f,.58f),new Vector2(.36f,.76f),new Vector2(.5f,.84f),new Vector2(.64f,.76f),new Vector2(.64f,.58f));
+                    Path(mesh,new Vector2(.5f,.34f),new Vector2(.5f,.45f));break;
                 case Symbol.Gear:
                     var ring = new Vector2[9];
                     for (int i = 0; i <= 8; i++)

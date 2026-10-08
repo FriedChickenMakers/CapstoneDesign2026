@@ -38,8 +38,11 @@ namespace CapstoneDesign.Runtime
         public Button activityTab;
         public Button settingsTab;
         public PrototypeUiSurface[] progressDots;
+        public bool IsGardenVisible => title!=null && title.gameObject.activeInHierarchy;
 
         Transform additions;
+        string additionsSignature;
+        int renderedStage=-1;
         Vector3 originalFlowerScale;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
@@ -74,16 +77,67 @@ namespace CapstoneDesign.Runtime
 
         public void Show(bool visible)
         {
-            if (homeCanvas != null) homeCanvas.gameObject.SetActive(visible);
+            if (homeCanvas != null)
+            {
+                // Keep the actual home navigation mounted across all three tabs.
+                homeCanvas.gameObject.SetActive(true);
+                var background=homeCanvas.transform.Find("Background");
+                if(background!=null)background.gameObject.SetActive(visible);
+                var content=homeCanvas.transform.Find("SafePortraitFrame/MainContent");
+                if(content!=null)
+                    foreach(var name in new[]{"Brand","Date","GardenAndGrowth"})
+                        if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(visible);
+                StyleTab(homeTab,homeTabLabel,visible);
+                StyleTab(activityTab,activityTabLabel,navigation!=null && navigation.activitiesPanel.activeSelf);
+                StyleTab(settingsTab,settingsTabLabel,navigation!=null && navigation.settingsPanel.activeSelf);
+            }
             if (gardenVisuals != null) gardenVisuals.SetActive(visible);
             if (oldCamera != null) oldCamera.enabled = !visible;
             if (oldLight != null) oldLight.enabled = !visible;
             if (visible) RefreshFromState();
         }
 
-        public void RefreshFromState()
+        static void StyleTab(Button button,TMP_Text label,bool selected)
         {
-            if (activity == null || !activity.HasOpenState)
+            if(button==null)return;
+            var surface=button.GetComponent<PrototypeUiSurface>();
+            if(surface!=null)
+            {
+                surface.topColor=surface.bottomColor=selected?GardenUi.Pale:Color.clear;
+                surface.color=Color.white;surface.SetAllDirty();
+            }
+            if(label!=null){label.color=selected?GardenUi.Green:GardenUi.Muted;label.fontStyle=selected?FontStyles.Bold:FontStyles.Normal;}
+            var icon=button.GetComponentInChildren<PrototypeUiIcon>();
+            if(icon!=null)icon.color=selected?GardenUi.Green:GardenUi.Muted;
+            CenterTabContents(button,label,icon);
+        }
+
+        static void CenterTabContents(Button button,TMP_Text label,PrototypeUiIcon icon)
+        {
+            if(label==null || icon==null)return;
+            // Center the icon and its actual text width together, including
+            // the wider bold label when this tab becomes selected.
+            var layout=button.GetComponent<HorizontalLayoutGroup>() ?? button.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.childAlignment=TextAnchor.MiddleCenter;
+            layout.padding=new RectOffset(8,8,0,0);
+            layout.spacing=8;
+            layout.childControlWidth=layout.childControlHeight=true;
+            layout.childForceExpandWidth=layout.childForceExpandHeight=false;
+            icon.transform.SetAsFirstSibling();
+            var iconSize=icon.GetComponent<LayoutElement>() ?? icon.gameObject.AddComponent<LayoutElement>();
+            iconSize.minWidth=iconSize.preferredWidth=32;
+            iconSize.minHeight=iconSize.preferredHeight=32;
+            iconSize.flexibleWidth=iconSize.flexibleHeight=0;
+            label.margin=Vector4.zero;
+            label.textWrappingMode=TextWrappingModes.NoWrap;
+            label.alignment=TextAlignmentOptions.MidlineLeft;
+        }
+
+        public void RefreshFromState() => RefreshFromState(activity != null && activity.HasOpenState ? activity.Service.Snapshot : null);
+
+        public void RefreshFromState(GardenState saved)
+        {
+            if (activity == null || !activity.HasOpenState || saved == null)
             {
                 if (gardenVisuals != null) gardenVisuals.SetActive(false);
                 if (title != null) title.text = "저장 상태 확인 필요";
@@ -94,10 +148,10 @@ namespace CapstoneDesign.Runtime
                 return;
             }
             if (originalFlowerScale == Vector3.zero && plant != null) originalFlowerScale = plant.blossomAnchor.localScale;
-            GardenState saved = activity.Service.Snapshot;
+
             float growth = saved.LegacyGrowth + saved.Plants.Where(p => p.PlantId == "plant:P06").Sum(p => p.Growth);
             int visualStage = StageForGrowth(growth);
-            plant.RenderVisual(visualStage, FlowerShape.Chamomile);
+            if(renderedStage!=visualStage){plant.RenderVisual(visualStage, FlowerShape.Chamomile);renderedStage=visualStage;}
             // Every later purchase remains visible even after the first blossom.
             plant.blossomAnchor.localScale = originalFlowerScale * (1 + Mathf.Clamp((growth - .3f) * .5f, 0, .8f));
             if (date != null) date.text = DateTime.Now.ToString("M월 d일");
@@ -145,6 +199,8 @@ namespace CapstoneDesign.Runtime
         void RefreshAdditions(GardenState saved)
         {
             if (gardenRoot == null) return;
+            var signature=string.Join("|",saved.Environments.Select(e=>e.EnvironmentId+":"+e.Slot))+"/"+saved.DailyDecisions.LastOrDefault()?.VisitorId;
+            if(additions!=null && signature==additionsSignature)return;additionsSignature=signature;
             if (additions != null)
             {
                 additions.gameObject.SetActive(false);

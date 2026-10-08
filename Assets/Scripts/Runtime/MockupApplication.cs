@@ -21,6 +21,32 @@ namespace CapstoneDesign.Runtime
         [SerializeField] public Button settingsButton;
         [SerializeField] public GardenHomePresenter home;
         [SerializeField] public GameObject legacyBottomNavigation;
+        private bool presentationPrepared;
+
+        public void PreparePresentation()
+        {
+            if(presentationPrepared)return;
+            presentationPrepared=true;
+            var scaler=GetComponent<CanvasScaler>();
+            if(scaler!=null){scaler.referenceResolution=new Vector2(720,1280);scaler.matchWidthOrHeight=.5f;}
+            if(home==null)return;
+            var backing=GardenUi.Box(transform,"Shared page background",0,0,1,1,GardenUi.Background);
+            backing.transform.SetAsFirstSibling();backing.GetComponent<Image>().raycastTarget=false;
+            var frame=GardenUi.Box(transform,"Tab design frame",0,0,1,1);
+            var layout=GetComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>()
+                ?? gameObject.AddComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>();
+            layout.designFrame=(RectTransform)frame.transform;
+            var sensor=GetComponentInChildren<SensorRawDisplay>(true);
+            foreach(var panel in new[]{islandPanel,activitiesPanel,settingsPanel,sensor==null?null:sensor.gameObject})
+                if(panel!=null)panel.transform.SetParent(frame.transform,false);
+            if(settingsPanel!=null)
+            {
+                var image=settingsPanel.GetComponent<Image>();if(image!=null)image.color=GardenUi.Background;
+                foreach(Transform child in settingsPanel.transform)
+                    if(child.GetComponent<Text>()!=null)child.gameObject.SetActive(false);
+            }
+            layout.Apply();
+        }
 
         private void Awake()
         {
@@ -96,6 +122,16 @@ namespace CapstoneDesign.Runtime
         }
         private void SetActivePanel(GameObject selected)
         {
+            PreparePresentation();
+            GardenUi.ConstrainWidth(legacyBottomNavigation);
+            if(settingsPanel!=null)
+                foreach(Transform child in settingsPanel.transform)
+                    if(child.GetComponent<Text>()!=null)GardenUi.ConstrainWidth(child.gameObject);
+            if(legacyBottomNavigation!=null)
+            {
+                var card=legacyBottomNavigation.transform.Find("NavigationCard")?.GetComponent<Image>();
+                if(card!=null && card.sprite==null)GardenUi.Round(card,Color.white,true);
+            }
             var sensor = GetComponentInChildren<SensorRawDisplay>(true);
             if (sensor != null) sensor.gameObject.SetActive(selected == settingsPanel);
             var loop = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
@@ -110,9 +146,10 @@ namespace CapstoneDesign.Runtime
             }
 
             if (legacyBottomNavigation != null)
-                legacyBottomNavigation.SetActive(selected != islandPanel);
+                legacyBottomNavigation.SetActive(home==null && selected != islandPanel);
             SetLegacyTabActive(activitiesButton, selected == activitiesPanel);
             SetLegacyTabActive(settingsButton, selected == settingsPanel);
+            SetLegacyTabActive(islandButton, selected == islandPanel);
 
             if (activitiesPanel != null)
             {
@@ -129,17 +166,7 @@ namespace CapstoneDesign.Runtime
         private static void SetLegacyTabActive(Button button, bool active)
         {
             if (button == null) return;
-            var color = active
-                ? new Color(0.57f, 0.80f, 0.72f, 1f)
-                : new Color(0.20f, 0.29f, 0.39f, 1f);
-            var image = button.GetComponent<Image>();
-            if (image != null) image.color = color;
-            var colors = button.colors;
-            colors.normalColor = color;
-            colors.highlightedColor = Color.Lerp(color, Color.white, 0.16f);
-            colors.pressedColor = Color.Lerp(color, Color.black, 0.14f);
-            colors.selectedColor = colors.highlightedColor;
-            button.colors = colors;
+            GardenUi.StyleButton(button,selected:active);
         }
     }
 

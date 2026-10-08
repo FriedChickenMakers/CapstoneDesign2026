@@ -3,4 +3,10 @@
   <assembly fullname="Assembly-CSharp">
     <type fullname="CapstoneDesign.Runtime.LocalState.*" preserve="all" />
   </assembly>
+  <!-- Runtime garden primitives need their native colliders in stripped Android builds. -->
+  <assembly fullname="UnityEngine.PhysicsModule">
+    <type fullname="UnityEngine.BoxCollider" preserve="all" />
+    <type fullname="UnityEngine.SphereCollider" preserve="all" />
+    <type fullname="UnityEngine.CapsuleCollider" preserve="all" />
+  </assembly>
 </linker>

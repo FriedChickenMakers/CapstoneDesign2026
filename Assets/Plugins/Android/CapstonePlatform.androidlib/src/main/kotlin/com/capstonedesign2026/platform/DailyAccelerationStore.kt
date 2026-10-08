@@ -1,6 +1,7 @@
 package com.capstonedesign2026.platform
 
 import android.content.Context
+import android.util.AtomicFile
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
@@ -20,9 +21,10 @@ internal object DailyAccelerationStore {
         return File(directory(context), "daily-${formatter.format(Date(startEpochMs))}.jsonl")
     }
 
-    fun append(context: Context, row: SensorWindowAccumulator.Summary) {
+    fun append(context: Context, row: SensorWindowAccumulator.Summary, partial: Boolean = false) {
         val json = JSONObject()
-            .put("schemaVersion", 1)
+            .put("schemaVersion", 2)
+            .put("partial", partial)
             .put("startEpochMs", row.startEpochMs)
             .put("endEpochMs", row.endEpochMs)
             .put("accelerationSamples", row.accelerationCount)
@@ -30,10 +32,38 @@ internal object DailyAccelerationStore {
             .put("firstEventElapsedMs", row.firstEventElapsedMs ?: JSONObject.NULL)
             .put("lastEventElapsedMs", row.lastEventElapsedMs ?: JSONObject.NULL)
             .put("status", if (row.accelerationCount == 0L) "NO_SAMPLES" else "OBSERVED")
-        val line = json.toString() + "\n"
         val target = file(context, row.startEpochMs)
-        check(target.length() + line.toByteArray().size <= MAX_DAY_BYTES) { "Daily summary size limit reached" }
-        target.appendText(line)
+        val atomic = AtomicFile(target)
+        // Replacing the whole bounded daily file prevents a killed write from poisoning the next JSONL row.
+        val lines = try { atomic.openRead().bufferedReader().use { it.readLines() } }
+            catch (_: java.io.FileNotFoundException) { emptyList() }
+        val kept = ArrayList<String>()
+        for (line in lines) {
+            val old = try { JSONObject(line) } catch (_: Exception) { continue }
+            if (old.optLong("startEpochMs", -1) != row.startEpochMs) {
+                kept.add(line)
+                continue
+            }
+            val count = old.optLong("accelerationSamples", 0)
+            val total = count + json.getLong("accelerationSamples")
+            if (count > 0 && !old.isNull("meanAccelerationMagnitudeMps2")) {
+                val sum = old.getDouble("meanAccelerationMagnitudeMps2") * count +
+                    (if (json.isNull("meanAccelerationMagnitudeMps2")) 0.0
+                     else json.getDouble("meanAccelerationMagnitudeMps2") * json.getLong("accelerationSamples"))
+                json.put("meanAccelerationMagnitudeMps2", sum / total)
+                json.put("accelerationSamples", total)
+                json.put("status", "OBSERVED")
+                if (!old.isNull("firstEventElapsedMs")) json.put("firstEventElapsedMs", old.getLong("firstEventElapsedMs"))
+                if (json.isNull("lastEventElapsedMs") && !old.isNull("lastEventElapsedMs"))
+                    json.put("lastEventElapsedMs", old.getLong("lastEventElapsedMs"))
+            }
+        }
+        kept.add(json.toString())
+        val bytes = (kept.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8)
+        check(bytes.size <= MAX_DAY_BYTES) { "Daily summary size limit reached" }
+        val output = atomic.startWrite()
+        try { output.write(bytes); atomic.finishWrite(output) }
+        catch (error: Exception) { atomic.failWrite(output); throw error }
     }
 
     fun prune(context: Context, nowEpochMs: Long) {

@@ -34,7 +34,7 @@ namespace CapstoneDesign.Runtime
         }
         static void Quad(VertexHelper vh,Vector2 a,Vector2 b,Vector2 c,Vector2 d)
         {
-            int n=vh.currentVertCount;var color=new Color(.54f,.83f,.73f);
+            int n=vh.currentVertCount;var color=GardenUi.Green;
             vh.AddVert(a,color,Vector2.zero);vh.AddVert(b,color,Vector2.zero);vh.AddVert(c,color,Vector2.zero);vh.AddVert(d,color,Vector2.zero);
             vh.AddTriangle(n,n+1,n+2);vh.AddTriangle(n,n+2,n+3);
         }

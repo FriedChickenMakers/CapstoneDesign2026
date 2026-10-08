@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using CapstoneDesign.Runtime;
 using CapstoneDesign.Runtime.LocalState;
 
@@ -63,15 +65,25 @@ namespace CapstoneDesign.EditorTools
                     home.activityTab.onClick.Invoke();
                     if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)
                         throw new Exception("Activity tab did not park the garden camera");
+                    AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="추천 활동 안내"));
                     nav.ShowIsland();home.settingsTab.onClick.Invoke();
-                    if(!nav.settingsPanel.activeSelf || home.homeCanvas.gameObject.activeSelf)
+                    if(!nav.settingsPanel.activeSelf || home.IsGardenVisible || !home.settingsTab.gameObject.activeInHierarchy)
                         throw new Exception("Settings tab did not open existing settings");
+                    AssertRaycastTarget(nav.GetComponentInChildren<SensorRawDisplay>(true).GetComponentsInChildren<Button>()
+                        .Single(button=>button.name=="심박 차트 보기"));
                     nav.ShowActivities();
-                    ui.SelectMission(MindfulnessContent.Course[0]);
-                    string id=ui.Service.Snapshot.Sessions.Single().SessionId;
+                    // Five nutrients of synthetic legacy participation fund the ten-nutrient garden check.
+                    if(!ui.Service.BeginSession("synthetic-starter","free-mission:M01",0) || !ui.Service.StartSession("synthetic-starter") || !ui.Service.CompleteSession("synthetic-starter"))throw new Exception(ui.Service.LastError);
+                    if(ui.Service.Snapshot.Nutrient!=5)throw new Exception("Default reward must be five");
+                    ui.SelectMission(MbctContent.Course[0]);
+                    string id=ui.Service.Snapshot.Sessions.Last().SessionId;
                     if(!ui.Service.StartSession(id))throw new Exception(ui.Service.LastError);
+                    ui.ShowSession();
+                    ui.GetComponentsInChildren<InputField>(true).Single(f=>f.gameObject.activeInHierarchy).text="물";
+                    for(int step=0;step<4;step++)ui.AdvancePractice(false);
                     ui.Finish(null,null);
-                    if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.NextCourseOrder!=2)throw new Exception("Runtime completion mismatch");
+                    if(!ui.Service.SaveExperience("play-record","즐거움","바깥 소리","어깨가 내려감","차분해요","소리가 들린다") || !ui.Service.SavePreference("support","치료진"))throw new Exception(ui.Service.LastError);
+                    if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
                     ui.PreviewEnvironment("environment:E01");nav.ShowIsland();
                     if(GameObject.Find("PREVIEW environment:E01")!=null || ui.Service.Snapshot.Nutrient!=10)throw new Exception("Navigation did not cancel unpaid preview");
                     home.shopButton.onClick.Invoke();
@@ -86,9 +98,10 @@ namespace CapstoneDesign.EditorTools
                 }
                 else
                 {
-                    if(ui.Service.Snapshot.Nutrient!=0 || ui.Service.Snapshot.NextCourseOrder!=2 || ui.Service.Snapshot.Sessions.Count!=1
+                    if(ui.Service.Snapshot.Nutrient!=0 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=2
                         || !home.plant.sprout.activeSelf)throw new Exception("Process restart failed to restore committed progress and growth");
-                    string id=ui.Service.Snapshot.Sessions.Single().SessionId;
+                    if(ui.Service.Snapshot.Experiences.Single().Emotion!="차분해요" || ui.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="support").Value!="치료진")throw new Exception("Restart lost journal or plan");
+                    string id=ui.Service.Snapshot.Sessions.Single(s=>MbctPolicy.IsMbct(s.MissionId)).SessionId;
                     if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
                     // A step sync may commit rewards while the activity page is hidden.
                     // Reopening that existing page must agree with the main garden.
@@ -109,6 +122,29 @@ namespace CapstoneDesign.EditorTools
                 Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"FAIL\"}");
                 Debug.LogException(ex);SessionState.SetBool(Key,false);EditorApplication.Exit(1);
             }
+        }
+
+        static void AssertRaycastTarget(Button target)
+        {
+            // The home Canvas stays mounted to share its navigation. Callback-only
+            // tests cannot detect a transparent home Graphic intercepting these taps.
+            Canvas.ForceUpdateCanvases();
+            var eventSystem=EventSystem.current;
+            if(eventSystem==null || target==null || !target.IsActive() || !target.IsInteractable())
+                throw new Exception("Raycast smoke requires an active EventSystem and enabled button");
+            var rect=(RectTransform)target.transform;
+            var canvas=target.GetComponentInParent<Canvas>().rootCanvas;
+            Camera camera=canvas.renderMode==RenderMode.ScreenSpaceOverlay?null:canvas.worldCamera;
+            Vector2 point=RectTransformUtility.WorldToScreenPoint(camera,rect.TransformPoint(rect.rect.center));
+            if(!new Rect(0,0,Screen.width,Screen.height).Contains(point))
+                throw new Exception("Raycast target is outside the visible screen: "+target.name+" at "+point);
+            var hits=new List<RaycastResult>();
+            eventSystem.RaycastAll(new PointerEventData(eventSystem){position=point},hits);
+            var reached=hits.Count==0?null:hits[0].gameObject.GetComponentInParent<Button>();
+            if(reached!=target)
+                throw new Exception("Tap blocked for "+target.name+" at "+point+"; raycast order: "+
+                    string.Join(" > ",hits.Take(5).Select(hit=>hit.gameObject.name)));
+            Debug.Log("LOCAL_LOOP_RAYCAST_PASS "+target.name+" at "+point);
         }
     }
 }
