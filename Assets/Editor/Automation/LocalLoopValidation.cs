@@ -37,6 +37,9 @@ namespace CapstoneDesign.EditorTools
             Check(report, "UI completion without notes commits one reward and survives reopen", Completion);
             Check(report, "M15 debug steps, direct completion and garden purchase form one demo flow", M15DemoFlow);
             Check(report, "UI active session survives navigation and pause", Navigation);
+            Check(report, "Back returns through lists, detail parameters and unpaid previews", BackPageFlow);
+            Check(report, "Back preserves drafts, blocks failed saves and rewinds guided steps", BackDraftFlow);
+            Check(report, "Android keyboard Back retains the final draft before end-edit callbacks", KeyboardDismissal);
             Check(report, "UI save failure retains participation and permits retry", SaveFailure);
             Check(report, "Environment preview cancellation and confirmation are transactional", Placement);
             Check(report, "Skipped dates preserve course and do not repay completion", DateAdvance);
@@ -163,6 +166,9 @@ namespace CapstoneDesign.EditorTools
                 Assert(nav.activitiesPanel.activeSelf && !home.IsGardenVisible && home.activityTab.gameObject.activeInHierarchy, "Activity entry did not preserve the shared navigation.");
                 nav.ShowIsland(); home.settingsTab.onClick.Invoke();
                 Assert(nav.settingsPanel.activeSelf && !home.gardenVisuals.activeSelf, "Settings entry left the garden camera active.");
+                VerifySharedHeader(nav, loop);
+                VerifyCollapsedDiagnostics(nav, loop);
+                VerifyTabBack(nav, loop);
                 nav.ShowIsland(); home.shopButton.onClick.Invoke();
                 Assert(nav.activitiesPanel.activeSelf && loop.CurrentScreen == "shop", "Garden entry did not open the existing shop.");
                 home.SendMessage("OnDestroy", SendMessageOptions.RequireReceiver);
@@ -182,6 +188,82 @@ namespace CapstoneDesign.EditorTools
                 service?.Dispose();
                 if (scene.IsValid() && scene.isLoaded) EditorSceneManager.CloseScene(scene, true);
             }
+        }
+
+        static void VerifyTabBack(MockupNavigation nav, WeekOneQuestDemo loop)
+        {
+            loop.ShowHome();nav.ShowIsland();
+            Assert(!nav.TryNavigateBack(), "Home root should yield to Android background behavior.");
+            nav.ShowActivities();loop.ShowCourse();nav.ShowSettings();
+            Assert(nav.TryNavigateBack() && nav.activitiesPanel.activeSelf && loop.CurrentScreen=="course",
+                "Settings Back did not restore the previous activity page.");
+            Assert(nav.TryNavigateBack() && loop.CurrentScreen=="home", "Back skipped the activity list.");
+            Assert(nav.TryNavigateBack() && nav.home.IsGardenVisible, "Activity root did not return to Home.");
+            Assert(!nav.TryNavigateBack(), "Returning Home retained a stale tab history.");
+            nav.ShowSettings();nav.ShowSettings();nav.ShowActivities();
+            Assert(nav.TryNavigateBack() && nav.settingsPanel.activeSelf, "Activity root skipped the previously visited Settings tab.");
+            Assert(nav.TryNavigateBack() && nav.home.IsGardenVisible && !nav.TryNavigateBack(),
+                "Repeated tab selections created a Back loop.");
+        }
+
+        static void VerifyCollapsedDiagnostics(MockupNavigation nav, WeekOneQuestDemo loop)
+        {
+            nav.ShowSettings();
+            var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
+            sensor.PrepareView();
+            sensor.output.text = "Synthetic unchanged diagnostic text";
+            var summary = (Text)typeof(SensorRawDisplay).GetField("healthStatus",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(sensor);
+            summary.text = "Synthetic stale visible status";
+            long reads = loop.Service.SnapshotReads;
+            sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
+            Assert(sensor.output.text == "Synthetic unchanged diagnostic text" && loop.Service.SnapshotReads == reads,
+                "Closed diagnostics still format raw output or clone the garden state.");
+            Assert(summary.text != "Synthetic stale visible status", "Visible status stopped refreshing with diagnostics closed.");
+            sensor.ToggleDiagnostics();
+            Assert(sensor.output.text.Contains("PLATFORM") && sensor.output.text.Contains("HEALTH") &&
+                sensor.output.text.Contains("ACTION:"), "Expanding diagnostics did not populate current data immediately.");
+            sensor.ToggleDiagnostics();
+            string previous = sensor.output.text;
+            reads = loop.Service.SnapshotReads;
+            sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
+            Assert(sensor.output.text == previous && loop.Service.SnapshotReads == reads,
+                "Closing diagnostics did not suspend its formatting and state reads.");
+        }
+
+        static void VerifySharedHeader(MockupNavigation nav, WeekOneQuestDemo loop)
+        {
+            nav.ShowIsland();
+            Assert(!nav.home.oldCamera.enabled && !nav.home.oldLight.enabled,
+                "Integrated Home enabled the hidden legacy renderer.");
+            var header = nav.home.homeCanvas.transform.Find("SafePortraitFrame/MainContent/Brand").GetComponent<TMPro.TMP_Text>();
+            var font = header.font;
+            Canvas.ForceUpdateCanvases();
+            var corners = new Vector3[4];
+            header.rectTransform.GetWorldCorners(corners);
+            var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
+            sensor.PrepareView();
+            foreach (bool settings in new[] { false, true })
+            {
+                if (settings) nav.ShowSettings(); else { nav.ShowActivities(); loop.ShowHome(); }
+                Assert(!nav.home.oldCamera.enabled && !nav.home.oldLight.enabled,
+                    "An integrated tab enabled the hidden legacy renderer.");
+                var scroll = settings ? sensor.PrimaryScroll : loop.GetComponentInChildren<ScrollRect>();
+                foreach (float position in new[] { 1f, 0f })
+                {
+                    scroll.verticalNormalizedPosition = position;
+                    Canvas.ForceUpdateCanvases();
+                    var actual = new Vector3[4];
+                    header.rectTransform.GetWorldCorners(actual);
+                    Assert(header.isActiveAndEnabled && header.font == font && actual.SequenceEqual(corners),
+                        "Brand typography or position changed across tabs/scroll.");
+                    Assert(!nav.GetComponentsInChildren<Text>().Any(text => text.text == "마음 정원"),
+                        "A legacy duplicate brand is still visible behind the shared header.");
+                }
+            }
+            var cover = header.transform.parent.Find("Shared header background").GetComponent<Image>();
+            Assert(cover.color.a == 1 && cover.raycastTarget,
+                "Scrolled controls can show through or receive taps behind the fixed brand.");
         }
 
         static void Catalog()
@@ -220,6 +302,127 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.Snapshot.Nutrient == snapshot.Nutrient && f.Service.Snapshot.RewardReceipts.Count == 1, "Duplicate reward granted.");
                 using (var reopened = new GardenStateService(f.Store, f.Clock, f.Balance))
                 { Assert(reopened.Open() && reopened.Snapshot.NextCourseOrder == 2 && reopened.Snapshot.Nutrient == snapshot.Nutrient, "Reopen lost committed progress."); }
+            }
+        }
+
+        static void KeyboardDismissal()
+        {
+            var root = new GameObject("Synthetic keyboard fixture", typeof(RectTransform), typeof(Canvas));
+            GameObject eventOwner = null;
+            bool enabledFixtureEvents = false;
+            const System.Reflection.BindingFlags hidden = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            var previousSelection = UnityEngine.EventSystems.EventSystem.current?.currentSelectedGameObject;
+            try
+            {
+                if (UnityEngine.EventSystems.EventSystem.current == null)
+                {
+                    eventOwner = new GameObject("Synthetic keyboard events", typeof(UnityEngine.EventSystems.EventSystem));
+                    if (UnityEngine.EventSystems.EventSystem.current == null)
+                    {
+                        typeof(UnityEngine.EventSystems.EventSystem).GetMethod("OnEnable", hidden)
+                            .Invoke(eventOwner.GetComponent<UnityEngine.EventSystems.EventSystem>(), null);
+                        enabledFixtureEvents = true;
+                    }
+                }
+                // Edit mode does not dispatch MonoBehaviour LateUpdate. Invoke
+                // UGUI's actual focus routine; do not fake its private focus/text flags.
+                var focus = typeof(InputField).GetMethod("ActivateInputFieldInternal", hidden);
+                Assert(focus != null, "UGUI input focus routine was not found.");
+                var input = GardenUi.Input(root.transform, "Synthetic draft", 0, 0, 1, 1) as GardenInputField;
+                Assert(input != null, "Garden forms do not use the draft-preserving field.");
+                input.caretBlinkRate = 0;
+                input.text = "synthetic original";
+                focus.Invoke(input, null);
+                Assert(input.isFocused, "Keyboard fixture failed to focus the actual input field.");
+                input.text = "synthetic typed draft";
+                int endEdits = 0;string ended = null, changed = null;
+                input.onEndEdit.AddListener(value => { endEdits++; ended = value; });
+                input.onValueChanged.AddListener(value => changed = value);
+                Assert(!input.TryDismissCanceledKeyboard(TouchScreenKeyboard.Status.Visible, "ignored") && input.isFocused,
+                    "A visible keyboard was incorrectly dismissed.");
+                Assert(input.TryDismissCanceledKeyboard(TouchScreenKeyboard.Status.Canceled, "synthetic final IME draft"),
+                    "Canceled Android keyboard was not handled.");
+                Assert(!input.isFocused && !input.wasCanceled && input.text=="synthetic final IME draft" &&
+                    changed==input.text && ended==input.text && endEdits==1,
+                    "Keyboard Back reverted the draft or delivered stale/duplicate save callbacks.");
+                // The subclass must not change deliberate desktop Escape cancellation.
+                focus.Invoke(input, null);
+                input.text = "synthetic desktop edit";
+                input.ProcessEvent(new Event { type=EventType.KeyDown, keyCode=KeyCode.Escape });
+                input.DeactivateInputField();
+                Assert(input.wasCanceled && input.text=="synthetic final IME draft",
+                    "Native keyboard dismissal changed desktop Escape cancellation.");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(root);
+                if (enabledFixtureEvents)
+                    typeof(UnityEngine.EventSystems.EventSystem).GetMethod("OnDisable", hidden)
+                        .Invoke(eventOwner.GetComponent<UnityEngine.EventSystems.EventSystem>(), null);
+                if (eventOwner != null) UnityEngine.Object.DestroyImmediate(eventOwner);
+                if (UnityEngine.EventSystems.EventSystem.current != null)
+                    UnityEngine.EventSystems.EventSystem.current.SetSelectedGameObject(previousSelection);
+            }
+        }
+
+        static void BackPageFlow()
+        {
+            using (var f = new Fixture(50))
+            {
+                Assert(!f.Ui.TryNavigateBack(), "Activity root should yield to tab history.");
+                f.Ui.ShowCourse();f.Ui.ShowCourse();f.Ui.ShowCourse();
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="home", "Page refreshes polluted Back history.");
+                f.Ui.ShowRecords();f.Ui.ShowExperienceHistory();f.Ui.ShowPersonalPlan();f.Ui.ShowPlanField("support");
+                f.Ui.GetComponentInChildren<InputField>(true).text="synthetic unfinished plan";
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="personal-plan", "Plan editor did not return to its list.");
+                f.Ui.ShowPlanField("support");
+                Assert(f.Ui.GetComponentInChildren<InputField>(true).text=="synthetic unfinished plan", "Back discarded the unsaved plan draft.");
+                f.Ui.TryNavigateBack();f.Ui.TryNavigateBack();f.Ui.TryNavigateBack();
+                Assert(f.Ui.CurrentScreen=="records", "Nested plan Back did not reach participation records.");
+                Assert(f.Service.BeginSession("synthetic-back-record",MbctPolicy.MissionId(1),1) &&
+                    f.Service.StartSession("synthetic-back-record") && f.Service.EndParticipation("synthetic-back-record"), "Could not seed record.");
+                f.Ui.ShowRecord("synthetic-back-record");f.Ui.ShowPracticeAnswers("synthetic-back-record");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="record", "Answers Back lost its record parameter.");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="records", "Record Back did not restore list.");
+                f.Ui.ShowHome();f.Ui.ShowShop();
+                string before=StateCodec.Encode(f.Service.Snapshot);
+                f.Ui.PreviewEnvironment("environment:E01");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="shop" && StateCodec.Encode(f.Service.Snapshot)==before,
+                    "Back from placement committed a purchase or skipped the shop.");
+                f.Ui.PreviewGrowth();
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="shop" && StateCodec.Encode(f.Service.Snapshot)==before,
+                    "Back from growth committed a purchase or skipped the shop.");
+            }
+        }
+
+        static void BackDraftFlow()
+        {
+            using (var f = new Fixture())
+            {
+                f.Ui.ShowCourse();f.Ui.SelectMission(MbctContent.Course[0]);Click(f.Ui,"시작");
+                var input=f.Ui.GetComponentInChildren<InputField>(true);input.text="synthetic practice draft";
+                f.Store.FailNextSaves=1;
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="session" && input.text=="synthetic practice draft",
+                    "Back left a form after its draft save failed.");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="course" &&
+                    f.Service.Snapshot.Sessions.Single().Answers.Any(a=>a.Value=="synthetic practice draft"),
+                    "Back failed to retain the active practice draft.");
+                f.Ui.ShowSession();f.Ui.AdvancePractice(false);
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="session" && f.Service.Snapshot.Sessions.Single().InstructionStep==0,
+                    "Back did not return to the previous practice step.");
+                for(int step=0;step<MbctContent.Course[0].steps.Length;step++)f.Ui.AdvancePractice(false);
+                Assert(f.Ui.CurrentScreen=="reflection", "Fixture did not reach reflection.");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="session" &&
+                    f.Service.Snapshot.Sessions.Single().InstructionStep==MbctContent.Course[0].steps.Length-1,
+                    "Reflection Back looped into reflection instead of the last practice step.");
+                f.Ui.AdvancePractice(false);f.Ui.Finish(null,null);
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="home", "Completion Back resurrected a completed session.");
+                f.Ui.ShowRecords();f.Ui.ShowExperienceTypes();Click(f.Ui,"즐거움");
+                f.Ui.GetComponentInChildren<InputField>(true).text="synthetic experience draft";Click(f.Ui,"다음");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.GetComponentInChildren<InputField>(true).text=="synthetic experience draft",
+                    "Experience step Back lost the previous answer.");
+                for(int step=0;step<4;step++)Click(f.Ui,step==3?"기록 저장":"다음");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="records", "Saved experience Back reopened its submitted form.");
             }
         }
 

@@ -28,6 +28,12 @@ namespace CapstoneDesign.Runtime
         public const float Spacing = 8f;
         static Sprite roundedSprite;
 
+        public static bool HasSharedHeader(Transform page)
+        {
+            var home=page.GetComponentInParent<MockupNavigation>()?.home;
+            return home!=null && home.homeCanvas!=null;
+        }
+
         public static void ConstrainWidth(GameObject area)
         {
             if(area!=null && area.GetComponent<GardenContentWidth>()==null)
@@ -173,7 +179,7 @@ namespace CapstoneDesign.Runtime
         {
             var go=Card(parent,"Optional note",x,y,w,h);
             go.GetComponent<Image>().raycastTarget=true;
-            var input=go.AddComponent<InputField>();
+            var input=go.AddComponent<GardenInputField>();
             input.targetGraphic=go.GetComponent<Image>();
             var caption=Label(go.transform,hint,0,1,1,0,CaptionSize);
             caption.name="Field label";caption.color=Muted;

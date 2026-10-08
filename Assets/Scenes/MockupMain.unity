@@ -2736,7 +2736,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: f8ba823044b9252979a08a4c23ca8473, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::CapstoneDesign.Runtime.MockupRuntime
-  targetFrameRate: 30
+  targetFrameRate: 60
 --- !u!4 &466071124
 Transform:
   m_ObjectHideFlags: 0

@@ -85,16 +85,35 @@ namespace CapstoneDesign.Runtime
                 if(background!=null)background.gameObject.SetActive(visible);
                 var content=homeCanvas.transform.Find("SafePortraitFrame/MainContent");
                 if(content!=null)
-                    foreach(var name in new[]{"Brand","Date","GardenAndGrowth"})
+                {
+                    // One actual TMP brand stays mounted in the same canvas on
+                    // every tab, so font metrics and safe-area placement cannot drift.
+                    EnsureSharedHeader(content);
+                    if(content.Find("Brand")!=null)content.Find("Brand").gameObject.SetActive(true);
+                    foreach(var name in new[]{"Date","GardenAndGrowth"})
                         if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(visible);
+                }
                 StyleTab(homeTab,homeTabLabel,visible);
                 StyleTab(activityTab,activityTabLabel,navigation!=null && navigation.activitiesPanel.activeSelf);
                 StyleTab(settingsTab,settingsTabLabel,navigation!=null && navigation.settingsPanel.activeSelf);
             }
             if (gardenVisuals != null) gardenVisuals.SetActive(visible);
-            if (oldCamera != null) oldCamera.enabled = !visible;
-            if (oldLight != null) oldLight.enabled = !visible;
+            // Integrated tabs are opaque overlay canvases; rendering the legacy
+            // scene behind them adds a needless camera/light pass on every frame.
+            bool legacySceneVisible = homeCanvas == null && !visible;
+            if (oldCamera != null) oldCamera.enabled = legacySceneVisible;
+            if (oldLight != null) oldLight.enabled = legacySceneVisible;
             if (visible) RefreshFromState();
+        }
+
+        static void EnsureSharedHeader(Transform content)
+        {
+            if(content.Find("Shared header background")!=null)return;
+            var background=GardenUi.Box(content,"Shared header background",0,1,1,0,GardenUi.Background);
+            GardenUi.FromTop(background.transform,0,96);
+            // This canvas is above the scrolling tab bodies. An opaque band
+            // also prevents hidden controls from receiving taps behind the header.
+            background.transform.SetAsFirstSibling();
         }
 
         static void StyleTab(Button button,TMP_Text label,bool selected)
@@ -137,6 +156,7 @@ namespace CapstoneDesign.Runtime
 
         public void RefreshFromState(GardenState saved)
         {
+            using var timing = UiPerformanceProbe.Measure("Home.RefreshFromState");
             if (activity == null || !activity.HasOpenState || saved == null)
             {
                 if (gardenVisuals != null) gardenVisuals.SetActive(false);

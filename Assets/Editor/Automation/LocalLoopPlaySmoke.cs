@@ -60,13 +60,16 @@ namespace CapstoneDesign.EditorTools
                 {
                     if(ui.Service.Snapshot.Sessions.Count!=0)throw new Exception("Fresh fixture directory already contains sessions");
                     nav.ShowIsland();
+                    AssertLegacyRendererParked(home);
                     if(!home.plant.seed.activeSelf || !home.homeCanvas.gameObject.activeSelf)
                         throw new Exception("Fresh home did not show the saved seed");
                     home.activityTab.onClick.Invoke();
+                    AssertLegacyRendererParked(home);
                     if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)
                         throw new Exception("Activity tab did not park the garden camera");
                     AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="추천 활동 안내"));
                     nav.ShowIsland();home.settingsTab.onClick.Invoke();
+                    AssertLegacyRendererParked(home);
                     if(!nav.settingsPanel.activeSelf || home.IsGardenVisible || !home.settingsTab.gameObject.activeInHierarchy)
                         throw new Exception("Settings tab did not open existing settings");
                     AssertRaycastTarget(nav.GetComponentInChildren<SensorRawDisplay>(true).GetComponentsInChildren<Button>()
@@ -122,6 +125,12 @@ namespace CapstoneDesign.EditorTools
                 Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"FAIL\"}");
                 Debug.LogException(ex);SessionState.SetBool(Key,false);EditorApplication.Exit(1);
             }
+        }
+
+        static void AssertLegacyRendererParked(GardenHomePresenter home)
+        {
+            if(home.oldCamera.enabled || home.oldLight.enabled)
+                throw new Exception("Integrated tab rendered the hidden legacy camera or light");
         }
 
         static void AssertRaycastTarget(Button target)

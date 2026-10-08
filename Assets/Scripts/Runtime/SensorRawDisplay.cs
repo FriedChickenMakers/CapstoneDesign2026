@@ -50,12 +50,16 @@ namespace CapstoneDesign.Runtime
             prepared = true;
             Transform content = ConfigureScrollablePanel();
 
-            // Keep the brand and title on the same 720-unit rows as Home.
+            // Reserve the Home-owned fixed brand row; only the page title scrolls.
             Transform heading = Stack(content, "Settings heading", 0, 0);
-            var brand = Copy(heading, "마음 정원", 30, GardenUi.Green);
-            brand.fontStyle = FontStyle.Bold;
-            brand.alignment = TextAnchor.MiddleLeft;
-            FixedHeight(brand.gameObject, 54);
+            if (GardenUi.HasSharedHeader(transform)) Spacer(heading, 54);
+            else
+            {
+                var brand = Copy(heading, "마음 정원", 30, GardenUi.Green);
+                brand.fontStyle = FontStyle.Bold;
+                brand.alignment = TextAnchor.MiddleLeft;
+                FixedHeight(brand.gameObject, 54);
+            }
             Spacer(heading, 40);
             var title = Copy(heading, "설정", GardenUi.TitleSize);
             title.fontStyle = FontStyle.Bold;
@@ -229,6 +233,7 @@ namespace CapstoneDesign.Runtime
             bool expanded = !diagnostics.activeSelf;
             diagnostics.SetActive(expanded);
             diagnosticsButton.GetComponentInChildren<Text>(true).text = expanded ? "상세 진단 접기  −" : "상세 진단 보기  +";
+            if (expanded) RefreshText();
             LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
         }
 
@@ -342,12 +347,21 @@ namespace CapstoneDesign.Runtime
 
         private void RefreshText()
         {
+            using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
             if (output == null)
             {
                 return;
             }
 
             AndroidPlatformSnapshot snapshot = AndroidPlatformBridge.GetSnapshot();
+            HealthConnectSnapshot health = snapshot.healthConnect ?? new HealthConnectSnapshot();
+            RuntimePermissionSnapshot permissions = snapshot.runtimePermissions ?? new RuntimePermissionSnapshot();
+            DailyAccelerationSnapshot daily = snapshot.dailyAcceleration ?? new DailyAccelerationSnapshot();
+            RefreshSummary(snapshot, health, permissions, daily);
+            // Closed diagnostics need neither formatted raw data nor the saved
+            // state clone used by DebugWalkSummary. Refresh immediately on expand.
+            if (diagnostics == null || !diagnostics.activeSelf) return;
+
             if(debugModeButton!=null)
             {
                 bool enabled=Loop?.DebugWalkEnabled==true;
@@ -361,11 +375,6 @@ namespace CapstoneDesign.Runtime
             }
             AndroidDeviceSnapshot device = snapshot.device ?? new AndroidDeviceSnapshot();
             SensorServiceSnapshot service = snapshot.sensorService ?? new SensorServiceSnapshot();
-            HealthConnectSnapshot health = snapshot.healthConnect ?? new HealthConnectSnapshot();
-            RuntimePermissionSnapshot permissions = snapshot.runtimePermissions ?? new RuntimePermissionSnapshot();
-            DailyAccelerationSnapshot daily = snapshot.dailyAcceleration ?? new DailyAccelerationSnapshot();
-            RefreshSummary(snapshot, health, permissions, daily);
-
             builder.Length = 0;
             builder.AppendLine("멘토링 데모 · 정식 출시 기능 아님");
             if(Loop!=null)builder.AppendLine(Loop.DebugWalkSummary);

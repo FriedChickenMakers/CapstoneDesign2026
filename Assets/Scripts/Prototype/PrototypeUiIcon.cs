@@ -56,8 +56,12 @@ namespace CapstoneDesign.Prototype
         }
         private void Path(VertexHelper mesh, params Vector2[] points)
         {
-            Rect r = GetPixelAdjustedRect();
-            float width = Mathf.Min(r.width,r.height) * .036f;
+            Rect bounds = GetPixelAdjustedRect();
+            float size = Mathf.Min(bounds.width,bounds.height);
+            // Normalized paths describe a square icon. Tall roadmap rows must
+            // add surrounding space rather than squeeze the lock horizontally.
+            Rect r = new Rect(bounds.center-Vector2.one*(size*.5f),Vector2.one*size);
+            float width = size * .036f;
             for (int i=1;i<points.Length;i++)
             {
                 Vector2 a=r.min+Vector2.Scale(points[i-1],r.size), b=r.min+Vector2.Scale(points[i],r.size);

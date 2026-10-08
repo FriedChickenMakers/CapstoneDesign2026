@@ -35,6 +35,7 @@ namespace CapstoneDesign.Runtime
 
         public static AndroidPlatformSnapshot GetSnapshot()
         {
+            using var timing = UiPerformanceProbe.Measure("Platform.GetSnapshot");
             return provider.GetSnapshot();
         }
 

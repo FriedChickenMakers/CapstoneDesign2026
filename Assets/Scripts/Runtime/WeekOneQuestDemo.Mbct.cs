@@ -97,13 +97,13 @@ namespace CapstoneDesign.Runtime
         }
         public void ShowPracticeAnswers(string id)
         {
-            screen="answers";var session=Service.Snapshot.Sessions.First(s=>s.SessionId==id);var p=Page("실습에서 적은 내용");
+            EnterPage("answers",()=>ShowPracticeAnswers(id),id);var session=Service.Snapshot.Sessions.First(s=>s.SessionId==id);var p=Page("실습에서 적은 내용");
             GardenUi.ScrollText(p,session.Answers.Count==0?"입력을 건너뛰었어요.":string.Join("\n\n",session.Answers.Select(a=>AnswerLabel(a.Key)+"\n"+a.Value)),.07f,.25f,.86f,.53f);
             GardenUi.Button(p,"기록으로",.07f,.15f,.86f,.075f,()=>ShowRecord(id));
         }
         public void ShowExperienceTypes()
         {
-            screen="experience-type";var p=Page("경험 알아차리기");
+            EnterPage("experience-type",ShowExperienceTypes);var p=Page("경험 알아차리기");
             GardenUi.Icon(p,PrototypeUiIcon.Symbol.Journal,.10f,.63f,.09f,.09f);
             GardenUi.Label(p,"최근 경험 하나를 살펴보세요.\n감정이나 기록의 내용에 정답은 없어요.\n기록은 선택이며 보상과 관계없어요.",.22f,.57f,.68f,.20f,28);
             var types=new[]{"즐거움","불편함","중립","잘 모르겠음"};
@@ -115,7 +115,7 @@ namespace CapstoneDesign.Runtime
         }
         public void ShowExperienceStep()
         {
-            screen="experience";var p=Page("경험 돌아보기 · "+experienceType);
+            EnterPage("experience",ShowExperienceStep);var p=Page("경험 돌아보기 · "+experienceType);
             GardenUi.Label(p,(experienceStep+1)+" / 4 · "+experienceQuestions[experienceStep],.07f,.68f,.86f,.09f,28);
             GardenUi.Label(p,experienceStep==0?"가벼운 경험부터 적어보세요. 떠오르는 것이 없으면 건너뛰어도 괜찮아요.":experienceStep==1?"압력, 온도, 긴장 등 느껴진 감각을 적어보세요. 잘 몰라도 괜찮아요.":experienceStep==2?"기존 감정 선택을 쓰거나 직접 적어보세요.":"그때 떠오른 생각을 적어보세요. 해결하거나 분석하지 않아도 돼요.",.07f,.54f,.86f,.115f,25);
             var field=GardenUi.Input(p,"선택 기록 · 기기에 저장",.07f,.28f,.86f,.17f);field.text=experienceValues[experienceStep]??"";
@@ -135,11 +135,11 @@ namespace CapstoneDesign.Runtime
         {
             if(skip)experienceValues[experienceStep]="";
             if(experienceStep<3){experienceStep++;ShowExperienceStep();return;}
-            if(Apply(Service.SaveExperience(experienceId,experienceType,experienceValues[0],experienceValues[1],experienceValues[2],experienceValues[3])))ShowExperienceHistory();
+            if(Apply(Service.SaveExperience(experienceId,experienceType,experienceValues[0],experienceValues[1],experienceValues[2],experienceValues[3])))FinishExperienceNavigation();
         }
         public void ShowExperienceHistory()
         {
-            screen="experience-history";var p=Page("경험 기록과 나의 계획");
+            EnterPage("experience-history",ShowExperienceHistory);var p=Page("경험 기록과 나의 계획");
             GardenUi.Button(p,"경험 기록하기",.07f,.68f,.41f,.075f,ShowExperienceTypes);
             GardenUi.Button(p,"나의 계획",.52f,.68f,.41f,.075f,ShowPersonalPlan);
             var state=Service.Snapshot;
@@ -158,13 +158,13 @@ namespace CapstoneDesign.Runtime
         }
         public void ShowExperienceRecord(string id)
         {
-            screen="experience-record";var e=Service.Snapshot.Experiences.First(r=>r.Id==id);var p=Page("경험 · "+e.Type);
+            EnterPage("experience-record",()=>ShowExperienceRecord(id),id);var e=Service.Snapshot.Experiences.First(r=>r.Id==id);var p=Page("경험 · "+e.Type);
             GardenUi.ScrollText(p,"사건\n"+e.Event+"\n\n몸 감각\n"+e.Body+"\n\n감정\n"+e.Emotion+"\n\n생각\n"+e.Thought,.07f,.25f,.86f,.53f);
             GardenUi.Button(p,"경험 목록",.07f,.15f,.86f,.075f,ShowExperienceHistory);
         }
         public void ShowPersonalPlan()
         {
-            screen="personal-plan";var p=Page("나의 계획");
+            EnterPage("personal-plan",ShowPersonalPlan);var p=Page("나의 계획");
             string[] keys={"warning-sign","warning-action","support","favorite","practice-time","restart-plan"};
             for(int i=0;i<keys.Length;i++)
             {string key=keys[i];GardenUi.Button(p,AnswerLabel(key),.07f,.68f-i*.08f,.86f,.065f,()=>ShowPlanField(key));}
@@ -172,11 +172,12 @@ namespace CapstoneDesign.Runtime
         }
         public void ShowPlanField(string key)
         {
-            screen="plan-field";var p=Page(AnswerLabel(key));
+            EnterPage("plan-field",()=>ShowPlanField(key),key);var p=Page(AnswerLabel(key));
             GardenUi.Label(p,"아는 만큼만 적고 나중에 바꿀 수 있어요.\n입력은 선택이며 앱의 진단이나 자동 연락이 아니에요.",.07f,.57f,.86f,.20f,27);
             var field=GardenUi.Input(p,"선택 입력",.07f,.34f,.86f,.19f);
-            field.text=Service.Snapshot.PracticePreferences.FirstOrDefault(a=>a.Key==key)?.Value??"";
-            GardenUi.Button(p,"저장",.07f,.24f,.86f,.075f,()=>{if(Apply(Service.SavePreference(key,field.text)))ShowPersonalPlan();},true);
+            field.text=planDrafts.TryGetValue(key,out string draft)?draft:Service.Snapshot.PracticePreferences.FirstOrDefault(a=>a.Key==key)?.Value??"";
+            field.onValueChanged.AddListener(value=>planDrafts[key]=value);
+            GardenUi.Button(p,"저장",.07f,.24f,.86f,.075f,()=>{if(Apply(Service.SavePreference(key,field.text))){planDrafts.Remove(key);ShowPersonalPlan();}},true);
             GardenUi.Button(p,"돌아가기",.07f,.15f,.86f,.075f,ShowPersonalPlan);
         }
         static string AnswerLabel(string key)

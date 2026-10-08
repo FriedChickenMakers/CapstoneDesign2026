@@ -277,7 +277,16 @@ namespace CapstoneDesign.Runtime.LocalState
             if (config.ResetHourLocal < 0 || config.ResetHourLocal > 23 || config.CompletionNutrient < 0 || config.EnvironmentCost < 0 || config.GrowthCost < 0 || config.GrowthAmount <= 0 || (float.IsInfinity(config.GrowthAmount) || float.IsNaN(config.GrowthAmount)) || config.VisitorChancePercent < 0 || config.VisitorChancePercent > 100)
                 throw new ArgumentException("Invalid DEV_DEFAULT configuration.");
         }
-        public GardenState Snapshot { get { lock (gate) { RequireOpen(); SnapshotReads++; return StateCodec.Clone(state); } } }
+        public GardenState Snapshot
+        {
+            get
+            {
+#if UNITY_5_3_OR_NEWER
+                using var timing = CapstoneDesign.Runtime.UiPerformanceProbe.Measure("State.Snapshot");
+#endif
+                lock (gate) { RequireOpen(); SnapshotReads++; return StateCodec.Clone(state); }
+            }
+        }
         public bool Open()
         {
             lock (gate)

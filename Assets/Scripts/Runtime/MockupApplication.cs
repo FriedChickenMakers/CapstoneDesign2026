@@ -1,5 +1,9 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System.Collections.Generic;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace CapstoneDesign.Runtime
 {
@@ -22,6 +26,9 @@ namespace CapstoneDesign.Runtime
         [SerializeField] public GardenHomePresenter home;
         [SerializeField] public GameObject legacyBottomNavigation;
         private bool presentationPrepared;
+        private GameObject activePanel;
+        private readonly List<GameObject> panelHistory = new List<GameObject>();
+        private bool keyboardWasVisible;
 
         public void PreparePresentation()
         {
@@ -50,6 +57,10 @@ namespace CapstoneDesign.Runtime
 
         private void Awake()
         {
+#if ENABLE_LEGACY_INPUT_MANAGER
+            // Android Back belongs to the current Unity page, not to the process.
+            Input.backButtonLeavesApp = false;
+#endif
             if (activitiesButton != null)
             {
                 activitiesButton.onClick.AddListener(ShowActivities);
@@ -99,12 +110,14 @@ namespace CapstoneDesign.Runtime
         public void ShowSettings()
         {
             SetActivePanel(settingsPanel);
-            GetComponentInChildren<SensorRawDisplay>(true)?.OnSettingsOpened();
+            if (activePanel == settingsPanel)
+                GetComponentInChildren<SensorRawDisplay>(true)?.OnSettingsOpened();
         }
 
         private float nextCycleCheck;
         private void Update()
         {
+            HandleBackInput();
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickStepSync();
             if(Time.unscaledTime < nextCycleCheck)return;
             nextCycleCheck=Time.unscaledTime+30;
@@ -122,6 +135,10 @@ namespace CapstoneDesign.Runtime
         }
         private void SetActivePanel(GameObject selected)
         {
+            using var timing = UiPerformanceProbe.Measure("Navigation.SetActivePanel");
+            var leaving = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
+            if (selected != activitiesPanel && activitiesPanel != null && activitiesPanel.activeSelf &&
+                leaving != null && !leaving.LeaveActivityPanel()) return;
             PreparePresentation();
             GardenUi.ConstrainWidth(legacyBottomNavigation);
             if(settingsPanel!=null)
@@ -137,7 +154,6 @@ namespace CapstoneDesign.Runtime
             var loop = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
             if (loop != null && loop.Service != null)
             {
-                if(selected!=activitiesPanel && activitiesPanel.activeSelf)loop.LeaveActivityPanel();
                 loop.RefreshCycle();
             }
             if (islandPanel != null)
@@ -161,6 +177,47 @@ namespace CapstoneDesign.Runtime
                 settingsPanel.SetActive(selected == settingsPanel);
             }
             home?.Show(selected == islandPanel);
+            activePanel = selected;
+            int visited = panelHistory.IndexOf(selected);
+            if (visited >= 0) panelHistory.RemoveRange(visited + 1, panelHistory.Count - visited - 1);
+            else panelHistory.Add(selected);
+        }
+
+        /// <summary>Returns through pages and visited tabs; false means the app's Home root.</summary>
+        public bool TryNavigateBack()
+        {
+            if (activePanel == activitiesPanel &&
+                activitiesPanel.GetComponent<WeekOneQuestDemo>()?.TryNavigateBack() == true) return true;
+            if (panelHistory.Count > 1)
+            {
+                SetActivePanel(panelHistory[panelHistory.Count - 2]);
+                return true;
+            }
+            if (activePanel != islandPanel) { ShowIsland(); return true; }
+            return false;
+        }
+
+        private void HandleBackInput()
+        {
+            bool keyboardVisible = TouchScreenKeyboard.visible;
+            bool keyboardOwnsBack = keyboardVisible || keyboardWasVisible;
+            keyboardWasVisible = keyboardVisible;
+            bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+            pressed = Keyboard.current?.escapeKey.wasPressedThisFrame == true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+            pressed |= Input.GetKeyDown(KeyCode.Escape);
+#endif
+            if (!pressed) return;
+            // Android dismisses the keyboard first. Do not also leave its form.
+            if (keyboardOwnsBack) return;
+            if (TryNavigateBack()) return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                activity.Call<bool>("moveTaskToBack", true);
+#endif
         }
 
         private static void SetLegacyTabActive(Button button, bool active)
