@@ -123,6 +123,16 @@ internal object HealthRepository {
         JSONObject(lastSnapshot.toString()).put("refreshing", refreshing)
     }
 
+    /** Scalar status only: avoid copying/serializing heart history for Settings. */
+    fun settingsSnapshotJson(): JSONObject = synchronized(lock) {
+        JSONObject().apply {
+            listOf("status", "message", "permissionStatus", "grantedPermissionCount",
+                "requiredPermissionCount", "lastRefreshEpochMs", "lastSuccessfulRefreshEpochMs")
+                .forEach { key -> if (lastSnapshot.has(key)) put(key, lastSnapshot.opt(key)) }
+            put("refreshing", refreshing)
+        }
+    }
+
     fun stepRangeSnapshot(): String = synchronized(lock) {
         JSONObject(stepRangeResult.toString()).put("refreshing", stepRangeBusy).toString()
     }

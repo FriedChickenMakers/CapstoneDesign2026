@@ -52,10 +52,13 @@ timestamps remain stable.
 export CAPSTONE_ARTIFACTS="$PWD/artifacts/manual-local-loop"
 ./scripts/test-local-state.sh
 ./scripts/test-health-query.sh
+./scripts/test-heart-range-refresh.sh
 ./scripts/test-local-loop-unity.sh
 ./scripts/preview-local-loop.sh
 ./scripts/build-android.sh
 ```
+
+`test-heart-range-refresh.sh` runs isolated synthetic C# checks for activity-heart query state, stale response handling and busy timeouts. It does not start Unity or connect to a device.
 
 Unity entry scripts share `Library/capstone-editor.lock`; run editors through
 `scripts/unity-run.sh` to serialize this project's Library/Temp usage. Preview

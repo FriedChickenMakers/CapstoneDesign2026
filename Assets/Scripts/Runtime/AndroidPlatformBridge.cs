@@ -39,6 +39,29 @@ namespace CapstoneDesign.Runtime
             return provider.GetSnapshot();
         }
 
+        // Settings summaries do not display sensor samples or health history.
+        // Keep recording/replay providers on their complete snapshot contract.
+        public static AndroidPlatformSnapshot GetSettingsSnapshot()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (provider is LivePlatformDataProvider)
+            {
+                using var timing = UiPerformanceProbe.Measure("Platform.GetSettingsSnapshot");
+                EnsureInitialized();
+                try
+                {
+                    using (var bridge = new AndroidJavaClass(NativeClassName))
+                        return ParseSnapshot(bridge.CallStatic<string>("getSettingsSnapshotJson"));
+                }
+                catch (Exception exception)
+                {
+                    return ErrorSnapshot(exception.Message, "SETTINGS_SNAPSHOT_EXCEPTION");
+                }
+            }
+#endif
+            return GetSnapshot();
+        }
+
         public static PlatformActionResult StartBackgroundSensorService()
         {
             return provider.StartBackgroundSensorService();

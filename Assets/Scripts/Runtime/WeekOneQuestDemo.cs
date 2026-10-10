@@ -100,6 +100,7 @@ namespace CapstoneDesign.Runtime
         }
         void Update()
         {
+            TickRecordHeartRefresh();
             if(opened && Time.unscaledTime >= nextCycleCheck) { nextCycleCheck=Time.unscaledTime+30; RefreshCycle(); }
         }
         void OnApplicationFocus(bool focus) { if(!opened)return; if(focus)OnAppReturned();else SaveActivePracticeDraft(); }
@@ -130,6 +131,7 @@ namespace CapstoneDesign.Runtime
         Transform Page(string title,GardenState state=null)
         {
             using var timing = UiPerformanceProbe.Measure("Activities.Page");
+            ClearRecordHeartRefresh();
             ClearIntegratedPurchasePreview();
             var background=GetComponent<Image>();if(background!=null)background.color=GardenUi.Background;
             if(pageViewport!=null) { pageViewport.SetActive(false); if(Application.isPlaying) Destroy(pageViewport); else DestroyImmediate(pageViewport); }
@@ -457,11 +459,7 @@ namespace CapstoneDesign.Runtime
             EnterPage("record",()=>ShowRecord(id),id);var s=Service.Snapshot.Sessions.First(x=>x.SessionId==id);var p=Page("활동과 측정 기록");
             GardenUi.ScrollText(p,(MindfulnessContent.FindMission(s.MissionId)?.title ?? s.MissionId)+"\n"+LocalTime(s.StartedUtc)+" ~ "+LocalTime(s.EndedUtc)+"\n기분: "+(string.IsNullOrEmpty(s.Mood)?"기록 건너뜀":s.Mood)+"\n"+(s.Note??""),.07f,.57f,.86f,.23f);
             if(MbctPolicy.IsMbct(s.MissionId))GardenUi.Button(p,"실습에서 적은 내용",.07f,.075f,.54f,.055f,()=>ShowPracticeAnswers(id));
-            var health=preview && PreviewHealth!=null ? PreviewHealth : AndroidPlatformBridge.GetSnapshot();
-            HeartHistoryView.Build(p,health,s.StartedUtc,s.EndedUtc);
-            GardenUi.Button(p,"건강 기록 다시 조회",.07f,.15f,.54f,.075f,()=>{if(DateTimeOffset.TryParse(s.StartedUtc,out var start) && DateTimeOffset.TryParse(s.EndedUtc,out var end)) { var result=AndroidPlatformBridge.RefreshHeartRange(start.ToUnixTimeMilliseconds(),end.ToUnixTimeMilliseconds()); error=result.status=="ERROR"?result.message:null; }
-                ShowRecord(id);});
-            GardenUi.Button(p,"다시 보기",.65f,.15f,.28f,.075f,()=>ShowRecord(id));
+            BuildRecordHeart(p,s);
             GardenUi.Button(p,"기록 목록",.65f,.075f,.28f,.055f,ShowRecords);
         }
         public void ShowDiscoveries()

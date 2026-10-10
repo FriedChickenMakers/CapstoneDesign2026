@@ -35,22 +35,31 @@ object AndroidPlatformBridge {
     }
 
     @JvmStatic
-    fun getPlatformSnapshotJson(): String {
+    fun getPlatformSnapshotJson(): String = platformSnapshotJson(false)
+
+    @JvmStatic
+    fun getSettingsSnapshotJson(): String = platformSnapshotJson(true)
+
+    private fun platformSnapshotJson(settingsOnly: Boolean): String {
         val context = appContext
             ?: return JSONObject()
                 .put("status", PlatformStatus.SERVICE_UNAVAILABLE)
                 .put("message", "Bridge is not initialized")
                 .toString()
         return try {
-            val sensorSnapshot = SensorRepository.snapshotJson()
-            val healthSnapshot = HealthRepository.snapshotJson()
+            val healthSnapshot = if (settingsOnly) HealthRepository.settingsSnapshotJson()
+                else HealthRepository.snapshotJson()
             JSONObject()
                 .put("status", PlatformStatus.AVAILABLE)
                 .put("message", "")
                 .put("generatedAtEpochMs", System.currentTimeMillis())
                 .put("inputMode", inputMode)
-                .put("device", deviceJson(context))
-                .put("sensorService", sensorSnapshot)
+                .apply {
+                    if (!settingsOnly) {
+                        put("device", deviceJson(context))
+                        put("sensorService", SensorRepository.snapshotJson())
+                    }
+                }
                 .put("dailyAcceleration", DailyAccelerationStatus.read(context))
                 .put("healthConnect", healthSnapshot)
                 .put("runtimePermissions", runtimePermissionsJson(context))

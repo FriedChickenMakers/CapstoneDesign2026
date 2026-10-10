@@ -242,7 +242,7 @@ namespace CapstoneDesign.Runtime
             if (Time.unscaledTime >= nextHealthRefresh)
             {
                 nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
-                AndroidPlatformSnapshot current = AndroidPlatformBridge.GetSnapshot();
+                AndroidPlatformSnapshot current = AndroidPlatformBridge.GetSettingsSnapshot();
                 if (current.healthConnect?.status == "AVAILABLE")
                 {
                     PlatformActionResult result = AndroidPlatformBridge.RefreshHealthData();
@@ -312,7 +312,7 @@ namespace CapstoneDesign.Runtime
 
         private void RequestHealthPermissions()
         {
-            HealthConnectSnapshot health = AndroidPlatformBridge.GetSnapshot().healthConnect;
+            HealthConnectSnapshot health = AndroidPlatformBridge.GetSettingsSnapshot().healthConnect;
             ShowAction(health?.permissionStatus == "PERMISSION_DENIED"
                 ? AndroidPlatformBridge.OpenHealthPermissionSettings()
                 : AndroidPlatformBridge.RequestHealthConnectPermissions(), "건강 데이터 권한을 확인해 주세요.", permissionActionStatus);
@@ -353,7 +353,8 @@ namespace CapstoneDesign.Runtime
                 return;
             }
 
-            AndroidPlatformSnapshot snapshot = AndroidPlatformBridge.GetSnapshot();
+            AndroidPlatformSnapshot snapshot = diagnostics != null && diagnostics.activeSelf
+                ? AndroidPlatformBridge.GetSnapshot() : AndroidPlatformBridge.GetSettingsSnapshot();
             HealthConnectSnapshot health = snapshot.healthConnect ?? new HealthConnectSnapshot();
             RuntimePermissionSnapshot permissions = snapshot.runtimePermissions ?? new RuntimePermissionSnapshot();
             DailyAccelerationSnapshot daily = snapshot.dailyAcceleration ?? new DailyAccelerationSnapshot();
@@ -481,10 +482,12 @@ namespace CapstoneDesign.Runtime
                 ? mode + " 모드 · 실제 권한 사용 안 함"
                 : "활동 " + PermissionLabel(permissions.activityRecognition) +
                     " · 건강 데이터 " + PermissionLabel(health.permissionStatus);
-            collectorStatus.text = daily.status == "RUNNING" ? "수집 중" :
+            string collectorSummary = daily.status == "RUNNING" ? "수집 중" :
                 daily.status == "STOPPED" ? "수집 중지됨" : daily.status == "INTERRUPTED" ? "수집 상태 확인 필요" : "수집 기록 없음";
             if (daily.lastWriteEpochMs > 0)
-                collectorStatus.text += " · " + CompactInstant(daily.lastWriteEpochMs) + " 저장";
+                collectorSummary += " · " + CompactInstant(daily.lastWriteEpochMs) + " 저장";
+            // Assign once so an unchanged summary does not dirty text/layout twice.
+            collectorStatus.text = collectorSummary;
             collectorStatus.color = daily.status == "INTERRUPTED" ? GardenUi.Warning : GardenUi.Green;
             bool explainStop = !string.IsNullOrEmpty(daily.reason) && daily.reason != "USER_START" &&
                 daily.reason != "USER_STOP" && daily.reason != "PROCESS_RESTART" && daily.reason != "NO_STATUS_RECORD";

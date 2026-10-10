@@ -46,6 +46,7 @@ namespace CapstoneDesign.EditorTools
             Check(report, "Health DTO native JSON preserves null, zero, source and long timestamps", HealthDto);
             Check(report, "Health DTO status vocabulary is not silently available", StatusVocabulary);
             Check(report, "Heart graph uses a separate Graphic child and exact session samples", HeartGraph);
+            Check(report, "Heart refresh replaces only the chart once and ignores results after navigation", HeartRefreshUi);
             Check(report, "Mission selection aborts after a one-shot cycle save failure", CycleSelectionFailure);
             Check(report, "External navigation cancels environment and growth previews", ExternalNavigationPreview);
             Check(report, "Active navigation refreshes dates while activity panel is inactive", InactivePanelCycle);
@@ -229,6 +230,33 @@ namespace CapstoneDesign.EditorTools
             sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
             Assert(sensor.output.text == previous && loop.Service.SnapshotReads == reads,
                 "Closing diagnostics did not suspend its formatting and state reads.");
+            VerifyStableCollectorSummary(sensor);
+        }
+
+        static void VerifyStableCollectorSummary(SensorRawDisplay sensor)
+        {
+            const System.Reflection.BindingFlags hidden = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var label = (Text)typeof(SensorRawDisplay).GetField("collectorStatus",hidden).GetValue(sensor);
+            var refresh = typeof(SensorRawDisplay).GetMethod("RefreshSummary",hidden);
+            var snapshot = new AndroidPlatformSnapshot { inputMode="LIVE" };
+            var daily = new DailyAccelerationSnapshot { status="RUNNING", lastWriteEpochMs=1600000000000L };
+            var parameters = new object[] { snapshot,snapshot.healthConnect,snapshot.runtimePermissions,daily };
+            int vertices=0, layout=0;
+            UnityEngine.Events.UnityAction vertexDirty=()=>vertices++, layoutDirty=()=>layout++;
+            label.RegisterDirtyVerticesCallback(vertexDirty);label.RegisterDirtyLayoutCallback(layoutDirty);
+            try
+            {
+                Assert(label.IsActive(),"Collector label fixture must be active to observe dirty callbacks.");
+                refresh.Invoke(sensor,parameters);
+                Assert(vertices>0 && layout>0,"Changed collector summary did not exercise dirty callbacks.");
+                string first=label.text;vertices=0;layout=0;
+                refresh.Invoke(sensor,parameters);
+                Assert(vertices==0 && layout==0 && label.text==first,"Identical collector summary dirtied its graphic or layout.");
+                daily.lastWriteEpochMs+=120000;
+                refresh.Invoke(sensor,parameters);
+                Assert(label.text!=first && vertices>0 && layout>0,"New collector write time did not update visible status.");
+            }
+            finally { label.UnregisterDirtyVerticesCallback(vertexDirty);label.UnregisterDirtyLayoutCallback(layoutDirty); }
         }
 
         static void VerifySharedHeader(MockupNavigation nav, WeekOneQuestDemo loop)
@@ -572,6 +600,71 @@ namespace CapstoneDesign.EditorTools
                 var outside = GardenUi.Box(f.Ui.transform, "Out-of-window sample fixture", 0, 0, 1, 1);
                 HeartHistoryView.Build(outside.transform, snapshot, start.ToString("O"), end.ToString("O"));
                 Assert(GraphVertexCount(outside.GetComponentInChildren<HeartSampleGraph>(true)) == 0, "A queried interval included geometry from a sample outside its own timestamp bounds.");
+            }
+        }
+
+        static void HeartRefreshUi()
+        {
+            using (var f = new Fixture())
+            {
+                foreach(string id in new[]{"synthetic-heart-first","synthetic-heart-second"})
+                {
+                    Assert(f.Service.BeginSession(id,"free-mission:M15",0) && f.Service.StartSession(id),"Could not seed heart activity.");
+                    f.Clock.UtcNow=f.Clock.UtcNow.AddMinutes(3);
+                    Assert(f.Service.EndParticipation(id),"Could not finish heart activity.");
+                }
+                var first=f.Service.Snapshot.Sessions.First();
+                long start=DateTimeOffset.Parse(first.StartedUtc).ToUnixTimeMilliseconds();
+                long end=DateTimeOffset.Parse(first.EndedUtc).ToUnixTimeMilliseconds();
+                var before=new AndroidPlatformSnapshot { inputMode="LIVE", healthConnect=new HealthConnectSnapshot {
+                    status="AVAILABLE", heartRate=new HealthMetricSnapshot { status="NO_DATA" }
+                }};
+                f.Ui.PreviewHealth=before;f.Ui.ShowRecord(first.SessionId);
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var query=(HeartRangeRefresh)typeof(WeekOneQuestDemo).GetField("recordHeartRefresh",hidden).GetValue(f.Ui);
+                var apply=typeof(WeekOneQuestDemo).GetMethod("ApplyRecordHeartRefresh",hidden);
+                var chartField=typeof(WeekOneQuestDemo).GetField("recordHeartView",hidden);
+                var pageField=typeof(WeekOneQuestDemo).GetField("pageViewport",hidden);
+                var button=Button(f.Ui,"건강 기록 다시 조회");
+                var page=(GameObject)pageField.GetValue(f.Ui);var scroll=page.GetComponent<ScrollRect>();
+                scroll.verticalNormalizedPosition=.4f;float position=scroll.verticalNormalizedPosition;
+                var oldChart=(GameObject)chartField.GetValue(f.Ui);
+                Func<long,long,PlatformActionResult> accepted=(a,b)=>new PlatformActionResult { status="AVAILABLE" };
+                query.Start("LIVE",start,end,before,0,accepted);apply.Invoke(f.Ui,null);
+                Assert(!button.interactable && f.Ui.GetComponentsInChildren<Text>(true).Any(t=>t.text.Contains("조회하고 있어요")),
+                    "Pending request did not show progress or block repeated taps.");
+                var result=new AndroidPlatformSnapshot { inputMode="LIVE", healthConnect=new HealthConnectSnapshot {
+                    status="AVAILABLE", lastRefreshEpochMs=20,
+                    heartRate=new HealthMetricSnapshot { status="AVAILABLE",lastUpdatedEpochMs=20,
+                        queryStartEpochMs=start,queryEndEpochMs=end,queryComplete=true,sampleCount=2,
+                        heartRateSamples=new[]{
+                            new HeartRateSampleSnapshot { measuredAtEpochMs=start+1000,beatsPerMinute=70,sourcePackage="synthetic-watch",segmentId=1 },
+                            new HeartRateSampleSnapshot { measuredAtEpochMs=start+2000,beatsPerMinute=72,sourcePackage="synthetic-watch",segmentId=1 }
+                        }
+                    }
+                }};
+                query.Tick("LIVE",result,1,accepted);apply.Invoke(f.Ui,null);
+                var chart=(GameObject)chartField.GetValue(f.Ui);
+                Assert(chart!=oldChart && GraphVertexCount(chart.GetComponentInChildren<HeartSampleGraph>(true))>0,
+                    "Completed exact query did not automatically replace the empty graph.");
+                Assert(page==pageField.GetValue(f.Ui) && button==Button(f.Ui,"건강 기록 다시 조회") &&
+                    Mathf.Approximately(position,scroll.verticalNormalizedPosition),"Heart completion rebuilt the page, controls or scroll position.");
+                apply.Invoke(f.Ui,null);query.Tick("LIVE",result,2,accepted);apply.Invoke(f.Ui,null);
+                Assert(chart==chartField.GetValue(f.Ui),"Unchanged result rebuilt the chart again.");
+                query.Start("LIVE",start,end,result,3,accepted);apply.Invoke(f.Ui,null);
+                f.Ui.ShowRecord("synthetic-heart-second");
+                var secondPage=pageField.GetValue(f.Ui);var secondChart=chartField.GetValue(f.Ui);
+                query.Tick("LIVE",result,4,accepted);apply.Invoke(f.Ui,null);
+                Assert(!query.IsPending && query.Result==null && secondPage==pageField.GetValue(f.Ui) && secondChart==chartField.GetValue(f.Ui),
+                    "Late first-activity result overwrote another activity.");
+                query.Start("LIVE",start,end,before,5,accepted);apply.Invoke(f.Ui,null);
+                typeof(WeekOneQuestDemo).GetMethod("OnDisable",hidden).Invoke(f.Ui,null);
+                query.Tick("LIVE",result,6,accepted);apply.Invoke(f.Ui,null);
+                Assert(!query.IsPending && query.Result==null && secondChart==chartField.GetValue(f.Ui),
+                    "Leaving the activity tab accepted a late result.");
+                query.Start("LIVE",start,end,before,7,accepted);f.Ui.ShowRecords();
+                query.Tick("LIVE",result,8,accepted);apply.Invoke(f.Ui,null);
+                Assert(f.Ui.CurrentScreen=="records" && query.Result==null,"Leaving the detail page reopened it after query completion.");
             }
         }
 
