@@ -63,5 +63,70 @@ namespace CapstoneDesign.Tests
                 new Vector2(720,1280),out var size,out _,out var position),Is.True);
             Assert.That(size,Is.EqualTo(screen)); Assert.That(position,Is.EqualTo(Vector2.zero));
         }
+
+        [Test] public void VisibleAndroidNavigationBarReservesItsActualHeight()
+        {
+            var screen = new Vector2(1200, 2000);
+            var safe = AndroidSystemBarSafeArea.Merge(screen, new Rect(0, 0, 1200, 2000),
+                new[] { 1200, 2000, 0, 0, 1200, 2000, 0, 0, 0, 72 });
+            Assert.That(safe, Is.EqualTo(new Rect(0, 72, 1200, 1928)));
+            Assert.That(PrototypePortraitLayout.TryCalculate(screen, screen, safe, new Vector2(720, 1280),
+                out var size, out float scale, out var position), Is.True);
+            // Entire common shell, including the tab card, stays above the bar.
+            Assert.That(1000 + position.y - size.y * scale / 2, Is.EqualTo(72).Within(.01));
+        }
+
+        [Test] public void UnitySafeAreaAndAndroidBarAreIntersectedWithoutAddingInsets()
+        {
+            var screen = new Vector2(1200, 2000);
+            var safe = new Rect(0, 72, 1200, 1880); // Also preserve Unity's top cutout.
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, safe,
+                new[] { 1200, 2000, 0, 0, 1200, 2000, 0, 0, 0, 72 }), Is.EqualTo(safe));
+        }
+
+        [Test] public void APlayerSurfaceAlreadyAboveTheBarDoesNotLoseHeightAgain()
+        {
+            var screen = new Vector2(1200, 1928);
+            var safe = new Rect(0, 0, 1200, 1928);
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, safe,
+                new[] { 1200, 2000, 0, 0, 1200, 1928, 0, 0, 0, 72 }), Is.EqualTo(safe));
+        }
+
+        [Test] public void OffsetAndScaledRenderSurfaceUsesOnlyRemainingInsets()
+        {
+            // A window has already consumed 24 px at the top and bottom; the
+            // half-resolution Unity buffer must reserve just the remaining 48 px.
+            var screen = new Vector2(600, 976);
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, new Rect(0, 0, 600, 976),
+                new[] { 1200, 2000, 0, 24, 1200, 1952, 0, 24, 0, 72 }),
+                Is.EqualTo(new Rect(0, 24, 600, 952)));
+        }
+
+        [Test] public void LandscapeSideNavigationBarKeepsBothEdgesUsable()
+        {
+            var screen = new Vector2(2000, 1200);
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, new Rect(40, 0, 1960, 1200),
+                new[] { 2000, 1200, 0, 0, 2000, 1200, 0, 0, 72, 0 }),
+                Is.EqualTo(new Rect(40, 0, 1888, 1200)));
+        }
+
+        [Test] public void HiddenBarsRestoreTheFullPlayerArea()
+        {
+            var screen = new Vector2(1200, 2000);
+            var safe = new Rect(0, 0, 1200, 2000);
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, safe,
+                new[] { 1200, 2000, 0, 0, 1200, 2000, 0, 0, 0, 0 }), Is.EqualTo(safe));
+        }
+
+        [Test] public void StaleRotationAndDetachedSurfaceSamplesKeepUnitySafeArea()
+        {
+            var screen = new Vector2(1200, 2000);
+            var safe = new Rect(0, 24, 1200, 1976);
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, safe,
+                new[] { 2000, 1200, 0, 0, 2000, 1200, 0, 0, 72, 0 }), Is.EqualTo(safe));
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, safe,
+                new[] { 1200, 2000, 0, 0, 0, 0, 0, 0, 0, 72 }), Is.EqualTo(safe));
+            Assert.That(AndroidSystemBarSafeArea.Merge(screen, safe, null), Is.EqualTo(safe));
+        }
     }
 }

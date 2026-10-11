@@ -13,13 +13,15 @@ namespace CapstoneDesign.Prototype
             Apply();
         }
         private void OnDisable() => Canvas.preWillRenderCanvases -= Apply;
+        private void OnApplicationFocus(bool focused) { if (focused) AndroidSystemBarSafeArea.Invalidate(); }
+        private void OnApplicationPause(bool paused) { if (!paused) AndroidSystemBarSafeArea.Invalidate(); }
         private void Update() => Apply();
         public void Apply()
         {
             if (designFrame == null) return;
             var canvas = (RectTransform)transform;
             if (!TryCalculate(new Vector2(Screen.width, Screen.height), canvas.rect.size,
-                Screen.safeArea, referenceSize, out var size, out float scale, out var position)) return;
+                AndroidSystemBarSafeArea.Current(), referenceSize, out var size, out float scale, out var position)) return;
             designFrame.anchorMin = designFrame.anchorMax = new Vector2(.5f, .5f);
             designFrame.pivot = new Vector2(.5f, .5f);
             // One stable shell for every page. Never resize the header/navigation on tab changes.
