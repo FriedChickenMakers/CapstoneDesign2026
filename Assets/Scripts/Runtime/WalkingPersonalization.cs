@@ -21,10 +21,7 @@ namespace CapstoneDesign.Runtime
                 QueryEndUtc=until.ToString("O"),Basis="DEFAULT"};
             long nowMs=now.ToUnixTimeMilliseconds();
             // A cached result from before today's boundary cannot include yesterday's complete day.
-            bool fresh=snapshot!=null && snapshot.queryComplete && snapshot.status=="AVAILABLE" &&
-                snapshot.lastUpdatedEpochMs>=from.ToUnixTimeMilliseconds() && snapshot.lastUpdatedEpochMs<=nowMs &&
-                nowMs-snapshot.lastUpdatedEpochMs<=TimeSpan.FromHours(6).TotalMilliseconds &&
-                snapshot.queryEndEpochMs==from.ToUnixTimeMilliseconds();
+            bool fresh=IsFresh(snapshot,now,zone);
             if(fresh)
             {
                 // Missing buckets are not zero-step days. Reject duplicates, current-day values,
@@ -54,6 +51,16 @@ namespace CapstoneDesign.Runtime
                 result.ReducedForSleep=true;result.Basis+="_SHORT_SLEEP";
             }
             return result;
+        }
+
+        public static bool IsFresh(WalkingBaselineSnapshot snapshot, DateTimeOffset now, TimeZoneInfo zone)
+        {
+            var from=LocalBoundary(TimeZoneInfo.ConvertTime(now,zone).Date,zone).ToUnixTimeMilliseconds();
+            long nowMs=now.ToUnixTimeMilliseconds();
+            return snapshot!=null && snapshot.queryComplete && snapshot.status=="AVAILABLE" &&
+                snapshot.lastUpdatedEpochMs>=from && snapshot.lastUpdatedEpochMs<=nowMs &&
+                nowMs-snapshot.lastUpdatedEpochMs<=TimeSpan.FromHours(6).TotalMilliseconds &&
+                snapshot.queryEndEpochMs==from;
         }
 
         // Midnight offsets may change with daylight saving; never assume every day is 24 hours.

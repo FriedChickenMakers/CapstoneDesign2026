@@ -67,10 +67,11 @@ namespace CapstoneDesign.Runtime
             return body;
         }
 
-        void DockAction(string title, Action action, bool primary = false)
+        Button DockAction(string title, Action action, bool primary = false)
         {
             var button = GardenUi.Button(activityActions, title, 0, 0, 1, 0, action, primary);
             button.gameObject.AddComponent<GardenFlowButton>();
+            return button;
         }
         void DockPair(string left, Action leftAction, string right, Action rightAction, bool rightPrimary = false)
         {

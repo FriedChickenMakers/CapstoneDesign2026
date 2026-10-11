@@ -37,6 +37,7 @@ namespace CapstoneDesign.EditorTools
             Check(report, "UI completion without notes commits one reward and survives reopen", Completion);
             Check(report, "M15 debug steps, direct completion and garden purchase form one demo flow", M15DemoFlow);
             Check(report, "Walking auto-completion preserves reflection after leaving the panel and retries failed saves", WalkingReflectionAutoCompletion);
+            Check(report, "Walking baseline refresh gates start, updates only its introduction and freezes started goals", WalkingBaselineUiRefresh);
             Check(report, "UI active session survives navigation and pause", Navigation);
             Check(report, "Back returns through lists, detail parameters and unpaid previews", BackPageFlow);
             Check(report, "Back preserves drafts, blocks failed saves and rewinds guided steps", BackDraftFlow);
@@ -462,6 +463,118 @@ namespace CapstoneDesign.EditorTools
                 for(int step=0;step<4;step++)Click(f.Ui,step==3?"기록 저장":"다음");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="records", "Saved experience Back reopened its submitted form.");
             }
+        }
+
+        static void WalkingBaselineUiRefresh()
+        {
+            const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+            var providerField=typeof(AndroidPlatformBridge).GetField("provider",System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic);
+            var previous=providerField.GetValue(null);
+            try
+            {
+                using(var f=new Fixture(0,5))
+                {
+                    var provider=new WalkingRefreshProvider {Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow.AddHours(-7),10000)};
+                    providerField.SetValue(null,provider);
+                    // Match the serialized scene's non-null default DTO. LIVE must ignore it.
+                    f.Ui.PreviewHealth=new AndroidPlatformSnapshot{inputMode="LIVE",status="NO_DATA"};
+                    typeof(WeekOneQuestDemo).GetField("preview",hidden).SetValue(f.Ui,false);
+                    typeof(WeekOneQuestDemo).GetField("mode",hidden).SetValue(f.Ui,"LIVE");
+                    f.Ui.OnAppReturned();f.Ui.OnAppReturned();
+                    f.Ui.SelectMission(MindfulnessContent.FindMission("free-mission:M15"));
+                    var start=(Button)typeof(WeekOneQuestDemo).GetField("walkingIntroStart",hidden).GetValue(f.Ui);
+                    var goal=(Text)typeof(WeekOneQuestDemo).GetField("walkingIntroGoal",hidden).GetValue(f.Ui);
+                    Assert(provider.Requests==1 && !start.interactable && goal.text.Contains("5,000") &&
+                        start.name=="시작" && start.GetComponentInChildren<Text>(true).text=="확인 중…",
+                        "Stale return did not gate/label Start or duplicated native requests.");
+                    typeof(WeekOneQuestDemo).GetMethod("StartSelectedWalking",hidden).Invoke(f.Ui,null);
+                    Assert(f.Service.Snapshot.Sessions.Single().Status==ParticipationState.Selected,"Immediate Start froze an old default while refreshing.");
+                    provider.Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow,10000);
+                    typeof(WeekOneQuestDemo).GetField("nextWalkingBaselinePoll",hidden).SetValue(f.Ui,0f);f.Ui.TickWalkingPersonalization();
+                    Assert(start.interactable && start.GetComponentInChildren<Text>(true).text=="시작" && goal.text.Contains("8,000") &&
+                        ReferenceEquals(goal,typeof(WeekOneQuestDemo).GetField("walkingIntroGoal",hidden).GetValue(f.Ui)),
+                        "Serialized preview DTO masked fresh LIVE data or prevented in-place goal/button update.");
+                    Click(f.Ui,"시작");var saved=f.Service.Snapshot.Sessions.Single();
+                    Assert(saved.WalkingGoalSteps==8000 && provider.Requests==1,"Fresh Start did not persist target without a duplicate read.");
+                    string windowStart=saved.WalkingQueryStartUtc,windowEnd=saved.WalkingQueryEndUtc;
+                    f.Ui.ShowReflection();var input=f.Ui.GetComponentInChildren<InputField>(true);input.text="합성 목표 갱신 회고";
+                    f.Clock.UtcNow=f.Clock.UtcNow.AddHours(7);f.Ui.OnAppReturned();
+                    provider.Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow,6000);
+                    typeof(WeekOneQuestDemo).GetField("nextWalkingBaselinePoll",hidden).SetValue(f.Ui,0f);f.Ui.TickWalkingPersonalization();
+                    saved=f.Service.Snapshot.Sessions.Single();
+                    Assert(f.Ui.CurrentScreen=="reflection" && ReferenceEquals(input,f.Ui.GetComponentInChildren<InputField>(true)) &&
+                        input.text=="합성 목표 갱신 회고" && saved.WalkingGoalSteps==8000 && saved.WalkingQueryStartUtc==windowStart && saved.WalkingQueryEndUtc==windowEnd,
+                        "Late health refresh rebuilt reflection or rewrote frozen target/date.");
+                }
+                using(var f=new Fixture(0,5))
+                {
+                    var provider=new WalkingRefreshProvider{Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow.AddHours(-7),10000)};
+                    providerField.SetValue(null,provider);
+                    f.Ui.PreviewHealth=new AndroidPlatformSnapshot{inputMode="LIVE",status="NO_DATA"};
+                    typeof(WeekOneQuestDemo).GetField("preview",hidden).SetValue(f.Ui,false);
+                    typeof(WeekOneQuestDemo).GetField("mode",hidden).SetValue(f.Ui,"LIVE");
+                    f.Ui.SelectMission(MindfulnessContent.FindMission("free-mission:M15"));
+                    var coordinator=(WalkingBaselineRefresh)typeof(WeekOneQuestDemo).GetField("walkingBaselineRefresh",hidden).GetValue(f.Ui);
+                    typeof(WalkingBaselineRefresh).GetField("deadline",hidden).SetValue(coordinator,-1f);
+                    typeof(WeekOneQuestDemo).GetField("nextWalkingBaselinePoll",hidden).SetValue(f.Ui,0f);f.Ui.TickWalkingPersonalization();
+                    var start=(Button)typeof(WeekOneQuestDemo).GetField("walkingIntroStart",hidden).GetValue(f.Ui);
+                    var explanation=(Text)typeof(WeekOneQuestDemo).GetField("walkingIntroExplanation",hidden).GetValue(f.Ui);
+                    Assert(start.interactable && start.GetComponentInChildren<Text>(true).text=="시작" && explanation.text.Contains("기본 목표"),
+                        "Timeout stranded Start or failed to restore its label and explain fallback.");
+                    Click(f.Ui,"시작");
+                    Assert(f.Service.Snapshot.Sessions.Single().WalkingGoalSteps==5000 && provider.Requests==1,
+                        "Timeout fallback could not start or started a duplicate native read.");
+                    provider.Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow,10000);
+                    typeof(WeekOneQuestDemo).GetField("nextWalkingBaselinePoll",hidden).SetValue(f.Ui,0f);f.Ui.TickWalkingPersonalization();
+                    Assert(f.Service.Snapshot.Sessions.Single().WalkingGoalSteps==5000,"Late timeout result rewrote an already started fallback goal.");
+                }
+                using(var f=new Fixture(0,5))
+                {
+                    f.Clock.UtcNow=DateTimeOffset.Parse("2026-09-23T23:59:00+09:00");
+                    var provider=new WalkingRefreshProvider{Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow.AddHours(-7),10000)};
+                    providerField.SetValue(null,provider);
+                    f.Ui.PreviewHealth=new AndroidPlatformSnapshot{inputMode="LIVE",status="NO_DATA"};
+                    typeof(WeekOneQuestDemo).GetField("preview",hidden).SetValue(f.Ui,false);
+                    typeof(WeekOneQuestDemo).GetField("mode",hidden).SetValue(f.Ui,"LIVE");
+                    f.Ui.SelectMission(MindfulnessContent.FindMission("free-mission:M15"));
+                    provider.Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow,10000);
+                    typeof(WeekOneQuestDemo).GetField("nextWalkingBaselinePoll",hidden).SetValue(f.Ui,0f);f.Ui.TickWalkingPersonalization();
+                    Assert(provider.Requests==1,"Pre-midnight introduction duplicated its initial successful read.");
+                    f.Clock.UtcNow=f.Clock.UtcNow.AddMinutes(2);Click(f.Ui,"시작");
+                    Assert(provider.Requests==2 && f.Service.Snapshot.Sessions.Single().Status==ParticipationState.Selected,
+                        "Start after midnight reused the prior success cooldown and froze yesterday's baseline.");
+                    provider.Snapshot=WalkingRefreshSnapshot(f.Clock.UtcNow,10000);
+                    typeof(WeekOneQuestDemo).GetField("nextWalkingBaselinePoll",hidden).SetValue(f.Ui,0f);f.Ui.TickWalkingPersonalization();
+                    Click(f.Ui,"시작");
+                    var saved=f.Service.Snapshot.Sessions.Single();
+                    Assert(saved.WalkingGoalSteps==8000 && DateTimeOffset.Parse(saved.WalkingQueryStartUtc)==DateTimeOffset.Parse("2026-09-24T00:00:00+09:00"),
+                        "Refreshed midnight start failed to freeze the new local date and target.");
+                }
+            }
+            finally {providerField.SetValue(null,previous);}
+        }
+
+        static AndroidPlatformSnapshot WalkingRefreshSnapshot(DateTimeOffset at,int count)
+        {
+            var zone=TimeZoneInfo.CreateCustomTimeZone("Synthetic/Refresh",TimeSpan.FromHours(9),"Synthetic","Synthetic");
+            var local=TimeZoneInfo.ConvertTime(at,zone);var midnight=new DateTimeOffset(local.Date,local.Offset);
+            return new AndroidPlatformSnapshot{inputMode="LIVE",healthConnect=new HealthConnectSnapshot{
+                status="AVAILABLE",lastRefreshEpochMs=at.ToUnixTimeMilliseconds(),personalization=new WalkingBaselineSnapshot{
+                    status="AVAILABLE",queryComplete=true,lastUpdatedEpochMs=at.ToUnixTimeMilliseconds(),queryEndEpochMs=midnight.ToUnixTimeMilliseconds(),
+                    days=Enumerable.Range(0,7).Select(i=>new DailyStepBaseline{hasValue=true,count=count,endEpochMs=midnight.AddDays(-i).ToUnixTimeMilliseconds()}).ToArray(),
+                    sleep=new HealthMetricSnapshot{status="AVAILABLE",queryComplete=true,hasValue=true,value=300,measuredAtEpochMs=at.AddHours(-1).ToUnixTimeMilliseconds()}}}};
+        }
+        sealed class WalkingRefreshProvider:IPlatformDataProvider
+        {
+            public AndroidPlatformSnapshot Snapshot;public int Requests;
+            public PlatformInputMode Mode=>PlatformInputMode.Live;
+            public AndroidPlatformSnapshot GetSnapshot()=>Snapshot;
+            public PlatformActionResult RefreshHealthData(){Requests++;Snapshot.healthConnect.refreshing=true;return new PlatformActionResult{status="AVAILABLE"};}
+            public PlatformActionResult StartBackgroundSensorService()=>new PlatformActionResult{status="UNSUPPORTED"};
+            public PlatformActionResult StopBackgroundSensorService()=>new PlatformActionResult{status="UNSUPPORTED"};
+            public PlatformActionResult RequestSensorPermissions()=>new PlatformActionResult{status="UNSUPPORTED"};
+            public PlatformActionResult RequestHealthConnectPermissions()=>new PlatformActionResult{status="UNSUPPORTED"};
+            public string GetRecentSensorSamplesJson(int limit)=>"[]";
         }
 
         static void WalkingReflectionAutoCompletion()

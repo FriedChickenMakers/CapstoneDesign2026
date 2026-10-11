@@ -105,6 +105,7 @@ namespace CapstoneDesign.Runtime
         public void ShowActivities()
         {
             SetActivePanel(activitiesPanel);
+            if(activePanel==activitiesPanel)activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.OnActivitiesOpened();
         }
 
         public void ShowSettings()
@@ -119,6 +120,7 @@ namespace CapstoneDesign.Runtime
         {
             HandleBackInput();
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickStepSync();
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickWalkingPersonalization();
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickMissionNotifications();
             if(Time.unscaledTime < nextCycleCheck)return;
             nextCycleCheck=Time.unscaledTime+30;
