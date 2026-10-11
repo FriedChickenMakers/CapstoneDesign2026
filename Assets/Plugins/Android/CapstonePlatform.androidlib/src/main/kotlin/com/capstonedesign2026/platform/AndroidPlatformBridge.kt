@@ -29,6 +29,7 @@ object AndroidPlatformBridge {
         inputMode = inputModeValue
         SensorRepository.initialize(activity.applicationContext)
         HealthRepository.initialize(activity.applicationContext)
+        ActivityNotifications.initialize(activity.applicationContext, inputModeValue == "LIVE")
         resultJson(PlatformStatus.AVAILABLE, "Android platform bridge initialized")
     } catch (exception: Exception) {
         resultJson(PlatformStatus.ERROR, exception.safeMessage(), "BRIDGE_INITIALIZE_FAILED")
@@ -249,17 +250,17 @@ object AndroidPlatformBridge {
         HealthRepository.refreshRange(startEpochMs, endEpochMs)
 
     @JvmStatic
-    fun refreshStepsRange(startEpochMs: Long, endEpochMs: Long, requestId: String): String =
-        HealthRepository.refreshStepsRange(startEpochMs, endEpochMs, requestId)
+    fun refreshStepsRange(startEpochMs: Long, endEpochMs: Long, requestId: String, aggregate: Boolean): String =
+        HealthRepository.refreshStepsRange(startEpochMs, endEpochMs, requestId, aggregate)
 
     @JvmStatic
     fun getStepRangeSnapshotJson(): String = HealthRepository.stepRangeSnapshot()
 
     @JvmStatic
-    fun scheduleMissionRewardReminder(sessionId: String, startEpochMs: Long, goalSteps: Int, virtualSteps: Long): String {
+    fun scheduleMissionRewardReminder(sessionId: String, startEpochMs: Long, goalSteps: Int, virtualSteps: Long, endEpochMs: Long, aggregate: Boolean): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
-        val result = MissionRewardNotifications.schedule(context, sessionId, startEpochMs, goalSteps, virtualSteps)
+        val result = MissionRewardNotifications.schedule(context, sessionId, startEpochMs, goalSteps, virtualSteps, endEpochMs, aggregate)
         if (MissionRewardNotifications.permissionPromptNeeded(context)) {
             activityReference.get()?.runOnUiThread {
                 activityReference.get()?.let { activity ->
@@ -279,10 +280,44 @@ object AndroidPlatformBridge {
     }
 
     @JvmStatic
-    fun notifyMissionRewardReady(sessionId: String): String {
+    fun acknowledgeMissionAchievement(sessionId: String): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+        return MissionRewardNotifications.acknowledge(context, sessionId)
+    }
+
+    @JvmStatic
+    fun notifyMissionRewardReady(sessionId: String, steps: Long): String {
+        val context = appContext
+            ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+        if (steps >= 0) MissionRewardNotifications.recordReady(context, sessionId, steps, "APP_VERIFIED_HEALTH_CONNECT")
         return MissionRewardNotifications.postIfReady(context, sessionId)
+    }
+
+    @JvmStatic
+    fun getWalkingAchievementJson(): String = appContext?.let { MissionRewardNotifications.achievement(it) } ?: "{}"
+
+    @JvmStatic
+    fun getActivityNotificationSettingsJson(): String = appContext?.let { ActivityNotifications.settings(it).toString() } ?: "{}"
+
+    @JvmStatic
+    fun configureActivityNotifications(enabled: Boolean, minute: Int, adaptive: Boolean): String =
+        appContext?.let { ActivityNotifications.configure(it, enabled, minute, adaptive) }
+            ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+
+    @JvmStatic
+    fun syncActivityReminder(completedDay: String, title: String, active: Boolean): String =
+        appContext?.let { ActivityNotifications.sync(it, completedDay, title, active) }
+            ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+
+    @JvmStatic
+    fun consumeActivityNotificationOpen(): String = appContext?.let { ActivityNotifications.consumeOpen(it) } ?: "{}"
+
+    @JvmStatic
+    fun requestActivityNotificationPermission(): String {
+        val activity = activityReference.get() ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Activity unavailable")
+        activity.runOnUiThread { ActivityNotifications.requestPermission(activity) }
+        return resultJson(PlatformStatus.AVAILABLE, "Notification permission checked")
     }
 
     @JvmStatic

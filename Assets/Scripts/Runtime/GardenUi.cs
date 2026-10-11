@@ -240,5 +240,26 @@ namespace CapstoneDesign.Runtime
             rect.anchorMin=new Vector2(rect.anchorMin.x,1);rect.anchorMax=new Vector2(rect.anchorMax.x,1);
             rect.offsetMin=new Vector2(0,-top-height);rect.offsetMax=new Vector2(0,-top);
         }
+        public static Transform VerticalFlow(Transform parent,float spacing,int top,int bottom)
+        {
+            var flow=parent.gameObject.AddComponent<VerticalLayoutGroup>();
+            flow.padding=new RectOffset(48,48,top,bottom);flow.spacing=spacing;
+            flow.childControlWidth=flow.childControlHeight=true;
+            flow.childForceExpandWidth=true;flow.childForceExpandHeight=false;
+            return parent;
+        }
+        public static Text FlowLabel(Transform parent,string text,int size=BodySize,Color? color=null)
+        {
+            var label=Label(parent,text,0,0,1,0,size);
+            label.alignment=TextAnchor.UpperLeft;
+            if(color.HasValue)label.color=color.Value;
+            return label;
+        }
+        public static InputField FlowInput(Transform parent,string hint,float height=224)
+        {
+            var input=Input(parent,hint,0,0,1,0);
+            input.gameObject.AddComponent<LayoutElement>().preferredHeight=height;
+            return input;
+        }
     }
 }

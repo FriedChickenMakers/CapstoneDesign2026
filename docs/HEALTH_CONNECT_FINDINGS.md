@@ -168,3 +168,18 @@ restored to its original 30,000 ms and read back after testing. Personal chart
 screenshots remain under ignored `artifacts/s24-hourly-heart-test/`.
 APK: `artifacts/s24-hourly-heart-build/build/capstone-mockup.apk`;
 SHA256: `cd234a7280067921ef137d1935d4009c9c182c19932e98899ad3c0bccf3ae173`.
+
+## 2026-10-12: 수면·활동량으로 걷기 목표 조절
+
+M15는 신규 시작 시 **시작한 현지 날짜의 총걸음**을 목표로 삼는다. 시작 전 그날 걸음도 포함하며, 시작한 날의 다음 자정까지만 합산한다. 이 조회 구간과 목표를 세션에 저장하여 재실행·시간대 변경·늦은 동기화에도 바꾸지 않는다. 기존 저장본의 목표 필드가 없는 세션은 원래의 **시작 후 300걸음**을 유지한다.
+
+- 평소 활동량은 오늘을 제외한 최근 14개 현지 날짜의 `StepsRecord.COUNT_TOTAL` 일별 집계다. 최소 5일에 값이 있어야 하며 최근 3개 완료 날짜 중 기록이 있어야 한다. 누락된 날짜는 0으로 간주하지 않는다.
+- 충분한 기록이 있으면 일별 중앙값을 500걸음 단위로 반올림하여 5,000–10,000걸음으로 제한한다. 기록 부족·오래된 조회·권한 거절·미지원·불완전 조회는 5,000걸음 기본 목표를 사용한다. 이는 현재 제품 규칙이며 의학적 운동 처방이 아니다.
+- 최근 48시간에서 같은 우선 출처의 겹치거나 90분 이내로 나뉜 수면 구간을 묶고, 짧은 낮잠보다 최신 주수면 구간을 우선한다. 해당 구간의 Health Connect 수면 집계값을 사용한다. 36시간 이내의 완료된 기록이 1–6시간 미만이면 목표를 20% 낮추고 500걸음 단위로 내림한다. 누락·오래됨·불완전·범위 밖 수면값은 목표를 낮추지 않는다. 화면의 설명은 수면 **기록**에 대한 설명이며 수면의 질이나 질환을 판단하지 않는다.
+- 기준 집계와 실제 신규 걷기 진행 모두 Health Connect 집계 API를 사용한다. 서로 겹치는 휴대폰·워치 출처를 직접 더하지 않고 사용자의 Health Connect 우선순위에 따른 중복 제거를 따른다. 기존 세션과 디버그 구간은 기존 출처 선택 동작을 유지한다.
+- 목표 도달은 저장된 실제 관측 걸음으로 `TryCompleteWalkingGoal`을 실행한다. 완료와 보상을 하나의 정원 저장으로 커밋하며, 재시도·재시작·같은 일일 미션 반복으로 보상을 중복 지급하지 않는다. 가상 걸음은 개인화 목표의 자동 완료 조건에 포함하지 않는다. 직접 완료 경로는 유지한다.
+- 기준 조회 결과는 날짜·시간대가 같으면 최대 30분 재사용한다. 설정의 간단한 상태 갱신에는 일별 이력을 넣지 않는다. 건강 기록을 서버로 전송하거나 원본을 저장소에 포함하지 않는다.
+
+기술 근거: [Health Connect 집계와 일별 버킷·출처 우선순위](https://developer.android.com/health-and-fitness/health-connect/aggregate-data), [SleepSessionRecord의 수면 기간 집계](https://developer.android.com/reference/androidx/health/connect/client/records/SleepSessionRecord). 공식 문서상 일별 버킷은 누락될 수 있으므로 `hasValue`로 부재를 보존하며, `aggregateGroupByPeriod`에는 현지 날짜·시간을 사용한다.
+
+검증은 `scripts/test-walking-personalization.sh`의 합성 데이터로 데이터 부족·결측·측정된 0·오래된 값·낮은/높은 활동량·짧은 수면·DST 23/25시간·목표 고정·재실행·이전 저장본·원자적 보상을 다룬다. `scripts/test-health-query.sh`는 겹친 수면·분할 수면·낮잠·미래/잘못된 구간을 검증한다.

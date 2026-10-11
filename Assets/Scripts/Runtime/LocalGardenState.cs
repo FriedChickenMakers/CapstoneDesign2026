@@ -71,7 +71,17 @@ namespace CapstoneDesign.Runtime.LocalState
         public long RealStepHighWater, VirtualSteps;
         public string StepSource = "";
         public bool GoalNotificationCommitted;
+        // Zero is an older 300-step, since-start mission; never reinterpret an existing save.
+        public int WalkingGoalSteps;
+        public string WalkingQueryStartUtc, WalkingQueryEndUtc, WalkingTargetBasis;
+        public bool WalkingSleepReduced;
         public ParticipationState Status;
+    }
+    public sealed class WalkingTarget
+    {
+        public int GoalSteps;
+        public string QueryStartUtc, QueryEndUtc, Basis;
+        public bool UsedBaseline, ReducedForSleep;
     }
     public sealed class DebugWalkPeriod
     {
@@ -185,6 +195,16 @@ namespace CapstoneDesign.Runtime.LocalState
                 if (a.CourseOrder > 0 && !Typed(a.MissionId,"course")) throw new InvalidDataException("Invalid session course type.");
                 if ((a.Status == ParticipationState.InProgress || a.Status == ParticipationState.Paused || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.StartedUtc)) throw new InvalidDataException("Session start missing.");
                 if ((a.Status == ParticipationState.Ended || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.EndedUtc)) throw new InvalidDataException("Session end missing.");
+                if(a.WalkingGoalSteps != 0)
+                {
+                    DateTimeOffset walkingStart, walkingEnd;
+                    if(a.MissionId!="free-mission:M15" || a.WalkingGoalSteps<1000 || a.WalkingGoalSteps>10000 ||
+                        !DateTimeOffset.TryParse(a.WalkingQueryStartUtc,out walkingStart) ||
+                        !DateTimeOffset.TryParse(a.WalkingQueryEndUtc,out walkingEnd) || walkingEnd<=walkingStart ||
+                        (walkingEnd-walkingStart).TotalHours<22 || (walkingEnd-walkingStart).TotalHours>26 ||
+                        string.IsNullOrEmpty(a.WalkingTargetBasis) || a.WalkingTargetBasis.Length>160)
+                        throw new InvalidDataException("Invalid personalized walking target.");
+                }
                 if(a.RealStepHighWater<0 || a.VirtualSteps<0 || a.RealStepHighWater>long.MaxValue-a.VirtualSteps)throw new InvalidDataException("Invalid session steps.");
             }
             if (s.Environments.Any(e=>!Typed(e.EnvironmentId,"environment") || e.Slot != e.Slot.Trim().ToLowerInvariant()) || s.Plants.Any(p=>!Typed(p.PlantId,"plant") || !Finite(p.Growth) || p.Growth < 0) || s.CompletedCourseIds.Any(id=>!Typed(id,"course")) || s.DiscoveredAnimalIds.Any(id=>!Typed(id,"animal"))) throw new InvalidDataException("Invalid permanent garden records.");
@@ -270,6 +290,8 @@ namespace CapstoneDesign.Runtime.LocalState
         DailyDecision pendingDecision;
         public string LastError { get; private set; }
         public long SnapshotReads { get; private set; }
+        public DateTimeOffset CurrentUtc => clock.UtcNow;
+        public TimeZoneInfo CurrentTimeZone => clock.TimeZone;
         public GardenStateService(IStateStore store, IClock clock, DemoBalanceConfig config, LegacySnapshot legacy = null)
         {
             this.store = store; this.clock = clock; this.legacy = legacy ?? new LegacySnapshot();
@@ -377,7 +399,51 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         static ActivitySession Session(GardenState next, string id)
         { return next.Sessions.FirstOrDefault(s => s.SessionId == id) ?? throw new InvalidOperationException("Unknown session."); }
+        public bool CancelSelection(string id)
+        {
+            return Change(next => {
+                var selected=Session(next,id);
+                if(selected.Status!=ParticipationState.Selected)throw new InvalidOperationException("Started activities must be ended, not discarded.");
+                next.Sessions.Remove(selected);
+            });
+        }
         public bool StartSession(string id) { return Transition(id, ParticipationState.Selected, ParticipationState.InProgress); }
+        public bool StartWalkingSession(string id, WalkingTarget target)
+        {
+            return Change(next => {
+                var session=Session(next,id);
+                if(session.MissionId!="free-mission:M15")throw new InvalidOperationException("Not a walking activity.");
+                if(session.Status==ParticipationState.InProgress || session.Status==ParticipationState.Paused)return;
+                if(session.Status!=ParticipationState.Selected)throw new InvalidOperationException("Walking activity already ended.");
+                if(target==null)throw new ArgumentNullException("target");
+                DateTimeOffset from,until;
+                if(!DateTimeOffset.TryParse(target.QueryStartUtc,out from) || !DateTimeOffset.TryParse(target.QueryEndUtc,out until) ||
+                    clock.UtcNow<from || clock.UtcNow>=until)throw new InvalidOperationException("Walking target must belong to today.");
+                session.WalkingGoalSteps=target.GoalSteps;
+                session.WalkingQueryStartUtc=target.QueryStartUtc;session.WalkingQueryEndUtc=target.QueryEndUtc;
+                session.WalkingTargetBasis=target.Basis;session.WalkingSleepReduced=target.ReducedForSleep;
+                session.Status=ParticipationState.InProgress;session.StartedUtc=SessionTime(session.SelectedUtc);
+            });
+        }
+        // Only observed, completed Health Connect queries enter RealStepHighWater. Virtual steps
+        // remain a separate developer tool and cannot complete a personalized activity.
+        public bool TryCompleteWalkingGoal(string id, string mood = null, string note = null)
+        {
+            lock(gate)
+            {
+                RequireOpen();
+                try
+                {
+                    var session=Session(state,id);
+                    if(session.MissionId!="free-mission:M15")throw new InvalidOperationException("Not a walking activity.");
+                    if(session.Status==ParticipationState.RewardCommitted)return true;
+                    if(session.Status!=ParticipationState.InProgress && session.Status!=ParticipationState.Paused)return false;
+                    if(session.RealStepHighWater<(session.WalkingGoalSteps>0?session.WalkingGoalSteps:300))return false;
+                    return CompleteSession(id,mood,note);
+                }
+                catch(Exception ex){LastError=ex.Message;return false;}
+            }
+        }
         public bool PauseSession(string id) { return Transition(id, ParticipationState.InProgress, ParticipationState.Paused); }
         public bool ResumeSession(string id) { return Transition(id, ParticipationState.Paused, ParticipationState.InProgress); }
         bool Transition(string id, ParticipationState from, ParticipationState to)
@@ -429,6 +495,19 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(step<0 || step>20)throw new ArgumentException("Invalid instruction step.");
                 if(key!=null)SetAnswer(session.Answers,key,value??"");
                 session.InstructionStep=step;
+            });
+        }
+        public bool SkipPracticeStep(string id,int nextStep,string key)
+        {
+            return Change(next => {
+                var session=Session(next,id);
+                if(!MbctPolicy.IsMbct(session.MissionId) || session.Status!=ParticipationState.InProgress)
+                    throw new InvalidOperationException("Practice is not active.");
+                if(nextStep<0 || nextStep>20)throw new ArgumentException("Invalid instruction step.");
+                if(string.IsNullOrWhiteSpace(key) || key.Length>80 || key.Contains("|"))throw new ArgumentException("Invalid answer key.");
+                session.Answers.RemoveAll(answer=>answer.Key==key);
+                session.InstructionStep=nextStep;
+                // Previous completed practices' preferences remain available for later use.
             });
         }
         public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??""));

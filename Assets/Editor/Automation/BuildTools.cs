@@ -48,6 +48,25 @@ namespace CapstoneDesign.EditorTools
                 || home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeController>(true) != null)
                 throw new InvalidOperationException("Integrated home is missing visual links or still runs the prototype controller.");
 
+            if (home.gardenRoot == null || home.gardenRoot.GetComponent<GardenSurface>() == null)
+                throw new InvalidOperationException("Integrated home must use the grounded Kenney garden prefab.");
+            foreach (var renderer in home.gardenRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                if (!renderer.receiveShadows || renderer.shadowCastingMode == UnityEngine.Rendering.ShadowCastingMode.Off)
+                    throw new InvalidOperationException("Garden model cannot receive/cast real shadows: " + renderer.name);
+                foreach (var material in renderer.sharedMaterials)
+                    if (material == null || material.shader.name.Contains("Unlit"))
+                        throw new InvalidOperationException("Garden model has an unlit or missing material: " + renderer.name);
+            }
+            foreach (string asset in new[] { "GardenBase", "FlowerBed", "RestCorner" })
+                if (Resources.Load<GameObject>(GardenSceneModels.ResourceRoot + asset) == null)
+                    throw new InvalidOperationException("Missing garden resource: " + asset);
+            for (int i = 1; i <= 12; i++)
+                if (Resources.Load<GameObject>(GardenSceneModels.ResourceRoot + "Visitor" + i.ToString("00")) == null)
+                    throw new InvalidOperationException("Missing saved visitor model: " + i);
+            if (Resources.Load<Shader>("GardenAtmosphere/Sky") == null || Resources.Load<Shader>("GardenAtmosphere/Cloud") == null)
+                throw new InvalidOperationException("Garden environment shaders are missing.");
+
             ValidateAndroidPlatformLayer();
 
             Debug.Log("Mockup validation passed: " + scene.path + " / package " + PackageName);

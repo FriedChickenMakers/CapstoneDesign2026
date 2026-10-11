@@ -191,5 +191,33 @@ fun main() = runBlocking {
             check(failed && file.readText() == "ok\n")
         } finally { directory.deleteRecursively() }
     }
+    test("personalization merges overlapping and interrupted sleep before aggregation") {
+        val hour = 3_600_000L
+        val window = HealthPersonalizationLogic.sleepWindow(listOf(
+            HealthPersonalizationLogic.Interval(hour, 5 * hour),
+            HealthPersonalizationLogic.Interval(3 * hour, 6 * hour),
+            HealthPersonalizationLogic.Interval(7 * hour, 10 * hour)), 24 * hour)
+        check(window == HealthPersonalizationLogic.Interval(hour, 10 * hour))
+    }
+    test("short nap does not replace latest main sleep") {
+        val hour = 3_600_000L
+        val main = HealthPersonalizationLogic.Interval(hour, 8 * hour)
+        check(HealthPersonalizationLogic.sleepWindow(listOf(main,
+            HealthPersonalizationLogic.Interval(12 * hour, 13 * hour)), 24 * hour) == main)
+    }
+    test("sleep rejects future invalid and overlong windows") {
+        val hour = 3_600_000L
+        check(HealthPersonalizationLogic.sleepWindow(listOf(
+            HealthPersonalizationLogic.Interval(-1, hour),
+            HealthPersonalizationLogic.Interval(3 * hour, 2 * hour),
+            HealthPersonalizationLogic.Interval(40 * hour, 50 * hour),
+            HealthPersonalizationLogic.Interval(0, 30 * hour)), 40 * hour) == null)
+    }
+    test("sleep selects latest main rest without spanning adjacent nights") {
+        val hour = 3_600_000L
+        val latest = HealthPersonalizationLogic.Interval(25 * hour, 32 * hour)
+        check(HealthPersonalizationLogic.sleepWindow(listOf(
+            HealthPersonalizationLogic.Interval(hour, 8 * hour), latest), 40 * hour) == latest)
+    }
     println("RESULT $passed passed, 0 failed; synthetic JVM only")
 }

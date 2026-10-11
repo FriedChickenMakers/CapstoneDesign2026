@@ -81,7 +81,9 @@ class DailyAccelerationService : Service(), SensorEventListener {
         startedEpochMs = previous.optLong("startedEpochMs")
         lastSampleEpochMs = previous.optLong("lastSampleEpochMs")
         lastWriteEpochMs = previous.optLong("lastWriteEpochMs")
-        val channel = NotificationChannel(CHANNEL_ID, "가속도 수집", NotificationManager.IMPORTANCE_LOW)
+        val channel = NotificationChannel(CHANNEL_ID, "수집 실험 상태", NotificationManager.IMPORTANCE_LOW).apply {
+            setShowBadge(false); setSound(null, null); enableVibration(false)
+        }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         val open = packageManager.getLaunchIntentForPackage(packageName)?.let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
@@ -93,7 +95,7 @@ class DailyAccelerationService : Service(), SensorEventListener {
             .setSmallIcon(android.R.drawable.ic_menu_compass)
             .setContentTitle("휴대폰 가속도 수집 중")
             .setContentText("매분 5초 · 최대 48시간 · 화면이 꺼져도 수집하며 배터리를 사용해요")
-            .setContentIntent(open).setOngoing(true).setCategory(Notification.CATEGORY_SERVICE)
+            .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(Notification.Action.Builder(null, "수집 중지", stop).build()).build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)

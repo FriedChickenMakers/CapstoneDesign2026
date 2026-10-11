@@ -55,6 +55,7 @@ namespace CapstoneDesign.Runtime
             homeTab?.onClick.AddListener(OpenHome);
             activityTab?.onClick.AddListener(OpenActivity);
             settingsTab?.onClick.AddListener(OpenSettings);
+            GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             RefreshFromState();
         }
 
@@ -157,6 +158,9 @@ namespace CapstoneDesign.Runtime
         public void RefreshFromState(GardenState saved)
         {
             using var timing = UiPerformanceProbe.Measure("Home.RefreshFromState");
+            if (homeCanvas != null)
+                foreach (var layout in homeCanvas.GetComponentsInChildren<PrototypeGardenPreviewLayout>(true)) layout.UseCardSurface();
+            GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (activity == null || !activity.HasOpenState || saved == null)
             {
                 if (gardenVisuals != null) gardenVisuals.SetActive(false);
@@ -173,7 +177,7 @@ namespace CapstoneDesign.Runtime
             int visualStage = StageForGrowth(growth);
             if(renderedStage!=visualStage){plant.RenderVisual(visualStage, FlowerShape.Chamomile);renderedStage=visualStage;}
             // Every later purchase remains visible even after the first blossom.
-            plant.blossomAnchor.localScale = originalFlowerScale * (1 + Mathf.Clamp((growth - .3f) * .5f, 0, .8f));
+            plant.blossomAnchor.localScale = originalFlowerScale * (1 + Mathf.Clamp((growth - .3f) * .25f, 0, .18f));
             if (date != null) date.text = DateTime.Now.ToString("M월 d일");
             if (title != null) title.text = "오늘의 캐모마일";
             if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개 · 섬을 드래그해 둘러보세요.";
@@ -230,55 +234,11 @@ namespace CapstoneDesign.Runtime
             additions = new GameObject("Saved garden additions").transform;
             additions.SetParent(gardenRoot, false);
             foreach (var item in saved.Environments)
-            {
-                if (item.EnvironmentId == "environment:E01")
-                {
-                    Shape("Flower bed", PrimitiveType.Cube, new Vector3(-.9f, .19f, .35f), new Vector3(.34f, .10f, .31f), new Color(.56f, .37f, .28f));
-                    for (int i = 0; i < 3; i++) Shape("Bed flower", PrimitiveType.Sphere,
-                        new Vector3(-1.02f + i * .12f, .31f, .35f), Vector3.one * .12f, new Color(.96f, .79f, .65f));
-                }
-                else if (item.EnvironmentId == "environment:E02")
-                {
-                    Shape("Rest bench", PrimitiveType.Cube, new Vector3(.82f, .36f, .28f), new Vector3(.42f, .09f, .28f), new Color(.58f, .39f, .27f));
-                    foreach (float x in new[] { .66f, .98f }) Shape("Bench leg", PrimitiveType.Cube,
-                        new Vector3(x, .21f, .28f), new Vector3(.06f, .26f, .06f), new Color(.48f, .33f, .25f));
-                }
-            }
+                GardenSceneModels.CreateEnvironment(item.EnvironmentId, additions);
             var visitor = saved.DailyDecisions.LastOrDefault()?.VisitorId;
-            if (!string.IsNullOrEmpty(visitor))
-            {
-                var fur = new Color(.82f, .75f, .64f);
-                Shape("Visitor " + visitor, PrimitiveType.Sphere, new Vector3(.68f, .29f, -.65f),
-                    new Vector3(.29f, .21f, .24f), fur);
-                Shape("Visitor head", PrimitiveType.Sphere, new Vector3(.68f, .43f, -.78f),
-                    Vector3.one * .18f, new Color(.89f, .82f, .70f));
-                foreach (float x in new[] { .62f, .74f })
-                {
-                    Shape("Visitor ear", PrimitiveType.Sphere, new Vector3(x, .57f, -.77f),
-                        new Vector3(.07f, .12f, .07f), fur);
-                    Shape("Visitor eye", PrimitiveType.Sphere, new Vector3(x, .45f, -.94f),
-                        Vector3.one * .025f, new Color(.21f, .23f, .18f));
-                }
-                Shape("Visitor tail", PrimitiveType.Sphere, new Vector3(.91f, .33f, -.57f),
-                    Vector3.one * .13f, fur);
-            }
+            if (!string.IsNullOrEmpty(visitor)) GardenSceneModels.CreateVisitor(visitor, additions);
             homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true)?.RecalculateBounds();
         }
 
-        void Shape(string name, PrimitiveType type, Vector3 position, Vector3 scale, Color color)
-        {
-            var go = GameObject.CreatePrimitive(type);
-            go.name = name;
-            go.layer = 30;
-            go.transform.SetParent(additions, false);
-            go.transform.localPosition = position;
-            go.transform.localScale = scale;
-            var material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-            material.color = color;
-            go.GetComponent<Renderer>().sharedMaterial = material;
-            var collider = go.GetComponent<Collider>();
-            if (Application.isPlaying) Destroy(collider); else DestroyImmediate(collider);
-            go.AddComponent<GardenMaterialCleanup>();
-        }
     }
 }

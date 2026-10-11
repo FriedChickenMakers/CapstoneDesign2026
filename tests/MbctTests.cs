@@ -107,6 +107,23 @@ class MbctTests
         var original=s.Snapshot;var clone=StateCodec.Clone(original);
         Check(StateCodec.Encode(original)==StateCodec.Encode(clone),"Memory clone preserves serialized storage contract");
         CheckDetachedLists(original,clone);
+        var skipStore=new Store();var skip=Open(skipStore,new Clock());
+        Check(skip.SavePreference("food","existing preference"),"Seed previous completed preference");
+        Begin(skip,1,"skip-optional");
+        Check(skip.SavePracticeStep("skip-optional",0,"food","autosaved draft") &&
+            skip.SavePracticeStep("skip-optional",0,"other","keep this answer"),"Autosave current optional answers");
+        var beforeSkip=StateCodec.Encode(skip.Snapshot);skipStore.Fail=true;
+        Check(!skip.SkipPracticeStep("skip-optional",1,"food") && StateCodec.Encode(skip.Snapshot)==beforeSkip,"Skip draft removal and step advance are atomic on save failure");
+        skipStore.Fail=false;Check(skip.SkipPracticeStep("skip-optional",1,"food"),"Optional input can be skipped after autosave");
+        Check(skip.Snapshot.Sessions.Single().InstructionStep==1 &&
+            skip.Snapshot.Sessions.Single().Answers.All(a=>a.Key!="food") &&
+            skip.Snapshot.Sessions.Single().Answers.Single().Key=="other","Only the skipped answer is removed");
+        Check(skip.Snapshot.PracticePreferences.Single().Value=="existing preference","Skip preserves prior global preference");
+        skip.Dispose();skip=Open(skipStore,new Clock());
+        Check(skip.Snapshot.Sessions.Single().InstructionStep==1 && skip.Snapshot.Sessions.Single().Answers.All(a=>a.Key!="food"),"Skipped answer stays absent after reload");
+        Check(skip.CompleteSession("skip-optional") && skip.Snapshot.PracticePreferences.Single(a=>a.Key=="food").Value=="existing preference","Completion does not leak skipped autosave into preference");
+        Check(!skip.SkipPracticeStep("skip-optional",2,"other"),"Completed practice cannot be edited by skip");
+        skip.Dispose();
         s.Dispose();Console.WriteLine("PASS "+checks+" MBCT assertions (full eight-week synthetic course; no Unity/device)");
     }
 }

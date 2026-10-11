@@ -36,6 +36,7 @@ namespace CapstoneDesign.EditorTools
             Check(report, "Catalog typed IDs, order and candidate references", Catalog);
             Check(report, "UI completion without notes commits one reward and survives reopen", Completion);
             Check(report, "M15 debug steps, direct completion and garden purchase form one demo flow", M15DemoFlow);
+            Check(report, "Walking auto-completion preserves reflection after leaving the panel and retries failed saves", WalkingReflectionAutoCompletion);
             Check(report, "UI active session survives navigation and pause", Navigation);
             Check(report, "Back returns through lists, detail parameters and unpaid previews", BackPageFlow);
             Check(report, "Back preserves drafts, blocks failed saves and rewinds guided steps", BackDraftFlow);
@@ -58,6 +59,9 @@ namespace CapstoneDesign.EditorTools
             Check(report, "All guided controls and face selectors stay separated", MbctLayouts);
             Check(report, "Purchase previews explain unavailable actions without spending", PreviewAvailability);
             Check(report, "Custom practice input clears previous choice and retains its label", PracticeInputFeedback);
+            Check(report, "Activity actions stay outside scrolling content and preserve paused drafts", FixedActivityActions);
+            Check(report, "Skipping optional input removes this draft and preserves prior preferences", SkipPracticeInput);
+            Check(report, "Session refresh preserves unsaved input and aborts after storage failure", RefreshPracticeDraft);
             string directory = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS");
             if (string.IsNullOrWhiteSpace(directory)) directory = Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "local-loop-validation");
             else directory = Path.Combine(directory, "local-loop-validation");
@@ -237,6 +241,8 @@ namespace CapstoneDesign.EditorTools
         {
             const System.Reflection.BindingFlags hidden = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
             var label = (Text)typeof(SensorRawDisplay).GetField("collectorStatus",hidden).GetValue(sensor);
+            bool openedDiagnostics = !label.IsActive();
+            if(openedDiagnostics)sensor.ToggleDiagnostics();
             var refresh = typeof(SensorRawDisplay).GetMethod("RefreshSummary",hidden);
             var snapshot = new AndroidPlatformSnapshot { inputMode="LIVE" };
             var daily = new DailyAccelerationSnapshot { status="RUNNING", lastWriteEpochMs=1600000000000L };
@@ -256,7 +262,11 @@ namespace CapstoneDesign.EditorTools
                 refresh.Invoke(sensor,parameters);
                 Assert(label.text!=first && vertices>0 && layout>0,"New collector write time did not update visible status.");
             }
-            finally { label.UnregisterDirtyVerticesCallback(vertexDirty);label.UnregisterDirtyLayoutCallback(layoutDirty); }
+            finally
+            {
+                label.UnregisterDirtyVerticesCallback(vertexDirty);label.UnregisterDirtyLayoutCallback(layoutDirty);
+                if(openedDiagnostics)sensor.ToggleDiagnostics();
+            }
         }
 
         static void VerifySharedHeader(MockupNavigation nav, WeekOneQuestDemo loop)
@@ -454,6 +464,41 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
+        static void WalkingReflectionAutoCompletion()
+        {
+            using(var f=new Fixture(0,5))
+            {
+                f.Ui.SelectMission(MindfulnessContent.FindMission("free-mission:M15"));Click(f.Ui,"시작");
+                string id=f.Service.Snapshot.Sessions.Single().SessionId;
+                f.Ui.ShowReflection();Click(f.Ui,"기뻐요");
+                f.Ui.GetComponentInChildren<InputField>(true).text="합성 걷기 회고 초안";
+                Assert(f.Ui.LeaveActivityPanel(),"Could not leave reflection panel.");
+                f.Ui.ShowHome(); // The reflection field is now gone; the session draft must survive.
+                Assert(f.Service.ObserveMissionSteps(id,5000,WalkingPersonalization.AggregateSource),f.Service.LastError);
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                var complete=typeof(WeekOneQuestDemo).GetMethod("CompleteWalkingGoal",hidden);
+                var draft=typeof(WeekOneQuestDemo).GetField("draftNote",hidden);
+                var activeId=typeof(WeekOneQuestDemo).GetField("sessionId",hidden);
+                f.Store.FailNextSaves=1;complete.Invoke(f.Ui,new object[]{id});
+                Assert(f.Service.Snapshot.Sessions.Single().Status==ParticipationState.InProgress &&
+                    (string)draft.GetValue(f.Ui)=="합성 걷기 회고 초안" && f.Service.Snapshot.Nutrient==0,
+                    "Failed automatic completion lost the reflection draft or committed a reward.");
+                complete.Invoke(f.Ui,new object[]{id});
+                var saved=f.Service.Snapshot.Sessions.Single();
+                Assert(saved.Status==ParticipationState.RewardCommitted && saved.Mood=="기뻐요" &&
+                    saved.Note=="합성 걷기 회고 초안" && f.Service.Snapshot.Nutrient==5,
+                    "Leaving the activity panel caused automatic completion to drop its reflection.");
+                Assert(activeId.GetValue(f.Ui)==null && draft.GetValue(f.Ui)==null,
+                    "Successful automatic completion did not clear its stale UI session.");
+                complete.Invoke(f.Ui,new object[]{id});
+                Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.Sessions.Single().Note=="합성 걷기 회고 초안",
+                    "Repeated completion erased reflection or duplicated its reward.");
+                using(var reopened=new GardenStateService(f.Store,f.Clock,f.Balance))
+                    Assert(reopened.Open() && reopened.Snapshot.Sessions.Single().Note=="합성 걷기 회고 초안",
+                        "Auto-completed reflection did not survive a garden reload.");
+            }
+        }
+
         static void M15DemoFlow()
         {
             using (var f = new Fixture())
@@ -464,7 +509,8 @@ namespace CapstoneDesign.EditorTools
                 var walking = f.Service.Snapshot;
                 Assert(walking.Nutrient == 1 && walking.DebugWalkPeriods.Single().RewardedUnits == 1,
                     "Ten debug steps did not grant exactly one nutrient.");
-                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains("목표 10걸음") && t.text.Contains("가상 10")),
+                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains("10걸음")) &&
+                    f.Ui.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains("연습 10걸음")),
                     "M15 screen did not show debug goal and virtual progress.");
                 Click(f.Ui, "직접 완료"); f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(2);
                 Click(f.Ui, "기록 건너뛰고 완료");
@@ -481,10 +527,10 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture())
             {
-                f.Ui.SelectMission(MindfulnessContent.Course[0]); Click(f.Ui, "시작"); Click(f.Ui, "일시정지");
+                f.Ui.SelectMission(MindfulnessContent.Course[0]); Click(f.Ui, "시작"); Click(f.Ui, "잠시 쉬기");
                 f.Ui.ShowHome(); f.Ui.SelectMission(MindfulnessContent.FreeMissions[0]);
                 Assert(f.Service.Snapshot.Sessions.Count == 1 && f.Service.Snapshot.Sessions[0].Status == ParticipationState.Paused, "Navigation cloned or lost active session.");
-                Click(f.Ui, "이어서 하기"); Click(f.Ui, "오늘은 여기까지");
+                Click(f.Ui, "이어서 하기"); Click(f.Ui, "잠시 쉬기"); Click(f.Ui, "오늘은 여기까지");
                 Assert(f.Service.Snapshot.Sessions[0].Status == ParticipationState.Ended && f.Service.Snapshot.Nutrient == 0 && f.Service.Snapshot.NextCourseOrder == 1, "Participation stop rewarded or advanced course.");
             }
         }
@@ -903,7 +949,7 @@ namespace CapstoneDesign.EditorTools
         }
         static void AssertSeparateControls(WeekOneQuestDemo ui)
         {
-            var page=ui.transform.Find("Local garden flow");
+            var page=ui.GetComponentsInChildren<ScrollRect>(true).First(s=>s.name=="Local garden flow").transform;
             var controls=page.GetComponentsInChildren<Selectable>(true).Where(c=>c.transform.parent==page && c.gameObject.activeSelf).ToArray();
             for(int i=0;i<controls.Length;i++)for(int j=i+1;j<controls.Length;j++)
             {
@@ -911,6 +957,89 @@ namespace CapstoneDesign.EditorTools
                 float width=Mathf.Min(a.anchorMax.x,b.anchorMax.x)-Mathf.Max(a.anchorMin.x,b.anchorMin.x);
                 float height=Mathf.Min(a.anchorMax.y,b.anchorMax.y)-Mathf.Max(a.anchorMin.y,b.anchorMin.y);
                 Assert(width<=.0001f || height<=.0001f,"Overlapping controls: "+a.name+" / "+b.name+" on "+ui.CurrentScreen);
+            }
+        }
+        static void FixedActivityActions()
+        {
+            using(var f=new Fixture(0,5))
+            {
+                f.Ui.SelectMission(MbctContent.Course[0]);
+                var scroll=f.Ui.GetComponentsInChildren<ScrollRect>(true).Single(s=>s.name=="Local garden flow");
+                var start=Button(f.Ui,"시작");
+                Assert(!start.transform.IsChildOf(scroll.transform),"Start scrolls with the introduction.");
+                Assert(!f.Ui.GetComponentsInChildren<Button>(true).Any(b=>b.name=="오늘은 여기까지"),"Unstarted activity exposes an end action.");
+                var selectedId=f.Service.Snapshot.Sessions.Last().SessionId;
+                f.Store.FailNextSaves=1;Click(f.Ui,"선택 취소");
+                Assert(f.Ui.CurrentScreen=="session" && f.Service.Snapshot.Sessions.Any(s=>s.SessionId==selectedId),
+                    "Failed cancellation discarded the selection or navigated away.");
+                Click(f.Ui,"선택 취소");
+                Assert(f.Ui.CurrentScreen=="home" && f.Service.Snapshot.Sessions.Count==0 && f.Service.Snapshot.Nutrient==0,
+                    "Cancelling an unstarted activity left a participation record or reward.");
+                f.Ui.SelectMission(MindfulnessContent.FindMission("free-mission:M15"));
+                Assert(f.Service.Snapshot.Sessions.Single().MissionId=="free-mission:M15","Cancelled selection still blocked another activity.");
+                Click(f.Ui,"선택 취소");
+                Assert(f.Service.Snapshot.Sessions.Count==0,"Walking introduction did not cancel its selection.");
+                f.Ui.SelectMission(MbctContent.Course[0]);
+                Click(f.Ui,"시작");
+                scroll=f.Ui.GetComponentsInChildren<ScrollRect>(true).Single(s=>s.name=="Local garden flow");
+                var input=f.Ui.GetComponentInChildren<InputField>(true);
+                input.text="합성 입력 초안";
+                Assert(input.transform.IsChildOf(scroll.content),"Practice input is outside the body viewport.");
+                Assert(!Button(f.Ui,"다음").transform.IsChildOf(scroll.transform) &&
+                    !Button(f.Ui,"잠시 쉬기").transform.IsChildOf(scroll.transform),"Practice actions are inside the scroll mask.");
+                Assert(!f.Ui.GetComponentsInChildren<Button>(true).Any(b=>b.name=="목록으로" || b.name=="여기까지"),"Live practice still exposes competing list/end actions.");
+                f.Store.FailNextSaves=1;Click(f.Ui,"잠시 쉬기");
+                Assert(f.Service.Snapshot.Sessions.Last().Status==ParticipationState.InProgress && input.text=="합성 입력 초안",
+                    "A failed pause discarded input or changed state.");
+                Click(f.Ui,"잠시 쉬기");
+                Assert(f.Service.Snapshot.Sessions.Last().Status==ParticipationState.Paused,"Pause did not preserve the active session.");
+                Click(f.Ui,"이어서 하기");
+                Assert(f.Ui.GetComponentInChildren<InputField>(true).text=="합성 입력 초안","Resume lost the saved draft.");
+                Click(f.Ui,"잠시 쉬기");
+                f.Store.FailNextSaves=1;Click(f.Ui,"오늘은 여기까지");
+                Assert(f.Ui.CurrentScreen=="session" && f.Service.Snapshot.Sessions.Last().Status==ParticipationState.Paused,
+                    "Failed termination navigated away or changed participation.");
+                Click(f.Ui,"오늘은 여기까지");
+                Assert(f.Ui.CurrentScreen=="home" && f.Service.Snapshot.Sessions.Last().Status==ParticipationState.Ended && f.Service.Snapshot.Nutrient==0,
+                    "Termination did not preserve its no-completion semantics.");
+            }
+        }
+        static void SkipPracticeInput()
+        {
+            using(var f=new Fixture(0,5))
+            {
+                var mission=MbctContent.Course[0];string key=mission.steps[0].answerKey;
+                Assert(key!=null && mission.steps[0].options.Length>0,"Optional-input fixture is missing its choice step.");
+                Assert(f.Service.SavePreference(key,"이전 합성 선호"),f.Service.LastError);
+                f.Ui.SelectMission(mission);Click(f.Ui,"시작");
+                Click(f.Ui,mission.steps[0].options[0]);
+                var input=f.Ui.GetComponentInChildren<InputField>(true);string draft=input.text;
+                Assert(f.Service.Snapshot.Sessions.Last().Answers.Any(a=>a.Key==key),"Choice was not saved before skipping.");
+                f.Store.FailNextSaves=1;Click(f.Ui,"입력 건너뛰기");
+                Assert(f.Service.Snapshot.Sessions.Last().InstructionStep==0 && input.text==draft,
+                    "Failed skip advanced the step or lost its draft.");
+                Click(f.Ui,"입력 건너뛰기");
+                Assert(f.Service.Snapshot.Sessions.Last().InstructionStep==1 && !f.Service.Snapshot.Sessions.Last().Answers.Any(a=>a.Key==key),
+                    "Skipping retained the auto-saved answer.");
+                f.Ui.Finish(null,null);
+                Assert(f.Service.Snapshot.PracticePreferences.Single(a=>a.Key==key).Value=="이전 합성 선호",
+                    "Skipped input overwrote a previous completed preference.");
+            }
+        }
+        static void RefreshPracticeDraft()
+        {
+            using(var f=new Fixture(0,5))
+            {
+                var mission=MbctContent.Course[0];string key=mission.steps[0].answerKey;
+                f.Ui.SelectMission(mission);Click(f.Ui,"시작");
+                var field=f.Ui.GetComponentInChildren<InputField>(true);field.text="수정 중인 합성 초안";
+                f.Store.FailNextSaves=1;f.Ui.ShowSession();
+                Assert(f.Ui.GetComponentInChildren<InputField>(true)==field && field.text=="수정 중인 합성 초안",
+                    "Failed background refresh replaced the unsaved input.");
+                f.Ui.ShowSession();
+                Assert(f.Ui.GetComponentInChildren<InputField>(true).text=="수정 중인 합성 초안" &&
+                    f.Service.Snapshot.Sessions.Last().Answers.Single(a=>a.Key==key).Value=="수정 중인 합성 초안",
+                    "Background refresh restored a stale draft.");
             }
         }
         static void MbctLayouts()

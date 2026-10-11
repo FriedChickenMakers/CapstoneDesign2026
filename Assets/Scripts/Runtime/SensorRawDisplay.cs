@@ -39,6 +39,11 @@ namespace CapstoneDesign.Runtime
         private Text collectorActionStatus;
         private GameObject diagnostics;
         private Button diagnosticsButton;
+        private Text notificationStatus;
+        private Button notificationToggle, notificationPermission, notificationTiming, notificationAdaptive;
+        private GameObject notificationOptions;
+        private ActivityNotificationSettings notificationSettings;
+        private Text notificationActionStatus;
         public ScrollRect PrimaryScroll { get; private set; }
         private WeekOneQuestDemo Loop => transform.root.GetComponentInChildren<WeekOneQuestDemo>(true);
 
@@ -66,6 +71,26 @@ namespace CapstoneDesign.Runtime
             title.alignment = TextAnchor.MiddleLeft;
             FixedHeight(title.gameObject, 78);
 
+            Transform reminders = Section(content, "Activity reminders", "활동 추천 알림");
+            notificationStatus = Copy(reminders, "알림 설정 확인 중", GardenUi.BodySize, GardenUi.Muted);
+            notificationToggle = Control(reminders, "알림 켜기", ToggleActivityNotifications, true);
+            notificationTiming = Control(reminders, "시간 설정", () =>
+            {
+                notificationOptions.SetActive(!notificationOptions.activeSelf);
+                RefreshNotificationSettings();
+                LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+            });
+            notificationOptions = Stack(reminders, "Reminder timing options", 12, 0).gameObject;
+            foreach (int hour in new[] { 9, 13, 20 })
+            {
+                int selectedHour=hour;
+                Control(notificationOptions.transform, hour<12?"오전 "+hour+"시":"오후 "+(hour-12)+"시", () => ChangeNotificationTime(selectedHour*60));
+            }
+            notificationAdaptive=Control(notificationOptions.transform,"확인한 시간에 맞추기",ToggleAdaptiveReminders);
+            notificationOptions.SetActive(false);
+            notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());
+            notificationActionStatus=ActionLine(reminders);
+
             Transform healthCard = Section(content, "Health records", "건강 기록", GardenUi.Pale);
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             Control(healthCard, "심박 차트 보기", OpenCharts, true);
@@ -78,16 +103,16 @@ namespace CapstoneDesign.Runtime
             Place(healthPermissionButton, permissions, "건강 데이터 권한 확인");
             permissionActionStatus = ActionLine(permissions);
 
-            Transform collector = Section(content, "Acceleration collection", "가속도 수집");
+            diagnosticsButton = Control(content, "상세 진단 보기  +", ToggleDiagnostics);
+            diagnostics = Section(content, "Detailed diagnostics", "상세 진단").gameObject;
+            Transform collector = Section(diagnostics.transform, "Acceleration collection", "가속도 수집 실험");
             collectorStatus = Copy(collector, "수집 상태 확인 중", GardenUi.HeadingSize, GardenUi.Green);
             collectorStatus.fontStyle = FontStyle.Bold;
             collectorDetails = Copy(collector, "", GardenUi.BodySize, GardenUi.Muted);
-            Copy(collector, "매분 5초 · 최대 48시간\n화면 꺼짐 중 수집 · 배터리 사용", GardenUi.BodySize, GardenUi.Muted);
+            Copy(collector, "매분 5초 · 최대 48시간\n실험 중 Android 필수 상태 알림 표시", GardenUi.BodySize, GardenUi.Muted);
             Place(startServiceButton, collector, "가속도 수집 켜기", true);
             Place(stopServiceButton, collector, "가속도 수집 끄기");
             collectorActionStatus = ActionLine(collector);
-            diagnosticsButton = Control(content, "상세 진단 보기  +", ToggleDiagnostics);
-            diagnostics = Section(content, "Detailed diagnostics", "상세 진단").gameObject;
             if (Debug.isDebugBuild || Application.isEditor)
             {
                 debugModeButton = Control(diagnostics.transform, "걸음 디버그 OFF", ToggleDebugWalk);
@@ -105,6 +130,52 @@ namespace CapstoneDesign.Runtime
             AddListener(healthPermissionButton, RequestHealthPermissions);
             AddListener(refreshHealthButton, RefreshHealth);
             RefreshText();
+        }
+
+        void RefreshNotificationSettings()
+        {
+            if(notificationStatus==null)return;
+            bool live=AndroidPlatformBridge.InputMode==PlatformInputMode.Live && Application.platform==RuntimePlatform.Android;
+            notificationSettings=ActivityNotificationBridge.Settings();
+            var n=notificationSettings;
+            bool permission=n.permissionStatus=="AVAILABLE";
+            notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":!n.enabled?"활동 추천 알림이 꺼져 있어요.":!permission?"기기에서 알림을 허용해 주세요.":
+                "매일 "+(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00")+"쯤"+(n.adaptive?" · 확인한 시간에 맞춤":"");
+            notificationToggle.GetComponentInChildren<Text>().text=n.enabled?"추천 알림 끄기":"추천 알림 켜기";
+            notificationTiming.GetComponentInChildren<Text>().text=notificationOptions.activeSelf?"시간 설정 닫기  −":"시간 설정  +";
+            notificationToggle.interactable=notificationTiming.interactable=live;
+            notificationPermission.gameObject.SetActive(live && n.enabled && !permission);
+            notificationTiming.gameObject.SetActive(n.enabled);
+            if(!n.enabled)notificationOptions.SetActive(false);
+            notificationAdaptive.GetComponentInChildren<Text>().text=n.adaptive?"확인한 시간에 맞추기 · 켜짐":"확인한 시간에 맞추기 · 꺼짐";
+        }
+        void ToggleActivityNotifications()
+        {
+            var n=notificationSettings ?? ActivityNotificationBridge.Settings();
+            if(ApplyNotificationSettings(!n.enabled,n.preferredMinute,n.adaptive) && !n.enabled)ActivityNotificationBridge.Permission();
+            RefreshNotificationSettings();
+        }
+        void ChangeNotificationTime(int minute)
+        {
+            var n=notificationSettings ?? ActivityNotificationBridge.Settings();
+            if(ApplyNotificationSettings(n.enabled,minute,n.adaptive))notificationOptions.SetActive(false);
+            RefreshNotificationSettings();
+        }
+        void ToggleAdaptiveReminders()
+        {
+            var n=notificationSettings ?? ActivityNotificationBridge.Settings();
+            ApplyNotificationSettings(n.enabled,n.preferredMinute,!n.adaptive);
+            RefreshNotificationSettings();
+        }
+
+        bool ApplyNotificationSettings(bool enabled,int minute,bool adaptive)
+        {
+            var result=ActivityNotificationBridge.Configure(enabled,minute,adaptive);
+            bool saved=result!=null && result.status=="AVAILABLE";
+            notificationActionStatus.text=saved?"":"알림 설정을 저장하지 못했어요. 다시 시도해 주세요.";
+            notificationActionStatus.gameObject.SetActive(!saved);
+            LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+            return saved;
         }
 
         private Transform ConfigureScrollablePanel()
@@ -347,6 +418,7 @@ namespace CapstoneDesign.Runtime
 
         private void RefreshText()
         {
+            RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
             if (output == null)
             {

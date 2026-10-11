@@ -10,6 +10,7 @@ import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.metadata.DataOrigin
+import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
@@ -25,6 +26,7 @@ import kotlin.coroutines.coroutineContext
 import org.json.JSONArray
 import kotlin.reflect.KClass
 import org.json.JSONObject
+import java.time.Period
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -41,6 +43,7 @@ internal object HealthRepository {
     private var refreshing = false
     private var refreshQueued = false
     private var stepRangeBusy = false
+    private var activityBaselineCache: JSONObject? = null
     private var stepRangeResult = JSONObject().put("status", PlatformStatus.NO_DATA)
         .put("requestId", "").put("queryComplete", false)
     private var lastSuccessfulRefreshEpochMs = 0L
@@ -137,7 +140,7 @@ internal object HealthRepository {
         JSONObject(stepRangeResult.toString()).put("refreshing", stepRangeBusy).toString()
     }
 
-    fun refreshStepsRange(startEpochMs: Long, endEpochMs: Long, requestId: String): String {
+    fun refreshStepsRange(startEpochMs: Long, endEpochMs: Long, requestId: String, aggregate: Boolean = false): String {
         if (requestId.isBlank() || startEpochMs < 0 || endEpochMs <= startEpochMs ||
             endEpochMs > System.currentTimeMillis() + 5_000L ||
             endEpochMs - startEpochMs > Duration.ofDays(30).toMillis())
@@ -163,13 +166,15 @@ internal object HealthRepository {
                         JSONObject().put("status", PlatformStatus.PERMISSION_REQUIRED)
                             .put("message", "Health Connect step permission is required")
                     } else {
-                        val query = preferredSteps(client, Instant.ofEpochMilli(startEpochMs),
-                            Instant.ofEpochMilli(endEpochMs))
-                        val total = query.total
-                        JSONObject().put("status", when {
-                            !query.complete -> "PARTIAL"
-                            total == null -> PlatformStatus.NO_DATA
-                            else -> PlatformStatus.AVAILABLE
+                        if (aggregate) aggregateSteps(client, Instant.ofEpochMilli(startEpochMs), Instant.ofEpochMilli(endEpochMs))
+                        else {
+                            val query = preferredSteps(client, Instant.ofEpochMilli(startEpochMs),
+                                Instant.ofEpochMilli(endEpochMs))
+                            val total = query.total
+                            JSONObject().put("status", when {
+                                !query.complete -> "PARTIAL"
+                                total == null -> PlatformStatus.NO_DATA
+                                else -> PlatformStatus.AVAILABLE
                         }).put("hasValue", query.complete && total != null)
                             .put("count", total?.count ?: 0L)
                             .put("source", total?.source?.id ?: "")
@@ -179,6 +184,7 @@ internal object HealthRepository {
                             })
                             .put("queryComplete", query.complete)
                             .put("message", if (query.complete) "" else "Step records incomplete: ${query.reason}")
+                        }
                     }
                 }
             } catch (exception: Exception) {
@@ -213,6 +219,11 @@ internal object HealthRepository {
         val sleep = if (granted.contains(sleepPermission)) {
             readSleep(client, now, queryTime)
         } else missingPermissionMetric("sleep", permissionRequestCompleted)
+        val personalization = if (granted.contains(stepsPermission)) {
+            readActivityBaseline(client, now, zone)
+        } else JSONObject().put("status", if (permissionRequestCompleted) PlatformStatus.PERMISSION_DENIED else PlatformStatus.PERMISSION_REQUIRED)
+            .put("queryComplete", false)
+        personalization.put("sleep", sleep)
         val heartRate = if (granted.contains(heartPermission)) {
             readHeartRate(client, heartRange?.second ?: now, queryTime, heartRange?.first ?: now.minus(Duration.ofDays(7)))
         } else missingPermissionMetric("heart rate", permissionRequestCompleted)
@@ -248,6 +259,7 @@ internal object HealthRepository {
             .put("lastSuccessfulRefreshEpochMs", lastSuccessfulRefreshEpochMs)
             .put("samsungHealthStatus", samsungStatus.first)
             .put("samsungHealthMessage", samsungStatus.second)
+            .put("personalization", personalization)
             .put("steps", steps)
             .put("samsungSteps", samsungSteps)
             .put("sleep", sleep)
@@ -376,21 +388,85 @@ internal object HealthRepository {
         return value
     }
 
+    /** Shared by foreground walking progress and background achievement checks. Health Connect
+     * applies the user's origin priorities to avoid counting phone/watch overlaps twice. */
+    internal suspend fun aggregateSteps(client: HealthConnectClient, start: Instant, end: Instant): JSONObject {
+        val aggregate = withTimeout(30_000) { HealthQueryLogic.retry { client.aggregate(AggregateRequest(
+            metrics = setOf(StepsRecord.COUNT_TOTAL), timeRangeFilter = TimeRangeFilter.between(start, end))) } }
+        val count = aggregate[StepsRecord.COUNT_TOTAL]
+        return JSONObject().put("status", if (count == null) PlatformStatus.NO_DATA else PlatformStatus.AVAILABLE)
+            .put("hasValue", count != null).put("count", count ?: 0L).put("queryComplete", true)
+            .put("source", "HEALTH_CONNECT_AGGREGATE").put("sourceLabel", "Health Connect")
+            .put("sourceBreakdown", "").put("message", "Health Connect priority-based aggregate")
+    }
+
+    private suspend fun readActivityBaseline(client: HealthConnectClient, now: Instant, zone: ZoneId): JSONObject {
+        val today = now.atZone(zone).toLocalDate()
+        val start = today.minusDays(14).atStartOfDay()
+        val end = today.atStartOfDay()
+        val cached = activityBaselineCache
+        if (cached != null && cached.optString("queryTimeZone") == zone.id &&
+            cached.optLong("queryEndEpochMs") == end.atZone(zone).toInstant().toEpochMilli() &&
+            now.toEpochMilli() - cached.optLong("lastUpdatedEpochMs") in 0..Duration.ofMinutes(30).toMillis())
+            return JSONObject(cached.toString())
+        val value = JSONObject().put("lastUpdatedEpochMs", now.toEpochMilli())
+            .put("queryStartEpochMs", start.atZone(zone).toInstant().toEpochMilli())
+            .put("queryEndEpochMs", end.atZone(zone).toInstant().toEpochMilli()).put("queryTimeZone", zone.id)
+        return try {
+            val buckets = withTimeout(30_000) { HealthQueryLogic.retry { client.aggregateGroupByPeriod(
+                AggregateGroupByPeriodRequest(metrics = setOf(StepsRecord.COUNT_TOTAL),
+                    timeRangeFilter = TimeRangeFilter.between(start, end), timeRangeSlicer = Period.ofDays(1))) } }
+            // API buckets may be absent. Emit every date with an explicit hasValue, never convert
+            // a missing measurement into a sedentary day. Today is intentionally excluded.
+            val byDate = buckets.associateBy { it.startTime.toLocalDate() }
+            val days = JSONArray()
+            repeat(14) { offset ->
+                val date = today.minusDays((14 - offset).toLong())
+                val count = byDate[date]?.result?.get(StepsRecord.COUNT_TOTAL)
+                days.put(JSONObject().put("date", date.toString()).put("hasValue", count != null)
+                    .put("count", count ?: 0L)
+                    .put("endEpochMs", date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()))
+            }
+            value.put("status", PlatformStatus.AVAILABLE).put("queryComplete", true).put("days", days)
+            activityBaselineCache = JSONObject(value.toString())
+            value
+        } catch (exception: Exception) {
+            coroutineContext.ensureActive()
+            if (exception is CancellationException && exception !is TimeoutCancellationException) throw exception
+            value.put("status", PlatformStatus.ERROR).put("queryComplete", false).put("days", JSONArray())
+        }
+    }
+
     private suspend fun readSleep(client: HealthConnectClient, now: Instant, queryTime: Long): JSONObject {
         val start = now.minus(Duration.ofHours(48))
         val result = readAll(client, SleepSessionRecord::class, start, now)
         val selected = HealthSourcePolicy.select(result.records.map { record ->
             HealthSourcePolicy.Candidate(record, source(record), record.endTime.toEpochMilli())
         }, queryTime, Duration.ofHours(36).toMillis())
-        val latest = selected?.values?.maxByOrNull { it.endTime }
-        val value = if (latest == null) noDataMetric("No sleep session in queried interval", queryTime) else {
-            val minutes = Duration.between(latest.startTime, latest.endTime).toMinutes()
-            metric(minutes.toDouble(), "${minutes / 60}h ${minutes % 60}m session", "session minutes",
-                latest.metadata.dataOrigin.packageName, latest.endTime.toEpochMilli(), queryTime,
-                Duration.ofHours(36).toMillis()).put("message", "Session length; sleep stages not analyzed")
-                .put("source", sourceLabel(selected!!.source))
+        // A short recent nap should not replace the most recent main sleep session.
+        val latest = HealthPersonalizationLogic.sleepWindow(selected?.values.orEmpty().map {
+            HealthPersonalizationLogic.Interval(it.startTime.toEpochMilli(), it.endTime.toEpochMilli())
+        }, queryTime)
+        val value = if (latest == null) noDataMetric("No sleep session in queried interval", queryTime) else try {
+            // Aggregate all origins for this sleep interval: Health Connect handles overlap using
+            // user priorities. This is recorded session duration, not an inferred sleep diagnosis.
+            val aggregate = withTimeout(30_000) { HealthQueryLogic.retry { client.aggregate(AggregateRequest(
+                metrics = setOf(SleepSessionRecord.SLEEP_DURATION_TOTAL),
+                timeRangeFilter = TimeRangeFilter.between(Instant.ofEpochMilli(latest.startMs), Instant.ofEpochMilli(latest.endMs)))) } }
+            val minutes = aggregate[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.toMinutes()
+            if (minutes == null) noDataMetric("No aggregated sleep session duration", queryTime) else
+                metric(minutes.toDouble(), "${minutes / 60}h ${minutes % 60}m session", "session minutes",
+                    "", latest.endMs, queryTime, Duration.ofHours(36).toMillis())
+                    .put("source", "Health Connect aggregate")
+                    .put("message", "Deduplicated recorded sleep duration; not a sleep-quality assessment")
+        } catch (exception: Exception) {
+            coroutineContext.ensureActive()
+            if (exception is CancellationException && exception !is TimeoutCancellationException) throw exception
+            errorMetric("SLEEP_AGGREGATE_FAILED", exception, queryTime)
         }
-        return annotate(value, result, start, now)
+        annotate(value, result, start, now)
+        if (value.optString("status") == PlatformStatus.ERROR) value.put("queryComplete", false)
+        return value
     }
 
     suspend fun readHeartHistory(context: Context): JSONObject {

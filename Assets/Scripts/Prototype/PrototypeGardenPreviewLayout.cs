@@ -28,6 +28,14 @@ namespace CapstoneDesign.Prototype
         private void LateUpdate() => Apply();
         private void OnValidate() => boundsReady = false;
 
+        public void UseCardSurface()
+        {
+            horizontalPadding = 48;
+            boundaryGap = 24;
+            if (GetComponent<PrototypeRoundedPreview>() == null) gameObject.AddComponent<PrototypeRoundedPreview>();
+            Apply();
+        }
+
         public void Apply()
         {
             if (upperBoundary == null || lowerBoundary == null || orbit == null || gardenRoot == null) return;

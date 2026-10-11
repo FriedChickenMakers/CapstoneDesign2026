@@ -41,7 +41,8 @@ namespace CapstoneDesign.Runtime
         {
             public string Id, PeriodId, SessionId;
             public long StartMs, EndMs;
-            public bool IsClosedPeriod;
+            public bool IsClosedPeriod, Aggregate;
+            public float StartedAt;
         }
         readonly Queue<StepQuery> stepQueries = new Queue<StepQuery>();
         StepQuery runningStepQuery;
@@ -101,6 +102,7 @@ namespace CapstoneDesign.Runtime
         void Update()
         {
             TickRecordHeartRefresh();
+            TickMissionNotifications();
             if(opened && Time.unscaledTime >= nextCycleCheck) { nextCycleCheck=Time.unscaledTime+30; RefreshCycle(); }
         }
         void OnApplicationFocus(bool focus) { if(!opened)return; if(focus)OnAppReturned();else SaveActivePracticeDraft(); }
@@ -115,7 +117,7 @@ namespace CapstoneDesign.Runtime
             if(!Service.RefreshCycle(candidates))
             {
                 error=Service.LastError;
-                if(notice!=null)notice.text="일일 상태 저장 실패 · 기존 진행을 보존했어요\n"+error;
+                if(notice!=null){notice.gameObject.SetActive(true);notice.text="일일 상태 저장 실패 · 기존 진행을 보존했어요\n"+error;}
                 return false;
             }
             if(state.LastCycleId!=Service.Snapshot.LastCycleId)UpdateGarden();
@@ -125,7 +127,7 @@ namespace CapstoneDesign.Runtime
         {
             error=success ? null : Service.LastError;
             if(success) UpdateGarden();
-            else if(notice!=null)notice.text="저장하지 못했어요. 입력을 유지했으니 다시 시도해 주세요.";
+            else if(notice!=null){notice.gameObject.SetActive(true);notice.text="저장하지 못했어요. 입력을 유지했으니 다시 시도해 주세요.";}
             return success;
         }
         Transform Page(string title,GardenState state=null)
@@ -134,7 +136,7 @@ namespace CapstoneDesign.Runtime
             ClearRecordHeartRefresh();
             ClearIntegratedPurchasePreview();
             var background=GetComponent<Image>();if(background!=null)background.color=GardenUi.Background;
-            if(pageViewport!=null) { pageViewport.SetActive(false); if(Application.isPlaying) Destroy(pageViewport); else DestroyImmediate(pageViewport); }
+            ClearPageView();
             var content=GardenUi.ScrollPage(transform,"Local garden flow",.105f,1,
                 screen=="course"?1840:screen=="home"?1200:1600);
             pageViewport=content.parent.gameObject;view=content.gameObject;
@@ -195,51 +197,47 @@ namespace CapstoneDesign.Runtime
             using var timing = UiPerformanceProbe.Measure("Activities.ShowCourse");
             var timer=System.Diagnostics.Stopwatch.StartNew();long reads=Service.SnapshotReads;
             var state=Service.Snapshot;string availability=MbctPolicy.Availability(state);
-            EnterPage("course",ShowCourse);var p=Page("8주 마음챙김 활동",state);
-            GardenUi.FromTop(GardenUi.Card(p,"Week focus",.07f,0,.86f,0,GardenUi.Pale).transform,314,80);
-            var week=GardenUi.Label(p,(coursePage+1)+"주 · "+MbctContent.WeekTitles[coursePage],.10f,0,.80f,0,28);week.fontStyle=FontStyle.Bold;GardenUi.FromTop(week.transform,314,80);
+            EnterPage("course",ShowCourse);var p=FocusPage("8주 마음챙김 활동",(coursePage+1)+"주 · "+MbctContent.WeekTitles[coursePage]);
+            GardenUi.FlowLabel(p,"배운 활동은 다시 해볼 수 있고, 새 활동은 순서대로 열려요.",GardenUi.BodySize,GardenUi.Muted);
             for(int i=0;i<6;i++)
             {
                 var m=MbctContent.Course[coursePage*6+i];bool learned=m.recommendedOrder<state.MbctNextOrder;
                 bool current=m.recommendedOrder==state.MbctNextOrder;
-                string detail=learned?"배운 활동 · 복습 가능":current?(availability==null?"이번 추천 활동":"다음 참여에서 이어가기"):"앞 활동을 배우면 열려요";
-                var b=GardenUi.MenuButton(p,(i+1)+"일차  "+m.title,detail,.07f,.65f-i*.069f,.86f,.062f,()=>SelectMission(m),
+                string detail=learned?"복습 가능":current?(availability==null?"이번 추천 활동":"다음 참여에서 이어가기"):null;
+                var b=GardenUi.MenuButton(p,(i+1)+"일차  "+m.title,detail,0,0,1,0,()=>SelectMission(m),
                     learned?PrototypeUiIcon.Symbol.Check:current?PrototypeUiIcon.Symbol.Arrow:PrototypeUiIcon.Symbol.Lock,current);
-                GardenUi.FromTop(b.transform,418+i*196,180);
+                b.gameObject.AddComponent<LayoutElement>().preferredHeight=detail==null?128:184;
                 b.interactable=learned || (current && availability==null);
                 if(!b.interactable){foreach(var label in b.GetComponentsInChildren<Text>())label.color=GardenUi.Muted;foreach(var icon in b.GetComponentsInChildren<PrototypeUiIcon>())icon.color=GardenUi.Muted;}
             }
-            var previous=GardenUi.Button(p,"이전 주",.07f,.18f,.26f,.06f,()=>{coursePage--;ShowCourse();});previous.interactable=coursePage>0;
-            var next=GardenUi.Button(p,"다음 주",.37f,.18f,.26f,.06f,()=>{coursePage++;ShowCourse();});next.interactable=coursePage<7;
-            var back=GardenUi.Button(p,"돌아가기",.67f,.18f,.26f,.06f,ShowHome);
-            GardenUi.FromTop(previous.transform,1620,88);GardenUi.FromTop(next.transform,1620,88);GardenUi.FromTop(back.transform,1620,88);
+            DockPair("이전 주",()=>{coursePage--;ShowCourse();},"다음 주",()=>{coursePage++;ShowCourse();});
+            var buttons=activityActions.GetComponentsInChildren<Button>();
+            buttons.First(b=>b.name=="이전 주").interactable=coursePage>0;
+            buttons.First(b=>b.name=="다음 주").interactable=coursePage<7;
+            DockAction("돌아가기",ShowHome);
             LastCourseBuildMs=timer.Elapsed.TotalMilliseconds;TraceScreen("course",LastCourseBuildMs,Service.SnapshotReads-reads);
         }
         public void ShowFree()
         {
             using var timing = UiPerformanceProbe.Measure("Activities.ShowFree");
             var timer=System.Diagnostics.Stopwatch.StartNew();long reads=Service.SnapshotReads;
-            var state=Service.Snapshot;EnterPage("free",ShowFree);var p=Page("배운 활동 다시 하기",state);
+            var state=Service.Snapshot;EnterPage("free",ShowFree);var p=FocusPage("배운 활동 다시 하기","내 속도로 복습");
             var learned=MbctContent.Course.Where(m=>m.recommendedOrder<state.MbctNextOrder).ToArray();
-            if(learned.Length==0)
-            {
-                GardenUi.Icon(p,PrototypeUiIcon.Symbol.Leaf,.41f,.59f,.18f,.14f);
-                GardenUi.Label(p,"추천 활동을 해본 뒤 다시 연습할 수 있어요.",.07f,.45f,.86f,.12f,28);
-            }
+            if(learned.Length==0)Guidance(p,"추천 활동을 해본 뒤 다시 연습할 수 있어요.");
             else
             {
                 freeIndex=Math.Min(freeIndex,learned.Length-1);var m=learned[freeIndex];
-                GardenUi.Card(p,"Practice choice",.07f,.43f,.86f,.34f,GardenUi.Pale);
-                GardenUi.Icon(p,PrototypeUiIcon.Symbol.Leaf,.10f,.66f,.07f,.06f);
-                GardenUi.Label(p,(freeIndex+1)+" / "+learned.Length+" · 배운 활동",.20f,.68f,.67f,.04f,22).color=GardenUi.Muted;
-                GardenUi.Label(p,m.title,.10f,.58f,.80f,.085f,31).fontStyle=FontStyle.Bold;
-                GardenUi.Label(p,m.purpose,.10f,.475f,.80f,.09f,25);
-                GardenUi.Label(p,"복습에는 추가 보상이 없어요.",.10f,.44f,.80f,.035f,21).color=GardenUi.Muted;
-                GardenUi.Button(p,"이 활동 안내",.07f,.33f,.86f,.075f,()=>SelectMission(m),true);
-                GardenUi.Button(p,"다른 활동",.07f,.24f,.86f,.065f,()=>{freeIndex=(freeIndex+1)%learned.Length;ShowFree();});
+                GardenUi.FlowLabel(p,(freeIndex+1)+" / "+learned.Length+" · 배운 활동",GardenUi.CaptionSize,GardenUi.Muted);
+                GardenUi.FlowLabel(p,m.title,GardenUi.HeadingSize).fontStyle=FontStyle.Bold;
+                Guidance(p,m.purpose);
+                GardenUi.FlowLabel(p,"복습에는 추가 보상이 없어요.",GardenUi.CaptionSize,GardenUi.Muted);
+                var another=GardenUi.Button(p,"다른 활동",0,0,1,0,()=>{freeIndex=(freeIndex+1)%learned.Length;ShowFree();});
+                another.gameObject.AddComponent<GardenFlowButton>();
+                DockAction("이 활동 안내",()=>SelectMission(m),true);
             }
-            GardenUi.Button(p,"돌아가기",.07f,.15f,.86f,.065f,ShowHome);
-            GardenUi.Button(p,"걸음 기록과 걷기",.07f,.075f,.86f,.055f,()=>SelectMission(MindfulnessContent.FindMission("free-mission:M15")));
+            var walking=GardenUi.MenuButton(p,"걸음 기록과 걷기",null,0,0,1,0,()=>SelectMission(MindfulnessContent.FindMission("free-mission:M15")),PrototypeUiIcon.Symbol.Leaf);
+            walking.gameObject.AddComponent<LayoutElement>().preferredHeight=96;
+            DockAction("돌아가기",ShowHome);
             LastFreeBuildMs=timer.Elapsed.TotalMilliseconds;TraceScreen("free",LastFreeBuildMs,Service.SnapshotReads-reads);
         }
         static void TraceScreen(string name,double milliseconds,long snapshots)
@@ -261,40 +259,76 @@ namespace CapstoneDesign.Runtime
         public void ShowSession()
         {
             using var timing = UiPerformanceProbe.Measure("Activities.ShowSession");
+            // A platform refresh can arrive while the optional input is focused.
+            // Save before taking the replacement view's snapshot or disabling it.
+            if(opened && !SaveActivePracticeDraft())return;
+            ClearPracticeDraft();
             bool enteringSession=screen!="session";
             EnterPage("session",ShowSession); var s=ActiveSession(); if(s==null){ShowHome();return;}
-            var m=MindfulnessContent.FindMission(s.MissionId); var p=Page(m?.title ?? s.MissionId);
+            var m=MindfulnessContent.FindMission(s.MissionId); var p=FocusPage(m?.title ?? s.MissionId,
+                s.Status==ParticipationState.Selected?"활동 안내":s.Status==ParticipationState.Paused?"잠시 쉬는 중":"활동 중");
             if(m?.mbctActivity>0){ShowMbctSession(s,m,p);return;}
             bool walking=s.MissionId=="free-mission:M15";
             if(walking && enteringSession)RequestStepSyncSoon();
-            GardenUi.Label(p,walking ? "미션 시작 후 걸어 보세요. 동기화가 늦어도 직접 완료할 수 있어요."
-                : (m?.textOnlyInstructions ?? "편안한 만큼 참여해 주세요.")+"\n\n"+((m?.suggestedDurationSeconds ?? 0)>0 ? "권장 "+m.suggestedDurationLabel : "시간은 편한 만큼")+" · 직접 완료할 수 있어요",.07f,.56f,.86f,.23f,30);
-            string progress=walking ? "\n목표 "+(DebugWalkEnabled?10:300)+"걸음 · 실제 "+s.RealStepHighWater+" + 가상 "+(DebugWalkEnabled?s.VirtualSteps:0)+"\n"+stepQueryStatus : "";
-            GardenUi.Label(p,(walking?"걷기 미션": "화면 안내를 따라 해보세요")+"\n"+StateLabel(s.Status)+progress,.07f,.41f,.86f,.15f,23);
-            if(s.Status==ParticipationState.Selected) GardenUi.Button(p,"시작",.07f,.32f,.86f,.075f,()=>{if(Apply(Service.StartSession(sessionId))){RequestStepSyncSoon();ScheduleMissionReminder();}ShowSession();},true);
-            if(s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused)
+            Guidance(p,walking ? "오늘의 걸음을 확인하며 편한 속도로 걸어 보세요. 동기화가 늦어도 직접 완료할 수 있어요."
+                : (m?.textOnlyInstructions ?? "편안한 만큼 참여해 주세요."));
+            if(walking)
             {
-                GardenUi.Button(p,s.Status==ParticipationState.Paused?"이어서 하기":"일시정지",.07f,.32f,.86f,.075f,()=>{if(Apply(s.Status==ParticipationState.Paused?Service.ResumeSession(sessionId):Service.PauseSession(sessionId)) && walking)ScheduleMissionReminder();ShowSession();});
-                GardenUi.Button(p,"직접 완료 · 선택 기록",.07f,.235f,.86f,.075f,ShowReflection,true);
+                var target=s.Status==ParticipationState.Selected?WalkingPersonalization.Evaluate(
+                    (PreviewHealth??AndroidPlatformBridge.GetSnapshot())?.healthConnect?.personalization,Service.CurrentUtc,Service.CurrentTimeZone):null;
+                int goal=DebugWalkEnabled?10:target?.GoalSteps??WalkingPersonalization.TargetFor(s);
+                bool today=s.Status==ParticipationState.Selected || (s.WalkingGoalSteps>0 &&
+                    TimeZoneInfo.ConvertTime(WalkingPersonalization.QueryStartFor(s),Service.CurrentTimeZone).Date==TimeZoneInfo.ConvertTime(Service.CurrentUtc,Service.CurrentTimeZone).Date);
+                string scope=s.WalkingGoalSteps==0 && s.Status!=ParticipationState.Selected?"시작 후":today?"오늘 총":"시작한 날";
+                GardenUi.FlowLabel(p,scope+" "+goal.ToString("N0")+"걸음",GardenUi.HeadingSize).fontStyle=FontStyle.Bold;
+                GardenUi.FlowLabel(p,target==null?WalkingPersonalization.Explanation(s):WalkingPersonalization.Explanation(target),GardenUi.BodySize,GardenUi.Muted);
+                GardenUi.FlowLabel(p,"실제 "+s.RealStepHighWater+"걸음"+(DebugWalkEnabled?" · 연습 "+s.VirtualSteps+"걸음":""));
+                GardenUi.FlowLabel(p,stepQueryStatus,GardenUi.CaptionSize,GardenUi.Muted);
+                if(s.Status!=ParticipationState.Selected)
+                {
+                    var retry=GardenUi.Button(p,"걸음 다시 조회",0,0,1,0,()=>{RequestStepSyncSoon(true,true);TickStepSync();ShowSession();});
+                    retry.gameObject.AddComponent<LayoutElement>().preferredHeight=88;
+                }
             }
-            bool canRetrySteps=walking && (s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused);
-            if(canRetrySteps)
-                GardenUi.Button(p,"걸음 다시 조회",.07f,.14f,.41f,.075f,()=>{RequestStepSyncSoon(true,true);TickStepSync();ShowSession();});
-            GardenUi.Button(p,"오늘은 여기까지",canRetrySteps ? .52f : .07f,.14f,walking && !canRetrySteps ? .86f : .41f,.075f,()=>{if(Apply(Service.EndParticipation(sessionId))){if(walking)AndroidPlatformBridge.CancelMissionRewardReminder(sessionId);sessionId=null;}ShowHome();});
-            if(!walking)GardenUi.Button(p,"목록으로",.52f,.15f,.41f,.075f,ShowHome);
+            else GardenUi.FlowLabel(p,(m?.suggestedDurationSeconds ?? 0)>0?"권장 "+m.suggestedDurationLabel:"시간은 편한 만큼",GardenUi.BodySize,GardenUi.Muted);
+            if(s.Status==ParticipationState.Selected)
+            {
+                DockAction("시작",()=>
+                {
+                    var target=walking?WalkingPersonalization.Evaluate((PreviewHealth??AndroidPlatformBridge.GetSnapshot())?.healthConnect?.personalization,
+                        Service.CurrentUtc,Service.CurrentTimeZone):null;
+                    if(Apply(walking?Service.StartWalkingSession(sessionId,target):Service.StartSession(sessionId)))
+                    {RequestStepSyncSoon();ScheduleMissionReminder();}
+                    ShowSession();
+                },true);
+                DockAction("선택 취소",()=>CancelSelectedPractice(s));
+            }
+            else if(s.Status==ParticipationState.Paused)
+            {
+                GardenUi.FlowLabel(p,"진행은 저장됐어요. 종료하면 완료 보상 없이 참여 기록만 남아요.",GardenUi.BodySize,GardenUi.Muted);
+                DockAction("이어서 하기",()=>{if(Apply(Service.ResumeSession(sessionId)) && walking)ScheduleMissionReminder();ShowSession();},true);
+                DockAction("오늘은 여기까지",()=>EndPractice(s));
+            }
+            else
+            {
+                DockAction("직접 완료 · 선택 기록",ShowReflection,true);
+                DockAction("잠시 쉬기",()=>PausePractice(s));
+            }
         }
         public void ShowReflection()
         {
-            EnterPage("reflection",ShowReflection);var p=Page("돌아보기는 선택이에요");
-            GardenUi.Label(p,"지금 기분은 어떤가요?\n잘 모르거나 기록하지 않아도 괜찮아요.",.07f,.68f,.86f,.10f,28);
+            EnterPage("reflection",ShowReflection);var p=FocusPage("지금 기분은 어떤가요?","마무리 · 선택 기록");
+            GardenUi.FlowLabel(p,"잘 모르거나 기록하지 않아도 괜찮아요.");
+            var faces=GardenUi.Box(p,"Reflection emotions",0,0,1,0);faces.AddComponent<LayoutElement>().preferredHeight=208;
             Button unknown=null;
-            GardenUi.MoodPicker(p,.07f,.465f,.86f,.18f,mood,value=>{mood=value;notice.text=value==null?"감정 선택은 자유예요":"선택: "+value;if(unknown!=null)GardenUi.StyleButton(unknown);});
-            unknown=GardenUi.Button(p,"잘 모르겠어요",.07f,.39f,.86f,.055f,()=>{mood=mood=="잘 모르겠어요"?null:"잘 모르겠어요";ShowReflection();});
+            GardenUi.MoodPicker(faces.transform,0,0,1,1,mood,value=>{mood=value;if(unknown!=null)GardenUi.StyleButton(unknown);});
+            unknown=GardenUi.Button(p,"잘 모르겠어요",0,0,1,0,()=>{mood=mood=="잘 모르겠어요"?null:"잘 모르겠어요";ShowReflection();});
+            unknown.gameObject.AddComponent<LayoutElement>().preferredHeight=80;
             GardenUi.StyleButton(unknown,selected:mood=="잘 모르겠어요");
-            note=GardenUi.Input(p,"선택 메모 · 기기에만 저장",.07f,.245f,.86f,.125f);
+            note=GardenUi.FlowInput(p,"선택 메모 · 기기에만 저장");
             note.text=draftNote ?? ""; note.onValueChanged.AddListener(value=>draftNote=value);
-            GardenUi.Button(p,"이 기록으로 완료",.07f,.145f,.86f,.075f,()=>Finish(mood,note.text),true);
-            GardenUi.Button(p,"기록 건너뛰고 완료",.07f,.07f,.86f,.055f,()=>Finish(null,null));
+            DockAction("이 기록으로 완료",()=>Finish(mood,note.text),true);
+            DockAction("기록 건너뛰고 완료",()=>Finish(null,null));
         }
         public void Finish(string selectedMood,string selectedNote)
         {
@@ -307,10 +341,11 @@ namespace CapstoneDesign.Runtime
         }
         void ShowCompletion(bool rewarded)
         {
-            EnterPage("complete",()=>ShowCompletion(rewarded));var p=Page("활동을 마쳤어요");
-            GardenUi.Label(p,(!rewarded?"복습을 기록했어요. 추가 보상은 없어요.":"활동을 기록했어요. 새 임무 완료 보상은 영양제 "+Balance.CompletionNutrient+"개예요.")+"\n\n오늘의 작은 참여가 정원에 남아요.",.07f,.45f,.86f,.30f,30);
-            GardenUi.Button(p,"영양제로 정원 가꾸기",.07f,.32f,.86f,.08f,ShowShop);
-            GardenUi.Button(p,"정원으로",.07f,.21f,.86f,.08f,GoGarden,true);
+            EnterPage("complete",()=>ShowCompletion(rewarded));var p=FocusPage("활동을 마쳤어요","오늘의 작은 참여");
+            Guidance(p,!rewarded?"복습을 기록했어요. 추가 보상은 없어요.":"활동을 기록하고 영양제 "+Balance.CompletionNutrient+"개를 받았어요.");
+            GardenUi.FlowLabel(p,"오늘의 작은 참여가 정원에 남아요.");
+            DockAction("정원으로",GoGarden,true);
+            DockAction("영양제로 정원 가꾸기",ShowShop);
         }
         public void ShowShop()
         {
@@ -503,38 +538,13 @@ namespace CapstoneDesign.Runtime
             var visitor=s.DailyDecisions.LastOrDefault()?.VisitorId;
             if(!string.IsNullOrEmpty(visitor))CreateVisitor(visitor).transform.SetParent(gardenObjects.transform,true);
         }
-        static GameObject Shape(PrimitiveType type, Transform parent,Vector3 position,Vector3 scale,Color color)
-        {
-            var go=GameObject.CreatePrimitive(type);go.transform.SetParent(parent,false);go.transform.localPosition=position;go.transform.localScale=scale;
-            var shader=Shader.Find("Universal Render Pipeline/Lit");var mat=new Material(shader);mat.color=color;go.GetComponent<Renderer>().sharedMaterial=mat;
-            var collider=go.GetComponent<Collider>();if(Application.isPlaying)Destroy(collider);else DestroyImmediate(collider);
-            go.AddComponent<GardenMaterialCleanup>();return go;
-        }
         static GameObject CreateEnvironment(string id,bool isGhost)
         {
-            var go=new GameObject((isGhost?"PREVIEW ":"")+id);var tint=isGhost?new Color(.45f,.7f,.75f):new Color(.54f,.35f,.22f);
-            if(id=="environment:E01")
-            {
-                go.transform.position=new Vector3(-1.25f,-.04f,.45f);
-                Shape(PrimitiveType.Cube,go.transform,Vector3.zero,new Vector3(.7f,.13f,.55f),tint);
-                for(int i=0;i<5;i++)Shape(PrimitiveType.Sphere,go.transform,new Vector3((i%3)*.2f-.2f,.16f,(i/3)*.2f-.1f),Vector3.one*.16f,new Color(.9f,.65f,.4f));
-            }
-            else
-            {
-                go.transform.position=new Vector3(.75f,-.04f,.1f);
-                Shape(PrimitiveType.Cube,go.transform,new Vector3(0,.55f,0),new Vector3(.85f,.12f,.65f),tint);
-                foreach(float x in new[]{-.32f,.32f})Shape(PrimitiveType.Cube,go.transform,new Vector3(x,.25f,0),new Vector3(.08f,.5f,.08f),tint);
-            }
+            var go=GardenSceneModels.CreateEnvironment(id);
+            if(isGhost)go.name="PREVIEW "+id;
             return go;
         }
-        static GameObject CreateVisitor(string id)
-        {
-            var go=new GameObject("Visitor placeholder "+id);go.transform.position=new Vector3(.45f,.02f,-.75f);
-            Shape(PrimitiveType.Sphere,go.transform,Vector3.zero,new Vector3(.35f,.27f,.24f),new Color(.80f,.75f,.65f));
-            Shape(PrimitiveType.Sphere,go.transform,new Vector3(0,.18f,-.10f),Vector3.one*.22f,new Color(.86f,.82f,.73f));
-            foreach(float x in new[]{-.065f,.065f})Shape(PrimitiveType.Capsule,go.transform,new Vector3(x,.34f,-.10f),new Vector3(.07f,.14f,.07f),new Color(.86f,.82f,.73f));
-            return go;
-        }
+        static GameObject CreateVisitor(string id) => GardenSceneModels.CreateVisitor(id);
         public string CurrentScreen => screen;
 
         public bool DebugWalkEnabled => opened && Service.Snapshot.DebugWalkPeriods.Any(p=>string.IsNullOrEmpty(p.EndedUtc));
@@ -544,7 +554,7 @@ namespace CapstoneDesign.Runtime
             {
                 if(!opened)return "걸음 보상: 저장 상태를 확인해 주세요";
                 var p=Service.Snapshot.DebugWalkPeriods.LastOrDefault(x=>string.IsNullOrEmpty(x.EndedUtc));
-                if(p==null)return "디버그 걸음 보상 OFF · 일반 M15 목표 300걸음";
+                if(p==null)return "디버그 걸음 보상 OFF · 일반 걷기는 개인별 목표를 사용해요.";
                 return "디버그 걸음 보상 ON · 실제 "+p.RealStepHighWater+" + 가상 "+p.VirtualSteps+
                     " = "+(p.RealStepHighWater+p.VirtualSteps)+"걸음\n10걸음당 영양제 1개 · 지급 "+p.RewardedUnits+
                     "개 · 다음 보상 "+((p.RealStepHighWater+p.VirtualSteps)%10)+"/10\n"+stepQueryStatus;
@@ -580,6 +590,15 @@ namespace CapstoneDesign.Runtime
         public void TickStepSync()
         {
             if(!opened || mode!="LIVE" || Application.platform!=RuntimePlatform.Android)return;
+            if(runningStepQuery!=null && Time.unscaledTime-runningStepQuery.StartedAt>45f)
+            {
+                // The native query has its own shorter bound. Recover if the bridge lost
+                // its result; a stale response cannot match a new request/window.
+                runningStepQuery=null;stepQueries.Clear();nextStepSync=Time.unscaledTime+5f;
+                stepQueryStatus="걸음 조회가 늦어지고 있어요. 잠시 후 다시 확인해요.";
+                RefreshWalkingSession();
+                return;
+            }
             if(runningStepQuery!=null)
             {
                 if(Time.unscaledTime<nextStepPoll)return;
@@ -589,14 +608,19 @@ namespace CapstoneDesign.Runtime
                 {
                     if(result.queryComplete && result.hasValue && result.status=="AVAILABLE")
                     {
-                        if(runningStepQuery.PeriodId!=null)Apply(Service.ObserveDebugWalk(runningStepQuery.PeriodId,result.count,result.source));
-                        if(runningStepQuery.SessionId!=null)Apply(Service.ObserveMissionSteps(runningStepQuery.SessionId,result.count,result.source));
-                        stepQueryStatus="실제 걸음 갱신됨 · "+result.sourceLabel+" · "+DateTime.Now.ToString("HH:mm");
-                        MaybeNotifyMissionReady();
+                        bool applied=true;
+                        if(runningStepQuery.PeriodId!=null)applied=Apply(Service.ObserveDebugWalk(runningStepQuery.PeriodId,result.count,result.source));
+                        if(runningStepQuery.SessionId!=null)applied=ApplyQueriedMissionSteps(runningStepQuery.SessionId,runningStepQuery.Id,runningStepQuery.StartMs,runningStepQuery.EndMs,runningStepQuery.Aggregate,result);
+                        if(applied)
+                        {
+                            stepQueryStatus="실제 걸음 갱신됨 · "+result.sourceLabel+" · "+DateTime.Now.ToString("HH:mm");
+                            MaybeNotifyMissionReady();
+                        }
+                        else {stepQueryStatus="걸음 갱신을 다시 확인하고 있어요.";nextStepSync=0;}
                     }
                     else stepQueryStatus=(result.status=="NO_DATA"?"이 구간의 걸음 기록 없음 · 동기화 대기 가능":result.status+" · "+result.message)+" · "+DateTime.Now.ToString("HH:mm");
                     runningStepQuery=null;
-                    if(screen=="session")ShowSession();
+                    RefreshWalkingSession();
                 }
             }
             if(runningStepQuery!=null)return;
@@ -618,9 +642,14 @@ namespace CapstoneDesign.Runtime
                 forceClosedStepSync=false;
                 preferNewestClosedStepPeriod=false;
             }
-            var action=AndroidPlatformBridge.RefreshStepsRange(query.StartMs,query.EndMs,query.Id);
-            if(action.ParsedStatus==PlatformStatus.Available)runningStepQuery=query;
-            else {stepQueryStatus=action.status+" · "+action.message+" · "+DateTime.Now.ToString("HH:mm");nextStepSync=Time.unscaledTime+5f;if(screen=="session")ShowSession();}
+            var action=AndroidPlatformBridge.RefreshStepsRange(query.StartMs,query.EndMs,query.Id,query.Aggregate);
+            if(action.ParsedStatus==PlatformStatus.Available){query.StartedAt=Time.unscaledTime;runningStepQuery=query;}
+            else {stepQueryStatus=action.status+" · "+action.message+" · "+DateTime.Now.ToString("HH:mm");nextStepSync=Time.unscaledTime+5f;RefreshWalkingSession();}
+        }
+        void RefreshWalkingSession()
+        {
+            // A background step query must never rebuild an unrelated practice input.
+            if(screen=="session" && ActiveSession()?.MissionId=="free-mission:M15")ShowSession();
         }
         void QueueStepQueries()
         {
@@ -634,9 +663,10 @@ namespace CapstoneDesign.Runtime
             }
             var mission=state.Sessions.LastOrDefault(s=>s.MissionId=="free-mission:M15" &&
                 (s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused));
-            if(mission!=null && DateTimeOffset.TryParse(mission.StartedUtc,out var startAt) && now>startAt.ToUnixTimeMilliseconds())
+            if(mission!=null && DateTimeOffset.TryParse(DebugWalkEnabled?mission.StartedUtc:WalkingPersonalization.QueryStartFor(mission).ToString("o"),out var startAt) && now>startAt.ToUnixTimeMilliseconds())
                 stepQueries.Enqueue(new StepQuery{Id=Guid.NewGuid().ToString("N"),SessionId=mission.SessionId,
-                    StartMs=startAt.ToUnixTimeMilliseconds(),EndMs=now});
+                    StartMs=startAt.ToUnixTimeMilliseconds(),EndMs=DebugWalkEnabled?now:WalkingPersonalization.QueryEndFor(mission,DateTimeOffset.UtcNow).ToUnixTimeMilliseconds(),
+                    Aggregate=!DebugWalkEnabled && mission.WalkingGoalSteps>0});
 
             // Closed windows remain eligible indefinitely so late Health Connect
             // sync can still be observed. Refresh at most one every five minutes,
@@ -670,19 +700,27 @@ namespace CapstoneDesign.Runtime
             if(!opened)return;
             var mission=Service.Snapshot.Sessions.LastOrDefault(s=>s.MissionId=="free-mission:M15" &&
                 (s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused));
-            if(mission==null || mission.GoalNotificationCommitted ||
-                mission.RealStepHighWater+(DebugWalkEnabled?mission.VirtualSteps:0)<(DebugWalkEnabled?10:300))return;
-            var action=AndroidPlatformBridge.NotifyMissionRewardReady(mission.SessionId);
-            if(action.ParsedStatus==PlatformStatus.Available)Apply(Service.MarkMissionGoalNotified(mission.SessionId));
+            if(mission==null)return;
+            if(!DebugWalkEnabled && !WalkingEvidence.CanAutomaticallyComplete(mission,false))return;
+            int goal=DebugWalkEnabled?10:WalkingPersonalization.TargetFor(mission);
+            if(mission.RealStepHighWater+(DebugWalkEnabled?mission.VirtualSteps:0)<goal)return;
+            if(!mission.GoalNotificationCommitted)
+            {
+                ScheduleMissionReminder();
+                var action=AndroidPlatformBridge.NotifyMissionRewardReady(mission.SessionId,mission.RealStepHighWater);
+                if(action.ParsedStatus==PlatformStatus.Available)Apply(Service.MarkMissionGoalNotified(mission.SessionId));
+            }
+            if(!DebugWalkEnabled)CompleteWalkingGoal(mission.SessionId);
         }
         void ScheduleMissionReminder()
         {
             if(!opened || mode!="LIVE")return;
             var mission=Service.Snapshot.Sessions.LastOrDefault(s=>s.MissionId=="free-mission:M15" &&
                 (s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused));
-            if(mission==null || !DateTimeOffset.TryParse(mission.StartedUtc,out var started))return;
-            AndroidPlatformBridge.ScheduleMissionRewardReminder(mission.SessionId,started.ToUnixTimeMilliseconds(),DebugWalkEnabled?10:300,
-                DebugWalkEnabled?mission.VirtualSteps:0);
+            if(mission==null || !DateTimeOffset.TryParse(DebugWalkEnabled?mission.StartedUtc:WalkingPersonalization.QueryStartFor(mission).ToString("o"),out var started))return;
+            long end=!DebugWalkEnabled && DateTimeOffset.TryParse(mission.WalkingQueryEndUtc,out var until)?until.ToUnixTimeMilliseconds():long.MaxValue;
+            AndroidPlatformBridge.ScheduleMissionRewardReminder(mission.SessionId,started.ToUnixTimeMilliseconds(),DebugWalkEnabled?10:WalkingPersonalization.TargetFor(mission),
+                DebugWalkEnabled?mission.VirtualSteps:0,end,!DebugWalkEnabled && mission.WalkingGoalSteps>0);
         }
         void ReconcileMissionReminder()
         {
@@ -690,11 +728,13 @@ namespace CapstoneDesign.Runtime
             ScheduleMissionReminder();
             foreach(var closed in Service.Snapshot.Sessions.Where(s=>s.MissionId=="free-mission:M15" &&
                 (s.Status==ParticipationState.Ended || s.Status==ParticipationState.RewardCommitted)))
-                AndroidPlatformBridge.CancelMissionRewardReminder(closed.SessionId);
+                if(closed.Status==ParticipationState.RewardCommitted)AndroidPlatformBridge.AcknowledgeMissionAchievement(closed.SessionId);
+                else AndroidPlatformBridge.CancelMissionRewardReminder(closed.SessionId);
         }
         public void OnAppReturned()
         {
             if(!opened)return;
+            nextNotificationPoll=0;
             RefreshCycle();
             RequestStepSyncSoon(true);
             ReconcileMissionReminder();

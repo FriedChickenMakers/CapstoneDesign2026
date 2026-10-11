@@ -117,11 +117,11 @@ class HealthPermissionActivity : ComponentActivity() {
 
     private fun showSettingsPrompt(health: Boolean) {
         AlertDialog.Builder(this)
-            .setTitle(if (health) "Health Connect access" else "App permissions")
+            .setTitle(if (health) "건강 기록 연결" else "앱 권한 설정")
             .setMessage(if (health)
-                "Health Connect access is off. Open its permissions page to allow the health data you want to share."
-                else "Activity or notification permission is off. Open this app's settings to allow it.")
-            .setPositiveButton("Open settings") { _, _ ->
+                "헬스 커넥트에서 연결할 건강 기록을 선택해 주세요."
+                else "신체 활동 또는 알림 권한이 꺼져 있어요. 앱 설정에서 허용할 수 있어요.")
+            .setPositiveButton("설정 열기") { _, _ ->
                 val destination = if (health && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
                     Intent(HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS)
                         .putExtra(Intent.EXTRA_PACKAGE_NAME, packageName)
@@ -135,7 +135,7 @@ class HealthPermissionActivity : ComponentActivity() {
                     catch (_: Exception) { finish() }
                 }
             }
-            .setNegativeButton("Later") { _, _ -> finish() }
+            .setNegativeButton("나중에") { _, _ -> finish() }
             .setOnCancelListener { finish() }
             .show()
     }
@@ -168,13 +168,13 @@ class HealthPermissionsRationaleActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(padding, padding, padding, padding)
             addView(TextView(context).apply {
-                text = "Health data privacy"
+                text = "건강 기록과 개인정보"
                 textSize = 24f
             })
             addView(TextView(context).apply {
-                text = "This prototype reads only the Health Connect categories you approve: " +
-                    "steps, sleep, heart rate, and exercise. Data is used locally to show the " +
-                    "debug wellness view and is not used for diagnosis, treatment, ranking, or punishment."
+                text = "허용한 걸음 수, 수면, 심박수, 운동 기록만 헬스 커넥트에서 읽어요. " +
+                    "기록은 기기 안에서 건강 정보 표시와 활동 목표 조절에 사용해요. " +
+                    "진단·치료·순위 평가나 불이익에는 사용하지 않아요."
                 textSize = 17f
                 setPadding(0, padding, 0, 0)
             })

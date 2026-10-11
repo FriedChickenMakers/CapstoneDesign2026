@@ -171,6 +171,24 @@ namespace CapstoneDesign.Runtime
     }
 
     [Serializable]
+    public sealed class DailyStepBaseline
+    {
+        public string date = "";
+        public long count, endEpochMs;
+        public bool hasValue;
+    }
+
+    [Serializable]
+    public sealed class WalkingBaselineSnapshot
+    {
+        public string status = "NO_DATA", queryTimeZone = "";
+        public bool queryComplete;
+        public long lastUpdatedEpochMs, queryStartEpochMs, queryEndEpochMs;
+        public DailyStepBaseline[] days = Array.Empty<DailyStepBaseline>();
+        public HealthMetricSnapshot sleep = new HealthMetricSnapshot();
+    }
+
+    [Serializable]
     public sealed class HealthConnectSnapshot
     {
         public string status = "SERVICE_UNAVAILABLE";
@@ -183,6 +201,7 @@ namespace CapstoneDesign.Runtime
         public long lastSuccessfulRefreshEpochMs;
         public string samsungHealthStatus = "SERVICE_UNAVAILABLE";
         public string samsungHealthMessage = string.Empty;
+        public WalkingBaselineSnapshot personalization = new WalkingBaselineSnapshot();
         public HealthMetricSnapshot steps = new HealthMetricSnapshot();
         public HealthMetricSnapshot samsungSteps = new HealthMetricSnapshot();
         public HealthMetricSnapshot sleep = new HealthMetricSnapshot();

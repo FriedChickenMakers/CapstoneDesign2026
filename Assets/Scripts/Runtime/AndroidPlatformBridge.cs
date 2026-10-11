@@ -133,7 +133,7 @@ namespace CapstoneDesign.Runtime
 #endif
         }
 
-        public static PlatformActionResult RefreshStepsRange(long startEpochMs, long endEpochMs, string requestId)
+        public static PlatformActionResult RefreshStepsRange(long startEpochMs, long endEpochMs, string requestId, bool aggregate = false)
         {
             if (provider.Mode != PlatformInputMode.Live) return new PlatformActionResult { status = "UNSUPPORTED", message = "Step range requires LIVE input" };
 #if UNITY_ANDROID && !UNITY_EDITOR
@@ -141,7 +141,7 @@ namespace CapstoneDesign.Runtime
             try
             {
                 using (var bridge = new AndroidJavaClass(NativeClassName))
-                    return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("refreshStepsRange", startEpochMs, endEpochMs, requestId));
+                    return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("refreshStepsRange", startEpochMs, endEpochMs, requestId, aggregate));
             }
             catch (Exception ex) { return ActionError(ex.Message, "STEP_RANGE_QUERY_FAILED"); }
 #else
@@ -164,13 +164,13 @@ namespace CapstoneDesign.Runtime
 #endif
         }
 
-        public static PlatformActionResult ScheduleMissionRewardReminder(string sessionId,long startEpochMs,int goalSteps,long virtualSteps)
+        public static PlatformActionResult ScheduleMissionRewardReminder(string sessionId,long startEpochMs,int goalSteps,long virtualSteps,long endEpochMs=long.MaxValue,bool aggregate=false)
         {
             if(provider.Mode!=PlatformInputMode.Live)return new PlatformActionResult{status="UNSUPPORTED",message="Reminder requires LIVE input"};
 #if UNITY_ANDROID && !UNITY_EDITOR
             EnsureInitialized();
             try{using(var bridge=new AndroidJavaClass(NativeClassName))
-                return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("scheduleMissionRewardReminder",sessionId,startEpochMs,goalSteps,virtualSteps));}
+                return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("scheduleMissionRewardReminder",sessionId,startEpochMs,goalSteps,virtualSteps,endEpochMs,aggregate));}
             catch(Exception ex){return ActionError(ex.Message,"REMINDER_SCHEDULE_FAILED");}
 #else
             return new PlatformActionResult{status="UNSUPPORTED",message="Reminder requires Android"};
@@ -190,13 +190,26 @@ namespace CapstoneDesign.Runtime
 #endif
         }
 
-        public static PlatformActionResult NotifyMissionRewardReady(string sessionId)
+        public static PlatformActionResult AcknowledgeMissionAchievement(string sessionId)
         {
             if(provider.Mode!=PlatformInputMode.Live)return new PlatformActionResult{status="UNSUPPORTED",message="Reminder requires LIVE input"};
 #if UNITY_ANDROID && !UNITY_EDITOR
             EnsureInitialized();
             try{using(var bridge=new AndroidJavaClass(NativeClassName))
-                return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("notifyMissionRewardReady",sessionId));}
+                return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("acknowledgeMissionAchievement",sessionId));}
+            catch(Exception ex){return ActionError(ex.Message,"REMINDER_ACKNOWLEDGE_FAILED");}
+#else
+            return new PlatformActionResult{status="UNSUPPORTED",message="Reminder requires Android"};
+#endif
+        }
+
+        public static PlatformActionResult NotifyMissionRewardReady(string sessionId,long steps=-1)
+        {
+            if(provider.Mode!=PlatformInputMode.Live)return new PlatformActionResult{status="UNSUPPORTED",message="Reminder requires LIVE input"};
+#if UNITY_ANDROID && !UNITY_EDITOR
+            EnsureInitialized();
+            try{using(var bridge=new AndroidJavaClass(NativeClassName))
+                return JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("notifyMissionRewardReady",sessionId,steps));}
             catch(Exception ex){return ActionError(ex.Message,"REMINDER_NOTIFY_FAILED");}
 #else
             return new PlatformActionResult{status="UNSUPPORTED",message="Reminder requires Android"};

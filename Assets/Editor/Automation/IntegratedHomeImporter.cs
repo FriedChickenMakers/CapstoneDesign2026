@@ -26,14 +26,16 @@ namespace CapstoneDesign.EditorTools
             try
             {
                 var canvasObject = Root(source, "PrototypeCanvas");
-                var garden = Root(source, "Garden_Editable3D");
+                var gardenPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Resources/GardenModels/GardenBase.prefab");
+                if (gardenPrefab == null) throw new InvalidOperationException("Build the Kenney garden models before regenerating the app scene.");
+                var garden = (GameObject)PrefabUtility.InstantiatePrefab(gardenPrefab, destination);
                 var cameraObject = Root(source, "Garden Camera");
-                foreach (var item in new[] { canvasObject, garden, cameraObject })
+                foreach (var item in new[] { canvasObject, cameraObject })
                     EditorSceneManager.MoveGameObjectToScene(item, destination);
                 // The static garden renders on state/orbit/layout changes, avoiding
                 // a continuous second camera on a phone carried all day.
                 cameraObject.GetComponent<Camera>().enabled = false;
-                UseIndependentGardenPalette(garden);
+
 
                 canvasObject.name = "IntegratedHomeCanvas";
                 var canvas = canvasObject.GetComponent<Canvas>();
@@ -90,6 +92,10 @@ namespace CapstoneDesign.EditorTools
                 presenter.navigation = navigation;
                 presenter.plant = garden.GetComponentInChildren<PrototypePlantView>(true);
                 presenter.gardenRoot = garden.transform;
+                foreach (var layout in canvasObject.GetComponentsInChildren<PrototypeGardenPreviewLayout>(true))
+                    layout.gardenRoot = garden.transform;
+                foreach (var orbit in canvasObject.GetComponentsInChildren<PrototypeIslandDrag>(true))
+                { orbit.focus = new Vector3(0,.08f,0); orbit.ResetView(); }
                 presenter.date = Require(content, "Date").GetComponent<TMP_Text>();
                 presenter.title = Require(home, "Title").GetComponent<TMP_Text>();
                 presenter.guide = Require(home, "Guide").GetComponent<TMP_Text>();
@@ -119,39 +125,6 @@ namespace CapstoneDesign.EditorTools
             var result = scene.GetRootGameObjects().FirstOrDefault(item => item.name == name);
             if (result == null) throw new InvalidOperationException(name + " missing from " + scene.path);
             return result;
-        }
-        static void UseIndependentGardenPalette(GameObject garden)
-        {
-            const string folder = "Assets/Materials/IntegratedHome";
-            if (!AssetDatabase.IsValidFolder(folder)) AssetDatabase.CreateFolder("Assets/Materials", "IntegratedHome");
-            var shader = Shader.Find("Universal Render Pipeline/Unlit");
-            if (shader == null) throw new InvalidOperationException("URP Unlit shader unavailable for integrated garden.");
-            var converted = new Dictionary<Material, Material>();
-            foreach (var renderer in garden.GetComponentsInChildren<Renderer>(true))
-            {
-                var materials = renderer.sharedMaterials;
-                for (int i = 0; i < materials.Length; i++)
-                {
-                    var source = materials[i];
-                    if (source == null) continue;
-                    if (!converted.TryGetValue(source, out var target))
-                    {
-                        var path = folder + "/" + source.name + ".mat";
-                        target = AssetDatabase.LoadAssetAtPath<Material>(path);
-                        if (target == null)
-                        {
-                            target = new Material(shader) { name = source.name };
-                            AssetDatabase.CreateAsset(target, path);
-                        }
-                        target.shader = shader;
-                        target.SetColor("_BaseColor", source.GetColor("_BaseColor"));
-                        EditorUtility.SetDirty(target);
-                        converted.Add(source, target);
-                    }
-                    materials[i] = target;
-                }
-                renderer.sharedMaterials = materials;
-            }
         }
         static Transform Require(Transform root, string path)
         {

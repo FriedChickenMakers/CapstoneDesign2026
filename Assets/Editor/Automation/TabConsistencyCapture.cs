@@ -207,6 +207,7 @@ namespace CapstoneDesign.EditorTools
             }
             RefreshScrollVisuals(scope);
             LocalLoopPreview.Render(size, path);
+            VerifyFocusGeometry(scope, file);
             AppendMetrics(file, size);
             foreach (var scroll in scope.GetComponentsInChildren<ScrollRect>())
             {
@@ -220,6 +221,49 @@ namespace CapstoneDesign.EditorTools
             Manifest.Append(Csv(file)).Append(',').Append(size.x).Append(',').Append(size.y).Append(',')
                 .Append(Csv(name)).Append(',').Append(bottom ? "bottom" : "top").AppendLine();
             count++;
+        }
+
+        static void VerifyFocusGeometry(Transform scope, string image)
+        {
+            foreach (var layout in scope.GetComponentsInChildren<GardenActivityLayout>())
+            {
+                var frame=(RectTransform)layout.transform;
+                var body=RectIn(frame,layout.Body);var header=RectIn(frame,layout.Header);var footer=RectIn(frame,layout.Footer);
+                if(body.height<=0 || body.yMax>header.yMin+.5f || footer.yMax>body.yMin+.5f)
+                    throw new InvalidOperationException("Activity surfaces overlap: "+image);
+                var controls=layout.GetComponentsInChildren<Selectable>()
+                    .Where(control=>control.isActiveAndEnabled && !(control is Scrollbar)).ToArray();
+                for(int i=0;i<controls.Length;i++)
+                {
+                    var a=VisibleControlRect(controls[i],layout,body);
+                    if(a.width<=0 || a.height<=0)continue;
+                    if(controls[i].transform.IsChildOf(layout.Footer) &&
+                        (a.yMin<frame.rect.yMin-.5f || a.yMax>footer.yMax+.5f))
+                        throw new InvalidOperationException("Activity action leaves its fixed surface: "+image+" / "+controls[i].name);
+                    for(int j=i+1;j<controls.Length;j++)
+                    {
+                        var b=VisibleControlRect(controls[j],layout,body);
+                        if(Mathf.Min(a.xMax,b.xMax)-Mathf.Max(a.xMin,b.xMin)>.5f &&
+                            Mathf.Min(a.yMax,b.yMax)-Mathf.Max(a.yMin,b.yMin)>.5f)
+                            throw new InvalidOperationException("Activity controls overlap: "+image+" / "+controls[i].name+" / "+controls[j].name);
+                    }
+                }
+            }
+        }
+
+        static Rect VisibleControlRect(Selectable control,GardenActivityLayout layout,Rect body)
+        {
+            var rect=RectIn((RectTransform)layout.transform,(RectTransform)control.transform);
+            return control.transform.IsChildOf(layout.Body)
+                ? Rect.MinMaxRect(Mathf.Max(rect.xMin,body.xMin),Mathf.Max(rect.yMin,body.yMin),
+                    Mathf.Min(rect.xMax,body.xMax),Mathf.Min(rect.yMax,body.yMax)) : rect;
+        }
+
+        static Rect RectIn(RectTransform relative,RectTransform rect)
+        {
+            var corners=new Vector3[4];rect.GetWorldCorners(corners);
+            var min=relative.InverseTransformPoint(corners[0]);var max=relative.InverseTransformPoint(corners[2]);
+            return Rect.MinMaxRect(min.x,min.y,max.x,max.y);
         }
 
         static void CaptureAllGuidance(string output)
