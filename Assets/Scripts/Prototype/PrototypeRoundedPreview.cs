@@ -43,6 +43,7 @@ namespace CapstoneDesign.Prototype
         }
         public bool IsRaycastLocationValid(Vector2 screenPoint, Camera eventCamera)
         {
+            if (!IsActive()) return true;
             if (!RectTransformUtility.ScreenPointToLocalPointInRectangle((RectTransform)transform, screenPoint, eventCamera, out var point)) return false;
             var rect = ((RectTransform)transform).rect;
             if (!rect.Contains(point)) return false;

@@ -21,6 +21,7 @@ namespace CapstoneDesign.Runtime
         public Vector3 MoonDirection => -SunDirection;
         public Light KeyLight => key;
         public ParticleSystem Clouds => clouds;
+        public CapstoneDesign.Prototype.PrototypeGardenPreviewLayout PreviewLayout { get; set; }
 
         public static GardenSkyEnvironment Ensure(Camera camera, Transform visualRoot)
         {
@@ -134,8 +135,11 @@ namespace CapstoneDesign.Runtime
                 var celestial = SunDirection.y >= 0 ? SunDirection : MoonDirection;
                 // A stylized upper-sky arc, with left/right tied to the actual light
                 // in the current orbit so the visible disc and cast shadow agree.
-                sky.SetVector("_CelestialUv", new Vector4(.5f + .36f * Vector3.Dot(view.transform.right, celestial),
-                    .78f + .12f * Mathf.Clamp01(celestial.y), 0, 0));
+                var area = PreviewLayout != null && PreviewLayout.isActiveAndEnabled && PreviewLayout.IsFullScreen
+                    ? PreviewLayout.VisibleAreaInViewport : new Rect(0, 0, 1, 1);
+                sky.SetVector("_CelestialUv", new Vector4(
+                    Mathf.Lerp(area.xMin, area.xMax, .5f + .36f * Vector3.Dot(view.transform.right, celestial)),
+                    Mathf.Lerp(area.yMin, area.yMax, .78f + .12f * Mathf.Clamp01(celestial.y)), 0, 0));
                 sky.SetFloat("_ViewAspect", view.aspect);
             }
             if (clouds == null) return;

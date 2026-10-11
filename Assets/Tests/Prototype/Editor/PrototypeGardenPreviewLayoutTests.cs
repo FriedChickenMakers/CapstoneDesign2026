@@ -44,5 +44,35 @@ namespace CapstoneDesign.Tests
             PrototypeGardenPreviewLayout.TryGetSize(1, 1, 1, 9, out float size);
             Assert.That(size, Is.EqualTo(1 / .6f).Within(.0001f));
         }
+
+        [TestCase(900, 1950, 330, 1380)]
+        [TestCase(900, 1600, 330, 1030)]
+        [TestCase(1200, 800, 166, 515)]
+        public void FullScreenProjectionFitsTheIslandBetweenUiSurfaces(int width, int height, int bottom, int top)
+        {
+            var display = new Rect(0, 0, width, height);
+            var visible = Rect.MinMaxRect(40, bottom, width - 40, top);
+            Assert.That(PrototypeGardenPreviewLayout.TryGetComposition(display, visible, 1.52f, 1.61f, .02f,
+                out float size, out var center), Is.True);
+            float pixelsPerWorldUnit = height / (2 * size);
+            var focusPixel = display.center - center * pixelsPerWorldUnit;
+            Assert.That(Vector2.Distance(focusPixel, visible.center), Is.LessThan(.001));
+            Assert.That(focusPixel.y - 1.61f * pixelsPerWorldUnit, Is.GreaterThan(visible.yMin));
+            Assert.That(focusPixel.y + 1.61f * pixelsPerWorldUnit, Is.LessThan(visible.yMax));
+            Assert.That(focusPixel.x - 1.52f * pixelsPerWorldUnit, Is.GreaterThan(visible.xMin));
+            Assert.That(focusPixel.x + 1.52f * pixelsPerWorldUnit, Is.LessThan(visible.xMax));
+        }
+
+        [Test] public void ADisabledRoundedMeshDoesNotRejectBackgroundCornerTouches()
+        {
+            var go = new GameObject("Synthetic background", typeof(RectTransform), typeof(UnityEngine.UI.RawImage));
+            try
+            {
+                var rounded = go.AddComponent<PrototypeRoundedPreview>();
+                rounded.enabled = false;
+                Assert.That(rounded.IsRaycastLocationValid(new Vector2(-1000, -1000), null), Is.True);
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
     }
 }

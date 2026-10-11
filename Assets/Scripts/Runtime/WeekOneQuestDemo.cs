@@ -429,8 +429,10 @@ namespace CapstoneDesign.Runtime
             foreach(var filter in home.gardenRoot.GetComponentsInChildren<MeshFilter>())
                 if(filter.sharedMesh!=null)foreach(var vertex in filter.sharedMesh.vertices)
                     radius=Mathf.Max(radius,(filter.transform.TransformPoint(vertex)-focus).magnitude);
+            home.gardenCamera.ResetProjectionMatrix();
             home.gardenCamera.aspect=1.6f;
             home.gardenCamera.orthographicSize=Mathf.Max(.1f,radius*1.04f);
+            home.gardenVisuals.GetComponent<GardenSkyEnvironment>()?.UpdateClouds(Time.unscaledTime);
             if(SystemInfo.graphicsDeviceType!=UnityEngine.Rendering.GraphicsDeviceType.Null)
                 home.gardenCamera.Render();
             var existing=view.transform.Find("Purchase garden viewport");

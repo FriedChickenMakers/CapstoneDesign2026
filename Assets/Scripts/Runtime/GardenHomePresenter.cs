@@ -44,6 +44,8 @@ namespace CapstoneDesign.Runtime
         string additionsSignature;
         int renderedStage=-1;
         Vector3 originalFlowerScale;
+        PrototypeGardenPreviewLayout backgroundPreview;
+        GameObject overviewSurface;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
 
@@ -78,8 +80,11 @@ namespace CapstoneDesign.Runtime
 
         public void Show(bool visible)
         {
+            // Disable renderers before the drag target's OnDisable resets its view.
+            if (gardenVisuals != null) gardenVisuals.SetActive(visible);
             if (homeCanvas != null)
             {
+                EnsureHomeBackground();
                 // Keep the actual home navigation mounted across all three tabs.
                 homeCanvas.gameObject.SetActive(true);
                 var background=homeCanvas.transform.Find("Background");
@@ -90,6 +95,8 @@ namespace CapstoneDesign.Runtime
                     // One actual TMP brand stays mounted in the same canvas on
                     // every tab, so font metrics and safe-area placement cannot drift.
                     EnsureSharedHeader(content);
+                    content.Find("Shared header background").gameObject.SetActive(!visible);
+                    if (overviewSurface != null) overviewSurface.SetActive(visible);
                     if(content.Find("Brand")!=null)content.Find("Brand").gameObject.SetActive(true);
                     foreach(var name in new[]{"Date","GardenAndGrowth"})
                         if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(visible);
@@ -97,8 +104,8 @@ namespace CapstoneDesign.Runtime
                 StyleTab(homeTab,homeTabLabel,visible);
                 StyleTab(activityTab,activityTabLabel,navigation!=null && navigation.activitiesPanel.activeSelf);
                 StyleTab(settingsTab,settingsTabLabel,navigation!=null && navigation.settingsPanel.activeSelf);
+                if (backgroundPreview != null) backgroundPreview.gameObject.SetActive(visible);
             }
-            if (gardenVisuals != null) gardenVisuals.SetActive(visible);
             // Integrated tabs are opaque overlay canvases; rendering the legacy
             // scene behind them adds a needless camera/light pass on every frame.
             bool legacySceneVisible = homeCanvas == null && !visible;
@@ -115,6 +122,35 @@ namespace CapstoneDesign.Runtime
             // This canvas is above the scrolling tab bodies. An opaque band
             // also prevents hidden controls from receiving taps behind the header.
             background.transform.SetAsFirstSibling();
+        }
+
+        void EnsureHomeBackground()
+        {
+            if (homeCanvas == null || backgroundPreview != null) return;
+            backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
+            if (backgroundPreview == null) return;
+            backgroundPreview.UseFullScreenBackground(homeCanvas);
+            var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
+            var home = content.Find("GardenAndGrowth");
+            overviewSurface = GardenUi.Box(content, "Home overview surface", 0, 1, 1, 0, GardenUi.Background);
+            GardenUi.Round(overviewSurface.GetComponent<Image>(), GardenUi.Background);
+            GardenUi.FromTop(overviewSurface.transform, 14, 258);
+            var overview = (RectTransform)overviewSurface.transform;
+            overview.offsetMin = new Vector2(24, overview.offsetMin.y);
+            overview.offsetMax = new Vector2(-24, overview.offsetMax.y);
+            overview.SetAsFirstSibling();
+            var growth = GardenUi.Box(home, "Growth surface", 0, 0, 1, 0, GardenUi.Background);
+            GardenUi.Round(growth.GetComponent<Image>(), GardenUi.Background);
+            var growthRect = (RectTransform)growth.transform;
+            growthRect.anchorMin = growthRect.anchorMax = Vector2.zero;
+            growthRect.pivot = new Vector2(0, 1);
+            growthRect.anchoredPosition = new Vector2(48, 328);
+            growthRect.sizeDelta = new Vector2(624, 64);
+            growthRect.SetAsFirstSibling();
+            // A true background is behind the UI. These opaque surfaces block
+            // drag gestures even where there is no text or button graphic.
+            var sky = GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
+            if (sky != null) sky.PreviewLayout = backgroundPreview;
         }
 
         static void StyleTab(Button button,TMP_Text label,bool selected)
@@ -158,8 +194,7 @@ namespace CapstoneDesign.Runtime
         public void RefreshFromState(GardenState saved)
         {
             using var timing = UiPerformanceProbe.Measure("Home.RefreshFromState");
-            if (homeCanvas != null)
-                foreach (var layout in homeCanvas.GetComponentsInChildren<PrototypeGardenPreviewLayout>(true)) layout.UseCardSurface();
+            EnsureHomeBackground();
             GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (activity == null || !activity.HasOpenState || saved == null)
             {
@@ -200,6 +235,7 @@ namespace CapstoneDesign.Runtime
                 && gardenVisuals.activeInHierarchy && gardenCamera != null)
             {
                 homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true)?.Apply();
+                gardenVisuals.GetComponent<GardenSkyEnvironment>()?.UpdateClouds(Time.unscaledTime);
                 gardenCamera.Render();
             }
         }

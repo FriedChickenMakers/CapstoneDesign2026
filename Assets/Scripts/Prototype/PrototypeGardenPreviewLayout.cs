@@ -3,7 +3,8 @@ using UnityEngine.UI;
 
 namespace CapstoneDesign.Prototype
 {
-    // Presentation only: uses the empty space between the guide and footer, not a fixed 600x540 box.
+    // Fit the island between UI surfaces; the integrated home can extend its sky
+    // beyond that composition area to every edge of the canvas.
     [ExecuteAlways, RequireComponent(typeof(RawImage))]
     public sealed class PrototypeGardenPreviewLayout : MonoBehaviour
     {
@@ -17,6 +18,12 @@ namespace CapstoneDesign.Prototype
         private Vector3 measuredFocus;
         private Transform measuredRoot;
         private float horizontalRadius, radius;
+        private bool fullScreen;
+        private RawImage image;
+        private Canvas backgroundCanvas;
+        private RenderTexture ownedTexture, originalTexture;
+        public bool IsFullScreen => fullScreen;
+        public Rect VisibleAreaInViewport { get; private set; } = new Rect(0, 0, 1, 1);
 
         private void OnEnable()
         {
@@ -28,8 +35,26 @@ namespace CapstoneDesign.Prototype
         private void LateUpdate() => Apply();
         private void OnValidate() => boundsReady = false;
 
+        public void UseFullScreenBackground(Canvas canvas)
+        {
+            if (fullScreen || canvas == null) return;
+            fullScreen = true;
+            backgroundCanvas = canvas;
+            image = GetComponent<RawImage>();
+            transform.SetParent(canvas.transform, false);
+            // The original paper backdrop remains underneath this home-only sky.
+            transform.SetSiblingIndex(1);
+            var rounded = GetComponent<PrototypeRoundedPreview>();
+            if (rounded != null) rounded.enabled = false;
+            image.raycastTarget = true;
+            horizontalPadding = 48;
+            boundaryGap = 28;
+            Apply();
+        }
+
         public void UseCardSurface()
         {
+            if (fullScreen) return;
             horizontalPadding = 48;
             boundaryGap = 24;
             if (GetComponent<PrototypeRoundedPreview>() == null) gameObject.AddComponent<PrototypeRoundedPreview>();
@@ -44,26 +69,64 @@ namespace CapstoneDesign.Prototype
             if (parent == null) return;
             float upper = parent.InverseTransformPoint(upperBoundary.TransformPoint(new Vector3(0, upperBoundary.rect.yMin, 0))).y;
             float lower = parent.InverseTransformPoint(lowerBoundary.TransformPoint(new Vector3(0, lowerBoundary.rect.yMax, 0))).y;
-            if (!TryGetArea(parent.rect, upper, lower, horizontalPadding, boundaryGap, out Rect area)) return;
+            float unitScale = Mathf.Abs(parent.InverseTransformVector(upperBoundary.TransformVector(Vector3.right)).x);
+            if (!TryGetArea(parent.rect, upper, lower, horizontalPadding * (fullScreen ? unitScale : 1),
+                boundaryGap * (fullScreen ? unitScale : 1), out Rect area)) return;
+            Rect display = fullScreen ? parent.rect : area;
             rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
-            var position = area.center - parent.rect.center;
+            var position = display.center - parent.rect.center;
             if (rect.anchoredPosition != position) rect.anchoredPosition = position;
-            if (rect.sizeDelta != area.size) rect.sizeDelta = area.size;
+            if (rect.sizeDelta != display.size) rect.sizeDelta = display.size;
 
             // Only the visible preview controls the shared camera/texture.
             if (!isActiveAndEnabled || orbit.previewCamera == null || !orbit.previewCamera.orthographic) return;
             if (!boundsReady || measuredRoot != gardenRoot || measuredFocus != orbit.focus) RecalculateBounds();
             if (!boundsReady) return;
-            float aspect = area.width / area.height;
-            if (!TryGetSize(aspect, horizontalRadius, radius, edgeMargin, out float size)) return;
+            float aspect = display.width / display.height;
+            if (!TryGetComposition(display, area, horizontalRadius, radius, edgeMargin,
+                out float size, out Vector2 projectionCenter)) return;
+            VisibleAreaInViewport = new Rect((area.xMin - display.xMin) / display.width,
+                (area.yMin - display.yMin) / display.height, area.width / display.width, area.height / display.height);
             var camera = orbit.previewCamera;
             // The RT is shared; override projection aspect to match the final UI rectangle.
             // This compensates the RawImage stretch without resizing/allocating a texture each frame.
             bool changed = false;
             if (Mathf.Abs(camera.aspect - aspect) > .00001f) { camera.aspect = aspect; changed = true; }
             if (Mathf.Abs(camera.orthographicSize - size) > .00001f) { camera.orthographicSize = size; changed = true; }
+            if (fullScreen)
+            {
+                var projection = Matrix4x4.Ortho(-size * aspect + projectionCenter.x, size * aspect + projectionCenter.x,
+                    -size + projectionCenter.y, size + projectionCenter.y, camera.nearClipPlane, camera.farClipPlane);
+                if (camera.projectionMatrix != projection) { camera.projectionMatrix = projection; changed = true; }
+                changed |= EnsureTexture(camera);
+            }
             if (changed && Application.isPlaying && !camera.enabled && camera.gameObject.activeInHierarchy)
                 camera.Render();
+        }
+
+        bool EnsureTexture(Camera camera)
+        {
+            var pixels = backgroundCanvas.pixelRect.size;
+            float scale = Mathf.Min(1, 1600 / Mathf.Max(1, Mathf.Max(pixels.x, pixels.y)));
+            int width = Mathf.Max(1, Mathf.RoundToInt(pixels.x * scale));
+            int height = Mathf.Max(1, Mathf.RoundToInt(pixels.y * scale));
+            if (ownedTexture != null && ownedTexture.width == width && ownedTexture.height == height) return false;
+            if (originalTexture == null) originalTexture = camera.targetTexture;
+            var previous = ownedTexture;
+            ownedTexture = new RenderTexture(width, height, 24) { name = "Home background", antiAliasing = 4 };
+            camera.targetTexture = ownedTexture;
+            image.texture = ownedTexture;
+            if (previous != null) { previous.Release(); if (Application.isPlaying) Destroy(previous); else DestroyImmediate(previous); }
+            return true;
+        }
+
+        void OnDestroy()
+        {
+            if (ownedTexture == null) return;
+            if (orbit != null && orbit.previewCamera != null && orbit.previewCamera.targetTexture == ownedTexture)
+            { orbit.previewCamera.targetTexture = originalTexture; orbit.previewCamera.ResetProjectionMatrix(); }
+            ownedTexture.Release();
+            if (Application.isPlaying) Destroy(ownedTexture); else DestroyImmediate(ownedTexture);
         }
 
         public void RecalculateBounds()
@@ -100,6 +163,17 @@ namespace CapstoneDesign.Prototype
             // Yaw changes camera right in XZ only; pitch does not change it. The full radius
             // bounds camera up at every pitch. Use both bounds without unnecessary square padding.
             size = Mathf.Max(radius, horizontalRadius / aspect) / (1 - 2 * Mathf.Clamp(margin, 0, .2f));
+            return true;
+        }
+
+        public static bool TryGetComposition(Rect display, Rect visible, float horizontalRadius, float radius,
+            float margin, out float size, out Vector2 projectionCenter)
+        {
+            size = 0; projectionCenter = Vector2.zero;
+            if (display.width <= 0 || display.height <= 0 || visible.width <= 0 || visible.height <= 0
+                || !TryGetSize(visible.width / visible.height, horizontalRadius, radius, margin, out float fitted)) return false;
+            size = fitted * display.height / visible.height;
+            projectionCenter = (display.center - visible.center) * (2 * size / display.height);
             return true;
         }
     }
