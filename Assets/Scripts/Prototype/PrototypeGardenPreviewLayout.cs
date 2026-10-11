@@ -5,7 +5,7 @@ namespace CapstoneDesign.Prototype
 {
     // Fit the island between UI surfaces; the integrated home can extend its sky
     // beyond that composition area to every edge of the canvas.
-    [ExecuteAlways, RequireComponent(typeof(RawImage))]
+    [ExecuteAlways, DefaultExecutionOrder(-20), RequireComponent(typeof(RawImage))]
     public sealed class PrototypeGardenPreviewLayout : MonoBehaviour
     {
         public RectTransform upperBoundary, lowerBoundary;
@@ -28,10 +28,11 @@ namespace CapstoneDesign.Prototype
         private void OnEnable()
         {
             boundsReady = false;
-            Canvas.preWillRenderCanvases += Apply;
             Apply();
         }
-        private void OnDisable() => Canvas.preWillRenderCanvases -= Apply;
+        // SRP can rebuild canvases inside Camera.Render. Camera projection and
+        // target textures must never change in preWillRenderCanvases callbacks.
+        // Run before the sky's LateUpdate; it owns the periodic render request.
         private void LateUpdate() => Apply();
         private void OnValidate() => boundsReady = false;
 
@@ -90,18 +91,15 @@ namespace CapstoneDesign.Prototype
             var camera = orbit.previewCamera;
             // The RT is shared; override projection aspect to match the final UI rectangle.
             // This compensates the RawImage stretch without resizing/allocating a texture each frame.
-            bool changed = false;
-            if (Mathf.Abs(camera.aspect - aspect) > .00001f) { camera.aspect = aspect; changed = true; }
-            if (Mathf.Abs(camera.orthographicSize - size) > .00001f) { camera.orthographicSize = size; changed = true; }
+            if (Mathf.Abs(camera.aspect - aspect) > .00001f) camera.aspect = aspect;
+            if (Mathf.Abs(camera.orthographicSize - size) > .00001f) camera.orthographicSize = size;
             if (fullScreen)
             {
                 var projection = Matrix4x4.Ortho(-size * aspect + projectionCenter.x, size * aspect + projectionCenter.x,
                     -size + projectionCenter.y, size + projectionCenter.y, camera.nearClipPlane, camera.farClipPlane);
-                if (camera.projectionMatrix != projection) { camera.projectionMatrix = projection; changed = true; }
-                changed |= EnsureTexture(camera);
+                if (camera.projectionMatrix != projection) camera.projectionMatrix = projection;
+                EnsureTexture(camera);
             }
-            if (changed && Application.isPlaying && !camera.enabled && camera.gameObject.activeInHierarchy)
-                camera.Render();
         }
 
         bool EnsureTexture(Camera camera)
