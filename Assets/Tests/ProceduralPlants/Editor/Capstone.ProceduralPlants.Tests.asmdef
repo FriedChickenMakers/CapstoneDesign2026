@@ -1,0 +1,6 @@
+{
+  "name": "Capstone.ProceduralPlants.Tests",
+  "references": ["Capstone.ProceduralPlants"],
+  "includePlatforms": ["Editor"],
+  "optionalUnityReferences": ["TestAssemblies"]
+}
