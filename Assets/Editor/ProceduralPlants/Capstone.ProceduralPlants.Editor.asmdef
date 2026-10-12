@@ -1,0 +1,5 @@
+{
+  "name": "Capstone.ProceduralPlants.Editor",
+  "references": ["Capstone.ProceduralPlants"],
+  "includePlatforms": ["Editor"]
+}

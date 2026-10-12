@@ -1,0 +1,6 @@
+<linker>
+  <!-- XML recipe/aggregate fields must survive IL2CPP reflection stripping. -->
+  <assembly fullname="Capstone.ProceduralPlants">
+    <type fullname="CapstoneDesign.Plants.*" preserve="all" />
+  </assembly>
+</linker>
