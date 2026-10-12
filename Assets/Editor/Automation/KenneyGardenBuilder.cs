@@ -36,6 +36,27 @@ namespace CapstoneDesign.EditorTools
             Debug.Log("KENNEY_GARDEN_BUILD_PASS");
         }
 
+        // Update only the island asset. Scene instances retain their references,
+        // plant state, placements and camera settings through the existing GUIDs.
+        public static void BuildIslandGeometry()
+        {
+            string path = Output + "GardenBase.prefab";
+            var root = PrefabUtility.LoadPrefabContents(path);
+            try
+            {
+                BuildSolidSurface(root.transform.Find("platform_grass").gameObject);
+                foreach (string name in new[] { "rock_largeA", "rock_largeB" })
+                {
+                    var detachedUnderside = root.transform.Find(name);
+                    if (detachedUnderside != null) UnityEngine.Object.DestroyImmediate(detachedUnderside.gameObject);
+                }
+                PrefabUtility.SaveAsPrefabAsset(root, path);
+                AssetDatabase.SaveAssets();
+            }
+            finally { PrefabUtility.UnloadPrefabContents(root); }
+            Debug.Log("KENNEY_SOLID_ISLAND_BUILD_PASS");
+        }
+
         static Color Hex(string value) { ColorUtility.TryParseHtmlString("#" + value, out var c); return c; }
         static Material Mat(string name, Color color, Texture texture = null)
         {
@@ -106,14 +127,10 @@ namespace CapstoneDesign.EditorTools
         {
             var root = Root("Kenney floating garden");
             var ground = Model("nature", "platform_grass", root, Vector3.zero, 3.3f);
-            FlattenSurface(ground);
+            BuildSolidSurface(ground);
             GardenSceneModels.TryBounds(ground.transform, root, out var groundBounds);
             ground.transform.localPosition += Vector3.up * (.08f - groundBounds.max.y);
             var surface = root.gameObject.AddComponent<GardenSurface>(); surface.surface = ground.GetComponentInChildren<MeshFilter>();
-            var rock = Model("nature", "rock_largeA", root, new Vector3(0, -.85f, 0), 2.75f, 18, "underside");
-            rock.transform.localScale = Vector3.Scale(rock.transform.localScale, new Vector3(1, .43f, .86f));
-            var secondRock = Model("nature", "rock_largeB", root, new Vector3(-.14f, -.91f, -.04f), 1.90f, 130, "underside");
-            secondRock.transform.localScale = Vector3.Scale(secondRock.transform.localScale, new Vector3(1,.48f,.86f));
             // Low perimeter planting leaves the three purchased/visitor footprints
             // and the central growth area open; no invisible overlapping primitives.
             foreach (var at in new[] { new Vector2(-.97f,.65f), new Vector2(.91f,.74f), new Vector2(-1.12f,-.47f), new Vector2(.98f,-.58f) })
@@ -212,14 +229,67 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
-        static void FlattenSurface(GameObject ground)
+        static void BuildSolidSurface(GameObject ground)
         {
+            // Keep the entire existing meadow and sloped rim: some furniture
+            // footprints touch that rim. Move only the bottom cap, then bridge
+            // its boundary to the original rim to form one closed soil volume.
+            // Always derive from Kenney's source, never a previous generated mesh.
+            var source = AssetDatabase.LoadAssetAtPath<GameObject>(Source + "nature/platform_grass.obj");
+            var sourceMesh = source.GetComponentInChildren<MeshFilter>().sharedMesh;
             foreach(var filter in ground.GetComponentsInChildren<MeshFilter>())
             {
-                var mesh=UnityEngine.Object.Instantiate(filter.sharedMesh);
-                var vertices=mesh.vertices;float top=mesh.bounds.max.y,bottom=mesh.bounds.min.y;
-                for(int i=0;i<vertices.Length;i++)if(vertices[i].y>bottom+.001f)vertices[i].y=top;
-                mesh.vertices=vertices;mesh.RecalculateNormals();mesh.RecalculateBounds();
+                var mesh=UnityEngine.Object.Instantiate(sourceMesh);
+                var authored=mesh.vertices;var vertices=authored.ToList();
+                float top=mesh.bounds.max.y,bottom=mesh.bounds.min.y;
+                var center=mesh.bounds.center;
+                float verticalScale=ground.transform.parent.InverseTransformVector(filter.transform.TransformVector(Vector3.up)).magnitude;
+                float baseY=top-.98f/verticalScale;
+                for(int i=0;i<vertices.Count;i++)
+                {
+                    var p=vertices[i];if(p.y>bottom+.001f)p.y=top;vertices[i]=p;
+                }
+                var triangles=new List<int>[mesh.subMeshCount];
+                var cornerIds=new Dictionary<Vector3,int>();var corners=new List<Vector3>();
+                var capEdges=new Dictionary<(int,int),(int a,int b,int material,int count)>();
+                Vector3 Lower(Vector3 p) => new Vector3(center.x+(p.x-center.x)*.42f,baseY,center.z+(p.z-center.z)*.42f);
+                int Corner(Vector3 p)
+                {
+                    if(!cornerIds.TryGetValue(p,out int id)){id=corners.Count;corners.Add(p);cornerIds[p]=id;}
+                    return id;
+                }
+                void Edge(Vector3 from,Vector3 to,int material)
+                {
+                    int a=Corner(from),b=Corner(to);var key=(Math.Min(a,b),Math.Max(a,b));
+                    if(capEdges.TryGetValue(key,out var edge))capEdges[key]=(edge.a,edge.b,edge.material,edge.count+1);
+                    else capEdges[key]=(a,b,material,1);
+                }
+                void Triangle(int material,Vector3 a,Vector3 b,Vector3 c)
+                {
+                    int start=vertices.Count;vertices.Add(a);vertices.Add(b);vertices.Add(c);
+                    triangles[material].AddRange(new[]{start,start+1,start+2});
+                }
+                for(int sub=0;sub<triangles.Length;sub++)
+                {
+                    triangles[sub]=new List<int>();var sourceTriangles=mesh.GetTriangles(sub);
+                    for(int i=0;i<sourceTriangles.Length;i+=3)
+                    {
+                        var a=authored[sourceTriangles[i]];var b=authored[sourceTriangles[i+1]];var c=authored[sourceTriangles[i+2]];
+                        if(a.y<=bottom+.001f && b.y<=bottom+.001f && c.y<=bottom+.001f)
+                        {
+                            Triangle(sub,Lower(a),Lower(b),Lower(c));Edge(a,b,sub);Edge(b,c,sub);Edge(c,a,sub);
+                        }
+                        else triangles[sub].AddRange(new[]{sourceTriangles[i],sourceTriangles[i+1],sourceTriangles[i+2]});
+                    }
+                }
+                foreach(var edge in capEdges.Values.Where(e=>e.count==1))
+                {
+                    var a=corners[edge.a];var b=corners[edge.b];
+                    Triangle(edge.material,a,b,Lower(b));Triangle(edge.material,a,Lower(b),Lower(a));
+                }
+                mesh.Clear();mesh.SetVertices(vertices);mesh.subMeshCount=triangles.Length;
+                for(int sub=0;sub<triangles.Length;sub++)mesh.SetTriangles(triangles[sub],sub);
+                mesh.RecalculateNormals();mesh.RecalculateBounds();
                 filter.sharedMesh=SaveMesh(mesh,"Island-level-meadow");
             }
         }
@@ -229,7 +299,12 @@ namespace CapstoneDesign.EditorTools
             string path="Assets/Art/KenneyGardenDerived/"+name+".asset";
             var saved=AssetDatabase.LoadAssetAtPath<Mesh>(path);
             if(saved==null){mesh.name=name;AssetDatabase.CreateAsset(mesh,path);return mesh;}
-            EditorUtility.CopySerialized(mesh,saved);saved.name=name;EditorUtility.SetDirty(saved);UnityEngine.Object.DestroyImmediate(mesh);return saved;
+            EditorUtility.CopySerialized(mesh,saved);saved.name=name;
+            // CopySerialized preserves the asset GUID but does not invalidate an
+            // existing graphics buffer. Same-process previews need the new data;
+            // retain the CPU copy for GardenSurface's placement intersections.
+            saved.UploadMeshData(false);
+            EditorUtility.SetDirty(saved);UnityEngine.Object.DestroyImmediate(mesh);return saved;
         }
 
         static void AdaptVisitor(GameObject body, int species)
