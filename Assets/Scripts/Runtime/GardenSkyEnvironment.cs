@@ -12,7 +12,7 @@ namespace CapstoneDesign.Runtime
         Camera view;
         Light key;
         Material sky, cloudMaterial;
-        Texture2D cloudNoise;
+        Texture3D cloudNoise;
         ParticleSystem clouds;
         readonly ParticleSystem.Particle[] particles = new ParticleSystem.Particle[24];
         double? previewHour;
@@ -27,9 +27,24 @@ namespace CapstoneDesign.Runtime
         void OnEnable()
         {
             GardenVisualClock.Changed += RefreshClock;
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+            RenderPipelineManager.beginCameraRendering += PrepareSkyProjection;
             RefreshClock();
         }
-        void OnDisable() => GardenVisualClock.Changed -= RefreshClock;
+        void OnDisable()
+        {
+            GardenVisualClock.Changed -= RefreshClock;
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+        }
+        void PrepareSkyProjection(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera != view || sky == null) return;
+            // Unity's orthographic sky pass uses its own square projection and
+            // replaces built-in aspect data. Preserve the final RawImage aspect,
+            // including cards that stretch a shared RT, before every render.
+            // Material data only: never render or mutate targets in this callback.
+            sky.SetFloat("_SkyAspect", camera.aspect);
+        }
         void RefreshClock()
         {
             if (key == null) return;
@@ -53,6 +68,10 @@ namespace CapstoneDesign.Runtime
         void Initialize(Camera camera)
         {
             view = camera;
+            // Ensure is also used by editor captures, where this runtime-only
+            // component has not received OnEnable. Keep registration idempotent.
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+            RenderPipelineManager.beginCameraRendering += PrepareSkyProjection;
             if (key != null) return;
             foreach (var light in transform.GetComponentsInChildren<Light>(true)) light.enabled = false;
             var node = new GameObject("Sun and moon directional light");
@@ -98,8 +117,7 @@ namespace CapstoneDesign.Runtime
             Daylight = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(-.14f, .24f, elevation));
             float twilight = (1 - Mathf.Clamp01(Mathf.Abs(elevation) / .32f)) * Daylight;
             Vector3 direction = elevation >= 0 ? SunDirection : MoonDirection;
-            // A low sun still casts shadows, instead of becoming a second ambient fill.
-            direction.y = Mathf.Max(.12f, direction.y);
+            // The sky disc and shadow light use exactly the same world direction.
             key.transform.rotation = Quaternion.LookRotation(-direction.normalized, Vector3.up);
             key.color = Color.Lerp(new Color(.55f,.66f,.91f), Color.Lerp(new Color(1,.96f,.86f),
                 new Color(1,.61f,.34f), twilight), Daylight);
@@ -115,7 +133,6 @@ namespace CapstoneDesign.Runtime
                 sky.SetVector("_SunDirection", SunDirection);
                 sky.SetFloat("_Daylight", Daylight);
                 sky.SetFloat("_Twilight", twilight);
-                sky.SetFloat("_ClockHour", (float)((hour % 24 + 24) % 24));
             }
             if (cloudMaterial != null)
             {
@@ -129,12 +146,12 @@ namespace CapstoneDesign.Runtime
         {
             var shader = Resources.Load<Shader>("GardenAtmosphere/Cloud");
             if (shader == null) return;
-            cloudMaterial = new Material(shader) { name = "Eroded cumulus and thin cloud layers" };
-            // A tiny, deterministic tiling density field; generated once, never per frame.
-            // The fragment shader uses three bounded texture reads rather than ray marching.
+            cloudMaterial = new Material(shader) { name = "World-space drifting mist" };
+            // A small periodic volume is generated once. Three density samples per
+            // fragment keep the soft particle volume bounded without ray marching.
             cloudNoise = GardenCloudNoise.Create();
             cloudMaterial.SetTexture("_Noise", cloudNoise);
-            var node = new GameObject("Cloud particles");
+            var node = new GameObject("World-space mist particles");
             node.transform.SetParent(transform, false);
             node.layer = 30;
             clouds = node.AddComponent<ParticleSystem>();
@@ -158,46 +175,32 @@ namespace CapstoneDesign.Runtime
 
         public void UpdateClouds(float seconds)
         {
-            if (view == null) return;
-            if (sky != null)
-            {
-                var celestial = SunDirection.y >= 0 ? SunDirection : MoonDirection;
-                // A stylized upper-sky arc, with left/right tied to the actual light
-                // in the current orbit so the visible disc and cast shadow agree.
-                var area = PreviewLayout != null && PreviewLayout.isActiveAndEnabled && PreviewLayout.IsFullScreen
-                    ? PreviewLayout.VisibleAreaInViewport : new Rect(0, 0, 1, 1);
-                sky.SetVector("_CelestialUv", new Vector4(
-                    Mathf.Lerp(area.xMin, area.xMax, .5f + .36f * Vector3.Dot(view.transform.right, celestial)),
-                    Mathf.Lerp(area.yMin, area.yMax, .78f + .12f * Mathf.Clamp01(celestial.y)), 0, 0));
-                sky.SetFloat("_ViewAspect", view.aspect);
-            }
-            if (clouds == null) return;
-            // Independent wind lanes, not four identical overlapping puffs in a circular orbit.
-            // Every lane is behind the island; opaque garden depth protects its silhouette.
-            var right = view.transform.right; var up = view.transform.up; var forward = view.transform.forward;
-            var focus = transform.position + Vector3.up * .4f;
-            float halfWidth = Mathf.Max(2, view.orthographicSize * view.aspect);
+            if (view == null || clouds == null) return;
             var light = SunDirection.y >= 0 ? SunDirection : MoonDirection;
-            cloudMaterial.SetVector("_LightDirection", new Vector4(Vector3.Dot(right, light),
-                Vector3.Dot(up, light), Vector3.Dot(-forward, light), 0));
+            cloudMaterial.SetVector("_LightDirection", light);
+            cloudMaterial.SetVector("_IslandOrigin", transform.position);
             cloudMaterial.SetFloat("_CloudSeconds", seconds);
-            float span = halfWidth * 2 + 4;
             for (int i = 0; i < particles.Length; i++)
             {
                 float seed = Mathf.Repeat(i * .61803399f + .17f, 1);
                 float variant = Mathf.Repeat(i * .41421356f + .31f, 1);
-                int lane = i % 3;
-                float speed = .025f + lane * .007f + seed * .013f;
-                float x = Mathf.Repeat(seed * span + seconds * speed, span) - span * .5f;
-                float y = lane == 0 ? 1.95f + variant * .7f : lane == 1 ? -1.9f - variant * .65f : 2.95f + variant * .6f;
-                y += Mathf.Sin(seconds * (.008f + seed * .006f) + i * 2.4f) * .07f;
-                float width = lane == 2 ? 1.25f + variant * .7f : .95f + variant * 1.0f;
-                float height = width * (lane == 2 ? .30f : .57f + seed * .13f);
-                var at = focus + forward * (3.5f + lane * .65f) + right * x + up * y;
-                particles[i].position = at;
+                float depth = Mathf.Repeat(i * .73205081f + .53f, 1);
+                float angle = seed * Mathf.PI * 2;
+                float radius = 2.05f + variant * 1.9f;
+                var anchor = new Vector3(Mathf.Cos(angle) * radius, -1.0f - depth * 1.65f, Mathf.Sin(angle) * radius);
+                // Bounded curl of a smooth vector potential; no wrap or reset jumps.
+                float a = anchor.y + anchor.z + seconds * (.009f + seed * .007f);
+                float b = anchor.z + anchor.x + seconds * (.013f + variant * .005f);
+                float c = anchor.x + anchor.y + seconds * (.011f + depth * .006f);
+                var drift = new Vector3(Mathf.Cos(c) - Mathf.Cos(b), Mathf.Cos(a) - Mathf.Cos(c),
+                    Mathf.Cos(b) - Mathf.Cos(a)) * .22f;
+                float width = 2.1f + variant * 1.35f;
+                float height = width * (.66f + depth * .28f);
+                particles[i].position = transform.position + anchor + drift;
                 particles[i].startSize3D = new Vector3(width, height, 1);
-                // RGB supplies stable per-cloud shape seeds; lighting is shared by the shader.
-                particles[i].startColor = new Color(seed, variant, lane / 2f, lane == 2 ? .35f : .76f);
+                particles[i].rotation = seed * 160 - 80;
+                // Seeds shift density, never position particles relative to the camera.
+                particles[i].startColor = new Color(seed, variant, depth, .46f + seed * .16f);
                 particles[i].remainingLifetime = particles[i].startLifetime = 100000;
                 particles[i].randomSeed = (uint)(i + 1);
             }
@@ -217,6 +220,7 @@ namespace CapstoneDesign.Runtime
 
         void OnDestroy()
         {
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
             if (RenderSettings.sun == key) RenderSettings.sun = null;
             if (sky != null) { if (Application.isPlaying) Destroy(sky); else DestroyImmediate(sky); }
             if (cloudMaterial != null) { if (Application.isPlaying) Destroy(cloudMaterial); else DestroyImmediate(cloudMaterial); }

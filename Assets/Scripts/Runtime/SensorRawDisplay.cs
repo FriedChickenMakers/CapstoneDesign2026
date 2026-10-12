@@ -102,6 +102,9 @@ namespace CapstoneDesign.Runtime
             });
             RefreshMusicSetting();
 
+            Transform visualDebug = Section(content, "Visual debugging", "UI 디버그");
+            Control(visualDebug, "홈·정원 시간대 조절  ›", OpenVisualDebug);
+
             Transform healthCard = Section(content, "Health records", "건강 기록", GardenUi.Pale);
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             Control(healthCard, "심박 차트 보기", OpenCharts, true);
@@ -114,7 +117,6 @@ namespace CapstoneDesign.Runtime
             Place(healthPermissionButton, permissions, "건강 데이터 권한 확인");
             permissionActionStatus = ActionLine(permissions);
 
-            Control(content, "UI 디버그  ›", OpenVisualDebug);
             diagnosticsButton = Control(content, "상세 진단 보기  +", ToggleDiagnostics);
             diagnostics = Section(content, "Detailed diagnostics", "상세 진단").gameObject;
             Transform collector = Section(diagnostics.transform, "Acceleration collection", "가속도 수집 실험");
