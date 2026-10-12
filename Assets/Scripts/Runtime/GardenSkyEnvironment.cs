@@ -12,6 +12,7 @@ namespace CapstoneDesign.Runtime
         Camera view;
         Light key;
         Material sky, cloudMaterial;
+        Texture2D cloudNoise;
         ParticleSystem clouds;
         readonly ParticleSystem.Particle[] particles = new ParticleSystem.Particle[24];
         double? previewHour;
@@ -22,6 +23,23 @@ namespace CapstoneDesign.Runtime
         public Light KeyLight => key;
         public ParticleSystem Clouds => clouds;
         public CapstoneDesign.Prototype.PrototypeGardenPreviewLayout PreviewLayout { get; set; }
+
+        void OnEnable()
+        {
+            GardenVisualClock.Changed += RefreshClock;
+            RefreshClock();
+        }
+        void OnDisable() => GardenVisualClock.Changed -= RefreshClock;
+        void RefreshClock()
+        {
+            if (key == null) return;
+            ApplyTime(previewHour ?? GardenVisualClock.CurrentHour);
+            UpdateClouds(Time.unscaledTime);
+            // Never render from a UI/Canvas callback. LateUpdate presents the changed
+            // light and sky on this frame without re-entering the SRP camera pass.
+            nextRender = 0;
+            nextLighting = 0;
+        }
 
         public static GardenSkyEnvironment Ensure(Camera camera, Transform visualRoot)
         {
@@ -55,14 +73,15 @@ namespace CapstoneDesign.Runtime
             skybox.material = sky;
             view.clearFlags = CameraClearFlags.Skybox;
             CreateClouds();
-            ApplyTime(DateTime.Now.TimeOfDay.TotalHours);
+            ApplyTime(previewHour ?? GardenVisualClock.CurrentHour);
         }
 
         public void SetTimeForPreview(double? localHour)
         {
             previewHour = localHour;
-            ApplyTime(localHour ?? DateTime.Now.TimeOfDay.TotalHours);
+            ApplyTime(localHour ?? GardenVisualClock.CurrentHour);
             UpdateClouds(0);
+            nextRender = 0;
         }
 
         public static Vector3 SolarDirection(double hour)
@@ -82,15 +101,15 @@ namespace CapstoneDesign.Runtime
             // A low sun still casts shadows, instead of becoming a second ambient fill.
             direction.y = Mathf.Max(.12f, direction.y);
             key.transform.rotation = Quaternion.LookRotation(-direction.normalized, Vector3.up);
-            key.color = Color.Lerp(new Color(.63f,.73f,1), Color.Lerp(new Color(1,.96f,.86f),
+            key.color = Color.Lerp(new Color(.55f,.66f,.91f), Color.Lerp(new Color(1,.96f,.86f),
                 new Color(1,.61f,.34f), twilight), Daylight);
-            key.intensity = Mathf.Lerp(.58f, 1.22f, Daylight);
+            key.intensity = Mathf.Lerp(.30f, 1.22f, Daylight);
             RenderSettings.sun = key;
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = Color.Lerp(new Color(.14f,.19f,.32f), new Color(.47f,.59f,.71f), Daylight);
-            RenderSettings.ambientEquatorColor = Color.Lerp(new Color(.10f,.13f,.21f), new Color(.25f,.31f,.33f), Daylight);
-            RenderSettings.ambientGroundColor = Color.Lerp(new Color(.055f,.065f,.105f), new Color(.14f,.16f,.15f), Daylight);
-            RenderSettings.reflectionIntensity = .25f;
+            RenderSettings.ambientSkyColor = Color.Lerp(new Color(.07f,.095f,.15f), new Color(.47f,.59f,.71f), Daylight);
+            RenderSettings.ambientEquatorColor = Color.Lerp(new Color(.045f,.06f,.095f), new Color(.25f,.31f,.33f), Daylight);
+            RenderSettings.ambientGroundColor = Color.Lerp(new Color(.02f,.028f,.045f), new Color(.14f,.16f,.15f), Daylight);
+            RenderSettings.reflectionIntensity = Mathf.Lerp(.06f,.25f,Daylight);
             if (sky != null)
             {
                 sky.SetVector("_SunDirection", SunDirection);
@@ -98,14 +117,23 @@ namespace CapstoneDesign.Runtime
                 sky.SetFloat("_Twilight", twilight);
                 sky.SetFloat("_ClockHour", (float)((hour % 24 + 24) % 24));
             }
-            view.backgroundColor = Color.Lerp(new Color(.055f,.08f,.16f), new Color(.46f,.70f,.88f), Daylight);
+            if (cloudMaterial != null)
+            {
+                cloudMaterial.SetFloat("_Daylight", Daylight);
+                cloudMaterial.SetFloat("_Twilight", twilight);
+            }
+            view.backgroundColor = Color.Lerp(new Color(.009f,.018f,.043f), new Color(.46f,.70f,.88f), Daylight);
         }
 
         void CreateClouds()
         {
             var shader = Resources.Load<Shader>("GardenAtmosphere/Cloud");
             if (shader == null) return;
-            cloudMaterial = new Material(shader) { name = "Soft particle cloud wisps" };
+            cloudMaterial = new Material(shader) { name = "Eroded cumulus and thin cloud layers" };
+            // A tiny, deterministic tiling density field; generated once, never per frame.
+            // The fragment shader uses three bounded texture reads rather than ray marching.
+            cloudNoise = GardenCloudNoise.Create();
+            cloudMaterial.SetTexture("_Noise", cloudNoise);
             var node = new GameObject("Cloud particles");
             node.transform.SetParent(transform, false);
             node.layer = 30;
@@ -123,6 +151,7 @@ namespace CapstoneDesign.Runtime
             renderer.renderMode = ParticleSystemRenderMode.Billboard;
             renderer.shadowCastingMode = ShadowCastingMode.Off;
             renderer.receiveShadows = false;
+            renderer.sortMode = ParticleSystemSortMode.Distance;
             clouds.Play();
             UpdateClouds(0);
         }
@@ -143,21 +172,32 @@ namespace CapstoneDesign.Runtime
                 sky.SetFloat("_ViewAspect", view.aspect);
             }
             if (clouds == null) return;
-            // Camera-relative peripheral bands keep clouds behind/below the island from every orbit.
+            // Independent wind lanes, not four identical overlapping puffs in a circular orbit.
+            // Every lane is behind the island; opaque garden depth protects its silhouette.
             var right = view.transform.right; var up = view.transform.up; var forward = view.transform.forward;
             var focus = transform.position + Vector3.up * .4f;
             float halfWidth = Mathf.Max(2, view.orthographicSize * view.aspect);
+            var light = SunDirection.y >= 0 ? SunDirection : MoonDirection;
+            cloudMaterial.SetVector("_LightDirection", new Vector4(Vector3.Dot(right, light),
+                Vector3.Dot(up, light), Vector3.Dot(-forward, light), 0));
+            cloudMaterial.SetFloat("_CloudSeconds", seconds);
+            float span = halfWidth * 2 + 4;
             for (int i = 0; i < particles.Length; i++)
             {
-                int group = i / 4, puff = i % 4;
-                float phase = group * 1.0472f + seconds * .012f;
-                float x = Mathf.Cos(phase) * (halfWidth + .4f) + (puff - 1.5f) * .3f;
-                float y = group % 2 == 0 ? -1.65f : 1.95f;
-                // Behind the garden; upper clouds stay outside the central plant silhouette.
-                var at = focus + forward * 3.2f + right * x + up * (y + Mathf.Sin(phase * 1.3f) * .18f);
+                float seed = Mathf.Repeat(i * .61803399f + .17f, 1);
+                float variant = Mathf.Repeat(i * .41421356f + .31f, 1);
+                int lane = i % 3;
+                float speed = .025f + lane * .007f + seed * .013f;
+                float x = Mathf.Repeat(seed * span + seconds * speed, span) - span * .5f;
+                float y = lane == 0 ? 1.95f + variant * .7f : lane == 1 ? -1.9f - variant * .65f : 2.95f + variant * .6f;
+                y += Mathf.Sin(seconds * (.008f + seed * .006f) + i * 2.4f) * .07f;
+                float width = lane == 2 ? 1.25f + variant * .7f : .95f + variant * 1.0f;
+                float height = width * (lane == 2 ? .30f : .57f + seed * .13f);
+                var at = focus + forward * (3.5f + lane * .65f) + right * x + up * y;
                 particles[i].position = at;
-                particles[i].startSize3D = new Vector3(1.3f + puff * .12f, .46f + puff % 2 * .12f, 1);
-                particles[i].startColor = Color.Lerp(new Color(.48f,.57f,.76f,.20f),new Color(1,1,1,.32f),Daylight);
+                particles[i].startSize3D = new Vector3(width, height, 1);
+                // RGB supplies stable per-cloud shape seeds; lighting is shared by the shader.
+                particles[i].startColor = new Color(seed, variant, lane / 2f, lane == 2 ? .35f : .76f);
                 particles[i].remainingLifetime = particles[i].startLifetime = 100000;
                 particles[i].randomSeed = (uint)(i + 1);
             }
@@ -168,7 +208,7 @@ namespace CapstoneDesign.Runtime
         {
             if (!Application.isPlaying || view == null || !view.gameObject.activeInHierarchy) return;
             float now = Time.unscaledTime;
-            if (now >= nextLighting) { nextLighting = now + 15; ApplyTime(previewHour ?? DateTime.Now.TimeOfDay.TotalHours); }
+            if (now >= nextLighting) { nextLighting = now + 15; ApplyTime(previewHour ?? GardenVisualClock.CurrentHour); }
             if (now < nextRender) return;
             nextRender = now + .1f;
             UpdateClouds(now);
@@ -180,6 +220,7 @@ namespace CapstoneDesign.Runtime
             if (RenderSettings.sun == key) RenderSettings.sun = null;
             if (sky != null) { if (Application.isPlaying) Destroy(sky); else DestroyImmediate(sky); }
             if (cloudMaterial != null) { if (Application.isPlaying) Destroy(cloudMaterial); else DestroyImmediate(cloudMaterial); }
+            if (cloudNoise != null) { if (Application.isPlaying) Destroy(cloudNoise); else DestroyImmediate(cloudNoise); }
         }
     }
 }

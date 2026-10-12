@@ -24,7 +24,9 @@ namespace CapstoneDesign.EditorTools
             public GardenState Load() => state == null ? null : StateCodec.Clone(state);
             public void Save(GardenState value) => state = StateCodec.Clone(value);
         }
-        public static void Capture()
+        public static void Capture() => Capture(false);
+        public static void CaptureAtmosphere() => Capture(true);
+        static void Capture(bool atmosphereOnly)
         {
             string output = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS") ?? "artifacts/evolution-20261012/garden";
             Directory.CreateDirectory(output);
@@ -44,15 +46,26 @@ namespace CapstoneDesign.EditorTools
             var sky = GardenSkyEnvironment.Ensure(home.gardenCamera,home.gardenVisuals.transform);
             var camera = home.gardenCamera;
             camera.aspect=1;camera.orthographicSize=1.9f;
+            camera.ResetProjectionMatrix();
             camera.transform.SetPositionAndRotation(new Vector3(0,.08f,0)+Quaternion.Euler(28,-25,0)*Vector3.back*5.8f,Quaternion.Euler(28,-25,0));
             var report = new List<string>();
+            Color32[] dayPixels=null,nightPixels=null;
             foreach (var item in new[] { ("morning",9.0), ("day",12.0), ("afternoon",15.0), ("sunset",17.6), ("night",23.0) })
             {
                 sky.SetTimeForPreview(item.Item2);
-                Render(camera,Path.Combine(output,item.Item1+".png"),1200,1200);
+                var pixels=Render(camera,Path.Combine(output,item.Item1+".png"),1200,1200);
+                if(item.Item1=="day")dayPixels=pixels;
+                if(item.Item1=="night")nightPixels=pixels;
+                var cloudMaterial=sky.Clouds.GetComponent<ParticleSystemRenderer>().sharedMaterial;
+                if(Mathf.Abs(cloudMaterial.GetFloat("_Daylight")-sky.Daylight)>.001f)
+                    throw new Exception("Cloud material did not receive local clock daylight");
                 if(sky.KeyLight.shadows==LightShadows.None)throw new Exception("Directional shadows disabled");
-                report.Add(item.Item1+" hour="+item.Item2+" daylight="+sky.Daylight+" direction="+sky.SunDirection);
+                report.Add(item.Item1+" hour="+item.Item2+" daylight="+sky.Daylight+" cloud="+cloudMaterial.GetFloat("_Daylight")+" key="+sky.KeyLight.intensity+" direction="+sky.SunDirection);
             }
+            double dayBrightness=dayPixels.Average(p=>(p.r+p.g+p.b)/3d),nightBrightness=nightPixels.Average(p=>(p.r+p.g+p.b)/3d);
+            if(nightBrightness>=dayBrightness*.55)throw new Exception("Night render is too close to daylight: "+nightBrightness+" / "+dayBrightness);
+            report.Add("Rendered average night/day brightness="+nightBrightness+" / "+dayBrightness);
+            report.Add("Garden render texture alpha remains opaque under cloud particles: PASS");
             var morning=GardenSkyEnvironment.SolarDirection(9);var noon=GardenSkyEnvironment.SolarDirection(12);
             var afternoon=GardenSkyEnvironment.SolarDirection(15);var night=GardenSkyEnvironment.SolarDirection(23);
             if(morning.x<=0 || afternoon.x>=0 || noon.y<=morning.y || night.y>=0 || Vector3.Angle(morning,afternoon)<60)
@@ -83,6 +96,20 @@ namespace CapstoneDesign.EditorTools
             }
             if(darker<500 || delta<20000)throw new Exception("Real shadows did not darken rendered garden pixels: "+darker+" / "+delta);
             report.Add("Rendered shadow comparison: "+darker+" visibly darkened garden pixels; brightness delta="+delta);
+            if(atmosphereOnly)
+            {
+                home.homeCanvas.GetComponentInChildren<PrototypeIslandDrag>(true)?.ResetView();
+                home.RefreshFromState(state);
+                foreach(var item in new[]{("day",12d),("sunset",17.6d),("night",23d)})
+                {
+                    sky.SetTimeForPreview(item.Item2);
+                    CaptureHome(home,sky,new Vector2Int(900,1950),Path.Combine(output,"home-"+item.Item1+".png"));
+                }
+                CaptureHome(home,sky,new Vector2Int(1200,800),Path.Combine(output,"home-night-landscape.png"));
+                File.WriteAllLines(Path.Combine(output,"validation.txt"),report);
+                Debug.Log("GARDEN_ATMOSPHERE_CAPTURE_PASS "+report.Count);
+                return;
+            }
             for(int i=1;i<=12;i++)
             {
                 state.DailyDecisions.Last().VisitorId="animal:A"+i.ToString("00");home.RefreshFromState(state);
@@ -165,13 +192,14 @@ namespace CapstoneDesign.EditorTools
         {
             var previous=camera.targetTexture;
             var target=new RenderTexture(width,height,24){antiAliasing=4};
-            var texture=new Texture2D(width,height,TextureFormat.RGB24,false);
+            var texture=new Texture2D(width,height,TextureFormat.RGBA32,false);
             camera.targetTexture=target;camera.aspect=(float)width/height;
             camera.GetComponentInParent<GardenSkyEnvironment>()?.UpdateClouds(cloudSeconds);
             camera.Render();camera.Render();
             var active=RenderTexture.active;RenderTexture.active=target;
             texture.ReadPixels(new Rect(0,0,width,height),0,0);texture.Apply();File.WriteAllBytes(path,texture.EncodeToPNG());
             var pixels=texture.GetPixels32();
+            if(pixels.Any(p=>p.a<250))throw new Exception("Cloud transparency leaked into garden RT alpha before UI composition");
             RenderTexture.active=active;camera.targetTexture=previous;target.Release();
             UnityEngine.Object.DestroyImmediate(texture);UnityEngine.Object.DestroyImmediate(target);
             return pixels;

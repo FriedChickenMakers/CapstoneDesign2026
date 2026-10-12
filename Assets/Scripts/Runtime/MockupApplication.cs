@@ -110,6 +110,8 @@ namespace CapstoneDesign.Runtime
 
         public void ShowSettings()
         {
+            if (activePanel == settingsPanel)
+                GetComponentInChildren<SensorRawDisplay>(true)?.CloseVisualDebug();
             SetActivePanel(settingsPanel);
             if (activePanel == settingsPanel)
                 GetComponentInChildren<SensorRawDisplay>(true)?.OnSettingsOpened();
@@ -181,6 +183,9 @@ namespace CapstoneDesign.Runtime
             }
             home?.Show(selected == islandPanel);
             activePanel = selected;
+            if (Application.isPlaying)
+                GardenMusicPlayer.Ensure().SetContext(selected == islandPanel ? GardenMusicContext.HomeGarden :
+                    selected == activitiesPanel ? GardenMusicContext.Activity : GardenMusicContext.Settings);
             int visited = panelHistory.IndexOf(selected);
             if (visited >= 0) panelHistory.RemoveRange(visited + 1, panelHistory.Count - visited - 1);
             else panelHistory.Add(selected);
@@ -189,6 +194,7 @@ namespace CapstoneDesign.Runtime
         /// <summary>Returns through pages and visited tabs; false means the app's Home root.</summary>
         public bool TryNavigateBack()
         {
+            if (activePanel == settingsPanel && GetComponentInChildren<SensorRawDisplay>(true)?.CloseVisualDebug() == true) return true;
             if (activePanel == activitiesPanel &&
                 activitiesPanel.GetComponent<WeekOneQuestDemo>()?.TryNavigateBack() == true) return true;
             if (panelHistory.Count > 1)

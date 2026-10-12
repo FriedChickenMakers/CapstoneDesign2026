@@ -44,6 +44,9 @@ namespace CapstoneDesign.Runtime
         private GameObject notificationOptions;
         private ActivityNotificationSettings notificationSettings;
         private Text notificationActionStatus;
+        private Button musicToggle;
+        private GardenVisualDebugPage visualDebugPage;
+        public bool IsVisualDebugOpen => visualDebugPage != null && visualDebugPage.gameObject.activeSelf;
         public ScrollRect PrimaryScroll { get; private set; }
         private WeekOneQuestDemo Loop => transform.root.GetComponentInChildren<WeekOneQuestDemo>(true);
 
@@ -91,6 +94,14 @@ namespace CapstoneDesign.Runtime
             notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());
             notificationActionStatus=ActionLine(reminders);
 
+            Transform music = Section(content, "Background music", "배경음악");
+            musicToggle = Control(music, "배경음악 끄기", () =>
+            {
+                GardenMusicPlayer.SetMuted(!GardenMusicPlayer.IsMuted);
+                RefreshMusicSetting();
+            });
+            RefreshMusicSetting();
+
             Transform healthCard = Section(content, "Health records", "건강 기록", GardenUi.Pale);
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             Control(healthCard, "심박 차트 보기", OpenCharts, true);
@@ -103,6 +114,7 @@ namespace CapstoneDesign.Runtime
             Place(healthPermissionButton, permissions, "건강 데이터 권한 확인");
             permissionActionStatus = ActionLine(permissions);
 
+            Control(content, "UI 디버그  ›", OpenVisualDebug);
             diagnosticsButton = Control(content, "상세 진단 보기  +", ToggleDiagnostics);
             diagnostics = Section(content, "Detailed diagnostics", "상세 진단").gameObject;
             Transform collector = Section(diagnostics.transform, "Acceleration collection", "가속도 수집 실험");
@@ -130,6 +142,13 @@ namespace CapstoneDesign.Runtime
             AddListener(healthPermissionButton, RequestHealthPermissions);
             AddListener(refreshHealthButton, RefreshHealth);
             RefreshText();
+        }
+
+        void RefreshMusicSetting()
+        {
+            if (musicToggle != null)
+                musicToggle.GetComponentInChildren<Text>().text = GardenMusicPlayer.IsMuted
+                    ? "배경음악 켜기" : "배경음악 끄기";
         }
 
         void RefreshNotificationSettings()
@@ -308,6 +327,28 @@ namespace CapstoneDesign.Runtime
             LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
         }
 
+        public void OpenVisualDebug()
+        {
+            PrepareView();
+            if (visualDebugPage == null)
+            {
+                var page = GardenUi.Box(transform, "UI debug page", 0, .12f, 1, .88f, GardenUi.Background);
+                GardenUi.ConstrainWidth(page);
+                visualDebugPage = page.AddComponent<GardenVisualDebugPage>();
+                visualDebugPage.Build(() => CloseVisualDebug(), () => transform.root.GetComponent<MockupNavigation>()?.ShowIsland());
+            }
+            PrimaryScroll.gameObject.SetActive(false);
+            visualDebugPage.gameObject.SetActive(true);
+        }
+
+        public bool CloseVisualDebug()
+        {
+            if (!IsVisualDebugOpen) return false;
+            visualDebugPage.gameObject.SetActive(false);
+            PrimaryScroll.gameObject.SetActive(true);
+            return true;
+        }
+
         private void Update()
         {
             if (Time.unscaledTime >= nextHealthRefresh)
@@ -418,6 +459,7 @@ namespace CapstoneDesign.Runtime
 
         private void RefreshText()
         {
+            RefreshMusicSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
             if (output == null)

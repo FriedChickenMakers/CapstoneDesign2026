@@ -67,6 +67,16 @@ namespace CapstoneDesign.EditorTools
             if (Resources.Load<Shader>("GardenAtmosphere/Sky") == null || Resources.Load<Shader>("GardenAtmosphere/Cloud") == null)
                 throw new InvalidOperationException("Garden environment shaders are missing.");
 
+            var music = Resources.Load<GardenMusicProfile>("Audio/GardenMusicProfile");
+            if (music == null)
+                throw new InvalidOperationException("Background music profile is missing.");
+            foreach (GardenMusicContext context in Enum.GetValues(typeof(GardenMusicContext)))
+            {
+                var clip = music.TrackFor(context);
+                if (clip == null || clip.length <= 0 || clip.channels < 1)
+                    throw new InvalidOperationException("Background music is missing or invalid for " + context + ".");
+            }
+
             ValidateAndroidPlatformLayer();
 
             Debug.Log("Mockup validation passed: " + scene.path + " / package " + PackageName);

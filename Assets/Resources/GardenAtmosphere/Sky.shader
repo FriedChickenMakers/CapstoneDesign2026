@@ -23,7 +23,9 @@ Shader "Capstone/Garden Clock Sky"
                 float3 d=normalize(i.direction);
                 float height=saturate(d.y*.7+.3);
                 float3 day=lerp(float3(.75,.87,.92),float3(.22,.53,.82),height);
-                float3 night=lerp(float3(.09,.13,.24),float3(.014,.031,.085),height);
+                // These are linear output values: a .1 night sky becomes much brighter
+                // after display conversion. Keep the horizon subtle instead of blue daylight.
+                float3 night=lerp(float3(.009,.017,.037),float3(.0015,.004,.012),height);
                 float3 color=lerp(night,day,_Daylight);
                 color=lerp(color,float3(.94,.53,.37),_Twilight*pow(1-height,3)*.65);
                 // Art-directed clock arc keeps the celestial body visible above the island
@@ -33,7 +35,7 @@ Shader "Capstone/Garden Clock Sky"
                 float2 clockOffset=(screenUv-_CelestialUv)*float2(_ViewAspect,1);
                 float distanceClock=length(clockOffset);
                 float disc=1-smoothstep(.029,.032,distanceClock);
-                float glow=exp(-distanceClock*distanceClock*180)*.16;
+                float glow=exp(-distanceClock*distanceClock*240)*lerp(.035,.16,isDay);
                 float3 celestialColor=lerp(float3(.79,.86,1),float3(1,.88,.54),isDay);
                 color=lerp(color,celestialColor,disc*.94);
                 color+=celestialColor*glow;
