@@ -70,6 +70,20 @@ namespace CapstoneDesign.EditorTools
             Debug.Log("KENNEY_EXPANDED_MESH_BUILD_PASS");
         }
 
+        // Palette-only art updates preserve meshes, prefab GUIDs and saved placements.
+        // Keep this separate from Build(), which also reconstructs the scene.
+        public static void RefreshScenePalette()
+        {
+            Palette.Clear();
+            foreach (string path in Directory.GetFiles(Materials, "Natural_*.mat"))
+            {
+                string name = Path.GetFileNameWithoutExtension(path);
+                Mat(name, ColorFor(name.Substring("Natural_".Length)));
+            }
+            AssetDatabase.SaveAssets();
+            Debug.Log("KENNEY_SCENE_PALETTE_PASS");
+        }
+
         static Color Hex(string value) { ColorUtility.TryParseHtmlString("#" + value, out var c); return c; }
         static Material Mat(string name, Color color, Texture texture = null)
         {
@@ -84,10 +98,13 @@ namespace CapstoneDesign.EditorTools
 
         static Color ColorFor(string material)
         {
-            if (material.Contains("grass")) return Hex("70955E");
-            if (material.Contains("dirt")) return Hex("956C50");
-            if (material.Contains("wood")) return Hex("AE8056");
-            if (material.Contains("stone")) return Hex("A3AA95");
+            // Fresh meadow and pale sandstone keep the small garden readable in
+            // soft daylight; the actual lights still supply all day/night shading.
+            if (material.Contains("grass")) return Hex("84B56D");
+            if (material.Contains("dirtDark")) return Hex("92785F");
+            if (material.Contains("dirt")) return Hex("B29477");
+            if (material.Contains("wood")) return Hex("B29269");
+            if (material.Contains("stone")) return Hex("C8C7AE");
             if (material.Contains("colorWhite")) return Hex("FFF4D7");
             if (material.Contains("colorYellow")) return Hex("E5AE48");
             if (material.Contains("colorPurple")) return Hex("AA94C4");

@@ -26,6 +26,35 @@ namespace CapstoneDesign.Prototype
         private Canvas backgroundCanvas;
         private RenderTexture ownedTexture, originalTexture;
         public bool IsFullScreen => fullScreen;
+        public bool IsSubjectFocused { get; private set; }
+        public float Zoom { get; private set; } = .85f;
+        private Transform subject, subjectBase;
+        private Vector3 overviewFocus;
+        private bool hasOverviewFocus;
+
+        // View-only state: switching/zooming never changes a saved plant recipe.
+        public void SetSubject(Transform plant, Transform planter)
+        {
+            if (subject == plant && subjectBase == planter) return;
+            subject = plant; subjectBase = planter;
+            if (!hasOverviewFocus && orbit != null) { overviewFocus = orbit.focus; hasOverviewFocus = true; }
+            RecalculateBounds();
+        }
+
+        public void SetSubjectFocus(bool focused)
+        {
+            if (IsSubjectFocused == focused) return;
+            IsSubjectFocused = focused;
+            RecalculateBounds();
+            Apply();
+        }
+
+        public void SetZoom(float value)
+        {
+            if (float.IsNaN(value) || float.IsInfinity(value)) return;
+            Zoom = Mathf.Clamp01(value);
+            Apply();
+        }
         public Rect VisibleAreaInViewport { get; private set; } = new Rect(0, 0, 1, 1);
 
         private void OnEnable()
@@ -89,6 +118,14 @@ namespace CapstoneDesign.Prototype
             float aspect = display.width / display.height;
             if (!TryGetComposition(display, area, horizontalRadius, radius, edgeMargin,
                 out float size, out Vector2 projectionCenter)) return;
+            // Zoom stops at the complete-subject fit. Even at maximum, the
+            // measured plant/pot (or whole garden) stays clear of every UI edge.
+            if (subject != null)
+            {
+                float zoomScale = Mathf.Lerp(.72f, 1, Zoom);
+                size /= zoomScale;
+                projectionCenter /= zoomScale;
+            }
             VisibleAreaInViewport = new Rect((area.xMin - display.xMin) / display.width,
                 (area.yMin - display.yMin) / display.height, area.width / display.width, area.height / display.height);
             var camera = orbit.previewCamera;
@@ -138,7 +175,40 @@ namespace CapstoneDesign.Prototype
             boundsReady = false;
             horizontalRadius = radius = 0;
             if (gardenRoot == null || orbit == null) return;
-            foreach (var filter in gardenRoot.GetComponentsInChildren<MeshFilter>(true))
+            if (subject != null && IsSubjectFocused)
+            {
+                // A minimum envelope keeps the seed/sprout recognizably small
+                // instead of magnifying it to the size of a mature flower.
+                var seedBase = subject.position;
+                var bounds = new Bounds(seedBase + Vector3.up * .35f, new Vector3(.60f, .80f, .60f));
+                Encapsulate(subject, ref bounds);
+                if (subjectBase != null) Encapsulate(subjectBase, ref bounds);
+                orbit.SetFocus(bounds.center);
+                Measure(subject);
+                if (subjectBase != null) Measure(subjectBase);
+                horizontalRadius = Mathf.Max(horizontalRadius, .32f);
+                radius = Mathf.Max(radius, .48f);
+            }
+            else
+            {
+                if (subject != null && hasOverviewFocus) orbit.SetFocus(overviewFocus);
+                Measure(gardenRoot);
+            }
+            measuredRoot = gardenRoot; measuredFocus = orbit.focus;
+            boundsReady = radius > 0;
+        }
+
+        static void Encapsulate(Transform root, ref Bounds bounds)
+        {
+            foreach (var filter in root.GetComponentsInChildren<MeshFilter>(true))
+                if (filter.sharedMesh != null)
+                    foreach (var vertex in filter.sharedMesh.vertices)
+                        bounds.Encapsulate(filter.transform.TransformPoint(vertex));
+        }
+
+        void Measure(Transform root)
+        {
+            foreach (var filter in root.GetComponentsInChildren<MeshFilter>(true))
             {
                 if (excludedBoundsRoot != null && filter.transform.IsChildOf(excludedBoundsRoot)) continue;
                 if (filter.sharedMesh == null) continue;
@@ -149,8 +219,6 @@ namespace CapstoneDesign.Prototype
                     radius = Mathf.Max(radius, delta.magnitude);
                 }
             }
-            measuredRoot = gardenRoot; measuredFocus = orbit.focus;
-            boundsReady = radius > 0;
         }
 
         public static bool TryGetArea(Rect parent, float upper, float lower, float padding, float gap, out Rect area)

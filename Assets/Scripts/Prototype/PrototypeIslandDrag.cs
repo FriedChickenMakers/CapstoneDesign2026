@@ -57,6 +57,12 @@ namespace CapstoneDesign.Prototype
         {
             if (pointerId == eventData.pointerId) IsDragging = false;
         }
+        public void SetFocus(Vector3 value)
+        {
+            focus = value;
+            if (!initialized) { Angles = defaultAngles; initialized = true; }
+            Apply(Angles, false);
+        }
         public void ResetView()
         {
             initialized = true;
@@ -70,13 +76,13 @@ namespace CapstoneDesign.Prototype
             return new Vector2(Mathf.Repeat(angles.x + delta.x / size.x * 360 + 180, 360) - 180,
                 Mathf.Clamp(angles.y - delta.y / size.y * 180, -PitchLimit, PitchLimit));
         }
-        private void Apply(Vector2 angles)
+        private void Apply(Vector2 angles, bool render = true)
         {
             if (previewCamera == null) return;
             Quaternion rotation = Quaternion.Euler(angles.y, angles.x, 0);
             previewCamera.transform.SetPositionAndRotation(focus + rotation * (Vector3.back * distance), rotation);
             // The integrated home keeps its camera disabled between changes.
-            if (Application.isPlaying && !previewCamera.enabled && previewCamera.gameObject.activeInHierarchy)
+            if (render && Application.isPlaying && !previewCamera.enabled && previewCamera.gameObject.activeInHierarchy)
                 previewCamera.Render();
         }
     }

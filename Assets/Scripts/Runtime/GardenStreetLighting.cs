@@ -8,7 +8,7 @@ namespace CapstoneDesign.Runtime
     // Local garden lighting only; the visual clock never changes saved activities.
     public sealed class GardenStreetLighting : MonoBehaviour
     {
-        public static readonly Color BulbColor = new Color(1f, .61f, .28f);
+        public static readonly Color BulbColor = new Color(1f, .78f, .51f);
         public Light[] Lights { get; private set; } = Array.Empty<Light>();
         public bool IsLit { get; private set; }
         readonly List<(Renderer renderer, int slot)> glass = new List<(Renderer, int)>();
@@ -47,6 +47,9 @@ namespace CapstoneDesign.Runtime
             {
                 var lamp = Instantiate(source, surface.transform, false);
                 lamp.name = "Garden streetlamp " + (i + 1);
+                // Supporting garden furniture, below the mature plant's canopy.
+                // Scale before placement so the real feet stay on the meadow.
+                lamp.transform.localScale *= .68f;
                 GardenSceneModels.ConfigureRenderers(lamp);
                 GardenSceneModels.Place(lamp.transform, positions[i], i == 0 ? 18 : -16, surface.transform);
                 foreach (var renderer in lamp.GetComponentsInChildren<Renderer>(true))
@@ -61,8 +64,8 @@ namespace CapstoneDesign.Runtime
                 var light = bulb.gameObject.AddComponent<Light>();
                 light.type = LightType.Point;
                 light.color = BulbColor;
-                light.intensity = 2.4f;
-                light.range = 3.4f;
+                light.intensity = 1.3f;
+                light.range = 2.65f;
                 light.cullingMask = camera.cullingMask;
                 light.renderMode = LightRenderMode.ForcePixel;
                 // Two short-range lights, without twelve mobile cubemap shadow passes.

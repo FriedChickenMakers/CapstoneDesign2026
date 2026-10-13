@@ -58,6 +58,7 @@ namespace CapstoneDesign.EditorTools
                 state.Environments.Add(new EnvironmentPlacement { EnvironmentId = "environment:E01", Slot = "left" });
                 state.Environments.Add(new EnvironmentPlacement { EnvironmentId = "environment:E02", Slot = "right" });
                 home.RefreshFromState(state);
+                Require(!home.IsOverview, "The home must initially prioritize its plant.");
                 var sky = GardenSkyEnvironment.Ensure(home.gardenCamera, home.gardenVisuals.transform);
                 home.gardenCamera.GetUniversalAdditionalCameraData().dithering = false;
                 using var capture = new GardenLightingValidation.HomeCapture(home, sky, new Vector2Int(1200, 2000));
@@ -85,6 +86,7 @@ namespace CapstoneDesign.EditorTools
                 {
                     var candidate = SpeciesState(species);
                     home.RefreshFromState(candidate);
+                    home.SetOverview(false);
                     Require(home.RenderedRecipe.SpeciesId == species.Id, "Credited activity profile selected the wrong species: " + species.Id);
                     Require(home.RenderedRecipe.Mature, "Mature legacy garden lost its bloom.");
                     AssertGeneratedView(home);
@@ -96,10 +98,19 @@ namespace CapstoneDesign.EditorTools
                         AssertNoMagenta(pixels);
                         AssertCameraFit(home);
                     }
+                    home.SetOverview(true);
+                    sky.SetTimeForPreview(12);
+                    CaptureFrame(home, capture, Path.Combine(output, "overview-" + species.Id.Substring("species:".Length) + ".png"), report);
+                    AssertCameraFit(home);
+                    home.SetOverview(false);
                     report.Add(species.Id + " mature generated geometry fits actual home camera in day/night, triangles="
                         + home.ProceduralPlant.TriangleCount + " PASS");
                 }
 
+                home.RefreshFromState(SpeciesState(PlantCatalog.All[0]));
+                AssertPresentationControls(home, sky, capture, output, report);
+                // Show(true) reloads the service's seed fixture. Restore the
+                // mature gallery fixture before comparing real lamp lighting.
                 home.RefreshFromState(SpeciesState(PlantCatalog.All[0]));
                 AssertVisibleAndLit(home, sky, capture, output, report);
                 Require(errors.Count == 0, "Render errors: " + string.Join("; ", errors));
@@ -198,8 +209,8 @@ namespace CapstoneDesign.EditorTools
             }
             var local = home.gardenRoot.InverseTransformPoint(view.transform.position);
             var surface = home.gardenRoot.GetComponent<GardenSurface>();
-            Require(surface != null && Mathf.Abs(local.y - surface.HeightInSpace(home.gardenRoot, new Vector2(local.x, local.z))) < .03f,
-                "Generated plant root is not grounded on the existing island.");
+            Require(surface != null && Mathf.Abs(local.y - home.PlantingHeight) < .003f,
+                "Generated plant root is not grounded in its planter soil.");
         }
 
         static void AssertCameraFit(GardenHomePresenter home)
@@ -245,6 +256,69 @@ namespace CapstoneDesign.EditorTools
             Require(litPixels > 100 && red > blue, "Real incandescent garden lights did not warm the generated plant.");
             report.Add("Generated plant contributes " + visible + " home pixels; " + litPixels
                 + " receive actual streetlight changes; signed red/blue=" + red + "/" + blue + " PASS");
+        }
+
+        static void AssertPresentationControls(GardenHomePresenter home, GardenSkyEnvironment sky,
+            GardenLightingValidation.HomeCapture capture, string output, List<string> report)
+        {
+            string recipe = PlantCodec.Encode(home.RenderedRecipe);
+            string geometry = MeshSignature(home.ProceduralPlant);
+            var localPosition = home.ProceduralPlant.transform.localPosition;
+            float originalZoom = home.Zoom;
+            home.SetOverview(false);
+            sky.SetTimeForPreview(12);
+            CaptureFrame(home, capture, Path.Combine(output, "plant-focus-noon.png"), report);
+            float focusSize = home.gardenCamera.orthographicSize;
+            home.SetOverview(true);
+            CaptureFrame(home, capture, Path.Combine(output, "garden-overview-noon.png"), report);
+            Require(home.IsOverview && home.gardenCamera.orthographicSize > focusSize * 1.2f,
+                "Garden overview does not show a meaningfully wider view than plant focus.");
+            var context = home.gardenRoot.GetComponentsInChildren<MeshRenderer>(true)
+                .Where(r => !r.transform.IsChildOf(home.ProceduralPlant.transform)
+                    && !r.transform.IsChildOf(home.Planter.transform)
+                    && (home.plant == null || !r.transform.IsChildOf(home.plant.transform)))
+                .ToDictionary(r => r, r => r.enabled);
+            Require(context.Count > 0 && context.Values.Any(enabled => enabled), "Overview lost its garden scenery.");
+            sky.SetTimeForPreview(0);
+            CaptureFrame(home, capture, Path.Combine(output, "garden-overview-midnight.png"), report);
+            home.SetOverview(false);
+            Require(home.IsPlantIsolated && context.Keys.All(r => !r.enabled),
+                "Plant portrait still contains competing garden meshes.");
+            CaptureFrame(home, capture, Path.Combine(output, "plant-focus-midnight.png"), report);
+            var orbit = home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeIslandDrag>(true);
+            var camera = home.gardenCamera;
+            var position = camera.transform.position;
+            var rotation = camera.transform.rotation;
+            foreach (int yaw in new[] { 90, 180, 270 })
+            {
+                var turn = Quaternion.AngleAxis(yaw, Vector3.up);
+                camera.transform.SetPositionAndRotation(orbit.focus + turn * (position - orbit.focus), turn * rotation);
+                CaptureFrame(home, capture, Path.Combine(output, "plant-night-orbit-" + yaw + ".png"), report);
+                AssertCameraFit(home);
+            }
+            camera.transform.SetPositionAndRotation(position, rotation);
+            foreach (float zoom in new[] { -1f, 0f, 1f, 2f })
+            {
+                home.SetZoom(zoom);
+                Require(home.Zoom >= 0 && home.Zoom <= 1, "Plant zoom is not bounded.");
+                CaptureFrame(home, capture, Path.Combine(output, "plant-zoom-" + zoom + ".png"), report);
+                AssertCameraFit(home);
+            }
+            home.SetZoom(originalZoom);
+            Require(PlantCodec.Encode(home.RenderedRecipe) == recipe && MeshSignature(home.ProceduralPlant) == geometry
+                && home.ProceduralPlant.transform.localPosition == localPosition,
+                "Camera inspection changed the saved plant recipe, geometry or planting position.");
+            home.Show(false);
+            Require(!home.IsPlantIsolated && context.All(r => r.Key.enabled == r.Value),
+                "Leaving home did not restore the garden renderers for shared previews.");
+            home.Show(true);
+            Require(!home.IsOverview && home.IsPlantIsolated && Mathf.Abs(home.Zoom - originalZoom) < .001f,
+                "Returning home lost the selected plant view or zoom.");
+            home.SetOverview(true);
+            Require(context.All(r => r.Key == null || r.Key.enabled == r.Value),
+                "Overview did not restore original renderer visibility.");
+            home.SetOverview(false);
+            report.Add("Plant focus, wider overview, bounded zoom, four orbit views and unchanged recipe/mesh PASS");
         }
 
         static Color32[] CaptureFrame(GardenHomePresenter home, GardenLightingValidation.HomeCapture capture,

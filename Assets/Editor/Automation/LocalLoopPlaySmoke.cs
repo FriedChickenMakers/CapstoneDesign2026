@@ -84,6 +84,26 @@ namespace CapstoneDesign.EditorTools
                 AssertLegacyRendererParked(home);
                 if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || !home.homeCanvas.gameObject.activeSelf)
                     throw new Exception("Fresh home did not show the saved seed");
+                yield return null;
+                var viewButtons = home.homeCanvas.GetComponentsInChildren<Button>();
+                var plantView = viewButtons.Single(button=>button.name=="식물 보기");
+                var overview = viewButtons.Single(button=>button.name=="정원 전체");
+                var zoomIn = viewButtons.Single(button=>button.name=="확대");
+                var zoomOut = viewButtons.Single(button=>button.name=="축소");
+                foreach(var button in new[]{plantView,overview,zoomIn,zoomOut}) AssertRaycastTarget(button);
+                if(home.IsOverview || !home.IsPlantIsolated)throw new Exception("Home did not default to its saved plant");
+                if(UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Include,FindObjectsSortMode.None)
+                    .Any(node=>node.name=="Saved garden additions" && node.parent==null))
+                    throw new Exception("Legacy saved scenery leaks into the integrated garden camera");
+                overview.onClick.Invoke();
+                if(!home.IsOverview || home.IsPlantIsolated)throw new Exception("Overview did not restore garden scenery");
+                plantView.onClick.Invoke();
+                float previousZoom=home.Zoom;
+                zoomOut.onClick.Invoke();
+                if(home.Zoom>=previousZoom)throw new Exception("Zoom out did not change the camera view");
+                zoomIn.onClick.Invoke();
+                if(Mathf.Abs(home.Zoom-previousZoom)>.001f || home.RenderedRecipe.GrowthStep!=0)
+                    throw new Exception("Zoom controls changed the plant or failed to restore the view");
                 home.activityTab.onClick.Invoke();
                 AssertLegacyRendererParked(home);
                 if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)

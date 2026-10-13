@@ -532,9 +532,24 @@ namespace CapstoneDesign.Runtime
         {
             if(!opened)return;var s=Service.Snapshot;
             if(stateSummary!=null)stateSummary.text=(mode=="LIVE"?"":"["+mode+"]  ")+"영양제 "+s.Nutrient+"  ·  코스 "+Math.Min(48,s.MbctCompletedIds.Count)+" / 48";
-            transform.root.GetComponent<GardenHomePresenter>()?.RefreshFromState(s);
+            var home=transform.root.GetComponent<GardenHomePresenter>();
+            bool integratedHome=home!=null && home.gardenRoot!=null;
+            // The integrated presenter owns the saved scenery. Legacy copies
+            // at the scene root also reach its camera and escape plant focus.
+            if(integratedHome)
+            {
+                if(gardenObjects!=null)
+                {
+                    gardenObjects.SetActive(false);
+                    if(Application.isPlaying)Destroy(gardenObjects);else DestroyImmediate(gardenObjects);
+                    gardenObjects=null;
+                }
+                gardenSignature=null;
+            }
+            home?.RefreshFromState(s);
             if(rewardPlant!=null) rewardPlant.localScale=basePlantScale*(1+Mathf.Clamp(s.LegacyGrowth+s.Plants.Sum(p=>p.Growth),0,2));
             if(islandStatus!=null)islandStatus.text=(mode=="LIVE"?"":"["+mode+"] ")+"영양제 "+s.Nutrient+"\n"+VisitorText(s);
+            if(integratedHome)return;
             var signature=string.Join("|",s.Environments.Select(e=>e.EnvironmentId+":"+e.Slot))+"/"+s.DailyDecisions.LastOrDefault()?.VisitorId;
             if(gardenObjects!=null && signature==gardenSignature)return;gardenSignature=signature;
             if(gardenObjects!=null){gardenObjects.SetActive(false);if(Application.isPlaying)Destroy(gardenObjects);else DestroyImmediate(gardenObjects);}

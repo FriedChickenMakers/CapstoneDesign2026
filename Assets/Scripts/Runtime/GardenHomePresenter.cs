@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using CapstoneDesign.Plants;
 using CapstoneDesign.Prototype;
 using CapstoneDesign.Runtime.LocalState;
@@ -42,6 +43,13 @@ namespace CapstoneDesign.Runtime
         public bool IsGardenVisible => title!=null && title.gameObject.activeInHierarchy;
         public ProceduralPlantView ProceduralPlant { get; private set; }
         public PlantRecipe RenderedRecipe { get; private set; }
+        public GardenPlantPlanter Planter { get; private set; }
+        public float PlantingHeight { get; private set; }
+        public bool IsOverview => backgroundPreview != null && !backgroundPreview.IsSubjectFocused;
+        public float Zoom => backgroundPreview != null ? backgroundPreview.Zoom : .85f;
+        public bool IsPlantIsolated { get; private set; }
+        readonly Dictionary<MeshRenderer, bool> contextVisibility = new Dictionary<MeshRenderer, bool>();
+        Button plantViewButton, overviewButton, zoomOutButton, zoomInButton;
 
         Transform additions;
         string additionsSignature;
@@ -64,6 +72,7 @@ namespace CapstoneDesign.Runtime
 
         private void OnDestroy()
         {
+            RestoreGardenContext();
             missionButton?.onClick.RemoveListener(OpenActivity);
             shopButton?.onClick.RemoveListener(OpenShop);
             homeTab?.onClick.RemoveListener(OpenHome);
@@ -75,6 +84,7 @@ namespace CapstoneDesign.Runtime
 
         public void Show(bool visible)
         {
+            if (!visible) RestoreGardenContext();
             // Disable renderers before the drag target's OnDisable resets its view.
             if (gardenVisuals != null) gardenVisuals.SetActive(visible);
             if (homeCanvas != null)
@@ -130,7 +140,7 @@ namespace CapstoneDesign.Runtime
             var home = content.Find("GardenAndGrowth");
             overviewSurface = GardenUi.Box(content, "Home overview surface", 0, 1, 1, 0, GardenUi.Background);
             GardenUi.Round(overviewSurface.GetComponent<Image>(), GardenUi.Background);
-            GardenUi.FromTop(overviewSurface.transform, 14, 258);
+            GardenUi.FromTop(overviewSurface.transform, 14, 366);
             var overview = (RectTransform)overviewSurface.transform;
             overview.offsetMin = new Vector2(24, overview.offsetMin.y);
             overview.offsetMax = new Vector2(-24, overview.offsetMax.y);
@@ -154,10 +164,93 @@ namespace CapstoneDesign.Runtime
                 foreach (var dot in progressDots)
                     if (dot != null) CenterInGrowthSurface(dot.rectTransform, growthRect);
             backgroundPreview.lowerBoundary = growthRect;
+            EnsureViewControls(home);
             // A true background is behind the UI. These opaque surfaces block
             // drag gestures even where there is no text or button graphic.
             var sky = GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (sky != null) sky.PreviewLayout = backgroundPreview;
+        }
+
+        void EnsureViewControls(Transform home)
+        {
+            // One compact row groups the two mutually exclusive views and
+            // bounded zoom; every target is at least 96 design units high.
+            var row = GardenUi.Box(home, "Garden view controls", 0, 1, 1, 0);
+            var rect = (RectTransform)row.transform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0, 1);
+            rect.pivot = new Vector2(0, 1);
+            rect.anchoredPosition = new Vector2(48, -154);
+            rect.sizeDelta = new Vector2(624, 96);
+            plantViewButton = GardenUi.Button(row.transform, "식물 보기", 0, 0, 200f / 624, 1, () => SetOverview(false));
+            overviewButton = GardenUi.Button(row.transform, "정원 전체", 208f / 624, 0, 200f / 624, 1, () => SetOverview(true));
+            zoomOutButton = GardenUi.Button(row.transform, "−", 416f / 624, 0, 100f / 624, 1, () => SetZoom(Zoom - .2f));
+            zoomInButton = GardenUi.Button(row.transform, "+", 524f / 624, 0, 100f / 624, 1, () => SetZoom(Zoom + .2f));
+            zoomOutButton.name = "축소"; zoomInButton.name = "확대";
+            foreach (var button in new[] { plantViewButton, overviewButton, zoomOutButton, zoomInButton })
+                button.GetComponentInChildren<Text>().fontSize = 30;
+            backgroundPreview.upperBoundary = rect;
+            backgroundPreview.SetSubjectFocus(true);
+            UpdateViewControls();
+        }
+
+        public void SetOverview(bool overview)
+        {
+            backgroundPreview?.SetSubjectFocus(!overview);
+            ApplyPlantFocus();
+            UpdateViewControls();
+            RenderView();
+        }
+
+        public void SetZoom(float zoom)
+        {
+            backgroundPreview?.SetZoom(zoom);
+            UpdateViewControls();
+            RenderView();
+        }
+
+        void ApplyPlantFocus()
+        {
+            if (IsOverview || !IsGardenVisible || ProceduralPlant == null || Planter == null)
+            {
+                RestoreGardenContext();
+                return;
+            }
+            // The close view presents the same plant in its bowl against the
+            // sky. Garden context returns intact in overview and shop previews.
+            // Keep real lights running; only their competing meshes are hidden.
+            foreach (var renderer in gardenRoot.GetComponentsInChildren<MeshRenderer>(true))
+            {
+                var node = renderer.transform;
+                if (node.IsChildOf(ProceduralPlant.transform) || node.IsChildOf(Planter.transform)
+                    || (plant != null && node.IsChildOf(plant.transform))) continue;
+                if (!contextVisibility.ContainsKey(renderer)) contextVisibility.Add(renderer, renderer.enabled);
+                renderer.enabled = false;
+            }
+            IsPlantIsolated = true;
+        }
+
+        void RestoreGardenContext()
+        {
+            foreach (var original in contextVisibility)
+                if (original.Key != null) original.Key.enabled = original.Value;
+            contextVisibility.Clear();
+            IsPlantIsolated = false;
+        }
+
+        void UpdateViewControls()
+        {
+            if (plantViewButton == null) return;
+            GardenUi.StyleButton(plantViewButton, selected: !IsOverview);
+            GardenUi.StyleButton(overviewButton, selected: IsOverview);
+            zoomOutButton.interactable = Zoom > .001f;
+            zoomInButton.interactable = Zoom < .999f;
+        }
+
+        void RenderView()
+        {
+            backgroundPreview?.Apply();
+            if (Application.isPlaying && gardenVisuals != null && gardenVisuals.activeInHierarchy && gardenCamera != null)
+                gardenCamera.Render();
         }
 
         static void CenterInGrowthSurface(RectTransform item, RectTransform surface)
@@ -214,6 +307,7 @@ namespace CapstoneDesign.Runtime
             GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (activity == null || !activity.HasOpenState || saved == null)
             {
+                RestoreGardenContext();
                 if (gardenVisuals != null) gardenVisuals.SetActive(false);
                 if (title != null) title.text = "저장 상태 확인 필요";
                 if (guide != null) guide.text = "기존 데이터를 보존했습니다. 저장 공간을 확인해 주세요.";
@@ -231,7 +325,7 @@ namespace CapstoneDesign.Runtime
             if (date != null) date.text = DateTime.Now.ToString("M월 d일");
             if (title != null) title.text = RenderedRecipe.SpeciesId == null ? "오늘의 식물"
                 : "오늘의 " + PlantCatalog.Get(RenderedRecipe.SpeciesId).Name;
-            if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개 · 섬을 드래그해 둘러보세요.";
+            if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개 · 드래그해 둘러보세요.";
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
@@ -247,6 +341,7 @@ namespace CapstoneDesign.Runtime
             if (activityTabLabel != null) activityTabLabel.text = "오늘의 활동";
             if (settingsTabLabel != null) settingsTabLabel.text = "설정";
             RefreshAdditions(saved);
+            ApplyPlantFocus();
             if (Application.isPlaying && homeCanvas.gameObject.activeInHierarchy
                 && gardenVisuals.activeInHierarchy && gardenCamera != null)
             {
@@ -283,13 +378,19 @@ namespace CapstoneDesign.Runtime
                 plantSignature = signature;
             }
             RenderedRecipe = recipe;
-            float scale = 1 + Mathf.Clamp((growth - .3f) * .25f, 0, .18f);
+            // The generated plant is the garden's main subject, while each
+            // species keeps its own proportions and exact saved mesh.
+            float scale = 1.9f * (1 + Mathf.Clamp((growth - .3f) * .25f, 0, .18f));
             bool scaleChanged = ProceduralPlant.transform.localScale != Vector3.one * scale;
             ProceduralPlant.transform.localScale = Vector3.one * scale;
             // A growing branch changes the bounds, never the stem's soil point.
             var footprint = new Vector2(0, .12f);
-            ProceduralPlant.transform.localPosition = new Vector3(footprint.x,
-                GardenSceneModels.GroundHeight(gardenRoot, footprint) + .002f, footprint.y);
+            float ground = GardenSceneModels.GroundHeight(gardenRoot, footprint);
+            if (Planter == null) Planter = GardenPlantPlanter.Create(gardenRoot);
+            Planter.transform.localPosition = new Vector3(footprint.x, ground + .002f, footprint.y);
+            PlantingHeight = ground + .002f + GardenPlantPlanter.SoilHeight + .002f;
+            ProceduralPlant.transform.localPosition = new Vector3(footprint.x, PlantingHeight, footprint.y);
+            backgroundPreview?.SetSubject(ProceduralPlant.transform, Planter.transform);
             if (meshChanged || scaleChanged)
                 homeCanvas?.GetComponentInChildren<PrototypeGardenPreviewLayout>(true)?.RecalculateBounds();
         }

@@ -82,7 +82,7 @@ namespace CapstoneDesign.Runtime
             key.type = LightType.Directional;
             key.cullingMask = camera.cullingMask;
             key.shadows = LightShadows.Soft;
-            key.shadowStrength = .82f;
+            key.shadowStrength = .62f;
             key.shadowBias = .003f;
             key.shadowNormalBias = .01f;
             key.shadowNearPlane = .05f;
@@ -122,14 +122,18 @@ namespace CapstoneDesign.Runtime
             Vector3 direction = elevation >= 0 ? SunDirection : MoonDirection;
             // The sky disc and shadow light use exactly the same world direction.
             key.transform.rotation = Quaternion.LookRotation(-direction.normalized, Vector3.up);
-            key.color = Color.Lerp(new Color(.55f,.66f,.91f), Color.Lerp(new Color(1,.96f,.86f),
+            key.color = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1,.98f,.92f),
                 new Color(1,.61f,.34f), twilight), Daylight);
-            key.intensity = Mathf.Lerp(.30f, 1.22f, Daylight);
+            // Moonlight reaches the raised flowers as well as the ground. It is
+            // a real directional source, independent of the warm low lanterns.
+            key.intensity = Mathf.Lerp(.85f, 1.15f, Daylight);
             RenderSettings.sun = key;
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = Color.Lerp(new Color(.07f,.095f,.15f), new Color(.47f,.59f,.71f), Daylight);
-            RenderSettings.ambientEquatorColor = Color.Lerp(new Color(.045f,.06f,.095f), new Color(.25f,.31f,.33f), Daylight);
-            RenderSettings.ambientGroundColor = Color.Lerp(new Color(.02f,.028f,.045f), new Color(.14f,.16f,.15f), Daylight);
+            // Broad sky and ground bounce retain the faceted silhouette without
+            // crushing unlit cliff faces to black. Warm pools remain local lamps.
+            RenderSettings.ambientSkyColor = Color.Lerp(new Color(.17f,.20f,.32f), new Color(.57f,.69f,.77f), Daylight);
+            RenderSettings.ambientEquatorColor = Color.Lerp(new Color(.12f,.14f,.21f), new Color(.41f,.44f,.39f), Daylight);
+            RenderSettings.ambientGroundColor = Color.Lerp(new Color(.09f,.085f,.12f), new Color(.27f,.26f,.24f), Daylight);
             RenderSettings.reflectionIntensity = Mathf.Lerp(.06f,.25f,Daylight);
             if (sky != null)
             {
