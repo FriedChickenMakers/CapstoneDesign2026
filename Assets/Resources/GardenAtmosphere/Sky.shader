@@ -76,11 +76,12 @@ Shader "Capstone/Garden Clock Sky"
                 float dustOffset=(warpedLatitude+(medium-.5)*.10)*26;
                 float dust=exp2(-dustOffset*dustOffset)*(.40+fine*.60);
                 float density=(halo*.22+core*cloud*.92)*(1-dust*.82);
-                // A broad colour transition through cyan, not separate green/blue
-                // stripes. These low linear values preserve the dark night exposure.
+                // A broad transition through cyan and blue into a little violet.
+                // Low linear values preserve the dark night exposure.
                 float hue=smoothstep(-.32,.48,dot(direction,normalize(float3(.35,-.85,.40)))
                     +(broad-.5)*.35);
-                float3 gas=lerp(float3(.024,.071,.043),float3(.022,.048,.135),hue);
+                float3 gas=lerp(float3(.024,.071,.043),float3(.035,.045,.150),hue);
+                gas=lerp(gas,float3(.080,.035,.160),smoothstep(.45,.95,hue)*.45);
                 starDensity=halo*cloud;
                 return gas*density;
             }
@@ -90,8 +91,8 @@ Shader "Capstone/Garden Clock Sky"
                 float height=saturate(d.y*.7+.3);
                 // The garden camera looks below the horizon, so that hemisphere
                 // also needs blue sky. Existing mist supplies the white lower clouds.
-                float3 day=lerp(float3(.22,.46,.68),float3(.16,.48,.80),smoothstep(-.85,.12,d.y));
-                day=lerp(day,float3(.085,.31,.67),smoothstep(.12,1,d.y));
+                float3 day=lerp(float3(.20,.46,.71),float3(.14,.48,.83),smoothstep(-.85,.12,d.y));
+                day=lerp(day,float3(.075,.31,.70),smoothstep(.12,1,d.y));
                 // These are linear output values: a .1 night sky becomes much brighter
                 // after display conversion. Keep the horizon subtle instead of blue daylight.
                 float3 night=lerp(float3(.009,.017,.037),float3(.0015,.004,.012),height);
@@ -116,7 +117,7 @@ Shader "Capstone/Garden Clock Sky"
                 float moonDisc=smoothstep(cos(.029),cos(.025),-sunAlignment)*moonVisible;
                 // Only the luminous disc is HDR. The surrounding sky keeps its
                 // existing exposure while the post-process spreads a small glow.
-                color=lerp(color,float3(2.8,2.46,1.51),sunDisc*.96);
+                color=lerp(color,float3(2.88,2.54,1.51),sunDisc*.96);
                 color=lerp(color,float3(.79,.86,1),moonDisc*.94);
                 color+=float3(1,.88,.54)*exp((sunAlignment-1)*650)*sunVisible*.09;
                 color+=float3(.79,.86,1)*exp((-sunAlignment-1)*800)*moonVisible*.028;

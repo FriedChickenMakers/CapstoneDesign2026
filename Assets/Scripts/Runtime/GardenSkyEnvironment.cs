@@ -122,11 +122,11 @@ namespace CapstoneDesign.Runtime
             Vector3 direction = elevation >= 0 ? SunDirection : MoonDirection;
             // The sky disc and shadow light use exactly the same world direction.
             key.transform.rotation = Quaternion.LookRotation(-direction.normalized, Vector3.up);
-            key.color = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1,.98f,.92f),
+            key.color = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1.015f,.995f,.92f),
                 new Color(1,.61f,.34f), twilight), Daylight);
             // Moonlight reaches the raised flowers as well as the ground. It is
             // a real directional source, independent of the warm low lanterns.
-            key.intensity = Mathf.Lerp(.85f, 1.15f, Daylight);
+            key.intensity = Mathf.Lerp(.85f, 1.22f, Daylight);
             RenderSettings.sun = key;
             RenderSettings.ambientMode = AmbientMode.Trilight;
             // Broad sky and ground bounce retain the faceted silhouette without
