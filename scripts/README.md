@@ -85,3 +85,25 @@ CAPSTONE_SMOKE_SAVE_ROOT="$CAPSTONE_ARTIFACTS/new-synthetic-save" ./scripts/test
 
 To preserve source hashes, final APK hash and a source-only archive after checks:
 `./scripts/archive-local-loop.sh` with `CAPSTONE_ARTIFACTS` set to that run.
+
+## Garden lighting verification
+
+```bash
+CAPSTONE_ARTIFACTS="$PWD/artifacts/garden-lighting" xvfb-run -a \
+  ./scripts/unity-run.sh -batchmode -quit -projectPath "$PWD" \
+  -executeMethod CapstoneDesign.EditorTools.GardenLightingValidation.Capture \
+  -logFile -
+```
+
+This uses an in-memory synthetic garden. It checks the 18:00–06:00 lamp
+boundaries, actual point-light illumination with bulb emission held constant,
+local fog lighting, day/night bloom, unchanged overlay text pixels, growth-card
+centering, and finite mesh attributes. PNGs and `validation.txt` stay in the
+ignored artifact directory. Inspect the images as well as the assertions, and
+validate the final Android APK on a device before accepting mobile rendering.
+
+The imported lamp's source and license are documented in
+`Assets/Art/External/KenneyStreetLamp/README.md`. To regenerate its derived
+assets, use `CapstoneDesign.EditorTools.StreetLampAssetBuilder.Build` through
+the same Unity wrapper. `KenneyGardenBuilder.RebuildExpandedMeshes` regenerates
+the island and chamomile geometry without retaining stale vertex channels.

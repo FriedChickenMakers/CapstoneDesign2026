@@ -51,7 +51,9 @@ Shader "Capstone/Garden Clock Sky"
                 float moonVisible=smoothstep(-.04,.015,-_SunDirection.y)*(1-_Daylight*.97);
                 float sunDisc=smoothstep(cos(.032),cos(.028),sunAlignment)*sunVisible;
                 float moonDisc=smoothstep(cos(.029),cos(.025),-sunAlignment)*moonVisible;
-                color=lerp(color,float3(1,.88,.54),sunDisc*.96);
+                // Only the luminous disc is HDR. The surrounding sky keeps its
+                // existing exposure while the post-process spreads a small glow.
+                color=lerp(color,float3(2.8,2.46,1.51),sunDisc*.96);
                 color=lerp(color,float3(.79,.86,1),moonDisc*.94);
                 color+=float3(1,.88,.54)*exp((sunAlignment-1)*650)*sunVisible*.09;
                 color+=float3(.79,.86,1)*exp((-sunAlignment-1)*800)*moonVisible*.028;

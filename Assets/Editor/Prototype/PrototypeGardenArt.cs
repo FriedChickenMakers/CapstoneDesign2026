@@ -53,16 +53,17 @@ namespace CapstoneDesign.EditorTools
             preview = AssetDatabase.LoadAssetAtPath<RenderTexture>(texturePath);
             if (preview == null)
             {
-                preview = new RenderTexture(1000, 900, 24) { name = "GardenPreview" };
+                preview = new RenderTexture(1000, 900, 24, RenderTextureFormat.ARGBHalf) { name = "GardenPreview" };
                 AssetDatabase.CreateAsset(preview, texturePath);
             }
-            preview.Release(); preview.width = 1000; preview.height = 900; preview.antiAliasing = 4;
+            preview.Release(); preview.width = 1000; preview.height = 900;
+            preview.format = RenderTextureFormat.ARGBHalf; preview.antiAliasing = 1;
             EditorUtility.SetDirty(preview);
             camera = new GameObject("Garden Camera").AddComponent<Camera>();
             camera.orthographic = true; camera.orthographicSize = DefaultOrthographicSize;
             camera.nearClipPlane = .1f; camera.farClipPlane = 20;
             camera.backgroundColor = Color.clear; camera.clearFlags = CameraClearFlags.SolidColor;
-            camera.cullingMask = 1 << 30; camera.targetTexture = preview; camera.allowHDR = false;
+            camera.cullingMask = 1 << 30; camera.targetTexture = preview; camera.allowHDR = true;
             Quaternion rotation = Quaternion.Euler(28, -25, 0);
             camera.transform.SetPositionAndRotation(new Vector3(0, .58f, 0) + rotation * (Vector3.back * PrototypeIslandDrag.DefaultDistance), rotation);
             return plant;

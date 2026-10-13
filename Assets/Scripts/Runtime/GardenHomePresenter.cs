@@ -147,10 +147,30 @@ namespace CapstoneDesign.Runtime
             growthRect.anchoredPosition = new Vector2(48, 328);
             growthRect.sizeDelta = new Vector2(624, 64);
             growthRect.SetAsFirstSibling();
+            // The compact surface is higher than the old prototype row. Anchor
+            // its contents to the surface, including the visible glyph bounds.
+            if (stage != null)
+            {
+                CenterInGrowthSurface(stage.rectTransform, growthRect);
+                stage.alignment = TextAlignmentOptions.Midline;
+            }
+            if (progressDots != null)
+                foreach (var dot in progressDots)
+                    if (dot != null) CenterInGrowthSurface(dot.rectTransform, growthRect);
+            backgroundPreview.lowerBoundary = growthRect;
             // A true background is behind the UI. These opaque surfaces block
             // drag gestures even where there is no text or button graphic.
             var sky = GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (sky != null) sky.PreviewLayout = backgroundPreview;
+        }
+
+        static void CenterInGrowthSurface(RectTransform item, RectTransform surface)
+        {
+            float x = item.anchoredPosition.x - surface.anchoredPosition.x;
+            item.SetParent(surface, false);
+            item.anchorMin = item.anchorMax = new Vector2(0, .5f);
+            item.pivot = new Vector2(item.pivot.x, .5f);
+            item.anchoredPosition = new Vector2(x, 0);
         }
 
         static void StyleTab(Button button,TMP_Text label,bool selected)

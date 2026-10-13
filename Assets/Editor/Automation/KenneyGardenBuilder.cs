@@ -57,6 +57,19 @@ namespace CapstoneDesign.EditorTools
             Debug.Log("KENNEY_SOLID_ISLAND_BUILD_PASS");
         }
 
+        // Rebuild only the two meshes whose vertex counts grow beyond their
+        // imported sources. Existing prefabs keep the same mesh asset GUIDs.
+        public static void RebuildExpandedMeshes()
+        {
+            BuildIslandGeometry();
+            var source = AssetDatabase.LoadAssetAtPath<GameObject>(Source + "nature/flower_yellowC.obj");
+            if (source == null) throw new InvalidOperationException("Missing chamomile source.");
+            var flower = UnityEngine.Object.Instantiate(source);
+            try { RefineChamomile(flower); AssetDatabase.SaveAssets(); }
+            finally { UnityEngine.Object.DestroyImmediate(flower); }
+            Debug.Log("KENNEY_EXPANDED_MESH_BUILD_PASS");
+        }
+
         static Color Hex(string value) { ColorUtility.TryParseHtmlString("#" + value, out var c); return c; }
         static Material Mat(string name, Color color, Texture texture = null)
         {
@@ -222,7 +235,9 @@ namespace CapstoneDesign.EditorTools
                     }
                     triangles[sub]=petals.ToArray();
                 }
-                mesh.Clear();mesh.SetVertices(vertices);mesh.subMeshCount=triangles.Length;
+                // The derived petals use solid palette materials. Discard source
+                // UV/tangent channels instead of leaving new vertices uninitialized.
+                mesh.Clear(false);mesh.SetVertices(vertices);mesh.subMeshCount=triangles.Length;
                 for(int sub=0;sub<triangles.Length;sub++)mesh.SetTriangles(triangles[sub],sub);
                 mesh.RecalculateNormals();mesh.RecalculateBounds();
                 filter.sharedMesh=SaveMesh(mesh,"Chamomile-open-petals");
@@ -287,7 +302,10 @@ namespace CapstoneDesign.EditorTools
                     var a=corners[edge.a];var b=corners[edge.b];
                     Triangle(edge.material,a,b,Lower(b));Triangle(edge.material,a,Lower(b),Lower(a));
                 }
-                mesh.Clear();mesh.SetVertices(vertices);mesh.subMeshCount=triangles.Length;
+                // No texture is sampled by the solid island palette. Clear the
+                // imported layout too: retained UV/tangent buffers otherwise gain
+                // undefined values (including NaNs) on the new underside vertices.
+                mesh.Clear(false);mesh.SetVertices(vertices);mesh.subMeshCount=triangles.Length;
                 for(int sub=0;sub<triangles.Length;sub++)mesh.SetTriangles(triangles[sub],sub);
                 mesh.RecalculateNormals();mesh.RecalculateBounds();
                 filter.sharedMesh=SaveMesh(mesh,"Island-level-meadow");

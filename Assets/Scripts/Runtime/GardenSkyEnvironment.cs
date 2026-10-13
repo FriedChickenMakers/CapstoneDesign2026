@@ -22,6 +22,7 @@ namespace CapstoneDesign.Runtime
         public Vector3 MoonDirection => -SunDirection;
         public Light KeyLight => key;
         public ParticleSystem Clouds => clouds;
+        public GardenStreetLighting StreetLighting { get; private set; }
         public CapstoneDesign.Prototype.PrototypeGardenPreviewLayout PreviewLayout { get; set; }
 
         void OnEnable()
@@ -68,6 +69,7 @@ namespace CapstoneDesign.Runtime
         void Initialize(Camera camera)
         {
             view = camera;
+            GardenPostProcessing.Ensure(camera, transform);
             // Ensure is also used by editor captures, where this runtime-only
             // component has not received OnEnable. Keep registration idempotent.
             RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
@@ -91,6 +93,7 @@ namespace CapstoneDesign.Runtime
             if (skybox == null) skybox = view.gameObject.AddComponent<Skybox>();
             skybox.material = sky;
             view.clearFlags = CameraClearFlags.Skybox;
+            StreetLighting = GardenStreetLighting.Ensure(camera, transform);
             CreateClouds();
             ApplyTime(previewHour ?? GardenVisualClock.CurrentHour);
         }
@@ -139,6 +142,8 @@ namespace CapstoneDesign.Runtime
                 cloudMaterial.SetFloat("_Daylight", Daylight);
                 cloudMaterial.SetFloat("_Twilight", twilight);
             }
+            StreetLighting?.ApplyTime(hour);
+            StreetLighting?.ApplyToMist(cloudMaterial);
             view.backgroundColor = Color.Lerp(new Color(.009f,.018f,.043f), new Color(.46f,.70f,.88f), Daylight);
         }
 
@@ -180,6 +185,7 @@ namespace CapstoneDesign.Runtime
             cloudMaterial.SetVector("_LightDirection", light);
             cloudMaterial.SetVector("_IslandOrigin", transform.position);
             cloudMaterial.SetFloat("_CloudSeconds", seconds);
+            StreetLighting?.ApplyToMist(cloudMaterial);
             for (int i = 0; i < particles.Length; i++)
             {
                 float seed = Mathf.Repeat(i * .61803399f + .17f, 1);

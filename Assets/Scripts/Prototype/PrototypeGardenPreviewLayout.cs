@@ -111,7 +111,10 @@ namespace CapstoneDesign.Prototype
             if (ownedTexture != null && ownedTexture.width == width && ownedTexture.height == height) return false;
             if (originalTexture == null) originalTexture = camera.targetTexture;
             var previous = ownedTexture;
-            ownedTexture = new RenderTexture(width, height, 24) { name = "Home background", antiAliasing = 4 };
+            // URP inherits the external target format for its intermediate color
+            // buffer. Preserve HDR highlights until bloom and tone mapping finish.
+            ownedTexture = new RenderTexture(width, height, 24, RenderTextureFormat.ARGBHalf)
+                { name = "Home background", antiAliasing = 1 };
             camera.targetTexture = ownedTexture;
             image.texture = ownedTexture;
             if (previous != null) { previous.Release(); if (Application.isPlaying) Destroy(previous); else DestroyImmediate(previous); }

@@ -58,7 +58,7 @@ namespace CapstoneDesign.EditorTools
                     if (material == null || material.shader.name.Contains("Unlit"))
                         throw new InvalidOperationException("Garden model has an unlit or missing material: " + renderer.name);
             }
-            foreach (string asset in new[] { "GardenBase", "FlowerBed", "RestCorner" })
+            foreach (string asset in new[] { "GardenBase", "FlowerBed", "RestCorner", "StreetLamp" })
                 if (Resources.Load<GameObject>(GardenSceneModels.ResourceRoot + asset) == null)
                     throw new InvalidOperationException("Missing garden resource: " + asset);
             for (int i = 1; i <= 12; i++)
@@ -66,6 +66,8 @@ namespace CapstoneDesign.EditorTools
                     throw new InvalidOperationException("Missing saved visitor model: " + i);
             if (Resources.Load<Shader>("GardenAtmosphere/Sky") == null || Resources.Load<Shader>("GardenAtmosphere/Cloud") == null)
                 throw new InvalidOperationException("Garden environment shaders are missing.");
+            if (Resources.Load<UnityEngine.Rendering.VolumeProfile>("GardenAtmosphere/PostProcessing") == null)
+                throw new InvalidOperationException("Garden post-processing profile is missing.");
 
             var music = Resources.Load<GardenMusicProfile>("Audio/GardenMusicProfile");
             if (music == null)
