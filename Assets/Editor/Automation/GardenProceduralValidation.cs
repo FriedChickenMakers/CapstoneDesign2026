@@ -58,7 +58,8 @@ namespace CapstoneDesign.EditorTools
                 state.Environments.Add(new EnvironmentPlacement { EnvironmentId = "environment:E01", Slot = "left" });
                 state.Environments.Add(new EnvironmentPlacement { EnvironmentId = "environment:E02", Slot = "right" });
                 home.RefreshFromState(state);
-                Require(!home.IsOverview, "The home must initially prioritize its plant.");
+                Require(home.IsOverview, "The home must initially show the complete garden.");
+                var initialContext = CaptureGardenContext(home);
                 var sky = GardenSkyEnvironment.Ensure(home.gardenCamera, home.gardenVisuals.transform);
                 home.gardenCamera.GetUniversalAdditionalCameraData().dithering = false;
                 using var capture = new GardenLightingValidation.HomeCapture(home, sky, new Vector2Int(1200, 2000));
@@ -68,6 +69,7 @@ namespace CapstoneDesign.EditorTools
                 {
                     state.LegacyGrowth = stage * .1f;
                     home.RefreshFromState(state);
+                    AssertGardenContext(home, initialContext);
                     AssertGeneratedView(home);
                     Require(home.RenderedRecipe.GrowthStep == new[] { 0, 3, 4, 12 }[stage], "Legacy growth stage did not reach the generated recipe.");
                     Require(home.RenderedRecipe.BaseSeed == seed, "Growing the same garden rerolled its appearance seed.");
@@ -220,14 +222,45 @@ namespace CapstoneDesign.EditorTools
             Require(layout != null && layout.VisibleAreaInViewport.width > 0 && layout.VisibleAreaInViewport.height > 0,
                 "Actual home has no measured area between its UI cards.");
             var visible = layout.VisibleAreaInViewport;
-            foreach (var vertex in filter.sharedMesh.vertices)
+            var filters = new List<MeshFilter> { filter };
+            if (home.IsOverview) filters.Add(home.gardenRoot.GetComponent<GardenSurface>().surface);
+            foreach (var measured in filters)
+            foreach (var vertex in measured.sharedMesh.vertices)
             {
-                var viewport = home.gardenCamera.WorldToViewportPoint(filter.transform.TransformPoint(vertex));
+                var viewport = home.gardenCamera.WorldToViewportPoint(measured.transform.TransformPoint(vertex));
                 Require(viewport.z > home.gardenCamera.nearClipPlane && viewport.z < home.gardenCamera.farClipPlane
                     && viewport.x >= visible.xMin - .001f && viewport.x <= visible.xMax + .001f
                     && viewport.y >= visible.yMin - .001f && viewport.y <= visible.yMax + .001f,
-                    "Generated plant clips outside the actual garden area or underneath a UI card.");
+                    "Generated plant or overview ground clips outside the actual garden area or underneath a UI card.");
             }
+        }
+
+        internal static Dictionary<MeshRenderer, bool> CaptureGardenContext(GardenHomePresenter home)
+        {
+            var context = home.gardenRoot.GetComponentsInChildren<MeshRenderer>(true)
+                .Where(r => !r.transform.IsChildOf(home.ProceduralPlant.transform)
+                    && !r.transform.IsChildOf(home.Planter.transform)
+                    && (home.plant == null || !r.transform.IsChildOf(home.plant.transform)))
+                .ToDictionary(r => r, r => r.enabled);
+            Require(context.Count > 0 && context.Values.Any(enabled => enabled), "Garden scenery is missing.");
+            AssertGardenContext(home, context);
+            return context;
+        }
+
+        internal static void AssertGardenContext(GardenHomePresenter home,
+            Dictionary<MeshRenderer, bool> context, bool requireActive = true)
+        {
+            // Reloading a snapshot can legitimately replace saved decorations;
+            // every surviving renderer must retain its original enabled state.
+            Require(context.All(r => r.Key == null || r.Key.enabled == r.Value),
+                "Changing the view or tab changed garden renderer visibility.");
+            var surface = home.gardenRoot.GetComponent<GardenSurface>();
+            var ground = surface != null && surface.surface != null
+                ? surface.surface.GetComponent<MeshRenderer>() : null;
+            Require(ground != null && ground.enabled
+                && (!requireActive || ground.gameObject.activeInHierarchy)
+                && (home.gardenCamera.cullingMask & (1 << ground.gameObject.layer)) != 0,
+                "The island ground is hidden or excluded from the garden camera.");
         }
 
         static void AssertVisibleAndLit(GardenHomePresenter home, GardenSkyEnvironment sky,
@@ -265,25 +298,23 @@ namespace CapstoneDesign.EditorTools
             string geometry = MeshSignature(home.ProceduralPlant);
             var localPosition = home.ProceduralPlant.transform.localPosition;
             float originalZoom = home.Zoom;
+            home.SetOverview(true);
+            var context = CaptureGardenContext(home);
             home.SetOverview(false);
+            AssertGardenContext(home, context);
             sky.SetTimeForPreview(12);
             CaptureFrame(home, capture, Path.Combine(output, "plant-focus-noon.png"), report);
             float focusSize = home.gardenCamera.orthographicSize;
             home.SetOverview(true);
+            AssertGardenContext(home, context);
             CaptureFrame(home, capture, Path.Combine(output, "garden-overview-noon.png"), report);
             Require(home.IsOverview && home.gardenCamera.orthographicSize > focusSize * 1.2f,
                 "Garden overview does not show a meaningfully wider view than plant focus.");
-            var context = home.gardenRoot.GetComponentsInChildren<MeshRenderer>(true)
-                .Where(r => !r.transform.IsChildOf(home.ProceduralPlant.transform)
-                    && !r.transform.IsChildOf(home.Planter.transform)
-                    && (home.plant == null || !r.transform.IsChildOf(home.plant.transform)))
-                .ToDictionary(r => r, r => r.enabled);
-            Require(context.Count > 0 && context.Values.Any(enabled => enabled), "Overview lost its garden scenery.");
+            AssertCameraFit(home);
             sky.SetTimeForPreview(0);
             CaptureFrame(home, capture, Path.Combine(output, "garden-overview-midnight.png"), report);
             home.SetOverview(false);
-            Require(home.IsPlantIsolated && context.Keys.All(r => !r.enabled),
-                "Plant portrait still contains competing garden meshes.");
+            AssertGardenContext(home, context);
             CaptureFrame(home, capture, Path.Combine(output, "plant-focus-midnight.png"), report);
             var orbit = home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeIslandDrag>(true);
             var camera = home.gardenCamera;
@@ -303,22 +334,23 @@ namespace CapstoneDesign.EditorTools
                 Require(home.Zoom >= 0 && home.Zoom <= 1, "Plant zoom is not bounded.");
                 CaptureFrame(home, capture, Path.Combine(output, "plant-zoom-" + zoom + ".png"), report);
                 AssertCameraFit(home);
+                AssertGardenContext(home, context);
             }
             home.SetZoom(originalZoom);
             Require(PlantCodec.Encode(home.RenderedRecipe) == recipe && MeshSignature(home.ProceduralPlant) == geometry
                 && home.ProceduralPlant.transform.localPosition == localPosition,
                 "Camera inspection changed the saved plant recipe, geometry or planting position.");
             home.Show(false);
-            Require(!home.IsPlantIsolated && context.All(r => r.Key.enabled == r.Value),
-                "Leaving home did not restore the garden renderers for shared previews.");
+            AssertGardenContext(home, context, requireActive: false);
             home.Show(true);
-            Require(!home.IsOverview && home.IsPlantIsolated && Mathf.Abs(home.Zoom - originalZoom) < .001f,
-                "Returning home lost the selected plant view or zoom.");
+            Require(!home.IsOverview && Mathf.Abs(home.Zoom - originalZoom) < .001f,
+                "Returning home lost the selected close view or zoom.");
+            AssertGardenContext(home, context);
             home.SetOverview(true);
-            Require(context.All(r => r.Key == null || r.Key.enabled == r.Value),
-                "Overview did not restore original renderer visibility.");
+            AssertGardenContext(home, context);
             home.SetOverview(false);
-            report.Add("Plant focus, wider overview, bounded zoom, four orbit views and unchanged recipe/mesh PASS");
+            AssertGardenContext(home, context);
+            report.Add("Complete garden default, ground preserved in close view and tab return, wider overview, bounded zoom, four orbit views and unchanged recipe/mesh PASS");
         }
 
         static Color32[] CaptureFrame(GardenHomePresenter home, GardenLightingValidation.HomeCapture capture,

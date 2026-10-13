@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Collections.Generic;
 using CapstoneDesign.Plants;
 using CapstoneDesign.Prototype;
 using CapstoneDesign.Runtime.LocalState;
@@ -47,8 +46,6 @@ namespace CapstoneDesign.Runtime
         public float PlantingHeight { get; private set; }
         public bool IsOverview => backgroundPreview != null && !backgroundPreview.IsSubjectFocused;
         public float Zoom => backgroundPreview != null ? backgroundPreview.Zoom : .85f;
-        public bool IsPlantIsolated { get; private set; }
-        readonly Dictionary<MeshRenderer, bool> contextVisibility = new Dictionary<MeshRenderer, bool>();
         Button plantViewButton, overviewButton, zoomOutButton, zoomInButton;
 
         Transform additions;
@@ -72,7 +69,6 @@ namespace CapstoneDesign.Runtime
 
         private void OnDestroy()
         {
-            RestoreGardenContext();
             missionButton?.onClick.RemoveListener(OpenActivity);
             shopButton?.onClick.RemoveListener(OpenShop);
             homeTab?.onClick.RemoveListener(OpenHome);
@@ -84,7 +80,6 @@ namespace CapstoneDesign.Runtime
 
         public void Show(bool visible)
         {
-            if (!visible) RestoreGardenContext();
             // Disable renderers before the drag target's OnDisable resets its view.
             if (gardenVisuals != null) gardenVisuals.SetActive(visible);
             if (homeCanvas != null)
@@ -181,7 +176,7 @@ namespace CapstoneDesign.Runtime
             rect.pivot = new Vector2(0, 1);
             rect.anchoredPosition = new Vector2(48, -154);
             rect.sizeDelta = new Vector2(624, 96);
-            plantViewButton = GardenUi.Button(row.transform, "식물 보기", 0, 0, 200f / 624, 1, () => SetOverview(false));
+            plantViewButton = GardenUi.Button(row.transform, "가까이 보기", 0, 0, 200f / 624, 1, () => SetOverview(false));
             overviewButton = GardenUi.Button(row.transform, "정원 전체", 208f / 624, 0, 200f / 624, 1, () => SetOverview(true));
             zoomOutButton = GardenUi.Button(row.transform, "−", 416f / 624, 0, 100f / 624, 1, () => SetZoom(Zoom - .2f));
             zoomInButton = GardenUi.Button(row.transform, "+", 524f / 624, 0, 100f / 624, 1, () => SetZoom(Zoom + .2f));
@@ -189,14 +184,13 @@ namespace CapstoneDesign.Runtime
             foreach (var button in new[] { plantViewButton, overviewButton, zoomOutButton, zoomInButton })
                 button.GetComponentInChildren<Text>().fontSize = 30;
             backgroundPreview.upperBoundary = rect;
-            backgroundPreview.SetSubjectFocus(true);
+            backgroundPreview.SetSubjectFocus(false);
             UpdateViewControls();
         }
 
         public void SetOverview(bool overview)
         {
             backgroundPreview?.SetSubjectFocus(!overview);
-            ApplyPlantFocus();
             UpdateViewControls();
             RenderView();
         }
@@ -206,35 +200,6 @@ namespace CapstoneDesign.Runtime
             backgroundPreview?.SetZoom(zoom);
             UpdateViewControls();
             RenderView();
-        }
-
-        void ApplyPlantFocus()
-        {
-            if (IsOverview || !IsGardenVisible || ProceduralPlant == null || Planter == null)
-            {
-                RestoreGardenContext();
-                return;
-            }
-            // The close view presents the same plant in its bowl against the
-            // sky. Garden context returns intact in overview and shop previews.
-            // Keep real lights running; only their competing meshes are hidden.
-            foreach (var renderer in gardenRoot.GetComponentsInChildren<MeshRenderer>(true))
-            {
-                var node = renderer.transform;
-                if (node.IsChildOf(ProceduralPlant.transform) || node.IsChildOf(Planter.transform)
-                    || (plant != null && node.IsChildOf(plant.transform))) continue;
-                if (!contextVisibility.ContainsKey(renderer)) contextVisibility.Add(renderer, renderer.enabled);
-                renderer.enabled = false;
-            }
-            IsPlantIsolated = true;
-        }
-
-        void RestoreGardenContext()
-        {
-            foreach (var original in contextVisibility)
-                if (original.Key != null) original.Key.enabled = original.Value;
-            contextVisibility.Clear();
-            IsPlantIsolated = false;
         }
 
         void UpdateViewControls()
@@ -307,7 +272,6 @@ namespace CapstoneDesign.Runtime
             GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (activity == null || !activity.HasOpenState || saved == null)
             {
-                RestoreGardenContext();
                 if (gardenVisuals != null) gardenVisuals.SetActive(false);
                 if (title != null) title.text = "저장 상태 확인 필요";
                 if (guide != null) guide.text = "기존 데이터를 보존했습니다. 저장 공간을 확인해 주세요.";
@@ -341,7 +305,6 @@ namespace CapstoneDesign.Runtime
             if (activityTabLabel != null) activityTabLabel.text = "오늘의 활동";
             if (settingsTabLabel != null) settingsTabLabel.text = "설정";
             RefreshAdditions(saved);
-            ApplyPlantFocus();
             if (Application.isPlaying && homeCanvas.gameObject.activeInHierarchy
                 && gardenVisuals.activeInHierarchy && gardenCamera != null)
             {

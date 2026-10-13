@@ -86,33 +86,46 @@ namespace CapstoneDesign.EditorTools
                     throw new Exception("Fresh home did not show the saved seed");
                 yield return null;
                 var viewButtons = home.homeCanvas.GetComponentsInChildren<Button>();
-                var plantView = viewButtons.Single(button=>button.name=="식물 보기");
+                var plantView = viewButtons.Single(button=>button.name=="가까이 보기");
                 var overview = viewButtons.Single(button=>button.name=="정원 전체");
                 var zoomIn = viewButtons.Single(button=>button.name=="확대");
                 var zoomOut = viewButtons.Single(button=>button.name=="축소");
                 foreach(var button in new[]{plantView,overview,zoomIn,zoomOut}) AssertRaycastTarget(button);
-                if(home.IsOverview || !home.IsPlantIsolated)throw new Exception("Home did not default to its saved plant");
+                if(!home.IsOverview)throw new Exception("Home did not default to the complete garden");
+                var gardenContext=GardenProceduralValidation.CaptureGardenContext(home);
                 if(UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Include,FindObjectsSortMode.None)
                     .Any(node=>node.name=="Saved garden additions" && node.parent==null))
                     throw new Exception("Legacy saved scenery leaks into the integrated garden camera");
-                overview.onClick.Invoke();
-                if(!home.IsOverview || home.IsPlantIsolated)throw new Exception("Overview did not restore garden scenery");
                 plantView.onClick.Invoke();
+                if(home.IsOverview)throw new Exception("Close view did not focus the saved plant");
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
+                overview.onClick.Invoke();
+                if(!home.IsOverview)throw new Exception("Overview did not show the complete garden");
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
+                plantView.onClick.Invoke();
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
                 float previousZoom=home.Zoom;
                 zoomOut.onClick.Invoke();
                 if(home.Zoom>=previousZoom)throw new Exception("Zoom out did not change the camera view");
                 zoomIn.onClick.Invoke();
                 if(Mathf.Abs(home.Zoom-previousZoom)>.001f || home.RenderedRecipe.GrowthStep!=0)
                     throw new Exception("Zoom controls changed the plant or failed to restore the view");
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
                 home.activityTab.onClick.Invoke();
                 AssertLegacyRendererParked(home);
                 if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)
                     throw new Exception("Activity tab did not park the garden camera");
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext,requireActive:false);
                 AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="추천 활동 안내"));
-                nav.ShowIsland();home.settingsTab.onClick.Invoke();
+                nav.ShowIsland();
+                if(home.IsOverview || Mathf.Abs(home.Zoom-previousZoom)>.001f)
+                    throw new Exception("Tab return lost the selected close view or zoom");
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
+                home.settingsTab.onClick.Invoke();
                 AssertLegacyRendererParked(home);
                 if(!nav.settingsPanel.activeSelf || home.IsGardenVisible || !home.settingsTab.gameObject.activeInHierarchy)
                     throw new Exception("Settings tab did not open existing settings");
+                GardenProceduralValidation.AssertGardenContext(home,gardenContext,requireActive:false);
                 var settings = nav.GetComponentInChildren<SensorRawDisplay>(true);
                 var heartChart = settings.GetComponentsInChildren<Button>().Single(button=>button.name=="심박 차트 보기");
                 // Settings is a scrolling page. The batch Game view can be much
@@ -164,6 +177,9 @@ namespace CapstoneDesign.EditorTools
                 if(ui.Service.Snapshot.Experiences.Single().Emotion!="차분해요" || ui.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="support").Value!="치료진")throw new Exception("Restart lost journal or plan");
                 string id=ui.Service.Snapshot.Sessions.Single(s=>MbctPolicy.IsMbct(s.MissionId)).SessionId;
                 if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
+                nav.ShowIsland();
+                if(!home.IsOverview)throw new Exception("Process restart did not restore the complete garden default");
+                GardenProceduralValidation.CaptureGardenContext(home);
                 // A step sync may commit rewards while the activity page is hidden.
                 // Reopening that existing page must agree with the main garden.
                 ui.ShowHome();nav.ShowIsland();
