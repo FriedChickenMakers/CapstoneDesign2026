@@ -357,7 +357,7 @@ namespace CapstoneDesign.Runtime
             if(!opened){ShowHome();return;}
             EnterPage("shop",ShowShop);ClearGhost();var p=Page("정원을 가꾸어요");
             GardenUi.Label(p,"미리보기와 취소에는 비용이 없어요.\n새 환경의 동물 후보는 다음 일일 회차에 반영돼요.",.07f,.64f,.86f,.14f,28);
-            GardenUi.Button(p,"캐모마일 성장 · "+Balance.GrowthCost+" 영양제",.07f,.52f,.86f,.085f,PreviewGrowth);
+            GardenUi.Button(p,"식물 성장 · "+Balance.GrowthCost+" 영양제",.07f,.52f,.86f,.085f,PreviewGrowth);
             GardenUi.Button(p,"꽃밭 미리보기 · "+Balance.EnvironmentCost+" 영양제",.07f,.40f,.86f,.085f,()=>PreviewEnvironment("environment:E01"));
             GardenUi.Button(p,"쉼터 미리보기 · "+Balance.EnvironmentCost+" 영양제",.07f,.28f,.86f,.085f,()=>PreviewEnvironment("environment:E02"));
             GardenUi.Button(p,"돌아가기",.07f,.16f,.86f,.075f,ShowHome);
@@ -395,9 +395,7 @@ namespace CapstoneDesign.Runtime
             ThemePreview();
             var state=Service.Snapshot;
             string unavailable=state.Nutrient<Balance.GrowthCost?"영양제가 "+(Balance.GrowthCost-state.Nutrient)+"개 더 필요해요. 미리보기는 자유예요.":null;
-            var plant=state.Plants.FirstOrDefault(item=>item.PlantId=="plant:P06");
-            if(plant==null){plant=new PlantProgress{PlantId="plant:P06"};state.Plants.Add(plant);}
-            plant.Growth+=Balance.GrowthAmount;
+            GardenPlantVisuals.PreviewGrowth(state,Balance.GrowthAmount);
             if(!ShowIntegratedPurchasePreview(state) && rewardPlant!=null) rewardPlant.localScale*=1+Balance.GrowthAmount;
             GardenUi.Button(p,"취소",.07f,.23f,.41f,.08f,()=>{UpdateGarden();ShowShop();});
             var confirm=GardenUi.Button(p,"확정",.52f,.23f,.41f,.08f,()=>

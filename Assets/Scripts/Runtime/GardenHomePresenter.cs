@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using CapstoneDesign.Plants;
 using CapstoneDesign.Prototype;
 using CapstoneDesign.Runtime.LocalState;
 using TMPro;
@@ -39,11 +40,12 @@ namespace CapstoneDesign.Runtime
         public Button settingsTab;
         public PrototypeUiSurface[] progressDots;
         public bool IsGardenVisible => title!=null && title.gameObject.activeInHierarchy;
+        public ProceduralPlantView ProceduralPlant { get; private set; }
+        public PlantRecipe RenderedRecipe { get; private set; }
 
         Transform additions;
         string additionsSignature;
-        int renderedStage=-1;
-        Vector3 originalFlowerScale;
+        string plantSignature;
         PrototypeGardenPreviewLayout backgroundPreview;
         GameObject overviewSurface;
         static readonly Color Green = new Color(.31f, .47f, .37f);
@@ -51,7 +53,6 @@ namespace CapstoneDesign.Runtime
 
         private void Awake()
         {
-            if (plant != null) originalFlowerScale = plant.blossomAnchor.localScale;
             missionButton?.onClick.AddListener(OpenActivity);
             shopButton?.onClick.AddListener(OpenShop);
             homeTab?.onClick.AddListener(OpenHome);
@@ -70,13 +71,7 @@ namespace CapstoneDesign.Runtime
             settingsTab?.onClick.RemoveListener(OpenSettings);
         }
 
-        public static int StageForGrowth(float growth)
-        {
-            if (growth < .099f) return 0;
-            if (growth < .199f) return 1;
-            if (growth < .299f) return 2;
-            return 3;
-        }
+        public static int StageForGrowth(float growth) => GardenPlantVisuals.StageForGrowth(growth);
 
         public void Show(bool visible)
         {
@@ -129,6 +124,7 @@ namespace CapstoneDesign.Runtime
             if (homeCanvas == null || backgroundPreview != null) return;
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
+            backgroundPreview.excludedBoundsRoot = plant != null ? plant.transform : null;
             backgroundPreview.UseFullScreenBackground(homeCanvas);
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
@@ -226,15 +222,15 @@ namespace CapstoneDesign.Runtime
                 if (missionName != null) missionName.text = "활동 화면에서 자세한 안내를 확인해 주세요";
                 return;
             }
-            if (originalFlowerScale == Vector3.zero && plant != null) originalFlowerScale = plant.blossomAnchor.localScale;
-
-            float growth = saved.LegacyGrowth + saved.Plants.Where(p => p.PlantId == "plant:P06").Sum(p => p.Growth);
+            // The service owns persistence. This detached snapshot also supports
+            // unpaid previews without changing the saved recipe or wallet.
+            GardenPlantVisuals.Sync(saved);
+            float growth = GardenPlantVisuals.TotalGrowth(saved);
             int visualStage = StageForGrowth(growth);
-            if(renderedStage!=visualStage){plant.RenderVisual(visualStage, FlowerShape.Chamomile);renderedStage=visualStage;}
-            // Every later purchase remains visible even after the first blossom.
-            plant.blossomAnchor.localScale = originalFlowerScale * (1 + Mathf.Clamp((growth - .3f) * .25f, 0, .18f));
+            RenderPlant(saved.PlantAppearance.Recipe, growth);
             if (date != null) date.text = DateTime.Now.ToString("M월 d일");
-            if (title != null) title.text = "오늘의 캐모마일";
+            if (title != null) title.text = RenderedRecipe.SpeciesId == null ? "오늘의 식물"
+                : "오늘의 " + PlantCatalog.Get(RenderedRecipe.SpeciesId).Name;
             if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개 · 섬을 드래그해 둘러보세요.";
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
@@ -258,6 +254,44 @@ namespace CapstoneDesign.Runtime
                 gardenVisuals.GetComponent<GardenSkyEnvironment>()?.UpdateClouds(Time.unscaledTime);
                 gardenCamera.Render();
             }
+        }
+
+        void RenderPlant(PlantRecipe recipe, float growth)
+        {
+            if (gardenRoot == null) return;
+            // Keep serialized prototype assets for the standalone scene and a
+            // clean revert; only the integrated home replaces its visible model.
+            if (plant != null)
+            {
+                plant.seed.SetActive(false);
+                plant.sprout.SetActive(false);
+                plant.bud.gameObject.SetActive(false);
+                plant.blossomAnchor.gameObject.SetActive(false);
+            }
+            if (ProceduralPlant == null)
+            {
+                var model = new GameObject("Saved procedural garden plant");
+                model.transform.SetParent(gardenRoot, false);
+                ProceduralPlant = model.AddComponent<ProceduralPlantView>();
+                GardenSceneModels.ConfigureRenderers(model);
+            }
+            string signature = PlantCodec.Encode(recipe);
+            bool meshChanged = signature != plantSignature;
+            if (meshChanged)
+            {
+                ProceduralPlant.Render(recipe);
+                plantSignature = signature;
+            }
+            RenderedRecipe = recipe;
+            float scale = 1 + Mathf.Clamp((growth - .3f) * .25f, 0, .18f);
+            bool scaleChanged = ProceduralPlant.transform.localScale != Vector3.one * scale;
+            ProceduralPlant.transform.localScale = Vector3.one * scale;
+            // A growing branch changes the bounds, never the stem's soil point.
+            var footprint = new Vector2(0, .12f);
+            ProceduralPlant.transform.localPosition = new Vector3(footprint.x,
+                GardenSceneModels.GroundHeight(gardenRoot, footprint) + .002f, footprint.y);
+            if (meshChanged || scaleChanged)
+                homeCanvas?.GetComponentInChildren<PrototypeGardenPreviewLayout>(true)?.RecalculateBounds();
         }
 
         public void RefreshDate()

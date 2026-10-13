@@ -126,6 +126,8 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<DebugWalkPeriod> DebugWalkPeriods = new List<DebugWalkPeriod>();
         public List<EnvironmentPlacement> Environments = new List<EnvironmentPlacement>();
         public List<PlantProgress> Plants = new List<PlantProgress>();
+        // Optional appearance data; old schema-1 saves are migrated without changing rewards.
+        public GardenPlantAppearance PlantAppearance;
         public List<string> DiscoveredAnimalIds = new List<string>();
     }
     public interface IStateStore { GardenState Load(); void Save(GardenState candidate); }
@@ -209,6 +211,7 @@ namespace CapstoneDesign.Runtime.LocalState
             }
             if (s.Environments.Any(e=>!Typed(e.EnvironmentId,"environment") || e.Slot != e.Slot.Trim().ToLowerInvariant()) || s.Plants.Any(p=>!Typed(p.PlantId,"plant") || !Finite(p.Growth) || p.Growth < 0) || s.CompletedCourseIds.Any(id=>!Typed(id,"course")) || s.DiscoveredAnimalIds.Any(id=>!Typed(id,"animal"))) throw new InvalidDataException("Invalid permanent garden records.");
             if (s.PurchaseCommands.Any(c=>string.IsNullOrWhiteSpace(c.Command) || !s.PurchaseReceipts.Contains(c.RequestId))) throw new InvalidDataException("Purchase identity mismatch.");
+            GardenPlantVisuals.Validate(s);
         }
         static bool Finite(float n) { return !float.IsNaN(n) && !float.IsInfinity(n); }
         internal static bool Typed(string id,string prefix) { return id != null && id.StartsWith(prefix+":",StringComparison.Ordinal) && id.Length>prefix.Length+1 && !id.Contains("|"); }
@@ -233,7 +236,8 @@ namespace CapstoneDesign.Runtime.LocalState
             copy.Sessions=value.Sessions.Select(a=>a.Copy()).ToList();
             copy.DebugWalkPeriods=value.DebugWalkPeriods.Select(d=>d.Copy()).ToList();
             copy.Environments=value.Environments.Select(e=>e.Copy()).ToList();
-            copy.Plants=value.Plants.Select(p=>p.Copy()).ToList();return copy;
+            copy.Plants=value.Plants.Select(p=>p.Copy()).ToList();
+            copy.PlantAppearance=value.PlantAppearance?.Copy();return copy;
         }
         public static string Hash(string value)
         { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", ""); }
@@ -323,9 +327,12 @@ namespace CapstoneDesign.Runtime.LocalState
                         loaded = new GardenState { MigrationCompleted = true, Nutrient = Math.Max(0, legacy.Nutrient), GardenXp = legacy.GardenXp, LegacyGrowth = legacy.Growth, LastUnlock = legacy.LastUnlock };
                         loaded.LegacyCompletedUnknownDate.AddRange(legacy.CompletedMissionIds.Distinct());
                         loaded.UnlockIds.AddRange(legacy.UnlockIds.Distinct());
+                        GardenPlantVisuals.Sync(loaded);
                         store.Save(loaded);
                     }
-                    StateCodec.Validate(loaded); state = loaded; LastError = null; return true;
+                    StateCodec.Validate(loaded);
+                    if (GardenPlantVisuals.Sync(loaded)) { StateCodec.Validate(loaded); store.Save(loaded); }
+                    state = loaded; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
             }
@@ -477,6 +484,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(mbct) foreach(var answer in s.Answers) SetAnswer(next.PracticePreferences,answer.Key,answer.Value);
                 if (!mbct && s.CourseOrder == next.NextCourseOrder && s.CourseOrder > 0 && !next.CompletedCourseIds.Contains(s.MissionId))
                 { next.CompletedCourseIds.Add(s.MissionId); next.NextCourseOrder = Math.Min(29, next.NextCourseOrder + 1); }
+                GardenPlantVisuals.Sync(next);
             });
         }
         static void SetAnswer(List<PracticeAnswer> answers,string key,string value)
@@ -641,6 +649,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 var plant = next.Plants.FirstOrDefault(p => p.PlantId == plantId);
                 if (plant == null) { plant = new PlantProgress { PlantId = plantId }; next.Plants.Add(plant); }
                 plant.Growth += config.GrowthAmount; next.Nutrient -= config.GrowthCost; next.PurchaseReceipts.Add(requestId); next.PurchaseCommands.Add(new PurchaseCommand { RequestId=requestId, Command=command });
+                GardenPlantVisuals.Sync(next);
             });
         }
     }

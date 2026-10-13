@@ -82,7 +82,7 @@ namespace CapstoneDesign.EditorTools
                 if(ui.Service.Snapshot.Sessions.Count!=0)throw new Exception("Fresh fixture directory already contains sessions");
                 nav.ShowIsland();
                 AssertLegacyRendererParked(home);
-                if(!home.plant.seed.activeSelf || !home.homeCanvas.gameObject.activeSelf)
+                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || !home.homeCanvas.gameObject.activeSelf)
                     throw new Exception("Fresh home did not show the saved seed");
                 home.activityTab.onClick.Invoke();
                 AssertLegacyRendererParked(home);
@@ -93,8 +93,15 @@ namespace CapstoneDesign.EditorTools
                 AssertLegacyRendererParked(home);
                 if(!nav.settingsPanel.activeSelf || home.IsGardenVisible || !home.settingsTab.gameObject.activeInHierarchy)
                     throw new Exception("Settings tab did not open existing settings");
-                AssertRaycastTarget(nav.GetComponentInChildren<SensorRawDisplay>(true).GetComponentsInChildren<Button>()
-                    .Single(button=>button.name=="심박 차트 보기"));
+                var settings = nav.GetComponentInChildren<SensorRawDisplay>(true);
+                var heartChart = settings.GetComponentsInChildren<Button>().Single(button=>button.name=="심박 차트 보기");
+                // Settings is a scrolling page. The batch Game view can be much
+                // shorter than a device, so reveal this control before proving
+                // that shared home navigation does not intercept its tap.
+                yield return null;
+                ScrollIntoView(settings.PrimaryScroll, heartChart);
+                yield return null;
+                AssertRaycastTarget(heartChart);
                 nav.ShowActivities();
                 // Five nutrients of synthetic legacy participation fund the ten-nutrient garden check.
                 if(!ui.Service.BeginSession("synthetic-starter","free-mission:M01",0) || !ui.Service.StartSession("synthetic-starter") || !ui.Service.CompleteSession("synthetic-starter"))throw new Exception(ui.Service.LastError);
@@ -123,17 +130,17 @@ namespace CapstoneDesign.EditorTools
                 home.shopButton.onClick.Invoke();
                 if(ui.CurrentScreen!="shop")throw new Exception("Home shop button did not open the existing garden shop");
                 ui.PreviewGrowth();nav.ShowIsland();
-                if(!home.plant.seed.activeSelf || ui.Service.Snapshot.Nutrient!=10)
+                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || ui.Service.Snapshot.Nutrient!=10)
                     throw new Exception("Cancelled growth changed the saved home");
                 nav.ShowActivities();ui.PreviewGrowth();
                 ui.GetComponentsInChildren<Button>(true).Single(b=>b.gameObject.activeInHierarchy && b.gameObject.name=="확정").onClick.Invoke();
-                if(ui.Service.Snapshot.Nutrient!=0 || !home.plant.sprout.activeSelf)
+                if(ui.Service.Snapshot.Nutrient!=0 || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))
                     throw new Exception("Growth purchase did not update the saved home");
             }
             else
             {
                 if(ui.Service.Snapshot.Nutrient!=0 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=2
-                    || !home.plant.sprout.activeSelf)throw new Exception("Process restart failed to restore committed progress and growth");
+                    || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))throw new Exception("Process restart failed to restore committed progress and growth");
                 if(ui.Service.Snapshot.Experiences.Single().Emotion!="차분해요" || ui.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="support").Value!="치료진")throw new Exception("Restart lost journal or plan");
                 string id=ui.Service.Snapshot.Sessions.Single(s=>MbctPolicy.IsMbct(s.MissionId)).SessionId;
                 if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
@@ -158,6 +165,26 @@ namespace CapstoneDesign.EditorTools
                 throw new Exception("Integrated tab rendered the hidden legacy camera or light");
         }
 
+        static void ScrollIntoView(ScrollRect scroll, Button target)
+        {
+            if(scroll==null || scroll.content==null || scroll.viewport==null || target==null
+                || !target.transform.IsChildOf(scroll.content))
+                throw new Exception("Scroll smoke requires a button in the actual scrolling content");
+            Canvas.ForceUpdateCanvases();Canvas.ForceUpdateCanvases();
+            scroll.StopMovement();
+            var viewport = scroll.viewport;
+            var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(viewport, target.transform);
+            var content = RectTransformUtility.CalculateRelativeRectTransformBounds(viewport, scroll.content);
+            float hiddenHeight = content.size.y - viewport.rect.height;
+            if(hiddenHeight>0)
+                scroll.verticalNormalizedPosition = Mathf.Clamp01(scroll.verticalNormalizedPosition
+                    + (bounds.center.y - viewport.rect.center.y) / hiddenHeight);
+            Canvas.ForceUpdateCanvases();Canvas.ForceUpdateCanvases();
+            bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(viewport, target.transform);
+            if(bounds.min.y < viewport.rect.yMin - 1 || bounds.max.y > viewport.rect.yMax + 1)
+                throw new Exception("Could not reveal the entire scroll target: "+target.name);
+        }
+
         static void AssertRaycastTarget(Button target)
         {
             // The home Canvas stays mounted to share its navigation. Callback-only
@@ -168,7 +195,7 @@ namespace CapstoneDesign.EditorTools
             // Batchmode has no Game view overlay draw after all cameras park.
             // Use the same explicit render texture as the synthetic UI captures;
             // this checks Unity hit routing, not the device's overlay or IME.
-            if(target!=null && target.targetGraphic.depth<0)
+            if(target!=null && (target.targetGraphic.depth<0 || target.targetGraphic.canvasRenderer.cull))
                 LocalLoopPreview.Render(new Vector2Int(Screen.width,Screen.height),Path.Combine(
                     Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"),"raycast-frame-"+(raycastFrame++)+".png"));
             var eventSystem=EventSystem.current;

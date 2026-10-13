@@ -274,7 +274,7 @@ namespace CapstoneDesign.EditorTools
                 UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(texture);
             }
         }
-        sealed class HomeCapture : IDisposable
+        internal sealed class HomeCapture : IDisposable
         {
             readonly GardenHomePresenter home;
             readonly GardenSkyEnvironment sky;

@@ -107,3 +107,21 @@ The imported lamp's source and license are documented in
 assets, use `CapstoneDesign.EditorTools.StreetLampAssetBuilder.Build` through
 the same Unity wrapper. `KenneyGardenBuilder.RebuildExpandedMeshes` regenerates
 the island and chamomile geometry without retaining stale vertex channels.
+
+## Procedural garden integration
+
+`./scripts/test-garden-appearance.sh` checks additive save migration, existing growth
+policy, activity profile receipts, preview isolation and failed-save atomicity.
+The integrated scene gallery requires graphics (no `-nographics`):
+
+```bash
+CAPSTONE_ARTIFACTS="$PWD/artifacts/procedural-garden-preview" \
+  xvfb-run -a ./scripts/unity-run.sh -batchmode -quit -projectPath "$PWD" \
+  -executeMethod CapstoneDesign.EditorTools.GardenProceduralValidation.Capture -logFile -
+```
+
+It captures the four existing growth stages and all twelve species in the actual
+home scene at noon and midnight, using synthetic completed-activity histories.
+The renderer is checked against generated geometry, the area between UI cards,
+and real streetlight illumination. See
+[the integration and rollback policy](../docs/PROCEDURAL_GARDEN_INTEGRATION.md).

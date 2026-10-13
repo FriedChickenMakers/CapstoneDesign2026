@@ -11,6 +11,67 @@ namespace CapstoneDesign.PlantTests
     {
         const string Output="artifacts/plant-mesh";
 
+        [Test] public void GeneratedPlantRespondsToSceneAndWarmPointLights()
+        {
+            Directory.CreateDirectory(Output);
+            var root=new GameObject("Synthetic plant lighting test");
+            var preview=new PreviewRenderUtility();
+            try
+            {
+                var recipe=PlantGenerator.Create("synthetic-lighting","plant");
+                recipe.Counts=PlantCatalog.All[0].ExampleCounts();
+                while(!recipe.Mature) recipe=PlantGenerator.Advance(recipe);
+                root.AddComponent<ProceduralPlantView>().Render(recipe);
+                preview.AddSingleGO(root);
+                preview.ambientColor=Color.black;
+                var camera=preview.camera;
+                camera.orthographic=true;camera.orthographicSize=.77f;
+                camera.nearClipPlane=.01f;camera.farClipPlane=10;
+                camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=Color.black;
+                var rotation=Quaternion.Euler(32,-25,0);
+                camera.transform.SetPositionAndRotation(new Vector3(0,.59f,0)+rotation*(Vector3.back*3),rotation);
+                var key=preview.lights[0];key.type=LightType.Directional;
+                key.transform.rotation=Quaternion.Euler(45,-35,0);
+                key.color=Color.white;key.intensity=1.2f;
+                var point=preview.lights[1];point.type=LightType.Point;
+                point.transform.position=new Vector3(-.35f,1.0f,-.65f);
+                point.color=new Color(1,.61f,.28f);point.range=3.4f;point.intensity=0;
+                var day=CaptureLighting(preview,"scene-day");
+                key.color=new Color(.55f,.66f,.91f);key.intensity=.08f;
+                var night=CaptureLighting(preview,"scene-night");
+                point.intensity=2.4f;
+                var warm=CaptureLighting(preview,"scene-night-warm-point");
+
+                double dayLuminance=0,nightLuminance=0,redContribution=0,blueContribution=0;
+                int changedByPoint=0;
+                for(int i=0;i<day.Length;i++)
+                {
+                    dayLuminance+=day[i].grayscale;nightLuminance+=night[i].grayscale;
+                    redContribution+=warm[i].r-night[i].r;blueContribution+=warm[i].b-night[i].b;
+                    if(Mathf.Abs(warm[i].r-night[i].r)+Mathf.Abs(warm[i].g-night[i].g)+Mathf.Abs(warm[i].b-night[i].b)>.03f)
+                        changedByPoint++;
+                }
+                Assert.Greater(dayLuminance,nightLuminance*1.8,"The plant must dim when actual scene lighting dims");
+                Assert.Greater(changedByPoint,100,"An additional point light must illuminate the generated mesh");
+                Assert.Greater(redContribution,blueContribution*1.2,"The incandescent point light must give a warm contribution");
+            }
+            finally { preview.Cleanup();Object.DestroyImmediate(root); }
+        }
+
+        static Color[] CaptureLighting(PreviewRenderUtility preview,string name)
+        {
+            preview.BeginStaticPreview(new Rect(0,0,400,500));preview.Render(true);
+            var texture=preview.EndStaticPreview();
+            try
+            {
+                var pixels=texture.GetPixels();
+                Assert.Less(pixels.Count(c=>c.r>.9f&&c.b>.9f&&c.g<.1f),10,"No unsupported-shader magenta");
+                File.WriteAllBytes(Output+"/"+name+".png",texture.EncodeToPNG());
+                return pixels;
+            }
+            finally { Object.DestroyImmediate(texture); }
+        }
+
         // Real URP previews with synthetic recipes. Images stay in ignored artifacts.
         [Test] public void RenderSpeciesAndReferenceComparison()
         {

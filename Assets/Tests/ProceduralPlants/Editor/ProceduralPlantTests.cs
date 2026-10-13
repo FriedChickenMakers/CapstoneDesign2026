@@ -17,7 +17,12 @@ namespace CapstoneDesign.PlantTests
                 view.Render(PlantGenerator.Advance(p));
                 Assert.IsTrue(old==null,"Editor mesh replacement releases old mesh");
                 Assert.AreEqual(view.TriangleCount,go.GetComponent<MeshFilter>().sharedMesh.triangles.Length/3);
-                Assert.IsTrue(go.GetComponent<MeshRenderer>().sharedMaterial.shader.isSupported);
+                var renderer=go.GetComponent<MeshRenderer>();
+                Assert.IsTrue(renderer.sharedMaterial.shader.isSupported);
+                Assert.AreEqual(UnityEngine.Rendering.ShadowCastingMode.TwoSided,renderer.shadowCastingMode);
+                Assert.IsTrue(renderer.receiveShadows);
+                Assert.GreaterOrEqual(renderer.sharedMaterial.FindPass("ShadowCaster"),0);
+                Assert.GreaterOrEqual(renderer.sharedMaterial.FindPass("DepthOnly"),0);
             }
             finally { Object.DestroyImmediate(go); }
         }

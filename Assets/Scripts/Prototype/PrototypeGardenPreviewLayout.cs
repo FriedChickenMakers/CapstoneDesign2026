@@ -11,6 +11,9 @@ namespace CapstoneDesign.Prototype
         public RectTransform upperBoundary, lowerBoundary;
         public PrototypeIslandDrag orbit;
         public Transform gardenRoot;
+        // The integrated home replaces these serialized assets at runtime. The
+        // standalone prototype still measures all its stages for stable framing.
+        [System.NonSerialized] public Transform excludedBoundsRoot;
         public float horizontalPadding = 8;
         public float boundaryGap = 12;
         [Range(0, .2f)] public float edgeMargin = .02f;
@@ -137,6 +140,7 @@ namespace CapstoneDesign.Prototype
             if (gardenRoot == null || orbit == null) return;
             foreach (var filter in gardenRoot.GetComponentsInChildren<MeshFilter>(true))
             {
+                if (excludedBoundsRoot != null && filter.transform.IsChildOf(excludedBoundsRoot)) continue;
                 if (filter.sharedMesh == null) continue;
                 foreach (var vertex in filter.sharedMesh.vertices)
                 {

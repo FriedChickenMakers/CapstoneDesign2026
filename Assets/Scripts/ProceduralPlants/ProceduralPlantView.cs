@@ -33,8 +33,10 @@ namespace CapstoneDesign.Plants
             var next=new Mesh { name="ProceduralPlant_"+recipe.GrowthStep,indexFormat=IndexFormat.UInt16,hideFlags=HideFlags.DontSave };
             next.vertices=vertices;next.normals=normals;next.colors=colors;next.triangles=indices;next.RecalculateBounds();
             var old=ownedMesh;ownedMesh=next;
-            GetComponent<MeshFilter>().sharedMesh=next;GetComponent<MeshRenderer>().sharedMaterial=ownedMaterial;
-            GetComponent<MeshRenderer>().shadowCastingMode=ShadowCastingMode.Off;
+            GetComponent<MeshFilter>().sharedMesh=next;
+            var renderer=GetComponent<MeshRenderer>();renderer.sharedMaterial=ownedMaterial;
+            renderer.shadowCastingMode=ShadowCastingMode.TwoSided;
+            renderer.receiveShadows=true;
             TriangleCount=data.TriangleCount;Release(old);
         }
         static void Release(UnityEngine.Object resource)

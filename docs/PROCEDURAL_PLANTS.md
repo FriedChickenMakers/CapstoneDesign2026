@@ -4,9 +4,10 @@
 구현 브랜치: `codex/procedural-plant-generation`.
 
 공통 씨앗에서 시작하여 활동 이력으로 12종 중 하나를 선택하고, 같은 종에서도
-줄기·잎·꽃·열매를 다르게 만드는 독립 모듈이다. 기존 `LocalGardenState`,
-`GardenHomePresenter`, 씬, 미션 카탈로그는 수정하지 않았다. 이 브랜치를 열어도
-기존 정원 화면이 자동으로 새 생성기로 교체되지는 않는다.
+줄기·잎·꽃·열매를 다르게 만드는 모듈이다. 최초 병합은 독립 모듈만 포함했고,
+이후 정원 연결은 `GardenPlantVisuals`와 `GardenHomePresenter`에서 수행한다.
+실제 홈과 성장 미리보기는 저장된 Recipe로 만든 메시를 표시한다.
+연결 범위와 기존 성장 규칙의 호환 처리는 [정원 연결](PROCEDURAL_GARDEN_INTEGRATION.md)을 참고한다.
 
 ## 바로 확인하기
 
@@ -164,7 +165,7 @@ ID가 종을 미리 정하지 않으며, 동률인 경우를 제외하면 종 �
   영양제를 차감하고 기관을 빠뜨리는 방식으로 처리하지 않는다.
 - 종별 비율과 기관 수는 절차적 생성 카탈로그를 따른다. Refined 샘플과 같은
   다면체 표현을 사용하지만 고정 샘플의 가지·꽃 배치를 그대로 복제하지 않는다.
-- 셰이더는 일정한 부드러운 음영을 사용한다. 정원 환경광/그림자 통합과 0.8초 성장 tween은 후속 연결 사항이다.
+- 셰이더는 URP 환경광·주광원·추가 광원과 그림자를 사용한다. 정원의 낮/밤 및 가로등에 반응하며 HDR 후처리에도 참여한다. 0.8초 성장 tween은 아직 없다.
 - 현재 성장 메시 재생성은 이벤트 단위다. 다수 개체의 공유 Material·Mesh 캐시 최적화는 아직 추가하지 않았다.
 
 ## 런타임 사용 예
@@ -213,7 +214,9 @@ service.CompleteActivity("synthetic-completion", "synthetic-instance",
 `LocalGardenState` aggregate에 Recipe/외형 영수증/요청 영수증을 포함하고 기존
 `CompleteSession`·`GrowPlant`의 동일한 저장 트랜잭션에서 계산을 수행해야 한다.
 기존 보상과 시연 서비스 보상을 동시에 실행하면 이중 지급이므로 금지한다.
-현재 작업은 분리된 기능 구현이며 이 연결·기존 저장본 마이그레이션은 수행하지 않았다.
+실제 정원 연결은 기존 aggregate의 선택적 `PlantAppearance`에 Recipe를 저장한다.
+독립 서비스의 12/28/48/56회 성장 정책과 앱의 기존 구매 단계를 구분한다.
+자세한 호환 정책은 [정원 연결](PROCEDURAL_GARDEN_INTEGRATION.md)을 참고한다.
 
 ## 검증
 
