@@ -84,11 +84,13 @@ namespace CapstoneDesign.Runtime
                 LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
             });
             notificationOptions = Stack(reminders, "Reminder timing options", 12, 0).gameObject;
-            foreach (int hour in new[] { 9, 13, 20 })
+            Control(notificationOptions.transform, "알림 시간 직접 선택", () =>
             {
-                int selectedHour=hour;
-                Control(notificationOptions.transform, hour<12?"오전 "+hour+"시":"오후 "+(hour-12)+"시", () => ChangeNotificationTime(selectedHour*60));
-            }
+                var result=ActivityNotificationBridge.ChooseTime();
+                bool opened=result!=null && result.status=="AVAILABLE";
+                notificationActionStatus.text=opened?"":"시간 선택을 열지 못했어요. 다시 시도해 주세요.";
+                notificationActionStatus.gameObject.SetActive(!opened);
+            });
             notificationAdaptive=Control(notificationOptions.transform,"확인한 시간에 맞추기",ToggleAdaptiveReminders);
             notificationOptions.SetActive(false);
             notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());

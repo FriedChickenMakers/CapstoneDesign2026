@@ -24,6 +24,7 @@ namespace CapstoneDesign.Runtime
         public static WalkingAchievement Achievement() => Read<WalkingAchievement>("getWalkingAchievementJson");
         public static ActivityNotificationOpen ConsumeOpen() => Read<ActivityNotificationOpen>("consumeActivityNotificationOpen");
         public static PlatformActionResult Configure(bool enabled,int minute,bool adaptive) => Read<PlatformActionResult>("configureActivityNotifications",enabled,minute,adaptive);
+        public static PlatformActionResult ChooseTime() => Read<PlatformActionResult>("showActivityNotificationTimePicker");
         public static void Permission() => Call("requestActivityNotificationPermission");
         public static PlatformActionResult Sync(string completedDay,string title,bool active) => Read<PlatformActionResult>("syncActivityReminder",completedDay,title,active);
     }

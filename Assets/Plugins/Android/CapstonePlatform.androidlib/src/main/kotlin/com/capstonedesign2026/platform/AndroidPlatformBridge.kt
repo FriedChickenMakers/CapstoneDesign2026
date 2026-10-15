@@ -306,6 +306,22 @@ object AndroidPlatformBridge {
             ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
 
     @JvmStatic
+    fun showActivityNotificationTimePicker(): String {
+        val activity = activityReference.get() ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Activity unavailable")
+        activity.runOnUiThread {
+            val minute = ActivityNotifications.settings(activity).optInt("preferredMinute", 1200)
+            android.app.TimePickerDialog(activity, { _, hour, selectedMinute ->
+                val current = ActivityNotifications.settings(activity)
+                val result = ActivityNotifications.configure(activity, current.optBoolean("enabled", true),
+                    hour * 60 + selectedMinute, current.optBoolean("adaptive", true), resetLearning = true)
+                if (JSONObject(result).optString("status") != PlatformStatus.AVAILABLE)
+                    android.widget.Toast.makeText(activity, "알림 시간을 저장하지 못했어요. 다시 시도해 주세요.", android.widget.Toast.LENGTH_LONG).show()
+            }, minute / 60, minute % 60, true).show()
+        }
+        return resultJson(PlatformStatus.AVAILABLE, "Notification time picker opened")
+    }
+
+    @JvmStatic
     fun syncActivityReminder(completedDay: String, title: String, active: Boolean): String =
         appContext?.let { ActivityNotifications.sync(it, completedDay, title, active) }
             ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")

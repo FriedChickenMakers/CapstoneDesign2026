@@ -6,8 +6,10 @@ namespace CapstoneDesign.Runtime
     {
         public bool enabled=true, adaptive=true;
         public int minuteOfDay=1200, preferredMinute=1200, learnedClicks;
+        public int windowStartMinute=-1, windowEndMinute=-1, spreadMinutes, informativeSamples;
+        public string learningStatus="collecting";
         public string permissionStatus="UNSUPPORTED";
-        public long nextReminderEpochMs;
+        public long nextReminderEpochMs, lastClickDelayMs, lastPostedAtEpochMs;
     }
     [Serializable] public sealed class ActivityNotificationOpen { public string kind,sessionId; }
     [Serializable] public sealed class WalkingAchievement
