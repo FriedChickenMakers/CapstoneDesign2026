@@ -85,6 +85,12 @@ namespace CapstoneDesign.EditorTools
                 if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || !home.homeCanvas.gameObject.activeSelf)
                     throw new Exception("Fresh home did not show the saved seed");
                 yield return null;
+                if(home.ViewControlsExpanded)throw new Exception("Home view controls must start folded");
+                var viewToggle=home.homeCanvas.GetComponentsInChildren<Button>().Single(button=>button.name=="보기 +");
+                AssertRaycastTarget(viewToggle);
+                viewToggle.onClick.Invoke();
+                yield return null;
+                if(!home.ViewControlsExpanded)throw new Exception("Home view toggle did not reveal controls");
                 var viewButtons = home.homeCanvas.GetComponentsInChildren<Button>();
                 var plantView = viewButtons.Single(button=>button.name=="가까이 보기");
                 var overview = viewButtons.Single(button=>button.name=="정원 전체");
@@ -158,6 +164,12 @@ namespace CapstoneDesign.EditorTools
                 ui.Finish(null,null);
                 if(!ui.Service.SaveExperience("play-record","즐거움","바깥 소리","어깨가 내려감","차분해요","소리가 들린다") || !ui.Service.SavePreference("support","치료진"))throw new Exception(ui.Service.LastError);
                 if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
+                ui.ShowHome();
+                yield return null;
+                AssertPageStartsAtTop(ui,"오늘의 활동");
+                ui.ShowRecords();
+                yield return null;
+                AssertPageStartsAtTop(ui,"참여 기록");
                 ui.PreviewEnvironment("environment:E01");nav.ShowIsland();
                 if(GameObject.Find("PREVIEW environment:E01")!=null || ui.Service.Snapshot.Nutrient!=10)throw new Exception("Navigation did not cancel unpaid preview");
                 home.shopButton.onClick.Invoke();
@@ -178,7 +190,7 @@ namespace CapstoneDesign.EditorTools
                 string id=ui.Service.Snapshot.Sessions.Single(s=>MbctPolicy.IsMbct(s.MissionId)).SessionId;
                 if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
                 nav.ShowIsland();
-                if(!home.IsOverview)throw new Exception("Process restart did not restore the complete garden default");
+                if(!home.IsOverview || home.ViewControlsExpanded)throw new Exception("Process restart did not restore the complete garden with folded controls");
                 GardenProceduralValidation.CaptureGardenContext(home);
                 // A step sync may commit rewards while the activity page is hidden.
                 // Reopening that existing page must agree with the main garden.
@@ -199,6 +211,20 @@ namespace CapstoneDesign.EditorTools
         {
             if(home.oldCamera.enabled || home.oldLight.enabled)
                 throw new Exception("Integrated tab rendered the hidden legacy camera or light");
+        }
+
+        static void AssertPageStartsAtTop(WeekOneQuestDemo ui,string title)
+        {
+            // Observe the actual first rendered frame, without scrolling it into place.
+            Canvas.ForceUpdateCanvases();
+            var scroll=ui.GetComponentsInChildren<ScrollRect>().Single(s=>s.name=="Local garden flow");
+            if(scroll.content.rect.height>scroll.viewport.rect.height+1 && scroll.verticalNormalizedPosition<.999f)
+                throw new Exception("Page did not open at its beginning: "+title+"; scroll="+scroll.verticalNormalizedPosition);
+            var heading=ui.GetComponentsInChildren<Text>().Single(t=>t.text==title);
+            var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(scroll.viewport,heading.transform);
+            if(bounds.min.y<scroll.viewport.rect.yMin-1 || bounds.max.y>scroll.viewport.rect.yMax-95)
+                throw new Exception("Page heading is hidden at first entry: "+title);
+            Debug.Log("LOCAL_LOOP_FIRST_ENTRY_PASS "+title);
         }
 
         static void ScrollIntoView(ScrollRect scroll, Button target)

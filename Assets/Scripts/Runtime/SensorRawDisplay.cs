@@ -102,14 +102,14 @@ namespace CapstoneDesign.Runtime
             });
             RefreshMusicSetting();
 
-            Transform visualDebug = Section(content, "Visual debugging", "UI 디버그");
-            Control(visualDebug, "홈·정원 시간대 조절  ›", OpenVisualDebug);
-
             Transform healthCard = Section(content, "Health records", "건강 기록", GardenUi.Pale);
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             Control(healthCard, "심박 차트 보기", OpenCharts, true);
             Place(refreshHealthButton, healthCard, "건강 기록 새로고침");
             healthActionStatus = ActionLine(healthCard);
+
+            Transform visualDebug = Section(content, "Visual debugging", "정원의 시간");
+            Control(visualDebug, "정원의 시간 바꾸기  ›", OpenVisualDebug);
 
             Transform permissions = Section(content, "Permissions", "앱 연결 및 권한");
             permissionStatus = Copy(permissions, "권한 확인 중", GardenUi.BodySize, GardenUi.Muted);
@@ -337,10 +337,17 @@ namespace CapstoneDesign.Runtime
                 var page = GardenUi.Box(transform, "UI debug page", 0, .12f, 1, .88f, GardenUi.Background);
                 GardenUi.ConstrainWidth(page);
                 visualDebugPage = page.AddComponent<GardenVisualDebugPage>();
-                visualDebugPage.Build(() => CloseVisualDebug(), () => transform.root.GetComponent<MockupNavigation>()?.ShowIsland());
+                visualDebugPage.Build(() => CloseVisualDebug(), () => OpenGardenFromTime(false), () => OpenGardenFromTime(true));
             }
             PrimaryScroll.gameObject.SetActive(false);
             visualDebugPage.gameObject.SetActive(true);
+        }
+
+        private void OpenGardenFromTime(bool resetView)
+        {
+            if (resetView) transform.root.GetComponentInChildren<GardenHomePresenter>(true)?.ResetView();
+            CloseVisualDebug();
+            transform.root.GetComponent<MockupNavigation>()?.ShowIsland();
         }
 
         public bool CloseVisualDebug()

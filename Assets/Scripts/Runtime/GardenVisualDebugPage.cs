@@ -12,7 +12,7 @@ namespace CapstoneDesign.Runtime
         Button earlier, later;
         float nextClockUpdate;
 
-        public void Build(Action close, Action garden)
+        public void Build(Action close, Action garden, Action presetGarden)
         {
             var frame = (RectTransform)transform;
             frame.offsetMax = new Vector2(0, GardenUi.HasSharedHeader(transform) ? -96 : 0);
@@ -21,22 +21,24 @@ namespace CapstoneDesign.Runtime
             var headerRect = (RectTransform)header.transform; headerRect.pivot = new Vector2(.5f, 1);
             var heading = GardenUi.VerticalFlow(header.transform, 12, 24, 16);
             ActionButton(heading, "‹  설정으로", close);
-            GardenUi.FlowLabel(heading, "UI 디버그", GardenUi.TitleSize).fontStyle = FontStyle.Bold;
+            GardenUi.FlowLabel(heading, "정원의 시간", GardenUi.TitleSize).fontStyle = FontStyle.Bold;
             var body = GardenUi.ScrollPage(transform, "UI debug scroll", 0, 1, 0);
             GardenUi.VerticalFlow(body, 20, 16, 24);
             body.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-            GardenUi.FlowLabel(body, "정원의 시간", GardenUi.HeadingSize).fontStyle = FontStyle.Bold;
             GardenUi.FlowLabel(body, "원형 눈금을 움직여 낮과 밤을 확인해 보세요. 활동 날짜와 알림은 바뀌지 않아요.", GardenUi.BodySize, GardenUi.Muted);
+            var presets = Row(body, "Garden time presets");
+            ActionButton(presets, "낮 12시 보기", () => ShowPreset(12 * 60, presetGarden));
+            ActionButton(presets, "밤 0시 보기", () => ShowPreset(0, presetGarden));
             var holder = GardenUi.Box(body, "24 hour dial", 0, 0, 1, 0);
-            holder.AddComponent<LayoutElement>().preferredHeight = 410;
+            holder.AddComponent<LayoutElement>().preferredHeight = 370;
             var face = GardenUi.Box(holder.transform, "Circular time slider", .5f, .5f, 0, 0);
-            ((RectTransform)face.transform).sizeDelta = new Vector2(400, 400);
+            ((RectTransform)face.transform).sizeDelta = new Vector2(360, 360);
             Dial = face.AddComponent<CircularTimeSlider>();
             foreach (var hour in new[] { 0, 6, 12, 18 })
             {
                 float angle = hour / 24f * Mathf.PI * 2;
                 var label = GardenUi.Label(face.transform, hour.ToString("00"), .5f + Mathf.Sin(angle) * .47f - .08f,
-                    .5f + Mathf.Cos(angle) * .47f - .05f, .16f, .1f, GardenUi.CaptionSize);
+                    .5f + Mathf.Cos(angle) * .47f - .07f, .16f, .14f, GardenUi.CaptionSize);
                 label.alignment = TextAnchor.MiddleCenter;
             }
             time = GardenUi.Label(face.transform, "00:00", .18f, .37f, .64f, .26f, GardenUi.TitleSize);
@@ -60,6 +62,11 @@ namespace CapstoneDesign.Runtime
             layout.Header = headerRect; layout.Body = (RectTransform)body.parent; layout.Footer = footerRect;
             Dial.Changed += GardenVisualClock.SetOverrideMinutes;
             Refresh();
+        }
+        static void ShowPreset(int minute, Action garden)
+        {
+            GardenVisualClock.SetOverrideMinutes(minute);
+            garden?.Invoke();
         }
         static Transform Row(Transform parent, string name)
         {

@@ -46,7 +46,12 @@ namespace CapstoneDesign.Runtime
         public float PlantingHeight { get; private set; }
         public bool IsOverview => backgroundPreview != null && !backgroundPreview.IsSubjectFocused;
         public float Zoom => backgroundPreview != null ? backgroundPreview.Zoom : .85f;
+        public bool ViewControlsExpanded { get; private set; }
         Button plantViewButton, overviewButton, zoomOutButton, zoomInButton;
+        Button viewControlsToggle;
+        GameObject viewControlsRow;
+        string growthConfirmation;
+        float growthConfirmationUntil;
 
         Transform additions;
         string additionsSignature;
@@ -74,6 +79,15 @@ namespace CapstoneDesign.Runtime
             homeTab?.onClick.RemoveListener(OpenHome);
             activityTab?.onClick.RemoveListener(OpenActivity);
             settingsTab?.onClick.RemoveListener(OpenSettings);
+        }
+
+        private void Update()
+        {
+            if (growthConfirmation != null && Time.unscaledTime >= growthConfirmationUntil)
+            {
+                growthConfirmation = null;
+                if (IsGardenVisible) RefreshFromState();
+            }
         }
 
         public static int StageForGrowth(float growth) => GardenPlantVisuals.StageForGrowth(growth);
@@ -168,9 +182,19 @@ namespace CapstoneDesign.Runtime
 
         void EnsureViewControls(Transform home)
         {
-            // One compact row groups the two mutually exclusive views and
-            // bounded zoom; every target is at least 96 design units high.
+            // Keep the plant visible by default; the existing view/zoom targets
+            // remain full size in the optional row.
+            if (title != null) title.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 472);
+            viewControlsToggle = GardenUi.Button(home, "보기 +", 0, 0, 0, 0,
+                () => SetViewControlsExpanded(!ViewControlsExpanded));
+            var toggleRect = (RectTransform)viewControlsToggle.transform;
+            toggleRect.anchorMin = toggleRect.anchorMax = new Vector2(0, 1);
+            toggleRect.pivot = new Vector2(0, 1);
+            toggleRect.anchoredPosition = new Vector2(536, -12);
+            toggleRect.sizeDelta = new Vector2(136, 78);
+            viewControlsToggle.GetComponentInChildren<Text>().fontSize = 30;
             var row = GardenUi.Box(home, "Garden view controls", 0, 1, 1, 0);
+            viewControlsRow = row;
             var rect = (RectTransform)row.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0, 1);
             rect.pivot = new Vector2(0, 1);
@@ -183,9 +207,42 @@ namespace CapstoneDesign.Runtime
             zoomOutButton.name = "축소"; zoomInButton.name = "확대";
             foreach (var button in new[] { plantViewButton, overviewButton, zoomOutButton, zoomInButton })
                 button.GetComponentInChildren<Text>().fontSize = 30;
-            backgroundPreview.upperBoundary = rect;
+            backgroundPreview.upperBoundary = (RectTransform)overviewSurface.transform;
             backgroundPreview.SetSubjectFocus(false);
+            SetViewControlsExpanded(false);
             UpdateViewControls();
+        }
+
+        public void SetViewControlsExpanded(bool expanded)
+        {
+            ViewControlsExpanded = expanded;
+            if (viewControlsRow == null) return;
+            viewControlsRow.SetActive(expanded);
+            viewControlsToggle.GetComponentInChildren<Text>().text = expanded ? "보기 −" : "보기 +";
+            GardenUi.FromTop(overviewSurface.transform, 14, expanded ? 366 : 252);
+            var surface = (RectTransform)overviewSurface.transform;
+            surface.offsetMin = new Vector2(24, surface.offsetMin.y);
+            surface.offsetMax = new Vector2(-24, surface.offsetMax.y);
+            RenderView();
+        }
+
+        // A presentation preset changes only the view, never the saved garden.
+        public void ResetView()
+        {
+            EnsureHomeBackground();
+            backgroundPreview?.SetSubjectFocus(false);
+            backgroundPreview?.SetZoom(.85f);
+            backgroundPreview?.orbit?.ResetView();
+            SetViewControlsExpanded(false);
+            UpdateViewControls();
+            RenderView();
+        }
+
+        public void ShowGrowthConfirmation(int nutrientCost)
+        {
+            growthConfirmation = "성장 완료 · 영양제 " + nutrientCost + "개 사용";
+            growthConfirmationUntil = Time.unscaledTime + 3.5f;
+            RefreshFromState();
         }
 
         public void SetOverview(bool overview)
@@ -289,7 +346,8 @@ namespace CapstoneDesign.Runtime
             if (date != null) date.text = DateTime.Now.ToString("M월 d일");
             if (title != null) title.text = RenderedRecipe.SpeciesId == null ? "오늘의 식물"
                 : "오늘의 " + PlantCatalog.Get(RenderedRecipe.SpeciesId).Name;
-            if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개 · 드래그해 둘러보세요.";
+            if (guide != null) guide.text = growthConfirmation != null && Time.unscaledTime < growthConfirmationUntil
+                ? growthConfirmation : "영양제 " + saved.Nutrient + "개 · 드래그해 둘러보세요.";
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
@@ -343,7 +401,7 @@ namespace CapstoneDesign.Runtime
             RenderedRecipe = recipe;
             // The generated plant is the garden's main subject, while each
             // species keeps its own proportions and exact saved mesh.
-            float scale = 1.9f * (1 + Mathf.Clamp((growth - .3f) * .25f, 0, .18f));
+            float scale = GardenPlantVisuals.ScaleForGrowth(growth);
             bool scaleChanged = ProceduralPlant.transform.localScale != Vector3.one * scale;
             ProceduralPlant.transform.localScale = Vector3.one * scale;
             // A growing branch changes the bounds, never the stem's soil point.

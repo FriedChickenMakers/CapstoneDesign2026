@@ -646,10 +646,19 @@ namespace CapstoneDesign.Runtime.LocalState
             {
                 if (string.IsNullOrWhiteSpace(requestId)) throw new ArgumentException("requestId required.");
                 Id(plantId, "plant"); string command="growth|"+plantId; if(PreviouslyPurchased(next,requestId,command))return; if (next.Nutrient < config.GrowthCost) throw new InvalidOperationException("Insufficient nutrient.");
-                var plant = next.Plants.FirstOrDefault(p => p.PlantId == plantId);
-                if (plant == null) { plant = new PlantProgress { PlantId = plantId }; next.Plants.Add(plant); }
-                plant.Growth += config.GrowthAmount; next.Nutrient -= config.GrowthCost; next.PurchaseReceipts.Add(requestId); next.PurchaseCommands.Add(new PurchaseCommand { RequestId=requestId, Command=command });
-                GardenPlantVisuals.Sync(next);
+                if (plantId == GardenPlantVisuals.GrowthPlantId)
+                {
+                    if (!GardenPlantVisuals.ApplyGrowth(next, config.GrowthAmount))
+                        throw new InvalidOperationException("Plant has reached its visible growth limit.");
+                }
+                else
+                {
+                    var plant = next.Plants.FirstOrDefault(p => p.PlantId == plantId);
+                    if (plant == null) { plant = new PlantProgress { PlantId = plantId }; next.Plants.Add(plant); }
+                    plant.Growth += config.GrowthAmount;
+                    GardenPlantVisuals.Sync(next);
+                }
+                next.Nutrient -= config.GrowthCost; next.PurchaseReceipts.Add(requestId); next.PurchaseCommands.Add(new PurchaseCommand { RequestId=requestId, Command=command });
             });
         }
     }

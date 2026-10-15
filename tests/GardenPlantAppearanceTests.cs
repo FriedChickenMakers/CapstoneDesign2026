@@ -184,6 +184,76 @@ static class GardenPlantAppearanceTests
         invalid = service.Snapshot; invalid.PlantAppearance.Credits[0].MissionId = "free-mission:M01"; Reject(invalid, "receipt without real matching completion rejected");
     }
 
+    static void VisualGrowthLimit()
+    {
+        var clock = new AppearanceClock();
+        var state = new GardenState { MigrationCompleted = true, InstallationId = "synthetic-final-growth", Nutrient = 10, LegacyGrowth = .3f };
+        state.Plants.Add(new PlantProgress { PlantId = GardenPlantVisuals.GrowthPlantId, Growth = .7f });
+        GardenPlantVisuals.Sync(state);
+        var store = new AppearanceStore { State = state };
+        var service = Open(store, clock);
+        var before = service.Snapshot;
+        string original = StateCodec.Encode(before);
+        Assert(before.PlantAppearance.Recipe.Mature && GardenPlantVisuals.CanGrow(before), "recipe maturity still permits existing post-blossom visual growth");
+        Assert(GardenPlantVisuals.ScaleForGrowth(.3f) == 1.9f
+            && GardenPlantVisuals.ScaleForGrowth(.4f) > GardenPlantVisuals.ScaleForGrowth(.3f), "existing blossom scale and later size increase preserved");
+        var preview = service.Snapshot;
+        GardenPlantVisuals.PreviewGrowth(preview, .1f);
+        StateCodec.Validate(preview);
+        float finalGrowth = GardenPlantVisuals.TotalGrowth(preview);
+        Assert(Math.Abs(finalGrowth - GardenPlantVisuals.MaxVisualGrowth) < 1e-6f
+            && finalGrowth - GardenPlantVisuals.TotalGrowth(before) < .1f, "last purchase uses only remaining visible growth");
+        Assert(GardenPlantVisuals.ScaleForGrowth(finalGrowth) > GardenPlantVisuals.ScaleForGrowth(GardenPlantVisuals.TotalGrowth(before))
+            && !GardenPlantVisuals.CanGrow(preview), "final partial growth reaches shared renderer limit");
+        Assert(StateCodec.Encode(service.Snapshot) == original && StateCodec.Encode(store.State) == original,
+            "final preview does not alter saved growth, nutrient or receipts");
+
+        store.Fail = true;
+        Assert(!service.GrowPlant("synthetic-final-purchase", GardenPlantVisuals.GrowthPlantId)
+            && StateCodec.Encode(service.Snapshot) == original && StateCodec.Encode(store.State) == original,
+            "failed final purchase preserves exact wallet, appearance, progress and receipts");
+        store.Fail = false;
+        Assert(service.GrowPlant("synthetic-final-purchase", GardenPlantVisuals.GrowthPlantId), "final purchase retry succeeds");
+        var saved = service.Snapshot;
+        Assert(saved.Nutrient == 0 && saved.PurchaseReceipts.Count == 1
+            && GardenPlantVisuals.TotalGrowth(saved) == finalGrowth
+            && PlantCodec.Encode(saved.PlantAppearance.Recipe) == PlantCodec.Encode(preview.PlantAppearance.Recipe),
+            "one charge commits exactly the previewed final appearance and progress");
+        string committed = StateCodec.Encode(saved);
+        Assert(service.GrowPlant("synthetic-final-purchase", GardenPlantVisuals.GrowthPlantId)
+            && StateCodec.Encode(service.Snapshot) == committed, "successful request remains idempotent at limit with zero nutrient");
+        service = Open(store, clock);
+        Assert(!GardenPlantVisuals.CanGrow(service.Snapshot) && StateCodec.Encode(service.Snapshot) == committed,
+            "final progress and visible limit survive reopening");
+
+        foreach (float savedGrowth in new[] { GardenPlantVisuals.MaxVisualGrowth, 2f })
+        foreach (bool legacyOnly in new[] { false, true })
+        {
+            var old = new GardenState { MigrationCompleted = true, InstallationId = "synthetic-old-capped-" + legacyOnly,
+                Nutrient = 100, LegacyGrowth = legacyOnly ? savedGrowth : .3f };
+            if (!legacyOnly) old.Plants.Add(new PlantProgress { PlantId = GardenPlantVisuals.GrowthPlantId, Growth = savedGrowth - .3f });
+            old.PurchaseReceipts.Add("synthetic-old-success");
+            old.PurchaseCommands.Add(new PurchaseCommand { RequestId = "synthetic-old-success", Command = "growth|" + GardenPlantVisuals.GrowthPlantId });
+            GardenPlantVisuals.Sync(old);
+            string oldXml = StateCodec.Encode(old);
+            var oldStore = new AppearanceStore { State = old };
+            var reopened = Open(oldStore, clock);
+            Assert(oldStore.Saves == 0 && StateCodec.Encode(reopened.Snapshot) == oldXml,
+                "older over-limit progress remains untouched on load, including legacy contribution");
+            Assert(!GardenPlantVisuals.CanGrow(reopened.Snapshot)
+                && GardenPlantVisuals.ScaleForGrowth(GardenPlantVisuals.TotalGrowth(reopened.Snapshot)) == GardenPlantVisuals.ScaleForGrowth(GardenPlantVisuals.MaxVisualGrowth),
+                "older over-limit state uses original maximum renderer scale");
+            var noChange = reopened.Snapshot; GardenPlantVisuals.PreviewGrowth(noChange, .1f);
+            Assert(StateCodec.Encode(noChange) == oldXml, "over-limit preview is a no-op and does not reduce historical growth");
+            int saves = oldStore.Saves;
+            Assert(!reopened.GrowPlant("synthetic-new-at-limit", GardenPlantVisuals.GrowthPlantId)
+                && StateCodec.Encode(reopened.Snapshot) == oldXml && StateCodec.Encode(oldStore.State) == oldXml && oldStore.Saves == saves,
+                "new over-limit purchase is rejected with enough nutrient and without any write or charge");
+            Assert(reopened.GrowPlant("synthetic-old-success", GardenPlantVisuals.GrowthPlantId)
+                && StateCodec.Encode(reopened.Snapshot) == oldXml, "old successful request remains idempotent beyond new purchase limit");
+        }
+    }
+
     static void MappingAndVariation()
     {
         foreach (var mission in MindfulnessContent.Course.Concat(MindfulnessContent.FreeMissions).Concat(MbctContent.Course))
@@ -202,7 +272,7 @@ static class GardenPlantAppearanceTests
 
     static void Main()
     {
-        Migration(); GrowthAndPreview(); ActivityCredits(); MappingAndVariation();
+        Migration(); GrowthAndPreview(); VisualGrowthLimit(); ActivityCredits(); MappingAndVariation();
         Console.WriteLine("PASS " + checks + " garden appearance integration assertions (synthetic state only)");
     }
 }

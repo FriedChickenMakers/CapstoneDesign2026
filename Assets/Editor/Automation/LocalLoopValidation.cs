@@ -39,6 +39,8 @@ namespace CapstoneDesign.EditorTools
             Check(report, "Walking auto-completion preserves reflection after leaving the panel and retries failed saves", WalkingReflectionAutoCompletion);
             Check(report, "Walking baseline refresh gates start, updates only its introduction and freezes started goals", WalkingBaselineUiRefresh);
             Check(report, "UI active session survives navigation and pause", Navigation);
+            Check(report, "Activity home follows the selected and paused review, and records distinguish completion from rewards", ActivityPresentation);
+            Check(report, "Course first entry follows progress and preserves manual browsing", CourseInitialPage);
             Check(report, "Back returns through lists, detail parameters and unpaid previews", BackPageFlow);
             Check(report, "Back preserves drafts, blocks failed saves and rewinds guided steps", BackDraftFlow);
             Check(report, "Android keyboard Back retains the final draft before end-edit callbacks", KeyboardDismissal);
@@ -1048,7 +1050,9 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("이미 배치한 환경")),"Missing owned environment explanation");
                 Click(f.Ui,"취소");f.Ui.PreviewGrowth();
                 Assert(Button(f.Ui,"확정").interactable,"Affordable growth was disabled");
-                Assert(((RectTransform)Button(f.Ui,"확정").transform).anchorMin.x>((RectTransform)Button(f.Ui,"취소").transform).anchorMin.x,"Confirmation is not in the shared forward-action position");
+                Assert(Button(f.Ui,"확정").transform.parent==Button(f.Ui,"취소").transform.parent
+                    && Button(f.Ui,"확정").transform.GetSiblingIndex()<Button(f.Ui,"취소").transform.GetSiblingIndex(),
+                    "Growth confirmation must be the first full-width action in the shared dock");
             }
         }
         static void PracticeInputFeedback()
@@ -1067,9 +1071,49 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
-        static void SeedFullMbct(Fixture f)
+        static void ActivityPresentation()
         {
-            for(int i=1;i<=48;i++)
+            using(var f=new Fixture(0,5))
+            {
+                var mission=MbctContent.Course[0];
+                f.Ui.SelectMission(mission);Click(f.Ui,"시작");f.Ui.Finish(null,null);
+                var first=f.Service.Snapshot.Sessions.Last();
+                f.Clock.UtcNow=f.Clock.UtcNow.AddMinutes(5);
+                f.Ui.SelectMission(mission);f.Ui.ShowHome();
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text==mission.title) &&
+                    f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="선택한 활동"),"Selected review card shows the next recommended mission.");
+                Click(f.Ui,"선택한 활동 안내");Click(f.Ui,"시작");f.Ui.ShowHome();
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="진행 중인 활동"),"Active card lost its participation state.");
+                var review=f.Service.Snapshot.Sessions.Last();
+                Assert(f.Service.PauseSession(review.SessionId),f.Service.LastError);f.Ui.ShowHome();
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text==mission.title) &&
+                    f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="잠시 쉬는 활동"),"Paused review card lost its mission or state.");
+                Click(f.Ui,"진행하던 활동으로");Click(f.Ui,"이어서 하기");f.Ui.Finish(null,null);
+                Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.Sessions.Count==2,"Presenting or completing a review changed the reward or cloned a session.");
+                string before=StateCodec.Encode(f.Service.Snapshot);f.Ui.ShowRecords();
+                var labels=f.Ui.GetComponentsInChildren<Text>().Select(t=>t.text).ToArray();
+                string firstDate=DateTimeOffset.Parse(first.EndedUtc).ToLocalTime().ToString("MM/dd HH:mm");
+                string secondDate=f.Clock.UtcNow.ToLocalTime().ToString("MM/dd HH:mm");
+                Assert(labels.Contains(firstDate+" · 완료") && labels.Contains(secondDate+" · 완료") &&
+                    !labels.Any(t=>t.Contains("보상 처리됨")),"Repeated practice records lack dates or incorrectly claim rewards.");
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before,"Rendering the history changed saved records.");
+            }
+        }
+        static void CourseInitialPage()
+        {
+            using(var f=new Fixture(0,5))
+            {
+                SeedFullMbct(f,6);f.Ui.ShowCourse();
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="2주 · "+MbctContent.WeekTitles[1]),"First course visit did not open the recommended week.");
+                Click(f.Ui,"이전 주");f.Ui.ShowHome();f.Ui.ShowCourse();
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="1주 · "+MbctContent.WeekTitles[0]),"Returning to the course discarded manual browsing.");
+                Click(f.Ui,"다음 주");
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="2주 · "+MbctContent.WeekTitles[1]),"Course paging no longer advances after automatic first selection.");
+            }
+        }
+        static void SeedFullMbct(Fixture f,int count=48)
+        {
+            for(int i=1;i<=count;i++)
             {
                 while(MbctPolicy.Availability(f.Service.Snapshot)!=null){f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);f.Ui.RefreshCycle();}
                 string id="layout-seed-"+i;Assert(f.Service.BeginSession(id,MbctPolicy.MissionId(i),i)&&f.Service.StartSession(id)&&f.Service.CompleteSession(id),"Layout seed failed");
@@ -1084,6 +1128,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.SnapshotReads-reads==1,"Free rendering cloned state inside catalog predicate");
                 reads=f.Service.SnapshotReads;f.Ui.ShowCourse();
                 Assert(f.Service.SnapshotReads-reads==1,"Course rendering cloned state for each row");
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="8주 · "+MbctContent.WeekTitles[7]),"Completed course did not clamp its initial page to the final week.");
                 var gardenBefore=GameObject.Find("Saved garden additions");f.Ui.UpdateGarden();f.Ui.UpdateGarden();
                 Assert(gardenBefore==GameObject.Find("Saved garden additions"),"Unchanged state rebuilt garden geometry");
             }

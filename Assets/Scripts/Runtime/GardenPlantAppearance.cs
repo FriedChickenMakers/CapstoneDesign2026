@@ -42,6 +42,10 @@ namespace CapstoneDesign.Runtime.LocalState
     {
         public const string InstanceId = "garden-main";
         public const string GrowthPlantId = "plant:P06";
+        const float BaseScale = 1.9f, BlossomGrowth = .3f, ScalePerGrowth = .25f, MaximumExtraScale = .18f;
+        // This is the existing renderer's limit, not a new recipe maturity rule.
+        // Saved progress beyond it remains valid and is never reduced on load.
+        public const float MaxVisualGrowth = BlossomGrowth + MaximumExtraScale / ScalePerGrowth;
         static readonly int[] CompatibilityPrior = { 4, 0, 0, 0, 0, 2 };
 
         // Explicit, versioned content mapping. Free text, mood, sensor values and
@@ -94,6 +98,16 @@ namespace CapstoneDesign.Runtime.LocalState
 
         public static float TotalGrowth(GardenState state) => state.LegacyGrowth
             + state.Plants.Where(p => p.PlantId == GrowthPlantId).Sum(p => p.Growth);
+        public static float ScaleForGrowth(float growth)
+        {
+            // The derived limit can round just below the clamp in float arithmetic.
+            // Treat that shared boundary as the exact maximum for both display and purchasing.
+            float extra = growth >= MaxVisualGrowth ? MaximumExtraScale
+                : Math.Min(MaximumExtraScale, Math.Max(0, (growth - BlossomGrowth) * ScalePerGrowth));
+            return BaseScale * (1 + extra);
+        }
+        public static bool CanGrow(GardenState state) => state != null
+            && ScaleForGrowth(TotalGrowth(state)) < ScaleForGrowth(MaxVisualGrowth);
         public static int StageForGrowth(float growth) => growth < .099f ? 0 : growth < .199f ? 1 : growth < .299f ? 2 : 3;
         public static int StepForGrowth(float growth)
         {
@@ -143,11 +157,24 @@ namespace CapstoneDesign.Runtime.LocalState
 
         public static void PreviewGrowth(GardenState detachedState, float amount)
         {
+            ApplyGrowth(detachedState, amount);
+        }
+
+        // Shared by the detached preview and the service's transaction candidate.
+        // Clamp only a new purchase; never normalize existing saved progress.
+        internal static bool ApplyGrowth(GardenState state, float amount)
+        {
+            if (state == null) throw new ArgumentNullException(nameof(state));
             if (float.IsNaN(amount) || float.IsInfinity(amount) || amount <= 0) throw new ArgumentOutOfRangeException(nameof(amount));
-            var plant = detachedState.Plants.FirstOrDefault(p => p.PlantId == GrowthPlantId);
-            if (plant == null) { plant = new PlantProgress { PlantId = GrowthPlantId }; detachedState.Plants.Add(plant); }
-            plant.Growth += amount;
-            Sync(detachedState);
+            if (!CanGrow(state)) return false;
+            var plant = state.Plants.FirstOrDefault(p => p.PlantId == GrowthPlantId);
+            float before = plant == null ? 0 : plant.Growth;
+            float after = Math.Min(before + amount, MaxVisualGrowth - state.LegacyGrowth);
+            if (after <= before) return false;
+            if (plant == null) { plant = new PlantProgress { PlantId = GrowthPlantId }; state.Plants.Add(plant); }
+            plant.Growth = after;
+            Sync(state);
+            return true;
         }
 
         static string Key(string cycle, string mission) => cycle + "|" + mission;
