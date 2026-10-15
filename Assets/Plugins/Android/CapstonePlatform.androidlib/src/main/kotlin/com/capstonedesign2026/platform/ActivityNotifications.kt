@@ -114,7 +114,9 @@ internal object ActivityNotifications {
         val notification = Notification.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.ic_menu_myplaces)
             .setContentTitle("마음 정원에서 잠깐 쉬어가요").setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body)).setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_REMINDER).setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(true)
+            // A previous day's reminder may still use this ID. The persisted day guard
+            // prevents same-day repeats; a newly due day must be allowed to alert again.
+            .setCategory(Notification.CATEGORY_REMINDER).setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(false)
             .setContentIntent(openIntent(context, "daily", "", now)).build()
         // Commit before posting: a process crash cannot create a repeated reminder the same day.
         if (!p.edit().putString("postedDay", ActivityReminderPolicy.day(now, zone)).putLong("postedAt", now).commit()) return false
