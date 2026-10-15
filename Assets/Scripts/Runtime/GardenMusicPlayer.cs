@@ -18,6 +18,7 @@ namespace CapstoneDesign.Runtime
         int target=-1;
         float fadeElapsed;
         bool fading, focused=true, appPaused, suspended, muted, pauseForFocusLoss;
+        bool nightPeriod;
         AudioClip desiredClip;
 
         public GardenMusicContext CurrentContext {get;private set;}
@@ -54,14 +55,21 @@ namespace CapstoneDesign.Runtime
             }
             ownedListener=gameObject.AddComponent<AudioListener>();
             EnsureSingleListener();SceneManager.sceneLoaded+=SceneLoaded;
+            GardenVisualClock.Changed+=RefreshTrack;
             ApplySuspension();SetContext(GardenMusicContext.HomeGarden);
         }
 
         public void SetContext(GardenMusicContext context)
         {
             CurrentContext=context;EnsureSingleListener();
-            var clip=profile!=null?profile.TrackFor(context):null;
-            // Currently all three contexts deliberately share the supplied song.
+            RefreshTrack();
+        }
+
+        void RefreshTrack()
+        {
+            double hour=GardenVisualClock.CurrentHour;
+            nightPeriod=GardenStreetLighting.IsNightHour(hour);
+            var clip=profile!=null?profile.TrackFor(CurrentContext,hour):null;
             // Identity equality preserves both position and any in-flight fade.
             if(clip==desiredClip)return;
             desiredClip=clip;
@@ -84,13 +92,18 @@ namespace CapstoneDesign.Runtime
 
         void Update()
         {
+            // The real clock advances without Changed events. Check even while
+            // muted/paused so a returning app selects the current period's song.
+            if(nightPeriod!=GardenStreetLighting.IsNightHour(GardenVisualClock.CurrentHour))RefreshTrack();
             if(suspended || !fading)return;
             fadeElapsed+=Time.unscaledDeltaTime;
             float t=Mathf.Clamp01(fadeElapsed/Mathf.Max(.1f,profile!=null?profile.crossfadeSeconds:.8f));
             t=t*t*(3-2*t);
             for(int i=0;i<2;i++)
             {
-                gains[i]=Mathf.Lerp(fadeFrom[i],i==target?1:0,t);
+                // Interpolate power to avoid the middle-of-crossfade volume dip.
+                // Starting from the current gains also keeps reversals continuous.
+                gains[i]=Mathf.Sqrt(Mathf.Lerp(fadeFrom[i]*fadeFrom[i],i==target?1:0,t));
                 channels[i].volume=gains[i]*Mathf.Clamp01(profile!=null?profile.volume:.25f);
             }
             if(t<1)return;
@@ -130,6 +143,7 @@ namespace CapstoneDesign.Runtime
         {
             if(instance!=this)return;
             SceneManager.sceneLoaded-=SceneLoaded;
+            GardenVisualClock.Changed-=RefreshTrack;
             foreach(var listener in displacedListeners)if(listener!=null)listener.enabled=true;
             instance=null;
         }

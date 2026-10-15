@@ -15,5 +15,6 @@ MonoBehaviour:
   homeGarden: {fileID: 8300000, guid: cdf5bc95b1d643edac3a8dfe88cfe81d, type: 3}
   activity: {fileID: 8300000, guid: cdf5bc95b1d643edac3a8dfe88cfe81d, type: 3}
   settings: {fileID: 8300000, guid: cdf5bc95b1d643edac3a8dfe88cfe81d, type: 3}
+  night: {fileID: 8300000, guid: c3d55e93bbca4d9884fa626ffeab3acb, type: 3}
   volume: 0.25
-  crossfadeSeconds: 0.8
+  crossfadeSeconds: 8

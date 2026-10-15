@@ -16,12 +16,14 @@ namespace CapstoneDesign.EditorTools
     {
         const string Key="Capstone.MusicValidation", MutedKey="capstone.music.muted";
         const BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
-        [Serializable] sealed class Report {public string status;public List<string> checks=new List<string>();public float outputPeak;public string error;}
+        [Serializable] sealed class Report {public string status;public List<string> checks=new List<string>();public float outputPeak,nightOutputPeak;public string error;}
         [Serializable] sealed class PrefBackup {public bool hadMute;public int muted;}
         static Report report;
         static GardenMusicPlayer player;
         static GardenMusicProfile original,temporary;
         static AudioClip alternate,other;
+        static double? originalClock;
+        static bool clockCaptured;
         static MusicPlayValidation(){if(SessionState.GetBool(Key,false))EditorApplication.update+=WaitForPlay;}
         public static void Start()
         {
@@ -34,7 +36,7 @@ namespace CapstoneDesign.EditorTools
                     muted=SessionState.GetBool(Key,false)?SessionState.GetInt(Key+".Mute",0):PlayerPrefs.GetInt(MutedKey)};
             if(!File.Exists(backup))File.WriteAllText(backup,JsonUtility.ToJson(saved));
             SessionState.SetBool(Key+".HadMute",saved.hadMute);SessionState.SetInt(Key+".Mute",saved.muted);
-            SessionState.SetBool(Key,true);SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+90);
+            SessionState.SetBool(Key,true);SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+240);
             EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity");
             EditorApplication.update-=WaitForPlay;EditorApplication.update+=WaitForPlay;EditorApplication.EnterPlaymode();
         }
@@ -66,19 +68,61 @@ namespace CapstoneDesign.EditorTools
         static int Samples()=>Sources()[(int)typeof(GardenMusicPlayer).GetField("target",Hidden).GetValue(player)].timeSamples;
         static AudioSource[] Sources()=>(AudioSource[])typeof(GardenMusicPlayer).GetField("channels",Hidden).GetValue(player);
         static void Lifecycle(string method,bool value)=>typeof(GardenMusicPlayer).GetMethod(method,Hidden).Invoke(player,new object[]{value});
+        static void ClockWithoutEvent(int minute)
+        {
+            // Exercise ordinary per-frame clock polling without changing the operating-system clock.
+            typeof(GardenVisualClock).GetField("<OverrideHour>k__BackingField",BindingFlags.Static|BindingFlags.NonPublic)
+                .SetValue(null,(double?)(minute/60d));
+        }
+        static AudioSource SourceFor(AudioClip clip)=>Sources().Single(s=>s.clip==clip);
+        static bool OnlyPlaying(AudioClip clip)=>Sources().Count(s=>s.isPlaying)==1 && SourceFor(clip).isPlaying;
+        static void CheckCrossfade(AudioClip outgoing,AudioClip incoming,string label)
+        {
+            float level=original.volume;
+            Check(player.CurrentClip==incoming && Sources().Count(s=>s.isPlaying)==2,label+" selects the new track with two playing channels");
+            Check(SourceFor(outgoing).volume>0 && SourceFor(outgoing).volume<level &&
+                SourceFor(incoming).volume>0 && SourceFor(incoming).volume<level &&
+                Mathf.Abs(Sources().Sum(s=>s.volume*s.volume)-level*level)<.0005f,label+" fades both tracks continuously while preserving total channel power");
+        }
         static IEnumerator Steps()
         {
             Check(AndroidPlatformBridge.InputMode==PlatformInputMode.Mock,"isolated MOCK scene");
             var nav=UnityEngine.Object.FindFirstObjectByType<MockupNavigation>();
             player=GardenMusicPlayer.Ensure();original=Resources.Load<GardenMusicProfile>("Audio/GardenMusicProfile");
-            Check(original!=null && original.homeGarden!=null,"music profile and supplied audio import");
+            originalClock=GardenVisualClock.OverrideHour;clockCaptured=true;
+            Check(original!=null && original.homeGarden!=null && original.night!=null,"music profile and both supplied audio imports");
             Check(original.homeGarden.length>147 && original.homeGarden.length<148,"complete supplied track duration");
             var importer=(AudioImporter)AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(original.homeGarden));
             Check(importer.defaultSampleSettings.loadType==AudioClipLoadType.Streaming && importer.loadInBackground && !importer.forceToMono,"stereo streaming background import");
+            var nightImporter=(AudioImporter)AssetImporter.GetAtPath(AssetDatabase.GetAssetPath(original.night));
+            Check(nightImporter.defaultSampleSettings.loadType==AudioClipLoadType.Streaming && nightImporter.loadInBackground && !nightImporter.forceToMono,
+                "night track uses stereo streaming background import");
+            Check(original.night.length>154.2f && original.night.length<154.4f && original.night!=original.homeGarden,
+                "complete supplied night track duration");
+            Check(Mathf.Approximately(original.crossfadeSeconds,8),"profile uses an eight-second day/night crossfade");
+            foreach(GardenMusicContext context in Enum.GetValues(typeof(GardenMusicContext)))
+                Check(original.TrackFor(context,0)==original.night && original.TrackFor(context,5+59/60d)==original.night &&
+                    original.TrackFor(context,6)==original.homeGarden && original.TrackFor(context,17+59/60d)==original.homeGarden &&
+                    original.TrackFor(context,18)==original.night && original.TrackFor(context,23+59/60d)==original.night,
+                    context+" follows exact 06:00 and 18:00 boundaries");
+            GardenVisualClock.SetOverrideMinutes(0);
+            UnityEngine.Object.DestroyImmediate(player.gameObject);player=GardenMusicPlayer.Ensure();
             GardenMusicPlayer.SetMuted(false);Lifecycle("OnApplicationFocus",true);Lifecycle("OnApplicationPause",false);
             nav.ShowIsland();
-            yield return new WaitForSecondsRealtime(2);
-            Check(player.CurrentClip==original.homeGarden && Sources().Any(s=>s.isPlaying),"supplied track is playing");
+            yield return new WaitForSecondsRealtime(8.4f);
+            Check(player.CurrentClip==original.night && OnlyPlaying(original.night),"launching at midnight starts the supplied night track");
+            var nightPcm=new float[1024];float nightPeak=0;
+            for(int frame=0;frame<20;frame++)
+            {
+                SourceFor(original.night).GetOutputData(nightPcm,0);
+                foreach(float sample in nightPcm)nightPeak=Mathf.Max(nightPeak,Mathf.Abs(sample));
+                yield return null;
+            }
+            report.nightOutputPeak=nightPeak;
+            Check(nightPeak>0.00001f,"supplied night track produces nonzero PCM after its quiet introduction");
+            GardenVisualClock.SetOverrideMinutes(12*60);
+            yield return new WaitForSecondsRealtime(8.4f);
+            Check(player.CurrentClip==original.homeGarden && OnlyPlaying(original.homeGarden),"daytime preview selects the existing daytime track");
             int before=Samples();yield return new WaitForSecondsRealtime(.5f);
             Check(Samples()>before+1000,"supplied streaming track timeSamples advance");
             var pcm=new float[1024];float peak=0;
@@ -120,8 +164,69 @@ namespace CapstoneDesign.EditorTools
             Check(!player.IsSuspended && Samples()>before+1000,"Android policy resumes after returning from keyboard-background sequence");
             Lifecycle("OnApplicationFocus",true);
             typeof(GardenMusicPlayer).GetField("pauseForFocusLoss",Hidden).SetValue(player,true);
+
+            nav.ShowIsland();GardenVisualClock.SetOverrideMinutes(17*60+59);
+            yield return new WaitForSecondsRealtime(.2f);
+            before=Samples();ClockWithoutEvent(18*60);
+            yield return new WaitForSecondsRealtime(.1f);
+            Check(player.CurrentClip==original.night && SourceFor(original.homeGarden).timeSamples>=before &&
+                SourceFor(original.homeGarden).volume>original.volume*.9f && SourceFor(original.night).volume<original.volume*.1f,
+                "17:59 to 18:00 polling starts the fade without cutting the outgoing track");
+            yield return new WaitForSecondsRealtime(3.9f);
+            CheckCrossfade(original.homeGarden,original.night,"sunset");
+            yield return new WaitForSecondsRealtime(4.4f);
+            Check(OnlyPlaying(original.night) && Sources().All(s=>s.clip==original.night || s.clip==null),
+                "sunset completion stops and releases the daytime track");
+            before=Samples();GardenVisualClock.SetOverrideMinutes(0);nav.ShowSettings();
+            yield return new WaitForSecondsRealtime(.2f);
+            Check(player.CurrentClip==original.night && Samples()>before+1000,"midnight and same-night navigation preserve track position");
+            before=Samples();GardenVisualClock.SetOverrideMinutes(5*60+59);
+            yield return new WaitForSecondsRealtime(.2f);
+            Check(Samples()>before+1000,"05:59 remains the same uninterrupted night track");
+            before=Samples();ClockWithoutEvent(6*60);
+            yield return new WaitForSecondsRealtime(.1f);
+            Check(player.CurrentClip==original.homeGarden && SourceFor(original.night).timeSamples>=before &&
+                SourceFor(original.night).volume>original.volume*.9f && SourceFor(original.homeGarden).volume<original.volume*.1f,
+                "05:59 to 06:00 polling starts the reverse fade without cutting the night track");
+            yield return new WaitForSecondsRealtime(3.9f);
+            CheckCrossfade(original.night,original.homeGarden,"sunrise");
+            yield return new WaitForSecondsRealtime(4.4f);
+            Check(OnlyPlaying(original.homeGarden) && Sources().All(s=>s.clip==original.homeGarden || s.clip==null),
+                "sunrise completion stops and releases the night track");
+
+            GardenVisualClock.SetOverrideMinutes(17*60+59);GardenMusicPlayer.SetMuted(true);
+            ClockWithoutEvent(18*60);yield return new WaitForSecondsRealtime(.2f);
+            Check(player.IsSuspended && player.CurrentClip==original.night && Sources().All(s=>!s.isPlaying),
+                "muted sunset updates the requested track without audible playback");
+            before=Samples();yield return new WaitForSecondsRealtime(.3f);
+            Check(Math.Abs(Samples()-before)<256,"muted night track remains paused");
+            GardenMusicPlayer.SetMuted(false);yield return new WaitForSecondsRealtime(8.4f);
+            Check(!player.IsSuspended && OnlyPlaying(original.night),"unmuting after sunset fades to the correct night track");
+            GardenVisualClock.SetOverrideMinutes(5*60+59);Lifecycle("OnApplicationPause",true);
+            ClockWithoutEvent(6*60);yield return new WaitForSecondsRealtime(.2f);
+            Check(player.IsSuspended && player.CurrentClip==original.homeGarden && Sources().All(s=>!s.isPlaying),
+                "background sunrise updates the requested track while keeping both sources paused");
+            Lifecycle("OnApplicationPause",false);yield return new WaitForSecondsRealtime(8.4f);
+            Check(!player.IsSuspended && OnlyPlaying(original.homeGarden),"returning after sunrise fades to the correct daytime track");
+
+            GardenVisualClock.SetOverrideMinutes(18*60);yield return new WaitForSecondsRealtime(.5f);
+            before=Samples();GardenVisualClock.SetOverrideMinutes(6*60);yield return new WaitForSecondsRealtime(.1f);
+            float[] gainsBefore=Sources().Select(s=>s.volume).ToArray();
+            GardenVisualClock.SetOverrideMinutes(18*60);
+            Check(player.CurrentClip==original.night && Samples()>=before &&
+                Sources().Select((source,i)=>Mathf.Approximately(source.volume,gainsBefore[i])).All(s=>s),
+                "rapid night-day-night reversal reuses playback position without an instantaneous volume jump");
+            yield return new WaitForSecondsRealtime(8.4f);
+            Check(OnlyPlaying(original.night) && player.GetComponents<AudioSource>().Length==2,
+                "rapid time previews settle on the requested track using only two channels");
+            GardenVisualClock.SetOverrideMinutes(12*60);yield return new WaitForSecondsRealtime(8.4f);
+
             temporary=UnityEngine.Object.Instantiate(original);alternate=Tone("Synthetic A",440);other=Tone("Synthetic B",660);
-            temporary.activity=alternate;temporary.settings=other;
+            temporary.activity=alternate;temporary.settings=other;temporary.crossfadeSeconds=.8f;
+            temporary.night=null;
+            Check(temporary.TrackFor(GardenMusicContext.HomeGarden,0)==original.homeGarden &&
+                temporary.TrackFor(GardenMusicContext.Activity,0)==alternate && temporary.TrackFor(GardenMusicContext.Settings,18)==other,
+                "a profile without a night clip retains all existing context fallbacks");
             typeof(GardenMusicPlayer).GetField("profile",Hidden).SetValue(player,temporary);
             nav.ShowActivities();yield return new WaitForSecondsRealtime(.1f);
             Check(Sources().Count(s=>s.isPlaying)==2 && player.CurrentClip==alternate,"different track crossfade uses two channels");
@@ -142,6 +247,11 @@ namespace CapstoneDesign.EditorTools
         {
             EditorApplication.update-=WaitForPlay;EditorApplication.update-=WatchRun;SessionState.SetBool(Key,false);
             if(player!=null && original!=null){typeof(GardenMusicPlayer).GetField("profile",Hidden).SetValue(player,original);player.SetContext(GardenMusicContext.HomeGarden);}
+            if(clockCaptured)
+            {
+                if(originalClock.HasValue)GardenVisualClock.SetOverrideMinutes((int)Math.Round(originalClock.Value*60));
+                else GardenVisualClock.UseSystemTime();
+            }
             if(SessionState.GetBool(Key+".HadMute",false))PlayerPrefs.SetInt(MutedKey,SessionState.GetInt(Key+".Mute",0));else PlayerPrefs.DeleteKey(MutedKey);
             PlayerPrefs.Save();
             if(report==null)report=new Report();report.status=failure==null?"PASS":"FAIL";report.error=failure?.ToString();
