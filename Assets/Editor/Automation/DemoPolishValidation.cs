@@ -302,7 +302,7 @@ namespace CapstoneDesign.EditorTools
                 Require(!f.Settings.IsVisualDebugOpen && f.Settings.PrimaryScroll.gameObject.activeSelf,
                     "Opening settings must show the ordinary settings list");
                 UiImage(size, output, "settings-list-" + preset.Item3);
-                Click(f.Settings.transform, "정원의 시간 바꾸기  ›");
+                Click(f.Settings.transform, "정원의 시간");
                 Require(f.Settings.IsVisualDebugOpen && !f.Settings.PrimaryScroll.gameObject.activeSelf, "Time settings did not open");
                 UiImage(size, output, "garden-time-" + preset.Item3);
                 Click(f.Settings.transform, preset.Item1);
@@ -317,7 +317,7 @@ namespace CapstoneDesign.EditorTools
             f.Home.navigation.ShowSettings();
             Require(!f.Settings.IsVisualDebugOpen && f.Settings.PrimaryScroll.gameObject.activeSelf,
                 "Returning from a preset must not reopen the time subpage");
-            Click(f.Settings.transform, "정원의 시간 바꾸기  ›");
+            Click(f.Settings.transform, "정원의 시간");
             Click(f.Settings.transform, "실제 시간으로");
             Require(!GardenVisualClock.OverrideHour.HasValue, "System-time button did not clear the preview override");
             Require(f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot,

@@ -18,12 +18,12 @@ namespace CapstoneDesign.Runtime
         }
         // Same 720 x 1280 design frame and type scale as the integrated home.
         public const int TitleSize=46, HeadingSize=34, BodySize=28, CaptionSize=26, ButtonSize=34;
-        public static readonly Color Background = new Color32(247,248,239,255);
+        public static readonly Color Background = new Color32(245,247,243,255);
         public static readonly Color Ink = new Color32(36,60,47,255);
         public static readonly Color Muted = new Color32(100,116,104,255);
         public static readonly Color Green = new Color32(49,91,72,255);
         public static readonly Color Pale = new Color32(227,238,216,255);
-        public static readonly Color Border = new Color32(214,225,207,255);
+        public static readonly Color Border = new Color32(217,225,215,255);
         public static readonly Color Warning = new Color32(145,79,42,255);
         public const float Spacing = 8f;
         static Sprite roundedSprite;

@@ -300,6 +300,13 @@ namespace CapstoneDesign.EditorTools
             }
             void Draw()
             {
+                // Edit-mode captures do not receive the normal player-frame
+                // lifecycle after tabs are reactivated. Rebuild every active
+                // home graphic, not only text, before accepting rendered evidence.
+                foreach (var graphic in home.homeCanvas.GetComponentsInChildren<Graphic>())
+                    graphic.SetAllDirty();
+                foreach (var label in home.homeCanvas.GetComponentsInChildren<TMP_Text>())
+                    label.ForceMeshUpdate(false, true);
                 Canvas.ForceUpdateCanvases();
                 foreach (var layout in home.homeCanvas.GetComponentsInChildren<PrototypeGardenPreviewLayout>(true)) layout.Apply();
                 sky.UpdateClouds(0); home.gardenCamera.Render();
@@ -321,7 +328,7 @@ namespace CapstoneDesign.EditorTools
                 for (int pass = 0; pass < 4; pass++)
                 {
                     Draw(); var current = Pixels();
-                    if (current.SequenceEqual(previous))
+                    if (current.SequenceEqual(previous) && HasVisibleHomeLabels(current))
                     {
                         File.WriteAllBytes(path, texture.EncodeToPNG());
                         report.Add(Path.GetFileName(path) + " consecutive complete frames pixel-identical after " + (pass + 5) + " passes");
@@ -330,6 +337,29 @@ namespace CapstoneDesign.EditorTools
                     previous = current;
                 }
                 throw new Exception("Home capture did not settle: " + Path.GetFileName(path));
+            }
+            bool HasVisibleHomeLabels(Color32[] pixels)
+            {
+                foreach (var label in new[] { home.title, home.guide, home.stage,
+                    home.homeTabLabel, home.activityTabLabel, home.settingsTabLabel })
+                {
+                    if (label == null || !label.gameObject.activeInHierarchy || string.IsNullOrEmpty(label.text)) continue;
+                    var bounds = GlyphBounds(label);
+                    var min = camera.WorldToViewportPoint(label.transform.TransformPoint(bounds.min));
+                    var max = camera.WorldToViewportPoint(label.transform.TransformPoint(bounds.max));
+                    int x0 = Mathf.Clamp(Mathf.FloorToInt(min.x * size.x), 0, size.x);
+                    int x1 = Mathf.Clamp(Mathf.CeilToInt(max.x * size.x), 0, size.x);
+                    int y0 = Mathf.Clamp(Mathf.FloorToInt(min.y * size.y), 0, size.y);
+                    int y1 = Mathf.Clamp(Mathf.CeilToInt(max.y * size.y), 0, size.y);
+                    int ink = 0;
+                    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++)
+                    {
+                        var p = pixels[y * size.x + x];
+                        if (p.g < 180 && p.g > p.r && p.g > p.b) ink++;
+                    }
+                    if (ink < 20) return false;
+                }
+                return true;
             }
             public void Dispose()
             {

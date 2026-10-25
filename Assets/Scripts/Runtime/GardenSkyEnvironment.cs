@@ -126,7 +126,7 @@ namespace CapstoneDesign.Runtime
                 new Color(1,.61f,.34f), twilight), Daylight);
             // Moonlight reaches the raised flowers as well as the ground. It is
             // a real directional source, independent of the warm low lanterns.
-            key.intensity = Mathf.Lerp(.85f, 1.22f, Daylight);
+            key.intensity = Mathf.Lerp(.85f, 1.28f, Daylight);
             RenderSettings.sun = key;
             RenderSettings.ambientMode = AmbientMode.Trilight;
             // Broad sky and ground bounce retain the faceted silhouette without

@@ -76,12 +76,13 @@ Shader "Capstone/Garden Clock Sky"
                 float dustOffset=(warpedLatitude+(medium-.5)*.10)*26;
                 float dust=exp2(-dustOffset*dustOffset)*(.40+fine*.60);
                 float density=(halo*.22+core*cloud*.92)*(1-dust*.82);
-                // A broad transition through cyan and blue into a little violet.
-                // Low linear values preserve the dark night exposure.
+                // A broad transition through cyan and blue into violet. Tint the
+                // existing gas density so the purple stays a soft part of the
+                // world-space atmosphere, without another noise pass or overlay.
                 float hue=smoothstep(-.32,.48,dot(direction,normalize(float3(.35,-.85,.40)))
                     +(broad-.5)*.35);
                 float3 gas=lerp(float3(.024,.071,.043),float3(.035,.045,.150),hue);
-                gas=lerp(gas,float3(.080,.035,.160),smoothstep(.45,.95,hue)*.45);
+                gas=lerp(gas,float3(.098,.038,.185),smoothstep(.30,.92,hue)*.62);
                 starDensity=halo*cloud;
                 return gas*density;
             }
@@ -91,8 +92,10 @@ Shader "Capstone/Garden Clock Sky"
                 float height=saturate(d.y*.7+.3);
                 // The garden camera looks below the horizon, so that hemisphere
                 // also needs blue sky. Existing mist supplies the white lower clouds.
-                float3 day=lerp(float3(.20,.46,.71),float3(.14,.48,.83),smoothstep(-.85,.12,d.y));
-                day=lerp(day,float3(.075,.31,.70),smoothstep(.12,1,d.y));
+                // Slightly clearer blue at the horizon while the lower
+                // hemisphere stays softer behind the island and its mist.
+                float3 day=lerp(float3(.17,.45,.77),float3(.11,.47,.88),smoothstep(-.85,.12,d.y));
+                day=lerp(day,float3(.060,.30,.75),smoothstep(.12,1,d.y));
                 // These are linear output values: a .1 night sky becomes much brighter
                 // after display conversion. Keep the horizon subtle instead of blue daylight.
                 float3 night=lerp(float3(.009,.017,.037),float3(.0015,.004,.012),height);

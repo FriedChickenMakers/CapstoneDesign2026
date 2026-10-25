@@ -147,6 +147,16 @@ namespace CapstoneDesign.Runtime
             backgroundPreview.UseFullScreenBackground(homeCanvas);
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
+            // The activity card is a destination, so its icon should communicate
+            // navigation instead of repeating the decorative plant motif.
+            var missionEmblem = home.Find("MissionEmblem");
+            if (missionEmblem != null)
+            {
+                var surface = missionEmblem.GetComponent<PrototypeUiSurface>();
+                if (surface != null) { surface.topColor = surface.bottomColor = Color.clear; surface.SetAllDirty(); }
+                var icon = missionEmblem.GetComponentInChildren<PrototypeUiIcon>();
+                if (icon != null) { icon.symbol = PrototypeUiIcon.Symbol.Arrow; icon.color = GardenUi.Green; icon.SetAllDirty(); }
+            }
             overviewSurface = GardenUi.Box(content, "Home overview surface", 0, 1, 1, 0, GardenUi.Background);
             GardenUi.Round(overviewSurface.GetComponent<Image>(), GardenUi.Background);
             GardenUi.FromTop(overviewSurface.transform, 14, 366);
@@ -185,6 +195,12 @@ namespace CapstoneDesign.Runtime
             // Keep the plant visible by default; the existing view/zoom targets
             // remain full size in the optional row.
             if (title != null) title.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 472);
+            if (guide != null)
+            {
+                var guideRect=guide.rectTransform;
+                guideRect.anchoredPosition=new Vector2(guideRect.anchoredPosition.x,-92);
+                guideRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,42);
+            }
             viewControlsToggle = GardenUi.Button(home, "보기 +", 0, 0, 0, 0,
                 () => SetViewControlsExpanded(!ViewControlsExpanded));
             var toggleRect = (RectTransform)viewControlsToggle.transform;
@@ -198,7 +214,7 @@ namespace CapstoneDesign.Runtime
             var rect = (RectTransform)row.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(0, 1);
             rect.pivot = new Vector2(0, 1);
-            rect.anchoredPosition = new Vector2(48, -154);
+            rect.anchoredPosition = new Vector2(48, -146);
             rect.sizeDelta = new Vector2(624, 96);
             plantViewButton = GardenUi.Button(row.transform, "가까이 보기", 0, 0, 200f / 624, 1, () => SetOverview(false));
             overviewButton = GardenUi.Button(row.transform, "정원 전체", 208f / 624, 0, 200f / 624, 1, () => SetOverview(true));
@@ -219,7 +235,7 @@ namespace CapstoneDesign.Runtime
             if (viewControlsRow == null) return;
             viewControlsRow.SetActive(expanded);
             viewControlsToggle.GetComponentInChildren<Text>().text = expanded ? "보기 −" : "보기 +";
-            GardenUi.FromTop(overviewSurface.transform, 14, expanded ? 366 : 252);
+            GardenUi.FromTop(overviewSurface.transform, 14, expanded ? 354 : 242);
             var surface = (RectTransform)overviewSurface.transform;
             surface.offsetMin = new Vector2(24, surface.offsetMin.y);
             surface.offsetMax = new Vector2(-24, surface.offsetMax.y);
@@ -347,17 +363,17 @@ namespace CapstoneDesign.Runtime
             if (title != null) title.text = RenderedRecipe.SpeciesId == null ? "오늘의 식물"
                 : "오늘의 " + PlantCatalog.Get(RenderedRecipe.SpeciesId).Name;
             if (guide != null) guide.text = growthConfirmation != null && Time.unscaledTime < growthConfirmationUntil
-                ? growthConfirmation : "영양제 " + saved.Nutrient + "개 · 드래그해 둘러보세요.";
+                ? growthConfirmation : "영양제 " + saved.Nutrient + "개";
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
                     if (progressDots[i] != null) progressDots[i].color = i <= visualStage ? Green : Pale;
             var active = saved.Sessions.LastOrDefault(s => s.Status == ParticipationState.Selected || s.Status == ParticipationState.InProgress || s.Status == ParticipationState.Paused);
             var completed = saved.Sessions.LastOrDefault(s => s.InstanceId == saved.LastCycleId && s.Status == ParticipationState.RewardCommitted);
-            if (dailyStatus != null) dailyStatus.text = active != null ? "진행 중인 활동이 있어요"
-                : completed != null ? "오늘의 활동을 마쳤어요" : "오늘의 작은 실천";
+            if (dailyStatus != null) dailyStatus.text = active != null ? "이어서 하기"
+                : completed != null ? "오늘 완료한 활동" : "오늘의 활동";
             if (missionName != null) missionName.text = active != null ? (MindfulnessContent.FindMission(active.MissionId)?.title ?? "활동 이어가기")
-                : completed != null ? (MindfulnessContent.FindMission(completed.MissionId)?.title ?? "수고했어요") : "내 속도로 한 걸음씩";
+                : completed != null ? (MindfulnessContent.FindMission(completed.MissionId)?.title ?? "참여 기록 보기") : "활동 선택하기";
             if (missionActionLabel != null) missionActionLabel.text = active != null ? "활동 이어가기" : "오늘의 활동";
             if (homeTabLabel != null) homeTabLabel.text = "홈 · 정원";
             if (activityTabLabel != null) activityTabLabel.text = "오늘의 활동";

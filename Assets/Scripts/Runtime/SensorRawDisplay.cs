@@ -40,11 +40,20 @@ namespace CapstoneDesign.Runtime
         private GameObject diagnostics;
         private Button diagnosticsButton;
         private Text notificationStatus;
+        private Text notificationTimeValue;
         private Button notificationToggle, notificationPermission, notificationTiming, notificationAdaptive;
         private GameObject notificationOptions;
         private ActivityNotificationSettings notificationSettings;
         private Text notificationActionStatus;
         private Button musicToggle;
+        private sealed class SwitchVisual
+        {
+            public Image Track;
+            public RectTransform Thumb;
+            public Text State;
+        }
+        private readonly System.Collections.Generic.Dictionary<Button, SwitchVisual> switches =
+            new System.Collections.Generic.Dictionary<Button, SwitchVisual>();
         private GardenVisualDebugPage visualDebugPage;
         public bool IsVisualDebugOpen => visualDebugPage != null && visualDebugPage.gameObject.activeSelf;
         public ScrollRect PrimaryScroll { get; private set; }
@@ -74,49 +83,48 @@ namespace CapstoneDesign.Runtime
             title.alignment = TextAnchor.MiddleLeft;
             FixedHeight(title.gameObject, 78);
 
-            Transform reminders = Section(content, "Activity reminders", "활동 추천 알림");
-            notificationStatus = Copy(reminders, "알림 설정 확인 중", GardenUi.BodySize, GardenUi.Muted);
-            notificationToggle = Control(reminders, "알림 켜기", ToggleActivityNotifications, true);
-            notificationTiming = Control(reminders, "시간 설정", () =>
-            {
-                notificationOptions.SetActive(!notificationOptions.activeSelf);
-                RefreshNotificationSettings();
-                LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
-            });
-            notificationOptions = Stack(reminders, "Reminder timing options", 12, 0).gameObject;
-            Control(notificationOptions.transform, "알림 시간 직접 선택", () =>
+            Transform reminders = Section(content, "Activity reminders", null);
+            notificationToggle = SwitchRow(reminders, "활동 추천 알림", ToggleActivityNotifications);
+            notificationStatus = Copy(reminders, "알림 설정 확인 중", GardenUi.CaptionSize, GardenUi.Muted);
+            notificationOptions = Stack(reminders, "Reminder timing options", 8, 0).gameObject;
+            Divider(notificationOptions.transform);
+            notificationTiming = RowControl(notificationOptions.transform, "알림 시간", () =>
             {
                 var result=ActivityNotificationBridge.ChooseTime();
                 bool opened=result!=null && result.status=="AVAILABLE";
                 notificationActionStatus.text=opened?"":"시간 선택을 열지 못했어요. 다시 시도해 주세요.";
                 notificationActionStatus.gameObject.SetActive(!opened);
             });
-            notificationAdaptive=Control(notificationOptions.transform,"확인한 시간에 맞추기",ToggleAdaptiveReminders);
-            notificationOptions.SetActive(false);
+            notificationTiming.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-188,0);
+            notificationTimeValue=GardenUi.Label(notificationTiming.transform,"",1,0,0,1,32);
+            notificationTimeValue.alignment=TextAnchor.MiddleRight;
+            notificationTimeValue.color=GardenUi.Muted;
+            notificationTimeValue.rectTransform.offsetMin=new Vector2(-184,0);
+            notificationTimeValue.rectTransform.offsetMax=new Vector2(-44,0);
+            notificationAdaptive=SwitchRow(notificationOptions.transform,"확인한 시간에 맞추기",ToggleAdaptiveReminders);
             notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());
             notificationActionStatus=ActionLine(reminders);
 
-            Transform music = Section(content, "Background music", "배경음악");
-            musicToggle = Control(music, "배경음악 끄기", () =>
+            Transform music = Section(content, "Garden preferences", "정원");
+            musicToggle = SwitchRow(music, "배경음악", () =>
             {
                 GardenMusicPlayer.SetMuted(!GardenMusicPlayer.IsMuted);
                 RefreshMusicSetting();
             });
+            Divider(music);
+            RowControl(music, "정원의 시간", OpenVisualDebug);
             RefreshMusicSetting();
 
-            Transform healthCard = Section(content, "Health records", "건강 기록", GardenUi.Pale);
+            Transform healthCard = Section(content, "Health records", "건강 기록");
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
-            Control(healthCard, "심박 차트 보기", OpenCharts, true);
-            Place(refreshHealthButton, healthCard, "건강 기록 새로고침");
+            RowControl(healthCard, "심박 차트 보기", OpenCharts);
+            PlaceRow(refreshHealthButton, healthCard, "새로고침", false);
             healthActionStatus = ActionLine(healthCard);
-
-            Transform visualDebug = Section(content, "Visual debugging", "정원의 시간");
-            Control(visualDebug, "정원의 시간 바꾸기  ›", OpenVisualDebug);
 
             Transform permissions = Section(content, "Permissions", "앱 연결 및 권한");
             permissionStatus = Copy(permissions, "권한 확인 중", GardenUi.BodySize, GardenUi.Muted);
-            Place(sensorPermissionButton, permissions, "활동 권한 확인");
-            Place(healthPermissionButton, permissions, "건강 데이터 권한 확인");
+            PlaceRow(sensorPermissionButton, permissions, "활동 권한");
+            PlaceRow(healthPermissionButton, permissions, "건강 데이터 권한");
             permissionActionStatus = ActionLine(permissions);
 
             diagnosticsButton = Control(content, "상세 진단 보기  +", ToggleDiagnostics);
@@ -150,9 +158,7 @@ namespace CapstoneDesign.Runtime
 
         void RefreshMusicSetting()
         {
-            if (musicToggle != null)
-                musicToggle.GetComponentInChildren<Text>().text = GardenMusicPlayer.IsMuted
-                    ? "배경음악 켜기" : "배경음악 끄기";
+            if (musicToggle != null) UpdateSwitch(musicToggle, !GardenMusicPlayer.IsMuted);
         }
 
         void RefreshNotificationSettings()
@@ -162,15 +168,14 @@ namespace CapstoneDesign.Runtime
             notificationSettings=ActivityNotificationBridge.Settings();
             var n=notificationSettings;
             bool permission=n.permissionStatus=="AVAILABLE";
-            notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":!n.enabled?"활동 추천 알림이 꺼져 있어요.":!permission?"기기에서 알림을 허용해 주세요.":
-                "매일 "+(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00")+"쯤"+(n.adaptive?" · 확인한 시간에 맞춤":"");
-            notificationToggle.GetComponentInChildren<Text>().text=n.enabled?"추천 알림 끄기":"추천 알림 켜기";
-            notificationTiming.GetComponentInChildren<Text>().text=notificationOptions.activeSelf?"시간 설정 닫기  −":"시간 설정  +";
-            notificationToggle.interactable=notificationTiming.interactable=live;
+            notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":n.enabled && !permission?"기기에서 알림을 허용해 주세요.":"";
+            notificationStatus.gameObject.SetActive(notificationStatus.text.Length>0);
+            UpdateSwitch(notificationToggle,n.enabled);
+            notificationTimeValue.text=(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00")+"쯤";
+            notificationToggle.interactable=notificationTiming.interactable=notificationAdaptive.interactable=live;
             notificationPermission.gameObject.SetActive(live && n.enabled && !permission);
-            notificationTiming.gameObject.SetActive(n.enabled);
-            if(!n.enabled)notificationOptions.SetActive(false);
-            notificationAdaptive.GetComponentInChildren<Text>().text=n.adaptive?"확인한 시간에 맞추기 · 켜짐":"확인한 시간에 맞추기 · 꺼짐";
+            notificationOptions.SetActive(n.enabled);
+            UpdateSwitch(notificationAdaptive,n.adaptive);
         }
         void ToggleActivityNotifications()
         {
@@ -265,13 +270,82 @@ namespace CapstoneDesign.Runtime
 
         private static Transform Section(Transform parent, string name, string heading, Color? tint = null)
         {
-            Transform section = Stack(parent, name, 16, 24);
+            Transform section = Stack(parent, name, 8, 24);
             var image = section.gameObject.AddComponent<Image>();
-            GardenUi.Round(image, tint ?? Color.white, true);
+            GardenUi.Round(image, tint ?? Color.white);
             image.raycastTarget = false;
-            var label = Copy(section, heading, GardenUi.HeadingSize);
-            label.fontStyle = FontStyle.Bold;
+            if(!string.IsNullOrEmpty(heading))
+            {
+                var label = Copy(section, heading, GardenUi.HeadingSize);
+                label.fontStyle = FontStyle.Bold;
+            }
             return section;
+        }
+
+        private static void Divider(Transform parent)
+        {
+            var divider=GardenUi.Box(parent,"Row divider",0,0,1,0,GardenUi.Border);
+            divider.GetComponent<Image>().raycastTarget=false;
+            FixedHeight(divider,1);
+        }
+
+        private static Button RowControl(Transform parent,string text,Action action)
+        {
+            var button=GardenUi.Button(parent,text,0,0,1,1,action);
+            PlaceRow(button,parent,text);
+            return button;
+        }
+
+        private static void PlaceRow(Button button,Transform parent,string text,bool disclosure=true)
+        {
+            if(button==null)return;
+            Place(button,parent,text);
+            FixedHeight(button.gameObject,88);
+            GardenUi.Round(button.GetComponent<Image>(),Color.white);
+            var colors=button.colors;colors.disabledColor=Color.white;button.colors=colors;
+            var label=button.GetComponentInChildren<Text>(true);
+            label.alignment=TextAnchor.MiddleLeft;
+            label.fontSize=32;
+            label.color=GardenUi.Ink;
+            label.rectTransform.anchorMin=Vector2.zero;
+            label.rectTransform.anchorMax=Vector2.one;
+            label.rectTransform.offsetMin=new Vector2(0,0);
+            label.rectTransform.offsetMax=new Vector2(disclosure?-48:0,0);
+            if(disclosure)
+            {
+                var arrow=GardenUi.Icon(button.transform,CapstoneDesign.Prototype.PrototypeUiIcon.Symbol.Arrow,1,.5f,0,0,GardenUi.Muted);
+                arrow.rectTransform.pivot=new Vector2(1,.5f);
+                arrow.rectTransform.sizeDelta=new Vector2(28,28);
+            }
+        }
+
+        private Button SwitchRow(Transform parent,string text,Action action)
+        {
+            var button=GardenUi.Button(parent,text,0,0,1,1,action);
+            PlaceRow(button,parent,text,false);
+            button.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-156,0);
+            var state=GardenUi.Label(button.transform,"",1,0,0,1,GardenUi.CaptionSize);
+            state.alignment=TextAnchor.MiddleRight;
+            state.rectTransform.offsetMin=new Vector2(-152,0);
+            state.rectTransform.offsetMax=new Vector2(-80,0);
+            var track=GardenUi.Box(button.transform,"Switch track",1,.5f,0,0);
+            var trackRect=(RectTransform)track.transform;
+            trackRect.pivot=new Vector2(1,.5f);trackRect.sizeDelta=new Vector2(64,36);
+            var trackImage=track.AddComponent<Image>();GardenUi.Round(trackImage,GardenUi.Muted);trackImage.raycastTarget=false;
+            var thumb=GardenUi.Box(track.transform,"Switch thumb",0,.5f,0,0);
+            var thumbRect=(RectTransform)thumb.transform;thumbRect.pivot=new Vector2(.5f,.5f);thumbRect.sizeDelta=new Vector2(28,28);
+            var thumbImage=thumb.AddComponent<Image>();GardenUi.Round(thumbImage,Color.white);thumbImage.raycastTarget=false;
+            switches.Add(button,new SwitchVisual {Track=trackImage,Thumb=thumbRect,State=state});
+            return button;
+        }
+
+        private void UpdateSwitch(Button button,bool enabled)
+        {
+            if(!switches.TryGetValue(button,out var visual))return;
+            visual.Track.color=enabled?GardenUi.Green:GardenUi.Muted;
+            visual.Thumb.anchoredPosition=new Vector2(enabled?46:18,0);
+            visual.State.text=enabled?"켜짐":"꺼짐";
+            visual.State.color=GardenUi.Muted;
         }
 
         private static Text Copy(Transform parent, string text, int size, Color? color = null)

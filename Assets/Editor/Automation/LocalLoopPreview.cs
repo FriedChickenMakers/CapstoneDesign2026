@@ -104,14 +104,37 @@ namespace CapstoneDesign.EditorTools
                 home.homeCanvas.renderMode=RenderMode.ScreenSpaceCamera;
                 home.homeCanvas.worldCamera=camera;
                 home.homeCanvas.planeDistance=.75f;
-                if(home.gardenVisuals.activeInHierarchy)home.gardenVisuals.GetComponentInChildren<Camera>(true)?.Render();
             }
             var rt=new RenderTexture(size.x,size.y,24);var tex=new Texture2D(size.x,size.y,TextureFormat.RGB24,false);
             camera.targetTexture=rt;camera.aspect=(float)size.x/size.y;
-            var texts=UnityEngine.Object.FindObjectsByType<Text>(FindObjectsSortMode.None);
-            foreach(var text in texts)text.font?.RequestCharactersInTexture(text.text,text.fontSize,text.fontStyle);
-            foreach(var text in texts){text.cachedTextGenerator.Invalidate();text.SetAllDirty();}
-            Canvas.ForceUpdateCanvases();
+            // Edit-mode screenshots have no intervening player frame after
+            // rebuilding a page. Resolve layout, populate both font systems,
+            // then submit all active graphics before reading the target.
+            for(int pass=0;pass<3;pass++)
+            {
+                Canvas.ForceUpdateCanvases();
+                var texts=UnityEngine.Object.FindObjectsByType<Text>(FindObjectsSortMode.None);
+                foreach(var text in texts)text.font?.RequestCharactersInTexture(text.text,text.fontSize,text.fontStyle);
+                foreach(var text in texts){text.cachedTextGenerator.Invalidate();text.SetAllDirty();}
+                foreach(var text in UnityEngine.Object.FindObjectsByType<TMPro.TMP_Text>(FindObjectsSortMode.None))
+                    text.ForceMeshUpdate(false,true);
+                foreach(var graphic in UnityEngine.Object.FindObjectsByType<Graphic>(FindObjectsSortMode.None))
+                {
+                    graphic.SetAllDirty();
+                    graphic.Rebuild(CanvasUpdate.PreRender);
+                    graphic.Rebuild(CanvasUpdate.LatePreRender);
+                }
+                Canvas.ForceUpdateCanvases();
+                if(home!=null && home.IsGardenVisible)
+                {
+                    // Apply the background composition at the capture size.
+                    // Edit mode has no intervening LateUpdate after navigation.
+                    foreach(var layout in home.homeCanvas.GetComponentsInChildren<CapstoneDesign.Prototype.PrototypeGardenPreviewLayout>())
+                        layout.Apply();
+                    home.gardenCamera.Render();
+                }
+                camera.Render();
+            }
             foreach(var graph in UnityEngine.Object.FindObjectsByType<HeartSampleGraph>(FindObjectsSortMode.None))
             {
                 graph.SetAllDirty();graph.Rebuild(CanvasUpdate.PreRender);

@@ -181,6 +181,9 @@ namespace CapstoneDesign.EditorTools
                 ui.GetComponentsInChildren<Button>(true).Single(b=>b.gameObject.activeInHierarchy && b.gameObject.name=="확정").onClick.Invoke();
                 if(ui.Service.Snapshot.Nutrient!=0 || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))
                     throw new Exception("Growth purchase did not update the saved home");
+                yield return null;
+                AssertFullScreenGarden(home);
+                LocalLoopPreview.Render(new Vector2Int(900,1600),Path.Combine(root,"home-after-growth.png"));
             }
             else
             {
@@ -191,6 +194,9 @@ namespace CapstoneDesign.EditorTools
                 if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
                 nav.ShowIsland();
                 if(!home.IsOverview || home.ViewControlsExpanded)throw new Exception("Process restart did not restore the complete garden with folded controls");
+                yield return null;
+                AssertFullScreenGarden(home);
+                LocalLoopPreview.Render(new Vector2Int(900,1600),Path.Combine(root,"home-after-restore.png"));
                 GardenProceduralValidation.CaptureGardenContext(home);
                 // A step sync may commit rewards while the activity page is hidden.
                 // Reopening that existing page must agree with the main garden.
@@ -221,10 +227,38 @@ namespace CapstoneDesign.EditorTools
             if(scroll.content.rect.height>scroll.viewport.rect.height+1 && scroll.verticalNormalizedPosition<.999f)
                 throw new Exception("Page did not open at its beginning: "+title+"; scroll="+scroll.verticalNormalizedPosition);
             var heading=ui.GetComponentsInChildren<Text>().Single(t=>t.text==title);
-            var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(scroll.viewport,heading.transform);
-            if(bounds.min.y<scroll.viewport.rect.yMin-1 || bounds.max.y>scroll.viewport.rect.yMax-95)
-                throw new Exception("Page heading is hidden at first entry: "+title);
+            var focus=heading.GetComponentInParent<GardenActivityLayout>();
+            if(focus!=null)
+            {
+                var frame=(RectTransform)focus.transform;
+                var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(frame,heading.transform);
+                var body=RectTransformUtility.CalculateRelativeRectTransformBounds(frame,focus.Body);
+                if(!heading.transform.IsChildOf(focus.Header) || bounds.min.y<body.max.y-1 ||
+                    bounds.max.y>frame.rect.yMax+1 || bounds.min.x<frame.rect.xMin-1 || bounds.max.x>frame.rect.xMax+1)
+                    throw new Exception("Fixed page heading is hidden at first entry: "+title);
+            }
+            else
+            {
+                var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(scroll.viewport,heading.transform);
+                if(bounds.min.y<scroll.viewport.rect.yMin-1 || bounds.max.y>scroll.viewport.rect.yMax-95)
+                    throw new Exception("Page heading is hidden at first entry: "+title);
+            }
             Debug.Log("LOCAL_LOOP_FIRST_ENTRY_PASS "+title);
+        }
+
+        static void AssertFullScreenGarden(GardenHomePresenter home)
+        {
+            // Observe the player's normal frame before the capture helper applies
+            // any layout itself; this catches return-to-home composition regressions.
+            var layout=home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeGardenPreviewLayout>();
+            if(!home.IsGardenVisible || layout==null || !layout.IsFullScreen)
+                throw new Exception("Home did not restore its full-screen garden background");
+            var canvas=(RectTransform)home.homeCanvas.transform;
+            var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(canvas,layout.transform);
+            if(bounds.min.x>canvas.rect.xMin+1 || bounds.max.x<canvas.rect.xMax-1 ||
+                bounds.min.y>canvas.rect.yMin+1 || bounds.max.y<canvas.rect.yMax-1)
+                throw new Exception("Garden background leaves uncovered canvas edges");
+            Debug.Log("LOCAL_LOOP_FULL_SCREEN_GARDEN_PASS");
         }
 
         static void ScrollIntoView(ScrollRect scroll, Button target)

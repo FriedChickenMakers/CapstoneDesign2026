@@ -37,8 +37,8 @@ namespace CapstoneDesign.Runtime
             if(session.Status==ParticipationState.Selected)
             {
                 Guidance(p,mission.purpose);
-                GardenUi.FlowLabel(p,"권장 "+mission.suggestedDurationLabel,GardenUi.HeadingSize).fontStyle=FontStyle.Bold;
-                GardenUi.FlowLabel(p,"화면 안내를 따라 편한 만큼 참여해보세요. 시간과 입력은 완료 조건이 아니에요.");
+                GardenUi.FlowLabel(p,"권장 "+mission.suggestedDurationLabel,GardenUi.BodySize).fontStyle=FontStyle.Bold;
+                GardenUi.FlowLabel(p,"시간과 입력은 완료 조건이 아니에요.",GardenUi.BodySize,GardenUi.Muted);
                 DockAction("시작",()=>{if(Apply(Service.StartSession(session.SessionId)))ShowSession();},true);
                 DockAction("선택 취소",()=>CancelSelectedPractice(session));
                 return;
@@ -147,22 +147,26 @@ namespace CapstoneDesign.Runtime
         }
         public void ShowExperienceHistory()
         {
-            EnterPage("experience-history",ShowExperienceHistory);var p=Page("경험 기록과 나의 계획");
-            GardenUi.Button(p,"경험 기록하기",.07f,.68f,.41f,.075f,ShowExperienceTypes);
-            GardenUi.Button(p,"나의 계획",.52f,.68f,.41f,.075f,ShowPersonalPlan);
+            EnterPage("experience-history",ShowExperienceHistory);var p=FocusPage("경험 기록","나의 기록");
             var state=Service.Snapshot;
             int pages=Math.Max(1,(state.Experiences.Count+3)/4);
             experiencePage=Math.Min(experiencePage,pages-1);
             var records=state.Experiences.AsEnumerable().Reverse().Skip(experiencePage*4).Take(4).ToArray();
+            var history=records.Length>0?ActivityList(p,"Experience history"):null;
             for(int i=0;i<records.Length;i++)
-            {var e=records[i];GardenUi.Button(p,LocalTime(e.CreatedUtc)+" · "+e.Type,.07f,.57f-i*.085f,.86f,.07f,()=>ShowExperienceRecord(e.Id));}
-            if(records.Length==0)GardenUi.Label(p,"아직 경험 기록이 없어요.",.07f,.45f,.86f,.15f,28);
-            GardenUi.Button(p,"참여 기록",.07f,.15f,.86f,.075f,ShowRecords);
+            {var e=records[i];ActivityListItem(history,e.Type,LocalTime(e.CreatedUtc),()=>ShowExperienceRecord(e.Id),PrototypeUiIcon.Symbol.Journal);}
+            if(records.Length==0)Guidance(p,"아직 경험 기록이 없어요. 기억하고 싶은 순간을 남겨보세요.");
+            var destinations=ActivityList(p,"Experience destinations");
+            ActivityListItem(destinations,"경험 기록하기",null,ShowExperienceTypes,PrototypeUiIcon.Symbol.Journal);
+            ActivityListItem(destinations,"나의 계획",null,ShowPersonalPlan,PrototypeUiIcon.Symbol.Leaf);
             if(pages>1)
             {
-                var previous=GardenUi.Button(p,"이전 기록",.07f,.075f,.41f,.055f,()=>{experiencePage--;ShowExperienceHistory();});previous.interactable=experiencePage>0;
-                var next=GardenUi.Button(p,"다음 기록",.52f,.075f,.41f,.055f,()=>{experiencePage++;ShowExperienceHistory();});next.interactable=experiencePage<pages-1;
+                DockPair("이전 기록",()=>{experiencePage--;ShowExperienceHistory();},"다음 기록",()=>{experiencePage++;ShowExperienceHistory();});
+                var buttons=activityActions.GetComponentsInChildren<Button>();
+                buttons.First(b=>b.name=="이전 기록").interactable=experiencePage>0;
+                buttons.First(b=>b.name=="다음 기록").interactable=experiencePage<pages-1;
             }
+            DockAction("참여 기록",ShowRecords);
         }
         public void ShowExperienceRecord(string id)
         {
@@ -174,10 +178,10 @@ namespace CapstoneDesign.Runtime
         {
             EnterPage("personal-plan",ShowPersonalPlan);var p=FocusPage("나의 계획","필요할 때 바꿀 수 있어요");
             string[] keys={"warning-sign","warning-action","support","favorite","practice-time","restart-plan"};
+            var fields=ActivityList(p,"Plan fields");
             for(int i=0;i<keys.Length;i++)
             {
-                string key=keys[i];var button=GardenUi.MenuButton(p,AnswerLabel(key),null,0,0,1,0,()=>ShowPlanField(key),PrototypeUiIcon.Symbol.Journal);
-                button.gameObject.AddComponent<LayoutElement>().preferredHeight=96;
+                string key=keys[i];ActivityListItem(fields,AnswerLabel(key),null,()=>ShowPlanField(key),PrototypeUiIcon.Symbol.Journal);
             }
             DockAction("기록으로",ShowExperienceHistory);
         }

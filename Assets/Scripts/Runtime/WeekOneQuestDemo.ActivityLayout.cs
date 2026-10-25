@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using CapstoneDesign.Runtime.LocalState;
+using CapstoneDesign.Prototype;
 
 namespace CapstoneDesign.Runtime
 {
@@ -91,6 +92,63 @@ namespace CapstoneDesign.Runtime
             flow.childForceExpandHeight = false;
             GardenUi.FlowLabel(card.transform, text, GardenUi.BodySize);
             return card.transform;
+        }
+        // Navigation belongs to one list surface. Reserve filled buttons for the
+        // action that advances an activity, instead of making every destination
+        // compete with it as a separate outlined card.
+        Transform ActivityList(Transform parent, string name)
+        {
+            var list = GardenUi.Card(parent, name, 0, 0, 1, 0);
+            var flow = list.AddComponent<VerticalLayoutGroup>();
+            flow.childControlWidth = flow.childControlHeight = true;
+            flow.childForceExpandWidth = true;
+            flow.childForceExpandHeight = false;
+            return list.transform;
+        }
+        Button ActivityListItem(Transform parent, string title, string detail, Action action,
+            PrototypeUiIcon.Symbol symbol, bool emphasized = false, bool divider = true)
+        {
+            if (divider && parent.childCount > 0)
+            {
+                var line = GardenUi.Box(parent, "List divider", 0, 0, 1, 0);
+                line.AddComponent<LayoutElement>().preferredHeight = 1;
+                GardenUi.Box(line.transform, "Inset divider", .04f, 0, .92f, 1, GardenUi.Border)
+                    .GetComponent<Image>().raycastTarget = false;
+            }
+            var button = GardenUi.Button(parent, title, 0, 0, 1, 0, action);
+            var oldLabel = button.GetComponentInChildren<Text>();
+            oldLabel.gameObject.SetActive(false);
+            GardenUi.Round(button.GetComponent<Image>(), emphasized ? GardenUi.Pale : Color.white);
+            var colors = button.colors;
+            // Lock icons and muted text communicate availability without making
+            // every unavailable row look like another filled pill.
+            colors.disabledColor = Color.white;
+            button.colors = colors;
+            button.gameObject.AddComponent<LayoutElement>().minHeight = 88;
+            var row = button.gameObject.AddComponent<HorizontalLayoutGroup>();
+            row.padding = new RectOffset(24, 24, 20, 20);
+            row.spacing = 20;
+            row.childControlWidth = row.childControlHeight = true;
+            row.childForceExpandWidth = row.childForceExpandHeight = false;
+            row.childAlignment = TextAnchor.MiddleLeft;
+            var icon = GardenUi.Icon(button.transform, symbol, 0, 0, 0, 0);
+            var iconSize = icon.gameObject.AddComponent<LayoutElement>();
+            iconSize.minWidth = iconSize.preferredWidth = 32;
+            iconSize.minHeight = iconSize.preferredHeight = 32;
+            var copy = GardenUi.Box(button.transform, "List text", 0, 0, 1, 0);
+            var copySize = copy.AddComponent<LayoutElement>();
+            copySize.minWidth = 0;
+            copySize.flexibleWidth = 1;
+            var copyFlow = copy.AddComponent<VerticalLayoutGroup>();
+            copyFlow.spacing = 8;
+            copyFlow.childControlWidth = copyFlow.childControlHeight = true;
+            copyFlow.childForceExpandWidth = true;
+            copyFlow.childForceExpandHeight = false;
+            var label = GardenUi.FlowLabel(copy.transform, title, GardenUi.HeadingSize);
+            label.fontStyle = emphasized ? FontStyle.Bold : FontStyle.Normal;
+            if (!string.IsNullOrEmpty(detail))
+                GardenUi.FlowLabel(copy.transform, detail, GardenUi.CaptionSize, GardenUi.Muted);
+            return button;
         }
         void PausePractice(ActivitySession session)
         {
