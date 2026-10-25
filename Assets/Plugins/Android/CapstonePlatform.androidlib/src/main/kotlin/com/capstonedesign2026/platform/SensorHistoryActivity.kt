@@ -48,12 +48,12 @@ class SensorHistoryActivity : Activity() {
     private var detailsExpanded = false
 
     // Matches GardenUi's paper, ink, green, pale, border and warning colors.
-    private val paper = Color.rgb(247, 248, 239)
+    private val paper = Color.rgb(245, 247, 243)
     private val ink = Color.rgb(36, 60, 47)
     private val muted = Color.rgb(100, 116, 104)
     private val green = Color.rgb(49, 91, 72)
     private val pale = Color.rgb(227, 238, 216)
-    private val border = Color.rgb(214, 225, 207)
+    private val border = Color.rgb(217, 225, 215)
     private val warning = Color.rgb(145, 79, 42)
 
     override fun onCreate(savedInstanceState: Bundle?) {
