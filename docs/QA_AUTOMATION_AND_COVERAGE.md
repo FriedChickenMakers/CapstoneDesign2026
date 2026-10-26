@@ -63,9 +63,13 @@ successful graphical validation and does not invalidate separate fresh/restore
 PASS results. The runner preserves per-phase failure reports and has an external
 deadline even when the Editor cannot reach the fixture.
 
-The Android shared-header/navigation change requires direct before/after A7
-page-transition inspection as its device acceptance evidence. Editor screenshots
-and an unstarted optional fixture do not establish that the device issue is fixed.
+The suspected Android shared-header/navigation regression was a visual-reading
+false positive. Direct raw-PNG pixel comparisons found the brand, settings icon
+and label unchanged across the original A7 captures, including the pages initially
+reported as missing them. Temporary refresh/diagnostic code was removed; no
+graphics-backend workaround was applied. Retain pixel-level evidence when an
+image preview appears to disagree with the source capture. The optional fixture
+is a future regression check, not evidence of a confirmed device defect.
 
 ## Safe physical-device entry points
 

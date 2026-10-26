@@ -28,12 +28,15 @@ namespace CapstoneDesign.Runtime
             var sessions=Service.Snapshot.Sessions.Where(session=>session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended).Reverse().ToArray();
             int pages=Math.Max(1,(sessions.Length+3)/4);growthLinkPage=Mathf.Clamp(growthLinkPage,0,pages-1);
             if(sessions.Length==0)GardenUi.FlowLabel(p,"아직 연결할 활동 기록이 없어요. 기록 없이도 식물을 키울 수 있어요.");
-            var list=ActivityList(p,"Growth activity choices");
-            foreach(var entry in sessions.Skip(growthLinkPage*4).Take(4))
+            if(sessions.Length>0)
             {
-                string id=entry.SessionId;
-                ActivityListItem(list,MindfulnessContent.FindMission(entry.MissionId)?.title??"활동 기록",LocalTime(entry.EndedUtc),()=>
-                {pendingGrowthRecordSession=id;RenderGrowthPreview();},PrototypeUiIcon.Symbol.Journal);
+                var list=ActivityList(p,"Growth activity choices");
+                foreach(var entry in sessions.Skip(growthLinkPage*4).Take(4))
+                {
+                    string id=entry.SessionId;
+                    ActivityListItem(list,MindfulnessContent.FindMission(entry.MissionId)?.title??"활동 기록",LocalTime(entry.EndedUtc),()=>
+                    {pendingGrowthRecordSession=id;RenderGrowthPreview();},PrototypeUiIcon.Symbol.Journal);
+                }
             }
             if(pages>1)
             {
@@ -54,11 +57,14 @@ namespace CapstoneDesign.Runtime
             if(records.Length==0)Guidance(p,"다음에 식물을 키우면 이곳에 성장 기록이 남아요.");
             if(state.PurchaseCommands.Any(command=>command.Command.StartsWith("growth|",StringComparison.Ordinal) && !records.Any(record=>record.RequestId==command.RequestId)))
                 GardenUi.FlowLabel(p,"이전 버전의 성장은 정원에 그대로 남아 있어요. 당시의 상세 연결 기록은 없어요.",GardenUi.BodySize,GardenUi.Muted);
-            var list=ActivityList(p,"Plant growth history");
-            foreach(var entry in records.Skip(growthHistoryPage*4).Take(4))
+            if(records.Length>0)
             {
-                string id=entry.RequestId;
-                ActivityListItem(list,GrowthRecordTitle(entry),LocalTime(entry.CreatedUtc),()=>ShowGrowthRecord(id),PrototypeUiIcon.Symbol.Leaf);
+                var list=ActivityList(p,"Plant growth history");
+                foreach(var entry in records.Skip(growthHistoryPage*4).Take(4))
+                {
+                    string id=entry.RequestId;
+                    ActivityListItem(list,GrowthRecordTitle(entry),LocalTime(entry.CreatedUtc),()=>ShowGrowthRecord(id),PrototypeUiIcon.Symbol.Leaf);
+                }
             }
             if(pages>1)
             {
