@@ -45,6 +45,28 @@ The existing `scripts/test.sh` remains a project-wiring smoke check; use
 `scripts/qa.py` for the combined suites. Never describe `test.sh` alone as a full
 test run. `--only NAME` is useful during development but reports only that scope.
 
+### Optional graphical shared-header/navigation check
+
+`scripts/test-local-loop-play.sh` runs the required batch-mode `fresh` and
+`restore` phases by default, using a new isolated synthetic save directory.
+`scripts/test-local-loop-play.sh --chrome` runs only the optional graphical
+phase and may reuse that synthetic save directory. It observes normal rendered
+Game view pixels after page transitions for the shared brand, all three tab
+labels and their vector icons, without the preview helper's forced mesh rebuilds.
+
+The optional phase requires a graphical Editor without `-batchmode`, a working
+display and license, and any Editor Software Terms already accepted by the user.
+Automation does not accept legal terms. An attempted graphical run on
+2026-10-27 was blocked before the fixture started by the Editor terms dialog;
+its timeout/failure evidence is retained privately. That attempt is not a
+successful graphical validation and does not invalidate separate fresh/restore
+PASS results. The runner preserves per-phase failure reports and has an external
+deadline even when the Editor cannot reach the fixture.
+
+The Android shared-header/navigation change requires direct before/after A7
+page-transition inspection as its device acceptance evidence. Editor screenshots
+and an unstarted optional fixture do not establish that the device issue is fixed.
+
 ## Safe physical-device entry points
 
 `android_device_session.py` is shared by deployment, launch smoke, capture,
@@ -141,7 +163,7 @@ Current 2026-10-27 local evidence, before the final source commit:
 
 | Evidence under ignored `artifacts/qa-final-20261027/` | Verified scope |
 | --- | --- |
-| `standalone-unit/results.json` | 16/16 required pure suites PASS, no skips; 42 Python harness tests and 22 server/evaluation tests. Ubuntu Mono 6.8, standalone Kotlin 2.2.0 and Java 17 exercise the workflow's compiler paths without starting Unity or ADB. Both pinned Kotlin and Gitleaks archive checksums were verified locally. This is local workflow compatibility evidence, not a completed GitHub Actions run. |
+| `standalone-unit/results.json` | 16/16 required pure suites PASS, no skips; 42 Python harness tests and 22 server/evaluation tests. Ubuntu Mono 6.8, standalone Kotlin 2.2.0 and Java 17 exercise the workflow's compiler paths without starting Unity or ADB. Both pinned Kotlin and Gitleaks archive checksums were verified locally. This row records local workflow compatibility. The separate GitHub Actions run for `c57b6eb` later passed all 16 required suites; its downloaded result is `artifacts/qa-final-20261027/remote-ci-c57b6eb/results.json`. |
 | `personalization-network/result.json` | Actual Unity Editor Play and UnityWebRequest PASS: 10 client assertions plus independent database checks showing one stored synthetic event before withdrawal, then zero events and revoked enrollment. `cleanupComplete` is true. This is an Editor/loopback result, not a deployed Android/TLS round-trip. |
 | `play-synthetic/play-fresh.json`, `play-synthetic/play-restore.json`, `play.log` | Both synthetic Editor Play phases PASS, with matching phase-specific log markers. Unity Search indexing exceptions and headless audio warnings remain in the log; this is a functional fixture result, not an error-free Editor or audible-audio claim. |
 | `editor/local-loop-validation/results.json` | LocalLoop integration 39/39 PASS. |

@@ -8,6 +8,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
+using TMPro;
 using CapstoneDesign.Runtime;
 using CapstoneDesign.Runtime.LocalState;
 
@@ -17,6 +18,11 @@ namespace CapstoneDesign.EditorTools
     public static class LocalLoopPlaySmoke
     {
         const string Key="Capstone.LocalLoopSmoke.Active";
+        [Serializable] sealed class Result
+        {
+            public string status,phase,error;
+            public string mode="MOCK",environment="Unity Editor Play mode";
+        }
         static int raycastFrame;
         static LocalLoopPlaySmoke()
         {
@@ -35,13 +41,24 @@ namespace CapstoneDesign.EditorTools
         {
             if(EditorApplication.timeSinceStartup>SessionState.GetFloat(Key+".Deadline",0))
             {
-                EditorApplication.update-=WaitForPlay;SessionState.SetBool(Key,false);
-                Debug.LogError("Play smoke startup timed out");EditorApplication.Exit(1);return;
+                Finish(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"),
+                    Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_PHASE")??"fresh",new Exception("Play smoke startup timed out"));return;
             }
             if(!EditorApplication.isPlaying)return;
             var loop=UnityEngine.Object.FindFirstObjectByType<WeekOneQuestDemo>(FindObjectsInactive.Include);
             if(loop?.Service==null)return;
-            EditorApplication.update-=WaitForPlay;Run();
+            Application.runInBackground=true;
+            SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+
+                (Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_PHASE")=="chrome"?30:90));
+            EditorApplication.update-=WaitForPlay;
+            EditorApplication.update-=WatchRun;EditorApplication.update+=WatchRun;
+            Run();
+        }
+        static void WatchRun()
+        {
+            if(EditorApplication.timeSinceStartup>SessionState.GetFloat(Key+".Deadline",0))
+                Finish(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"),
+                    Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_PHASE")??"fresh",new Exception("Play smoke runtime deadline exceeded"));
         }
         static void Run()
         {
@@ -59,8 +76,7 @@ namespace CapstoneDesign.EditorTools
                 catch(Exception ex) { failure=ex; }
                 if(failure!=null)
                 {
-                    Directory.CreateDirectory(root);File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"FAIL\"}");
-                    Debug.LogException(failure);SessionState.SetBool(Key,false);EditorApplication.Exit(1);yield break;
+                    Finish(root,phase,failure);yield break;
                 }
                 if(!moved)yield break;
                 yield return current;
@@ -77,7 +93,27 @@ namespace CapstoneDesign.EditorTools
             var home=nav.home;
             if(home==null || home.gardenCamera==null || home.gardenCamera.enabled)
                 throw new Exception("Integrated home or on-demand garden camera missing in Play mode");
-            if(phase=="fresh")
+            if(phase=="chrome")
+            {
+                // Batch mode has no normal Game view overlay draw. This dedicated
+                // phase must observe the real player frame, without the preview
+                // helper's forced mesh submissions hiding the device regression.
+                if(Application.isBatchMode)throw new Exception("The chrome phase requires a graphical Editor without -batchmode.");
+                var gameView=EditorWindow.GetWindow(typeof(Editor).Assembly.GetType("UnityEditor.GameView"));
+                gameView.Show();gameView.Focus();
+                if(!ui.Service.SelectMbctProgram("8w"))throw new Exception(ui.Service.LastError);
+                var pages=new Action[]{ui.ShowHome,ui.ShowCourse,ui.ShowFree,ui.ShowProgramSelection,ui.ShowHome};
+                var names=new[]{"activities","course","free","programs","activities-return"};
+                nav.ShowActivities();
+                for(int index=0;index<pages.Length;index++)
+                {
+                    pages[index]();
+                    yield return null;
+                    yield return new WaitForEndOfFrame();
+                    AssertSharedChromePixels(home,Path.Combine(root,"shared-chrome-"+names[index]+".png"));
+                }
+            }
+            else if(phase=="fresh")
             {
                 if(ui.Service.Snapshot.Sessions.Count!=0)throw new Exception("Fresh fixture directory already contains sessions");
                 nav.ShowIsland();
@@ -219,15 +255,63 @@ namespace CapstoneDesign.EditorTools
                     || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  8주 코스")))
                     throw new Exception("Activity header retained stale nutrients after a hidden reward update");
             }
-            File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"PASS\",\"mode\":\"MOCK\",\"environment\":\"Unity Editor Play mode\",\"phase\":\""+phase+"\"}");
-            Debug.Log("LOCAL_LOOP_PLAY_SMOKE_PASS "+phase);
-            SessionState.SetBool(Key,false);EditorApplication.Exit(0);
+            Finish(root,phase,null);
+        }
+
+        static void Finish(string root,string phase,Exception failure)
+        {
+            EditorApplication.update-=WaitForPlay;EditorApplication.update-=WatchRun;
+            SessionState.SetBool(Key,false);
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),JsonUtility.ToJson(new Result
+                {status=failure==null?"PASS":"FAIL",phase=phase,error=failure?.ToString()},true));
+            if(failure!=null)Debug.LogException(failure);else Debug.Log("LOCAL_LOOP_PLAY_SMOKE_PASS "+phase);
+            EditorApplication.Exit(failure==null?0:1);
         }
 
         static void AssertLegacyRendererParked(GardenHomePresenter home)
         {
             if(home.oldCamera.enabled || home.oldLight.enabled)
                 throw new Exception("Integrated tab rendered the hidden legacy camera or light");
+        }
+
+        static void AssertSharedChromePixels(GardenHomePresenter home,string path)
+        {
+            var brand=home.homeCanvas.transform.Find("SafePortraitFrame/MainContent/Brand").GetComponent<TMP_Text>();
+            var graphics=new List<Graphic>{brand,home.homeTabLabel,home.activityTabLabel,home.settingsTabLabel};
+            foreach(var tab in new[]{home.homeTab,home.activityTab,home.settingsTab})
+                graphics.Add(tab.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeUiIcon>());
+            var capture=ScreenCapture.CaptureScreenshotAsTexture();
+            if(capture==null)throw new Exception("The chrome phase did not receive a rendered Game view image.");
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllBytes(path,capture.EncodeToPNG());
+                var pixels=capture.GetPixels32();
+                foreach(var graphic in graphics)
+                {
+                    if(graphic==null || !graphic.isActiveAndEnabled || graphic.canvasRenderer.cull)
+                        throw new Exception("Shared header/tab Graphic is missing, inactive or culled: "+graphic?.name);
+                    var canvas=graphic.canvas.rootCanvas;
+                    Camera camera=canvas.renderMode==RenderMode.ScreenSpaceOverlay?null:canvas.worldCamera;
+                    var corners=new Vector3[4];graphic.rectTransform.GetWorldCorners(corners);
+                    var minimum=RectTransformUtility.WorldToScreenPoint(camera,corners[0]);
+                    var maximum=RectTransformUtility.WorldToScreenPoint(camera,corners[2]);
+                    int x0=Mathf.Clamp(Mathf.FloorToInt(minimum.x*capture.width/Screen.width),0,capture.width);
+                    int x1=Mathf.Clamp(Mathf.CeilToInt(maximum.x*capture.width/Screen.width),0,capture.width);
+                    int y0=Mathf.Clamp(Mathf.FloorToInt(minimum.y*capture.height/Screen.height),0,capture.height);
+                    int y1=Mathf.Clamp(Mathf.CeilToInt(maximum.y*capture.height/Screen.height),0,capture.height);
+                    int ink=0;
+                    for(int y=y0;y<y1;y++)for(int x=x0;x<x1;x++)
+                    {
+                        var pixel=pixels[y*capture.width+x];
+                        if(pixel.g<180 && pixel.g>pixel.r && pixel.g>pixel.b)ink++;
+                    }
+                    if(ink<8)throw new Exception("Shared header/tab has no visible green geometry: "+graphic.name+"; pixels="+ink+"; image="+path);
+                }
+            }
+            finally{UnityEngine.Object.Destroy(capture);}
+            Debug.Log("LOCAL_LOOP_SHARED_CHROME_PIXELS_PASS "+Path.GetFileName(path));
         }
 
         static void AssertPageStartsAtTop(WeekOneQuestDemo ui,string title)
