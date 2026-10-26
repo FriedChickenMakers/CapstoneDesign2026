@@ -122,6 +122,17 @@ namespace CapstoneDesign.EditorTools
                 if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)
                     throw new Exception("Activity tab did not park the garden camera");
                 GardenProceduralValidation.AssertGardenContext(home,gardenContext,requireActive:false);
+                if (ui.CurrentScreen != "programs" || ui.Service.Snapshot.MbctProgramChosen)
+                    throw new Exception("Fresh activity tab bypassed course duration selection");
+                yield return null;
+                var duration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="8주 · 충분히 연습하기");
+                AssertRaycastTarget(duration); duration.onClick.Invoke();
+                yield return null;
+                var confirmDuration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="이 기간으로 시작");
+                AssertRaycastTarget(confirmDuration); confirmDuration.onClick.Invoke();
+                yield return null;
+                if (!ui.Service.Snapshot.MbctProgramChosen || MbctPolicy.ActiveProgram(ui.Service.Snapshot) != "8w")
+                    throw new Exception("Course confirmation did not persist the selected duration");
                 AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="추천 활동 안내"));
                 nav.ShowIsland();
                 if(home.IsOverview || Mathf.Abs(home.Zoom-previousZoom)>.001f)
@@ -205,7 +216,7 @@ namespace CapstoneDesign.EditorTools
                 for(int i=0;i<10;i++)if(!ui.AddVirtualDebugStep())throw new Exception("Synthetic step failed");
                 nav.ShowActivities();
                 if(ui.Service.Snapshot.Nutrient!=1 || !home.guide.text.Contains("영양제 1개")
-                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  코스")))
+                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  8주 코스")))
                     throw new Exception("Activity header retained stale nutrients after a hidden reward update");
             }
             File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),"{\"status\":\"PASS\",\"mode\":\"MOCK\",\"environment\":\"Unity Editor Play mode\",\"phase\":\""+phase+"\"}");

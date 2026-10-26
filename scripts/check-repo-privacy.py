@@ -24,6 +24,8 @@ VENDOR_LICENSES = {
     "Assets/Art/External/KenneyNatureKit/LICENSE.txt",
     "Assets/Art/Prototype/Fonts/OFL.txt",
     "Assets/Resources/Fonts/OFL.txt",
+    "Assets/Resources/Fonts/WantedSans-OFL.txt",
+    "Assets/Resources/Fonts/LINESeedKR-OFL.txt",
     "Assets/TextMesh Pro/Fonts/LiberationSans - OFL.txt",
 }
 EMAIL = re.compile(r"(?<![\w.+-])[\w.!#$%&'*+/=?^`{|}~-]+@(?:[\w-]+\.)+[A-Za-z]{2,}")

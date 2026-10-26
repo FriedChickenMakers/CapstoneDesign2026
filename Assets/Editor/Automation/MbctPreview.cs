@@ -36,7 +36,9 @@ namespace CapstoneDesign.EditorTools
                 var nav=UnityEngine.Object.FindFirstObjectByType<MockupNavigation>(FindObjectsInactive.Include);
                 var loop=nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();var clock=new Clock();var store=new Store();
                 var balance=new DemoBalanceConfig{VisitorChancePercent=0};var service=new GardenStateService(store,clock,balance);
-                loop.Balance=balance;loop.Initialize(service,true);nav.ShowActivities();
+                loop.Balance=balance;loop.Initialize(service,true);
+                if(!service.SelectMbctProgram("8w"))throw new Exception(service.LastError);
+                nav.ShowActivities();
                 int target=name=="free"||name=="activity-record"?2:name=="records"?5:name=="thought-personal"?32:name=="body"?2:name=="routine"?4:name=="breathing-space"?14:name=="sound"?16:name=="thought"?21:name=="self-care"?28:1;
                 for(int i=1;i<target;i++)
                 {

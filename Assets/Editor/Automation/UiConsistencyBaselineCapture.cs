@@ -61,6 +61,7 @@ namespace CapstoneDesign.EditorTools
             {
                 loop.Balance = balance;
                 loop.Initialize(service, true);
+                if (!service.SelectMbctProgram("8w")) throw new InvalidOperationException(service.LastError);
                 nav.ShowActivities();
                 CaptureEmptyAndSettings(nav, loop);
                 if (filter != "settings")

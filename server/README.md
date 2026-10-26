@@ -58,8 +58,9 @@ protocol. The client does not forward bearer credentials to redirected hosts.
 
 An event has exactly `event_id`, `decision_id`, `kind`, `occurred_utc_ms`,
 `utc_offset_minutes`, `activity_id`, `policy_id`, `app_version`,
-`content_version`, and `features`. Event and decision IDs are random UUID hex
-strings. Activity IDs refer to catalog entries. Features are exactly four finite
+`content_version`, and `features`. Decision IDs are random UUID hex strings;
+event IDs use that 32-hex format and recovered lifecycle events derive a stable
+ID from their session and kind. Activity IDs refer to catalog entries. Features are exactly four finite
 numbers in [0, 1], ordered as `preference`, `completion_rate`, `days_since`, and
 `duration_fit`. Journal text, symptoms, raw health measurements, contact details,
 and device IDs are outside this contract and are rejected as extra fields.

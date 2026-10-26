@@ -68,6 +68,41 @@ namespace CapstoneDesign.EditorTools
         static int Samples()=>Sources()[(int)typeof(GardenMusicPlayer).GetField("target",Hidden).GetValue(player)].timeSamples;
         static AudioSource[] Sources()=>(AudioSource[])typeof(GardenMusicPlayer).GetField("channels",Hidden).GetValue(player);
         static void Lifecycle(string method,bool value)=>typeof(GardenMusicPlayer).GetMethod(method,Hidden).Invoke(player,new object[]{value});
+        static WaitForSecondsRealtime AudioQueueDelay()
+        {
+            AudioSettings.GetDSPBufferSize(out int length,out int count);
+            // Pause changes the source state immediately, but timeSamples is read
+            // across the mixer thread. Let the configured output queue drain before
+            // taking the stability baseline, rather than widening its tolerance.
+            return new WaitForSecondsRealtime(length*Mathf.Max(1,count)/(float)Mathf.Max(1,AudioSettings.outputSampleRate)+.04f);
+        }
+        static int[] SamplePositions()=>Sources().Select(source=>source.timeSamples).ToArray();
+        static void CheckPausePosition(int[] requested,AudioClip[] clips,string label)
+        {
+            AudioSettings.GetDSPBufferSize(out int length,out int count);
+            var sources=Sources();var settled=SamplePositions();
+            double bufferedSeconds=length*(Math.Max(1,count)+1d)/Math.Max(1,AudioSettings.outputSampleRate);
+            bool preserved=sources.Select((source,index)=>source.clip==clips[index] &&
+                Math.Abs(settled[index]-requested[index])<=Math.Ceiling(bufferedSeconds*(clips[index]!=null?clips[index].frequency:1))+256).All(value=>value);
+            string diagnostic="requested="+string.Join(",",requested)+" settled="+string.Join(",",settled)+
+                " buffer="+length+" buffers="+count+" rate="+AudioSettings.outputSampleRate;
+            Debug.Log("Music pause transition "+label+": "+diagnostic);
+            if(!preserved)throw new Exception(label+"; "+diagnostic);
+            Check(true,label);
+        }
+        static void CheckPausedSources(int[] before,AudioClip[] clips,string label)
+        {
+            var sources=Sources();var after=SamplePositions();
+            AudioSettings.GetDSPBufferSize(out int length,out int count);
+            string diagnostic="before="+string.Join(",",before)+" after="+string.Join(",",after)+
+                " playing="+string.Join(",",sources.Select(source=>source.isPlaying))+
+                " suspended="+player.IsSuspended+" buffer="+length+" buffers="+count+" rate="+AudioSettings.outputSampleRate;
+            Debug.Log("Music pause diagnostic "+label+": "+diagnostic);
+            bool stable=player.IsSuspended && sources.Select((source,index)=>
+                !source.isPlaying && source.clip==clips[index] && Math.Abs(after[index]-before[index])<256).All(value=>value);
+            if(!stable)throw new Exception(label+"; "+diagnostic);
+            Check(true,label);
+        }
         static void ClockWithoutEvent(int minute)
         {
             // Exercise ordinary per-frame clock polling without changing the operating-system clock.
@@ -137,29 +172,41 @@ namespace CapstoneDesign.EditorTools
             before=Samples();nav.ShowSettings();yield return new WaitForSecondsRealtime(.2f);
             Check(player.CurrentContext==GardenMusicContext.Settings && Samples()>=before,"same-track settings navigation preserves position");
             Check(UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Count(l=>l.isActiveAndEnabled)==1,"one active listener after all tab cameras change");
-            Lifecycle("OnApplicationFocus",false);before=Samples();yield return new WaitForSecondsRealtime(.3f);
-            Check(player.IsSuspended && Math.Abs(Samples()-before)<256,"focus loss pauses sample position");
+            var pausedClips=Sources().Select(source=>source.clip).ToArray();var requestedSamples=SamplePositions();
+            Lifecycle("OnApplicationFocus",false);
+            Check(player.IsSuspended && Sources().All(source=>!source.isPlaying),"focus loss immediately pauses both source states");
+            yield return AudioQueueDelay();
+            CheckPausePosition(requestedSamples,pausedClips,"focus loss preserves the buffered playback position");
+            var pausedSamples=SamplePositions();
+            yield return new WaitForSecondsRealtime(.3f);
+            CheckPausedSources(pausedSamples,pausedClips,"focus loss pauses sample position");
+            before=Samples();
             Lifecycle("OnApplicationPause",true);Lifecycle("OnApplicationFocus",true);yield return new WaitForSecondsRealtime(.2f);
-            Check(player.IsSuspended && Math.Abs(Samples()-before)<256,"focus restoration alone cannot resume a paused app");
+            CheckPausedSources(pausedSamples,pausedClips,"focus restoration alone cannot resume a paused app");
             Lifecycle("OnApplicationPause",false);yield return new WaitForSecondsRealtime(.3f);
             Check(!player.IsSuspended && Samples()>before+1000,"lifecycle restoration resumes rather than restarting");
+            requestedSamples=SamplePositions();pausedClips=Sources().Select(source=>source.clip).ToArray();
             GardenMusicPlayer.SetMuted(true);
-            Check(GardenMusicPlayer.IsMuted && player.IsSuspended,"mute immediately sets persisted and suspended state");
-            int muteRequestedAt=Samples();
-            AudioSettings.GetDSPBufferSize(out int bufferLength,out int bufferCount);
-            yield return new WaitForSecondsRealtime(bufferLength/(float)AudioSettings.outputSampleRate+.04f);
+            Check(GardenMusicPlayer.IsMuted && player.IsSuspended && Sources().All(source=>!source.isPlaying),
+                "mute immediately sets persisted and suspended source states");
+            yield return AudioQueueDelay();
+            CheckPausePosition(requestedSamples,pausedClips,"mute preserves the buffered playback position");
+            pausedSamples=SamplePositions();
             before=Samples();yield return new WaitForSecondsRealtime(.3f);
-            Debug.Log("Music mute diagnostic requested="+muteRequestedAt+" settled="+before+" after="+Samples()+
-                " buffer="+bufferLength+" buffers="+bufferCount+" rate="+AudioSettings.outputSampleRate+
-                " muted="+GardenMusicPlayer.IsMuted+" suspended="+player.IsSuspended);
-            Check(Math.Abs(Samples()-before)<256,"muted sample position remains stable after one DSP buffer");
+            CheckPausedSources(pausedSamples,pausedClips,"muted sample position remains stable after the DSP queue drains");
             GardenMusicPlayer.SetMuted(false);yield return new WaitForSecondsRealtime(.3f);
             Check(!GardenMusicPlayer.IsMuted && Samples()>before+1000,"unmute resumes preserved position");
             typeof(GardenMusicPlayer).GetField("pauseForFocusLoss",Hidden).SetValue(player,false);
             Lifecycle("OnApplicationFocus",false);before=Samples();yield return new WaitForSecondsRealtime(.3f);
             Check(!player.IsSuspended && Samples()>before+1000,"Android policy keeps music during keyboard-only focus loss");
-            Lifecycle("OnApplicationPause",true);before=Samples();yield return new WaitForSecondsRealtime(.3f);
-            Check(player.IsSuspended && Math.Abs(Samples()-before)<256,"Android policy pauses background even with keyboard focus absent");
+            requestedSamples=SamplePositions();pausedClips=Sources().Select(source=>source.clip).ToArray();
+            Lifecycle("OnApplicationPause",true);
+            Check(player.IsSuspended && Sources().All(source=>!source.isPlaying),"Android background immediately pauses both source states despite keyboard focus loss");
+            yield return AudioQueueDelay();
+            CheckPausePosition(requestedSamples,pausedClips,"Android background preserves the buffered playback position");
+            pausedSamples=SamplePositions();
+            before=Samples();yield return new WaitForSecondsRealtime(.3f);
+            CheckPausedSources(pausedSamples,pausedClips,"Android policy pauses background even with keyboard focus absent");
             Lifecycle("OnApplicationPause",false);yield return new WaitForSecondsRealtime(.3f);
             Check(!player.IsSuspended && Samples()>before+1000,"Android policy resumes after returning from keyboard-background sequence");
             Lifecycle("OnApplicationFocus",true);

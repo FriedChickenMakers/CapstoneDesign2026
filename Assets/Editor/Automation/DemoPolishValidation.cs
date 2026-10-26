@@ -112,6 +112,7 @@ namespace CapstoneDesign.EditorTools
                 Ui.Balance = balance;
                 Ui.Initialize(Service, true);
                 Require(Ui.HasOpenState, "Synthetic state did not open");
+                Require(Service.SelectMbctProgram("8w"), "Synthetic 8-week course did not open");
                 Settings = Home.GetComponentInChildren<SensorRawDisplay>(true);
                 Require(Settings != null, "Settings are missing");
                 Settings.PrepareView();

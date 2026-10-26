@@ -27,7 +27,7 @@ namespace CapstoneDesign.Runtime
         }
 
         // The title and action dock belong to the frame, never to ScrollRect.content.
-        Transform FocusPage(string title, string context)
+        Transform FocusPage(string title, string context, bool celebratory = false)
         {
             ClearRecordHeartRefresh();
             ClearIntegratedPurchasePreview();
@@ -44,7 +44,7 @@ namespace CapstoneDesign.Runtime
             var headerFlow = GardenUi.VerticalFlow(header.transform, 12, 24, 20);
             activityEyebrow = GardenUi.FlowLabel(headerFlow, context, GardenUi.CaptionSize, GardenUi.Muted);
             var heading = GardenUi.FlowLabel(headerFlow, title, GardenUi.TitleSize);
-            heading.fontStyle = FontStyle.Bold;
+            if (celebratory) GardenTypography.ApplyDisplay(heading); else GardenTypography.SetWeight(heading, true);
             var body = GardenUi.ScrollPage(frame, "Local garden flow", 0, 1, 0);
             pageViewport = body.parent.gameObject;
             view = body.gameObject;
@@ -145,7 +145,7 @@ namespace CapstoneDesign.Runtime
             copyFlow.childForceExpandWidth = true;
             copyFlow.childForceExpandHeight = false;
             var label = GardenUi.FlowLabel(copy.transform, title, GardenUi.HeadingSize);
-            label.fontStyle = emphasized ? FontStyle.Bold : FontStyle.Normal;
+            GardenTypography.SetWeight(label, emphasized);
             if (!string.IsNullOrEmpty(detail))
                 GardenUi.FlowLabel(copy.transform, detail, GardenUi.CaptionSize, GardenUi.Muted);
             return button;

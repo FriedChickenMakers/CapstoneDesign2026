@@ -42,7 +42,7 @@ namespace CapstoneDesign.Runtime
 
         public bool TryNavigateBack()
         {
-            if (screen == "home") return false;
+            if (screen == "home" || (screen == "programs" && opened && !Service.Snapshot.MbctProgramChosen)) return false;
             // A failed save consumes Back and retains the input and error message.
             if (opened && !SaveActivePracticeDraft()) return true;
             if (screen == "experience" && experienceStep > 0)

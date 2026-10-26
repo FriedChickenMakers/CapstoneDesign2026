@@ -325,8 +325,14 @@ object AndroidPlatformBridge {
             }, minute / 60, minute % 60, true).apply {
                 show()
                 // Change only the labels; keep TimePickerDialog's confirm/cancel listeners.
-                getButton(android.content.DialogInterface.BUTTON_NEGATIVE).text = "취소"
-                getButton(android.content.DialogInterface.BUTTON_POSITIVE).text = "선택"
+                getButton(android.content.DialogInterface.BUTTON_NEGATIVE).apply {
+                    text = "취소"
+                    typeface = GardenTypography.face(activity, control = true)
+                }
+                getButton(android.content.DialogInterface.BUTTON_POSITIVE).apply {
+                    text = "선택"
+                    typeface = GardenTypography.face(activity, emphasized = true, control = true)
+                }
             }
         }
         return resultJson(PlatformStatus.AVAILABLE, "Notification time picker opened")

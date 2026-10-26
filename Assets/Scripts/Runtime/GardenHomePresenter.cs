@@ -141,6 +141,12 @@ namespace CapstoneDesign.Runtime
         void EnsureHomeBackground()
         {
             if (homeCanvas == null || backgroundPreview != null) return;
+            foreach (var label in homeCanvas.GetComponentsInChildren<TMP_Text>(true)) GardenTypography.ApplyBody(label);
+            GardenTypography.ApplyDisplay(title);
+            GardenTypography.ApplyDisplay(stage);
+            var brand = homeCanvas.transform.Find("SafePortraitFrame/MainContent/Brand")?.GetComponent<TMP_Text>();
+            GardenTypography.ApplyDisplay(brand);
+            GardenButtonBotanicals.Apply(shopButton, true);
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
             backgroundPreview.excludedBoundsRoot = plant != null ? plant.transform : null;

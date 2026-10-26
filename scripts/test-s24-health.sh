@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Read-only preflight. Never install, grant permissions, clear data, or choose a device automatically.
+# App-read-only metadata. Shared session temporarily adjusts/restores display settings.
+# Functional Health Connect checks remain SKIP (77), never inferred from package metadata.
 set -euo pipefail
-serial=""
+original_args=("$@")
+serial="${ADB_SERIAL:-}"
 output=""
 capture=0
 while (($#)); do
@@ -15,6 +17,9 @@ done
 [[ -n "$serial" ]] || { echo 'Explicit --serial is required.' >&2; exit 2; }
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output="${output:-${repo_root}/artifacts/s24-health-$(date -u +%Y%m%dT%H%M%SZ)}"
+if [[ "${CAPSTONE_DEVICE_SESSION_ACTIVE:-0}" != "1" ]]; then
+  exec python3 "$repo_root/scripts/android_device_session.py" run --serial "$serial" --output "$output/session" --read-only -- bash "$0" "${original_args[@]}"
+fi
 mkdir -p "$output"
 chmod 700 "$output"
 command -v adb >/dev/null || { echo 'BLOCKED: adb unavailable' >&2; exit 3; }
@@ -51,3 +56,6 @@ if ((capture)); then
   adb -s "$serial" exec-out screencap -p > "$output/screen-private.png"
 fi
 printf 'Metadata saved to %s. Complete docs/S24_WATCH_TEST_CHECKLIST.md manually. No functional result inferred.\n' "$output"
+
+echo "SKIP: Health Connect functional E2E is NOT_TESTED; metadata is not a functional pass." >&2
+exit 77

@@ -34,7 +34,44 @@ namespace CapstoneDesign.Runtime
             "나에게 맞는 실습을 생활에 연결하고 다시 시작할 방법을 마련해요."};
 
         public static readonly IReadOnlyList<MissionDefinition> Course=Build();
-        public static MissionDefinition Find(string id) => Course.FirstOrDefault(m=>m.id==id);
+        // Each short program is a complete learning sequence, not a faster clock for all 48 practices.
+        static readonly int[] TwoWeekSources=LocalState.MbctPolicy.ShortSourceOrders("2w");
+        static readonly int[] FourWeekSources=LocalState.MbctPolicy.ShortSourceOrders("4w");
+        static readonly IReadOnlyList<MissionDefinition> TwoWeekCourse=BuildShort("2w",TwoWeekSources);
+        static readonly IReadOnlyList<MissionDefinition> FourWeekCourse=BuildShort("4w",FourWeekSources);
+        public static readonly IReadOnlyList<MissionDefinition> AllCourses=Course.Concat(TwoWeekCourse).Concat(FourWeekCourse).ToList().AsReadOnly();
+        public static IReadOnlyList<MissionDefinition> ForProgram(string program) => program=="2w"?TwoWeekCourse:program=="4w"?FourWeekCourse:program=="8w"?Course:throw new ArgumentException("Unknown course program.");
+        public static string[] TitlesForProgram(string program) => program=="2w"?new[]{"감각으로 돌아오기","나를 돌보며 이어가기"}:program=="4w"?new[]{"몸과 일상 알아차리기","잠시 멈추고 생각 바라보기","생각과 행동 사이의 여지","나의 돌봄과 유지 계획"}:WeekTitles;
+        public static MissionDefinition Find(string id) => AllCourses.FirstOrDefault(m=>m.id==id);
+        public static string OriginalMissionId(string id)
+        {
+            var mission=Find(id);return mission==null?null:mission.sourceId;
+        }
+        static IReadOnlyList<MissionDefinition> BuildShort(string program,int[] orders)
+        {
+            var result=new List<MissionDefinition>();
+            for(int i=0;i<orders.Length;i++)
+            {
+                var source=Course[orders[i]-1];
+                var steps=source.steps.Select(step=>new MbctStep(step.title,step.guidance,step.answerKey,(string[])step.options.Clone())).ToArray();
+                string title=source.title;
+                if(program=="2w" && i==9)
+                {
+                    title="나를 돕는 계획";
+                    steps=new[]{S("나의 변화 신호","나에게 익숙한 변화 신호가 있나요? 아는 만큼만 적거나 건너뛰어도 돼요.","warning-sign"),
+                        S("작은 대응","이 신호를 알아차렸을 때 도움이 될 작은 행동을 적어보세요.","warning-action"),
+                        S("도움을 받을 곳","믿을 만한 사람이나 치료진 등 도움을 받을 곳을 적어보세요. 앱이 대신 연락하지는 않아요.","support")};
+                }
+                result.Add(new MissionDefinition {id=LocalState.MbctPolicy.MissionId(program,i+1),sourceId=source.id,type="course",title=title,
+                    week=i/6+1,recommendedOrder=i+1,mbctActivity=source.mbctActivity,purpose=source.purpose,steps=steps,
+                    instructions=string.Join("\n",steps.Select(step=>step.guidance)),textOnlyInstructions=steps[0].guidance,
+                    suggestedDurationSeconds=source.suggestedDurationSeconds,suggestedDurationMinSeconds=source.suggestedDurationMinSeconds,
+                    suggestedDurationMaxSeconds=source.suggestedDurationMaxSeconds,suggestedDurationLabel=source.suggestedDurationLabel,
+                    source="마음챙김 원리 참고 / 앱 자체 "+LocalState.MbctPolicy.ProgramWeeks(program)+"주 활동",
+                    contentVersion="mindful-short-2026-10-26-v1",licenseReviewStatus="APP_AUTHORED_DRAFT_REVIEW_PENDING",audioAvailable=false});
+            }
+            return result.AsReadOnly();
+        }
         static MbctStep S(string title,string text,string key=null,params string[] choices) => new MbctStep(title,text,key,choices);
         static IReadOnlyList<MissionDefinition> Build()
         {

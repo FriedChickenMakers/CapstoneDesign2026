@@ -43,8 +43,14 @@ static class GardenPlantAppearanceTests
     static string OldFields(GardenState state)
     {
         var document = new XmlDocument(); document.LoadXml(StateCodec.Encode(state));
-        var appearance = document.DocumentElement["PlantAppearance"];
-        if (appearance != null) document.DocumentElement.RemoveChild(appearance);
+        // Represent the original schema-1 writer, not today's optional additions.
+        // The course-selection migration intentionally initializes its new fields.
+        foreach (var key in new[] { "PlantAppearance", "MbctProgramId", "MbctProgramSelectionVersion",
+                                    "MbctProgramChosen", "MbctPrograms", "GrowthHistory" })
+        {
+            var optional = document.DocumentElement[key];
+            if (optional != null) document.DocumentElement.RemoveChild(optional);
+        }
         return document.OuterXml;
     }
     static void Reject(GardenState state, string message)
@@ -79,6 +85,7 @@ static class GardenPlantAppearanceTests
         store.Fail = false; Assert(service.Open(), "migration retry");
         var saved = service.Snapshot;
         Assert(OldFields(saved) == originalFields, "migration preserves every pre-existing XML field");
+        Assert(saved.MbctProgramChosen && saved.MbctProgramId == "8w", "legacy course migration explicitly preserves the eight-week program");
         Assert(saved.PlantAppearance.Recipe.SpeciesId == "species:chamomile" && saved.PlantAppearance.Recipe.Mature, "legacy flower remains mature chamomile");
         Assert(saved.PlantAppearance.Credits.Count == 0 && saved.RewardReceipts.Count == 0, "compatibility prior never invents completion or reward");
         Assert(saved.PlantAppearance.BaselineProfileCounts.SequenceEqual(new[] { 4, 0, 0, 0, 0, 2 }), "compatibility prior stored separately");
@@ -230,7 +237,9 @@ static class GardenPlantAppearanceTests
         foreach (bool legacyOnly in new[] { false, true })
         {
             var old = new GardenState { MigrationCompleted = true, InstallationId = "synthetic-old-capped-" + legacyOnly,
-                Nutrient = 100, LegacyGrowth = legacyOnly ? savedGrowth : .3f };
+                Nutrient = 100, LegacyGrowth = legacyOnly ? savedGrowth : .3f,
+                // This fixture isolates growth limits after the independently tested course migration.
+                MbctProgramSelectionVersion = 1, MbctProgramChosen = true };
             if (!legacyOnly) old.Plants.Add(new PlantProgress { PlantId = GardenPlantVisuals.GrowthPlantId, Growth = savedGrowth - .3f });
             old.PurchaseReceipts.Add("synthetic-old-success");
             old.PurchaseCommands.Add(new PurchaseCommand { RequestId = "synthetic-old-success", Command = "growth|" + GardenPlantVisuals.GrowthPlantId });

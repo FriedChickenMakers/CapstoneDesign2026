@@ -3,7 +3,6 @@ package com.capstonedesign2026.platform
 import android.app.Activity
 import android.content.res.ColorStateList
 import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
@@ -278,7 +277,7 @@ class SensorHistoryActivity : Activity() {
         text = value
         textSize = sizeSp
         setTextColor(color)
-        typeface = Typeface.create("sans-serif", if (bold) Typeface.BOLD else Typeface.NORMAL)
+        typeface = GardenTypography.face(this@SensorHistoryActivity, emphasized = bold)
         includeFontPadding = false
         setLineSpacing(dp(2).toFloat(), 1.1f)
         isAccessibilityHeading = heading
@@ -290,7 +289,7 @@ class SensorHistoryActivity : Activity() {
         text = title
         textSize = 20f
         isAllCaps = false
-        typeface = Typeface.create("sans-serif", if (primary) Typeface.BOLD else Typeface.NORMAL)
+        typeface = GardenTypography.face(this@SensorHistoryActivity, emphasized = primary, control = true)
         setPadding(dp(20), dp(14), dp(20), dp(14))
         minWidth = 0
         minimumWidth = 0

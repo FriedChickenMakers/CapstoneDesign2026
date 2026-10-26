@@ -7,6 +7,7 @@ import json
 import pathlib
 import subprocess
 import time
+from android_device_session import protect_script
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--serial', required=True)
@@ -14,6 +15,7 @@ parser.add_argument('--apk', required=True)
 parser.add_argument('--output', required=True)
 parser.add_argument('--skip-install', action='store_true', help='Verify installed APK SHA-256 instead of reinstalling')
 args = parser.parse_args()
+protect_script(args.serial, args.output)
 out = pathlib.Path(args.output)
 out.mkdir(parents=True, exist_ok=True)
 out.chmod(0o700)

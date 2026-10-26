@@ -31,6 +31,7 @@ namespace CapstoneDesign.EditorTools
                 var clock=new Clock();var store=new Store();var config=new DemoBalanceConfig{VisitorChancePercent=name=="visitor"?100:0};
                 var service=new GardenStateService(store,clock,config,new LegacySnapshot { Nutrient=name.StartsWith("growth-")?50:0 });
                 loop.Balance=config;loop.Initialize(service,true);
+                if(!service.SelectMbctProgram("8w"))throw new Exception(service.LastError);
                 nav.ShowActivities();
                 if(name=="first-launch")nav.ShowIsland();
                 else if(name=="today")loop.ShowHome();

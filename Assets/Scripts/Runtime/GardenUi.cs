@@ -12,8 +12,7 @@ namespace CapstoneDesign.Runtime
         public static Font ResolveFont()
         {
             if(Font!=null)return Font;
-            var home=UnityEngine.Object.FindFirstObjectByType<GardenHomePresenter>(FindObjectsInactive.Include);
-            Font=home?.title?.font?.sourceFontFile;
+            Font=GardenTypography.Body;
             return Font!=null?Font:(Font=Resources.Load<Font>("Fonts/NanumGothic-Regular"));
         }
         // Same 720 x 1280 design frame and type scale as the integrated home.
@@ -80,11 +79,13 @@ namespace CapstoneDesign.Runtime
             var text=button.GetComponentInChildren<Text>(true);
             if(text!=null)
             {
-                text.color=primary?Color.white:Green;text.font=ResolveFont();text.fontStyle=primary||selected?FontStyle.Bold:FontStyle.Normal;
+                text.color=primary?Color.white:Green;
+                GardenTypography.ApplyButton(text,primary||selected);
                 // New page labels can rebuild the shared dynamic font atlas.
                 // Resubmit unchanged tab labels as well as changed selections.
                 text.cachedTextGenerator.Invalidate();text.SetAllDirty();
             }
+            GardenButtonBotanicals.Apply(button,primary);
             button.targetGraphic.SetAllDirty();
         }
         public static GameObject Card(Transform parent,string name,float x,float y,float w,float h,Color? color=null)
@@ -136,7 +137,7 @@ namespace CapstoneDesign.Runtime
             var label=button.GetComponentInChildren<Text>();label.gameObject.SetActive(false);
             if(emphasized)StyleButton(button,selected:true);
             Icon(button.transform,symbol,.03f,.23f,.075f,.54f);
-            var heading=Label(button.transform,title,.14f,detail==null?.05f:.43f,.80f,detail==null?.9f:.53f,HeadingSize);heading.fontStyle=FontStyle.Bold;
+            var heading=Label(button.transform,title,.14f,detail==null?.05f:.43f,.80f,detail==null?.9f:.53f,HeadingSize);GardenTypography.SetWeight(heading,true);
             if(detail!=null){var subtitle=Label(button.transform,detail,.14f,.035f,.80f,.40f,CaptionSize);subtitle.color=Muted;}
             return button;
         }

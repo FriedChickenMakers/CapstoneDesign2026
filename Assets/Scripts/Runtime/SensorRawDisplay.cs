@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Text;
+using CapstoneDesign.Prototype;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -46,6 +47,8 @@ namespace CapstoneDesign.Runtime
         private ActivityNotificationSettings notificationSettings;
         private Text notificationActionStatus;
         private Button musicToggle;
+        private Button personalizationToggle;
+        private Text personalizationStatus;
         private sealed class SwitchVisual
         {
             public Image Track;
@@ -73,13 +76,13 @@ namespace CapstoneDesign.Runtime
             else
             {
                 var brand = Copy(heading, "마음 정원", 30, GardenUi.Green);
-                brand.fontStyle = FontStyle.Bold;
+                GardenTypography.SetWeight(brand, true);
                 brand.alignment = TextAnchor.MiddleLeft;
                 FixedHeight(brand.gameObject, 54);
             }
             Spacer(heading, 40);
             var title = Copy(heading, "설정", GardenUi.TitleSize);
-            title.fontStyle = FontStyle.Bold;
+            GardenTypography.SetWeight(title, true);
             title.alignment = TextAnchor.MiddleLeft;
             FixedHeight(title.gameObject, 78);
 
@@ -115,6 +118,20 @@ namespace CapstoneDesign.Runtime
             RowControl(music, "정원의 시간", OpenVisualDebug);
             RefreshMusicSetting();
 
+            if (PersonalizationClient.Instance.Configured)
+            {
+                Transform participation = Section(content,"Recommendation participation","추천 개선 참여");
+                personalizationToggle=SwitchRow(participation,"활동 이용 기록 공유",()=>
+                {
+                    var client=PersonalizationClient.Instance;
+                    client.SetConsent(!client.Consented);
+                    RefreshPersonalizationSetting();
+                });
+                Copy(participation,"추천 활동의 표시·시작·완료 여부와 선호·최근 참여·시간 적합도 같은 추천 요약값을 공유해요. 일기와 원본 건강 기록은 보내지 않아요. 끄면 전송 대기 기록을 지우고 서버 기록 삭제를 요청해요.",GardenUi.BodySize,GardenUi.Muted);
+                personalizationStatus=ActionLine(participation);
+                RefreshPersonalizationSetting();
+            }
+
             Transform healthCard = Section(content, "Health records", "건강 기록");
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             RowControl(healthCard, "심박 차트 보기", OpenCharts);
@@ -131,7 +148,7 @@ namespace CapstoneDesign.Runtime
             diagnostics = Section(content, "Detailed diagnostics", "상세 진단").gameObject;
             Transform collector = Section(diagnostics.transform, "Acceleration collection", "가속도 수집 실험");
             collectorStatus = Copy(collector, "수집 상태 확인 중", GardenUi.HeadingSize, GardenUi.Green);
-            collectorStatus.fontStyle = FontStyle.Bold;
+            GardenTypography.SetWeight(collectorStatus, true);
             collectorDetails = Copy(collector, "", GardenUi.BodySize, GardenUi.Muted);
             Copy(collector, "매분 5초 · 최대 48시간\n실험 중 Android 필수 상태 알림 표시", GardenUi.BodySize, GardenUi.Muted);
             Place(startServiceButton, collector, "가속도 수집 켜기", true);
@@ -159,6 +176,15 @@ namespace CapstoneDesign.Runtime
         void RefreshMusicSetting()
         {
             if (musicToggle != null) UpdateSwitch(musicToggle, !GardenMusicPlayer.IsMuted);
+        }
+
+        void RefreshPersonalizationSetting()
+        {
+            if(personalizationToggle==null)return;
+            var client=PersonalizationClient.Instance;
+            UpdateSwitch(personalizationToggle,client.Consented);
+            personalizationStatus.text=client.Status;
+            personalizationStatus.gameObject.SetActive(true);
         }
 
         void RefreshNotificationSettings()
@@ -277,7 +303,7 @@ namespace CapstoneDesign.Runtime
             if(!string.IsNullOrEmpty(heading))
             {
                 var label = Copy(section, heading, GardenUi.HeadingSize);
-                label.fontStyle = FontStyle.Bold;
+                GardenTypography.SetWeight(label, true);
             }
             return section;
         }
@@ -544,6 +570,7 @@ namespace CapstoneDesign.Runtime
 
         private void RefreshText()
         {
+            RefreshPersonalizationSetting();
             RefreshMusicSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");

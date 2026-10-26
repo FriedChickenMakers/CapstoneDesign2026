@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-gradle_lib="${KOTLIN_GRADLE_LIB:-/opt/unity/editors/6000.3.24f1/Editor/Data/PlaybackEngines/AndroidPlayer/Tools/gradle/lib}"
-java_bin="${JAVA_BIN:-/opt/android-jdk/bin/java}"
-output="${NOTIFICATION_PERSONA_OUTPUT:-${repo_root}/artifacts/notification-personas}"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+output="${NOTIFICATION_PERSONA_OUTPUT:-${root}/artifacts/notification-personas}"
 mkdir -p "$output"
-compiler_cp="$(find "$gradle_lib" -maxdepth 1 -name '*.jar' -printf '%p:' )"
-stdlib="$(find "$gradle_lib" -maxdepth 1 -name 'kotlin-stdlib-*.jar' | head -1)"
-"$java_bin" -cp "$compiler_cp" org.jetbrains.kotlin.cli.jvm.K2JVMCompiler -no-stdlib -no-reflect -jvm-target 17 -classpath "$stdlib" -d "$output/tests.jar" \
- "$repo_root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/ActivityReminderPolicy.kt" \
- "$repo_root/tests/native/NotificationPersonaEvaluation.kt"
-NOTIFICATION_PERSONA_OUTPUT="$output" "$java_bin" -cp "$output/tests.jar:$stdlib" com.capstonedesign2026.platform.NotificationPersonaEvaluationKt "$@" | tee "$output/results.txt"
+run_args=()
+for arg in "$@"; do run_args+=("--run-arg=$arg"); done
+export NOTIFICATION_PERSONA_OUTPUT="$output"
+python3 "$root/scripts/run-kotlin-test.py" --output "$output/tests.jar" \
+  --main com.capstonedesign2026.platform.NotificationPersonaEvaluationKt "${run_args[@]}" \
+  "$root/Assets/Plugins/Android/CapstonePlatform.androidlib/src/main/kotlin/com/capstonedesign2026/platform/ActivityReminderPolicy.kt" \
+  "$root/tests/native/NotificationPersonaEvaluation.kt" | tee "$output/results.txt"

@@ -18,6 +18,49 @@ namespace CapstoneDesign.Runtime
         readonly string[] experienceValues=new string[4];
         readonly string[] experienceQuestions={"무슨 일이 있었나요?","몸에서는 무엇이 느껴졌나요?","어떤 감정이 있었나요?","어떤 생각이 떠올랐나요?"};
 
+        public void ShowProgramSelection()
+        {
+            if(!opened)return;
+            EnterPage("programs",ShowProgramSelection);var p=FocusPage("내게 맞는 기간","마음챙김 활동");
+            var state=Service.Snapshot;
+            Guidance(p,"2주와 4주도 처음부터 마무리까지 이어지는 활동이에요. 하루에 하나씩, 쉬는 날은 자유롭게 가져요.");
+            if(state.Sessions.Any(s=>s.Status==ParticipationState.Selected || s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused))
+            {
+                GardenUi.FlowLabel(p,"진행 중인 활동을 마치거나 종료한 뒤 기간을 바꿀 수 있어요.");
+                DockAction("활동으로",ShowHome,true);return;
+            }
+            var programs=ActivityList(p,"Course programs");
+            foreach(string program in new[]{"2w","4w","8w"})
+            {
+                string id=program;
+                string title=id=="2w"?"2주 · 가볍게 시작":id=="4w"?"4주 · 차근차근 익히기":"8주 · 충분히 연습하기";
+                string detail=MbctPolicy.PracticeCount(id)+"개 활동";
+                int completed=MbctPolicy.CompletedIds(state,id).Count;
+                if(completed>0)detail+=" · "+completed+"개 완료";
+                ActivityListItem(programs,title,detail,()=>ShowProgramConfirmation(id),PrototypeUiIcon.Symbol.Leaf,id!="8w");
+            }
+            GardenUi.FlowLabel(p,"어느 기간이든 감각 관찰부터 나를 돌보는 계획과 다시 시작하는 방법까지 배워요.",GardenUi.BodySize,GardenUi.Muted);
+            if(state.MbctProgramChosen)DockAction("현재 활동으로",ShowHome);
+            else DockAction("정원으로",GoGarden);
+        }
+        void ShowProgramConfirmation(string program)
+        {
+            var state=Service.Snapshot;int weeks=MbctPolicy.ProgramWeeks(program),completed=MbctPolicy.CompletedIds(state,program).Count;
+            EnterPage("program-confirm",()=>ShowProgramConfirmation(program),program);
+            var p=FocusPage(weeks+"주 마음챙김",completed>0?completed+"개 활동을 마쳤어요":"하루 한 가지, 내 속도로");
+            Guidance(p,program=="2w"?"감각과 몸을 살펴보고, 생각과 거리를 두는 연습을 해요. 마지막에는 나를 돕는 계획과 실습을 이어갈 방법을 정해요.":
+                program=="4w"?"몸과 일상에서 시작해 생각을 바라보는 연습을 넓혀요. 나의 변화 신호, 도움을 받을 곳과 유지 계획까지 차근차근 다뤄요.":
+                "같은 원리를 다양한 상황에서 반복하며 익혀요. 8주 동안 몸과 생각을 관찰하고 나를 돌보는 계획을 이어가요.");
+            GardenUi.FlowLabel(p,MbctPolicy.PracticeCount(program)+"개 활동 · 주 최대 6개\n기간은 권장 일정이에요. 놓친 날에도 진도는 그대로예요.");
+            GardenUi.FlowLabel(p,"기간을 바꿔도 지금까지의 기록과 정원은 남아요. 돌아오면 멈춘 진도부터 이어갈 수 있어요.",GardenUi.BodySize,GardenUi.Muted);
+            GardenUi.FlowLabel(p,"처음 마친 활동마다 영양제 "+Balance.CompletionNutrient+"개를 받아요. 기간 변경과 복습에는 추가 보상이 없어요.",GardenUi.BodySize,GardenUi.Muted);
+            DockAction(completed>=MbctPolicy.PracticeCount(program)?"완료한 코스 보기":completed>0?"이어서 하기":"이 기간으로 시작",()=>
+            {
+                if(Apply(Service.SelectMbctProgram(program))) { coursePageInitialized=false;freeIndex=0;ShowHome(); }
+            },true);
+            DockAction("다른 기간 보기",ShowProgramSelection);
+        }
+
         string Remembered(ActivitySession session,string key)
         {
             return session?.Answers.FirstOrDefault(a=>a.Key==key)?.Value
@@ -37,7 +80,7 @@ namespace CapstoneDesign.Runtime
             if(session.Status==ParticipationState.Selected)
             {
                 Guidance(p,mission.purpose);
-                GardenUi.FlowLabel(p,"권장 "+mission.suggestedDurationLabel,GardenUi.BodySize).fontStyle=FontStyle.Bold;
+                GardenTypography.SetWeight(GardenUi.FlowLabel(p,"권장 "+mission.suggestedDurationLabel,GardenUi.BodySize),true);
                 GardenUi.FlowLabel(p,"시간과 입력은 완료 조건이 아니에요.",GardenUi.BodySize,GardenUi.Muted);
                 DockAction("시작",()=>{if(Apply(Service.StartSession(session.SessionId)))ShowSession();},true);
                 DockAction("선택 취소",()=>CancelSelectedPractice(session));
@@ -110,7 +153,7 @@ namespace CapstoneDesign.Runtime
         {
             EnterPage("experience-type",ShowExperienceTypes);var p=FocusPage("경험 알아차리기","선택 기록");
             Guidance(p,"최근 경험 하나를 살펴보세요. 감정이나 기록의 내용에 정답은 없어요.");
-            GardenUi.FlowLabel(p,"어떤 경험에 가까웠나요?",GardenUi.HeadingSize).fontStyle=FontStyle.Bold;
+            GardenTypography.SetWeight(GardenUi.FlowLabel(p,"어떤 경험에 가까웠나요?",GardenUi.HeadingSize),true);
             var types=new[]{"즐거움","불편함","중립","잘 모르겠음"};
             for(int i=0;i<types.Length;i++)
             {

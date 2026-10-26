@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Ordered physical-device gate: 5 s x 12, then 600 s x 6. No raw export."""
 import argparse,datetime,hashlib,json,pathlib,subprocess,time,sys,re
+from android_device_session import protect_script
 p=argparse.ArgumentParser();p.add_argument('--serial',required=True);p.add_argument('--output',required=True);p.add_argument('--apk',required=True);p.add_argument('--screen-off',action='store_true',help='Explicitly sleep display and require OFF evidence');p.add_argument('--skip-install',action='store_true',help='Use installed APK only after SHA256 match');args=p.parse_args()
+protect_script(args.serial, args.output)
 out=pathlib.Path(args.output);out.mkdir(parents=True,exist_ok=True);out.chmod(0o700)
 package='com.capstonedesign2026.mockup'
 def adb(*a,check=True):

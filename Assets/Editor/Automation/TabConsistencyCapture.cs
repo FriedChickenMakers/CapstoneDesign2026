@@ -43,6 +43,8 @@ namespace CapstoneDesign.EditorTools
 
         static readonly string[] Cases =
         {
+            "programs-first-top", "programs-first-bottom", "program-confirm-2w", "program-confirm-4w",
+            "program-2w-home", "program-2w-course", "program-4w-home", "program-4w-course",
             "reference-home", "activities-top", "activities-bottom", "course-top", "course-bottom", "course-week5-top", "course-week5-bottom",
             "practice-selected-top", "practice-selected-bottom", "practice-step-top", "practice-step-bottom",
             "practice-paused", "reflection-top", "reflection-bottom", "complete",
@@ -55,10 +57,22 @@ namespace CapstoneDesign.EditorTools
 
         static readonly string[] RemainingCases =
         {
+            "recommendation-preferences-default-top", "recommendation-preferences-default-bottom",
+            "recommendation-preferences-body-top", "recommendation-preferences-body-bottom",
+            "recommendation-preferences-breath-top", "recommendation-preferences-breath-bottom",
+            "recommendation-preferences-routine-top", "recommendation-preferences-routine-bottom",
+            "recommendation-preferences-pause-top", "recommendation-preferences-pause-bottom",
+            "recommendation-preferences-time-1-top", "recommendation-preferences-time-1-bottom",
+            "recommendation-preferences-time-3-top", "recommendation-preferences-time-3-bottom",
+            "recommendation-preferences-time-5-top", "recommendation-preferences-time-5-bottom",
             "shop-insufficient-top", "shop-insufficient-bottom", "growth-insufficient-top", "growth-insufficient-bottom",
             "placement-flower-insufficient-top", "placement-shelter-insufficient-top",
             "shop-affordable-top", "shop-affordable-bottom", "growth-affordable-top", "growth-affordable-bottom",
             "growth-committed", "placement-flower-affordable-top", "placement-flower-affordable-bottom",
+            "growth-link-empty", "growth-link-populated-top", "growth-link-populated-bottom",
+            "growth-linked-preview-top", "growth-linked-preview-bottom", "growth-linked-save-error-top", "growth-linked-save-error-bottom",
+            "growth-history-empty", "growth-history-populated-top", "growth-history-populated-bottom",
+            "growth-record-linked", "growth-record-unlinked", "record-summary-empty", "record-summary-populated-top", "record-summary-populated-bottom",
             "placement-flower-committed", "placement-flower-owned-top", "placement-save-error-top", "placement-save-error-bottom",
             "discoveries-empty-top", "discoveries-populated-top", "journal-history-empty-top",
             "journal-history-populated-top", "journal-history-populated-bottom", "journal-detail-top", "journal-detail-bottom",
@@ -109,11 +123,14 @@ namespace CapstoneDesign.EditorTools
                 var clock = new Clock();
                 var store = new Store();
                 var balance = new DemoBalanceConfig { VisitorChancePercent = name == "discoveries-populated-top" ? 100 : 0 };
-                int nutrients = name.Contains("affordable") || name.Contains("committed") || name.Contains("owned") || name.Contains("save-error") ? 50 : 0;
+                int nutrients = name.Contains("affordable") || name.Contains("committed") || name.Contains("owned") || name.Contains("save-error")
+                    || name.StartsWith("growth-link",StringComparison.Ordinal) || name.StartsWith("growth-history-populated",StringComparison.Ordinal)
+                    || name.StartsWith("growth-record",StringComparison.Ordinal) ? 50 : 0;
                 using (var service = new GardenStateService(store, clock, balance, new LegacySnapshot { Nutrient = nutrients }))
                 {
                     loop.Balance = balance;
                     loop.Initialize(service, true);
+                    Require(service.SelectMbctProgram("8w"), service);
                     nav.ShowActivities();
                     PrepareRemaining(name, nav, loop, service, store, clock, output);
                     CaptureView(name, size, nav, loop, output);
@@ -162,6 +179,7 @@ namespace CapstoneDesign.EditorTools
                 {
                     loop.Balance = balance;
                     loop.Initialize(service, true);
+                    if (!name.StartsWith("program", StringComparison.Ordinal)) Require(service.SelectMbctProgram("8w"), service);
                     nav.ShowActivities();
                     Prepare(name, nav, loop, service, clock);
                     CaptureView(name, size, nav, loop, output);
@@ -279,6 +297,7 @@ namespace CapstoneDesign.EditorTools
                 {
                     loop.Balance = balance;
                     loop.Initialize(service, true);
+                    Require(service.SelectMbctProgram("8w"), service);
                     nav.ShowActivities();
                     foreach (var mission in MbctContent.Course)
                     {
@@ -306,6 +325,22 @@ namespace CapstoneDesign.EditorTools
 
         static void Prepare(string name, MockupNavigation nav, WeekOneQuestDemo loop, GardenStateService service, Clock clock)
         {
+            if (name.StartsWith("program", StringComparison.Ordinal))
+            {
+                if (name.StartsWith("programs-first", StringComparison.Ordinal)) { loop.ShowProgramSelection(); return; }
+                string program = name.Contains("2w") ? "2w" : "4w";
+                if (name.StartsWith("program-confirm", StringComparison.Ordinal))
+                {
+                    loop.ShowProgramSelection();
+                    Click(loop.transform, program == "2w" ? "2주 · 가볍게 시작" : "4주 · 차근차근 익히기");
+                }
+                else
+                {
+                    Require(service.SelectMbctProgram(program), service);
+                    if (name.EndsWith("course", StringComparison.Ordinal)) loop.ShowCourse(); else loop.ShowHome();
+                }
+                return;
+            }
             if (name == "reference-home") { nav.ShowIsland(); return; }
             if (name.StartsWith("settings", StringComparison.Ordinal))
             {
@@ -426,6 +461,18 @@ namespace CapstoneDesign.EditorTools
         static void PrepareRemaining(string name, MockupNavigation nav, WeekOneQuestDemo loop,
             GardenStateService service, Store store, Clock clock, string output)
         {
+            if (name.StartsWith("recommendation-preferences-", StringComparison.Ordinal))
+            {
+                SeedBefore(service, clock, 5);
+                loop.ShowFree();
+                Click(loop.transform, "추가 활동 추천 설정");
+                string option = name.Contains("-body-") ? "몸 살펴보기" : name.Contains("-breath-") ? "호흡 관찰" :
+                    name.Contains("-routine-") ? "일상 행동" : name.Contains("-pause-") || name.Contains("-time-") ? "잠시 멈추기" : null;
+                if (option != null) Click(loop.transform, option);
+                foreach (string minutes in new[] { "1", "3", "5" })
+                    if (name.Contains("-time-" + minutes + "-")) Click(loop.transform, minutes + "분 정도");
+                return;
+            }
             if (name.StartsWith("settings-", StringComparison.Ordinal))
             {
                 if (name.StartsWith("settings-live", StringComparison.Ordinal)) AndroidPlatformBridge.UseLiveProvider();
@@ -443,6 +490,37 @@ namespace CapstoneDesign.EditorTools
                 return;
             }
             if (name.StartsWith("shop-", StringComparison.Ordinal)) { loop.ShowShop(); return; }
+            if (name.StartsWith("growth-link",StringComparison.Ordinal) || name.StartsWith("growth-history",StringComparison.Ordinal)
+                || name.StartsWith("growth-record",StringComparison.Ordinal) || name.StartsWith("record-summary",StringComparison.Ordinal))
+            {
+                if (!name.EndsWith("empty",StringComparison.Ordinal)) SeedRememberedActivities(service,clock);
+                if (name.StartsWith("record-summary",StringComparison.Ordinal)) { loop.ShowRecordSummary();return; }
+                if (name.StartsWith("growth-history",StringComparison.Ordinal) || name.StartsWith("growth-record",StringComparison.Ordinal))
+                {
+                    if (!name.EndsWith("empty",StringComparison.Ordinal))
+                    {
+                        int count=name.StartsWith("growth-history-populated",StringComparison.Ordinal)?5:1;
+                        for(int index=0;index<count;index++)
+                            Require(service.GrowPlant("fixture-growth-"+index,GardenPlantVisuals.GrowthPlantId,
+                                name=="growth-record-unlinked"?null:"remembered-"+(index%5+1)),service);
+                    }
+                    loop.ShowGrowthHistory();
+                    if(name.StartsWith("growth-record",StringComparison.Ordinal))Click(loop.transform,"씨앗 → 새싹");
+                    return;
+                }
+                loop.ShowShop();loop.PreviewGrowth();Click(loop.transform,"함께 기억할 활동");
+                if(name.StartsWith("growth-linked",StringComparison.Ordinal))
+                {
+                    Click(loop.transform,MbctContent.Course[4].title);
+                    if(name.StartsWith("growth-linked-save-error",StringComparison.Ordinal))
+                    {
+                        store.Fail=true;
+                        try { Click(loop.transform,"확정"); }
+                        finally { store.Fail=false; }
+                    }
+                }
+                return;
+            }
             if (name.StartsWith("growth-", StringComparison.Ordinal))
             {
                 loop.ShowShop();
@@ -534,6 +612,27 @@ namespace CapstoneDesign.EditorTools
                 return;
             }
             throw new InvalidOperationException("Unknown remaining capture case: " + name);
+        }
+
+        static void SeedRememberedActivities(GardenStateService service,Clock clock)
+        {
+            for(int index=1;index<=5;index++)
+            {
+                AllowNext(service,clock);
+                string id="remembered-"+index;
+                Require(service.BeginSession(id,MbctPolicy.MissionId(index),index),service);
+                Require(service.StartSession(id),service);
+                clock.Time=clock.Time.AddMinutes(3);
+                Require(service.CompleteSession(id,"차분해요","합성 성장 연결 검증 기록 "+index),service);
+            }
+            // Move to a different local week so both summary windows are visible.
+            clock.Time=clock.Time.AddDays(7);Require(service.RefreshCycle(Array.Empty<string>()),service);
+            Require(service.BeginSession("remembered-ended",MbctPolicy.MissionId(1),1),service);
+            Require(service.StartSession("remembered-ended"),service);
+            Require(service.EndParticipation("remembered-ended"),service);
+            Require(service.SaveExperience("remembered-experience-a","즐거움","합성 햇살 장면",null,null,null),service);
+            Require(service.SaveExperience("remembered-experience-b","불편함","합성 바람 장면",null,null,null),service);
+            Require(service.SaveExperience("remembered-experience-c","중립",null,null,null,null),service);
         }
 
         static void Require(bool success, GardenStateService service)

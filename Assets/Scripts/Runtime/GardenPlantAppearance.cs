@@ -80,6 +80,8 @@ namespace CapstoneDesign.Runtime.LocalState
 
         public static bool TryCategory(string missionId, out GrowthCategory category)
         {
+            int sourceOrder=MbctPolicy.LegacySourceOrder(missionId);
+            if(sourceOrder>0) { category=MbctCategories[sourceOrder-1];return true; }
             return TryCategory(missionId, "course:MBCT", MbctCategories, out category)
                 || TryCategory(missionId, "course:P", LegacyCourseCategories, out category)
                 || TryCategory(missionId, "free-mission:M", FreeCategories, out category);

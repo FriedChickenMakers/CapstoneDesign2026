@@ -1,3 +1,4 @@
+using CapstoneDesign.Prototype;
 using System;
 using UnityEngine;
 using UnityEngine.UI;
@@ -21,7 +22,7 @@ namespace CapstoneDesign.Runtime
             var headerRect = (RectTransform)header.transform; headerRect.pivot = new Vector2(.5f, 1);
             var heading = GardenUi.VerticalFlow(header.transform, 12, 24, 16);
             ActionButton(heading, "‹  설정으로", close);
-            GardenUi.FlowLabel(heading, "정원의 시간", GardenUi.TitleSize).fontStyle = FontStyle.Bold;
+            GardenTypography.SetWeight(GardenUi.FlowLabel(heading, "정원의 시간", GardenUi.TitleSize), true);
             var body = GardenUi.ScrollPage(transform, "UI debug scroll", 0, 1, 0);
             GardenUi.VerticalFlow(body, 20, 16, 24);
             body.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -42,7 +43,7 @@ namespace CapstoneDesign.Runtime
                 label.alignment = TextAnchor.MiddleCenter;
             }
             time = GardenUi.Label(face.transform, "00:00", .18f, .37f, .64f, .26f, GardenUi.TitleSize);
-            time.fontStyle = FontStyle.Bold; time.alignment = TextAnchor.MiddleCenter;
+            GardenTypography.SetWeight(time, true); time.alignment = TextAnchor.MiddleCenter;
             status = GardenUi.FlowLabel(body, "", GardenUi.BodySize, GardenUi.Muted); status.alignment = TextAnchor.MiddleCenter;
             var stepRow = Row(body, "Time increments"); increments = new Button[3];
             int index = 0;

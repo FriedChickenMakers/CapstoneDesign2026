@@ -275,22 +275,35 @@ namespace CapstoneDesign.EditorTools
         private static void EnsureFont()
         {
             if (TMP_Settings.instance == null) throw new InvalidOperationException("Import TMP Essential Resources first.");
-            const string path = ArtPath + "/Fonts/NotoSansKR SDF.asset";
-            font = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(path);
-            if (font == null)
-            {
-                var source = AssetDatabase.LoadAssetAtPath<Font>(ArtPath + "/Fonts/NotoSansKR-Regular.otf");
-                if (source == null) throw new InvalidOperationException("Noto Sans KR is missing.");
-                font = TMP_FontAsset.CreateFontAsset(source, 48, 5, GlyphRenderMode.SDFAA, 2048, 2048, AtlasPopulationMode.Dynamic, true);
-                font.name = "NotoSansKR SDF";
-                AssetDatabase.CreateAsset(font, path);
-                AssetDatabase.AddObjectToAsset(font.material, font);
-                foreach (var texture in font.atlasTextures) AssetDatabase.AddObjectToAsset(texture, font);
-            }
+            font = EnsureWeightFont("WantedSans-Regular");
+            font.fontWeightTable[5].regularTypeface = EnsureWeightFont("WantedSans-Medium");
+            font.fontWeightTable[6].regularTypeface = EnsureWeightFont("WantedSans-SemiBold");
+            font.fontWeightTable[7].regularTypeface = font.fontWeightTable[6].regularTypeface;
             string characters = string.Concat(Directory.GetFiles("Assets/Scripts/Prototype", "*.cs").Select(File.ReadAllText))
                 + string.Concat(Directory.GetFiles("Assets/Editor/Prototype", "*.cs").Select(File.ReadAllText));
             font.TryAddCharacters(new string(characters.Distinct().ToArray()), out string _);
             EditorUtility.SetDirty(font);
+        }
+
+        private static TMP_FontAsset EnsureWeightFont(string name)
+        {
+            string path = ArtPath + "/Fonts/" + name + " SDF.asset";
+            var asset = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(path);
+            if (asset == null)
+            {
+                var source = AssetDatabase.LoadAssetAtPath<Font>("Assets/Resources/Fonts/" + name + ".ttf");
+                if (source == null) throw new InvalidOperationException(name + " is missing.");
+                asset = TMP_FontAsset.CreateFontAsset(source, 48, 5, GlyphRenderMode.SDFAA, 1024, 1024,
+                    AtlasPopulationMode.Dynamic, true);
+                asset.name = name + " SDF";
+                AssetDatabase.CreateAsset(asset, path);
+                AssetDatabase.AddObjectToAsset(asset.material, asset);
+                foreach (var texture in asset.atlasTextures) AssetDatabase.AddObjectToAsset(texture, asset);
+            }
+            asset.normalStyle = asset.boldStyle = 0;
+            asset.normalSpacingOffset = asset.boldSpacing = 0;
+            EditorUtility.SetDirty(asset);
+            return asset;
         }
 
         private static PrototypePlantView BuildGarden(out RenderTexture preview)

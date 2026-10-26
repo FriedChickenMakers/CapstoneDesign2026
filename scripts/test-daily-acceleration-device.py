@@ -2,7 +2,7 @@
 """Run Android storage regression checks using an installed development APK and isolated private files.
 
 Usage: python3 scripts/test-daily-acceleration-device.py SERIAL
-Build/install the current APK first. The caller owns device display-setting restoration.
+Build/install the current APK first. The shared session owns display restoration.
 """
 import os
 import pathlib
@@ -10,11 +10,13 @@ import shlex
 import subprocess
 import sys
 import time
+from android_device_session import protect_script
 
 root = pathlib.Path(__file__).resolve().parent.parent
 serial = sys.argv[1]
 package = 'com.capstonedesign2026.mockup'
 out = pathlib.Path(os.environ.get('CAPSTONE_ARTIFACTS', root / 'artifacts/daily-device-test'))
+protect_script(serial, out)
 out.mkdir(parents=True, exist_ok=True)
 classes = out / 'classes'
 classes.mkdir(exist_ok=True)

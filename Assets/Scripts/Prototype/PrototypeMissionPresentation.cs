@@ -50,6 +50,7 @@ namespace CapstoneDesign.Prototype
                 if(surface.topColor!=fill||surface.bottomColor!=fill)
                 {surface.topColor=surface.bottomColor=fill;surface.SetVerticesDirty();}
                 button.GetComponentInChildren<TMP_Text>(true).color=completed?completedButtonInk:inProgress?activeButtonInk:Color.white;
+                GardenButtonBotanicals.Apply(button,!completed && !inProgress);
             }
         }
     }
