@@ -107,6 +107,17 @@ class ServiceTests(unittest.TestCase):
                 self.assertEqual(caught.exception.status, 400)
         self.assertEqual(self.count(), 0)
 
+    def test_identifiers_use_the_same_exact_ascii_contract_as_the_client(self):
+        for field, value in [("event_id", "ABCDEF0123456789ABCDEF0123456789AB"),
+                             ("decision_id", "ABCDEF0123456789ABCDEF0123456789AB"),
+                             ("policy_id", "local-rules-v1\n"), ("app_version", "synthetic-test\n"),
+                             ("content_version", "courses-v1\n"), ("activity_id", "course:MBCT2W01\n"),
+                             ("activity_id", "course:MBCT2W\u0660\u0661")]:
+            with self.subTest(field=field), self.assertRaises(ApiError) as caught:
+                self.post([event(), dict(event(), **{field: value})])
+            self.assertEqual(caught.exception.status, 400)
+            self.assertEqual(self.count(), 0)
+
     def test_malformed_policy_is_unavailable_without_leaking_file_contents(self):
         path = Path(self.temp.name) / "synthetic-policy.json"
         self.service.policy_file = path

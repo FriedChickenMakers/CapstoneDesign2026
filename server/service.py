@@ -70,7 +70,7 @@ def validate_event(event, now_ms):
     if type(offset) is not int or not -840 <= offset <= 840:
         raise ApiError(400, "event_timezone")
     # IDs are catalog/version identifiers, never arbitrary labels or journal text.
-    if not isinstance(event["activity_id"], str) or not re.fullmatch(r"(?:course:MBCT(?:2W|4W)?\d{2}|free-mission:M\d{2}|notification)", event["activity_id"]):
+    if not isinstance(event["activity_id"], str) or not re.fullmatch(r"(?:course:MBCT(?:2W|4W)?[0-9]{2}|free-mission:M[0-9]{2}|notification)", event["activity_id"]):
         raise ApiError(400, "activity_id")
     for field in ("policy_id", "app_version", "content_version"):
         if not isinstance(event[field], str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,48}", event[field]):

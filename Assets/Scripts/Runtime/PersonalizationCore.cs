@@ -8,6 +8,23 @@ using System.Xml.Serialization;
 
 namespace CapstoneDesign.Runtime.Personalization
 {
+    public static class RecommendationFeatures
+    {
+        public static float Preference(int family,string title,string preferred)
+        {
+            if(string.IsNullOrWhiteSpace(preferred))return 0;
+            preferred=preferred.Trim();
+            if(preferred==title)return 1;
+            return family==2 && preferred=="몸 살펴보기" || family==4 && preferred=="호흡 관찰"
+                || family==3 && preferred=="일상 행동" || family==8 && preferred=="잠시 멈추기" ? 1 : 0;
+        }
+        public static float DurationFit(int suggestedSeconds,int availableMinutes)
+        {
+            if(suggestedSeconds<=0)return .5f;
+            availableMinutes=Math.Max(1,Math.Min(30,availableMinutes));
+            return Math.Min(1,availableMinutes*60f/suggestedSeconds);
+        }
+    }
     // Fixed, bounded numeric features only. No free text, raw health values or
     // device identifiers belong in this contract.
     [Serializable] public sealed class BehaviorEvent
@@ -34,7 +51,7 @@ namespace CapstoneDesign.Runtime.Personalization
         public long expires_utc_ms;
         public bool Valid(long now)
         {
-            return schema_version == 1 && policy_id != null && System.Text.RegularExpressions.Regex.IsMatch(policy_id,"^[A-Za-z0-9._-]{1,48}$")
+            return schema_version == 1 && policy_id != null && System.Text.RegularExpressions.Regex.IsMatch(policy_id,@"\A[A-Za-z0-9._-]{1,48}\z")
                 && feature_names != null && feature_names.SequenceEqual(new[] { "preference", "completion_rate", "days_since", "duration_fit" })
                 && weights != null && weights.Length == 4 && weights.All(w => Finite(w) && Math.Abs(w) <= 20)
                 && Finite(intercept) && Math.Abs(intercept) <= 20 && training_rows >= 0
@@ -101,10 +118,16 @@ namespace CapstoneDesign.Runtime.Personalization
             this.store = store;
             state = store.Load() ?? throw new InvalidDataException("Event queue missing.");
             if (state.SchemaVersion != 1 || state.Events == null || state.Events.Count > Capacity || state.Recorded == null
-                || state.Recorded.Count>8192 || state.Recorded.Any(r=>r==null || string.IsNullOrEmpty(r.Id) || r.OccurredUtcMs<0)
+                || state.Recorded.Count>8192 || state.Recorded.Any(r=>r==null || !Identifier(r.Id) || r.OccurredUtcMs<0)
                 || state.Recorded.Select(r=>r.Id).Distinct().Count()!=state.Recorded.Count
                 || state.Events.Any(e => !ValidEvent(e)) || state.Events.Select(e => e.event_id).Distinct().Count() != state.Events.Count
-                || (state.DeletePending || state.EnrollmentRevoked) && state.Enabled)
+                || state.ConsentStartedUtcMs < 0
+                || state.Enabled && (state.ConsentStartedUtcMs == 0 || string.IsNullOrEmpty(state.EnrollmentFingerprint)
+                    || state.Events.Any(e=>e.occurred_utc_ms<state.ConsentStartedUtcMs)
+                    || state.Recorded.Any(r=>r.OccurredUtcMs<state.ConsentStartedUtcMs))
+                || !state.Enabled && (state.Events.Count>0 || state.Recorded.Count>0)
+                || (state.DeletePending || state.EnrollmentRevoked) && state.Enabled
+                || state.DeletePending && state.EnrollmentRevoked)
                 throw new InvalidDataException("Event queue invalid; preserved without upload.");
         }
         static BehaviorEvent Clone(BehaviorEvent e) => new BehaviorEvent { event_id=e.event_id, decision_id=e.decision_id,
@@ -168,13 +191,17 @@ namespace CapstoneDesign.Runtime.Personalization
         }
         static readonly HashSet<string> Kinds = new HashSet<string> { "recommendation_shown", "activity_started", "activity_completed", "activity_ended",
             "notification_eligible", "notification_scheduled", "notification_post_accepted", "notification_blocked", "notification_failed", "notification_opened" };
-        static bool Version(string s) => s != null && System.Text.RegularExpressions.Regex.IsMatch(s, "^[A-Za-z0-9._-]{1,48}$");
+        static bool Version(string s) => s != null && System.Text.RegularExpressions.Regex.IsMatch(s, @"\A[A-Za-z0-9._-]{1,48}\z");
+        static bool Identifier(string value)
+        {
+            Guid parsed;
+            return Guid.TryParseExact(value,"N",out parsed) && value==parsed.ToString("N");
+        }
         public static bool ValidEvent(BehaviorEvent e)
         {
-            Guid id, decision;
-            return e != null && Guid.TryParseExact(e.event_id, "N", out id) && Guid.TryParseExact(e.decision_id, "N", out decision)
+            return e != null && Identifier(e.event_id) && Identifier(e.decision_id)
                 && Kinds.Contains(e.kind ?? "") && e.activity_id != null
-                && System.Text.RegularExpressions.Regex.IsMatch(e.activity_id, "^(course:MBCT(2W|4W)?[0-9]{2}|free-mission:M[0-9]{2}|notification)$")
+                && System.Text.RegularExpressions.Regex.IsMatch(e.activity_id, @"\A(course:MBCT(2W|4W)?[0-9]{2}|free-mission:M[0-9]{2}|notification)\z")
                 && Version(e.policy_id) && Version(e.app_version) && Version(e.content_version)
                 && e.occurred_utc_ms >= 0 && e.utc_offset_minutes >= -840 && e.utc_offset_minutes <= 840 && ResponsePolicy.ValidFeatures(e.features);
         }
