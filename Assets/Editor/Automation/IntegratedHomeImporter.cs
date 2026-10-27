@@ -69,9 +69,14 @@ namespace CapstoneDesign.EditorTools
                 settingsTab.GetComponentInChildren<PrototypeUiIcon>(true).symbol = PrototypeUiIcon.Symbol.Gear;
                 activityTab.name = "ActivityTab";
                 foreach (var button in new[] { homeTab, activityTab, settingsTab }) ClearPersistent(button);
-                Tab(homeTab, 40f / 720f, 232f / 720f);
+                // Match the 624px action/content column. Keep each tab's 192px
+                // touch target, with 16px outer padding and 8px between tabs.
+                var bottomNavigation = Require(content, "BottomNavigation").GetComponent<RectTransform>();
+                bottomNavigation.anchoredPosition = new Vector2(48, 116);
+                bottomNavigation.sizeDelta = new Vector2(624, 106);
+                Tab(homeTab, 64f / 720f, 256f / 720f);
                 Tab(activityTab, 264f / 720f, 456f / 720f);
-                Tab(settingsTab, 488f / 720f, 680f / 720f);
+                Tab(settingsTab, 464f / 720f, 656f / 720f);
 
                 // The home-owned camera is parked outside the other screens.
                 // Its independent palette needs no continuously active light.

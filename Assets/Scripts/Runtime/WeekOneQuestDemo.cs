@@ -147,24 +147,24 @@ namespace CapstoneDesign.Runtime
             view.AddComponent<Image>().color=GardenUi.Background;
             if(!GardenUi.HasSharedHeader(transform))
             {
-                var brand=GardenUi.Label(content,"마음 정원",.07f,.962f,.86f,.03f,30);
+                var brand=GardenUi.Label(content,"마음 정원",48f/720f,.962f,624f/720f,.03f,30);
                 GardenTypography.SetWeight(brand,true);brand.color=GardenUi.Green;PlacePageHeader(brand,24,54);
             }
-            var heading=GardenUi.Label(content,title,.07f,.87f,.86f,.09f,GardenUi.TitleSize);GardenTypography.SetWeight(heading,true);
-            bool longTitle=heading.preferredWidth>619;
+            var heading=GardenUi.Label(content,title,48f/720f,.87f,624f/720f,.09f,GardenUi.TitleSize);GardenTypography.SetWeight(heading,true);
+            bool longTitle=heading.preferredWidth>624;
             PlacePageHeader(heading,118,longTitle?138:78);
             if(longTitle)((RectTransform)content).sizeDelta+=new Vector2(0,240);
             var s=opened ? state??Service.Snapshot : null;
-            stateSummary=GardenUi.Label(content,(mode=="LIVE"?"":"["+mode+"]  ")+ (s==null ? "저장 상태를 확인해 주세요" : CourseProgressLabel(s)),.07f,.81f,.86f,.05f,GardenUi.BodySize);
+            stateSummary=GardenUi.Label(content,(mode=="LIVE"?"":"["+mode+"]  ")+ (s==null ? "저장 상태를 확인해 주세요" : CourseProgressLabel(s)),48f/720f,.81f,624f/720f,.05f,GardenUi.BodySize);
             stateSummary.color=GardenUi.Muted;
             PlacePageHeader(stateSummary,longTitle?266:206,60);
             if(screen!="placement" && screen!="growth")
             {
-                var progress=GardenUi.Box(content,"Course progress",.07f,0,.86f,0);
+                var progress=GardenUi.Box(content,"Course progress",48f/720f,0,624f/720f,0);
                 GardenUi.FromTop(progress.transform,longTitle?342:282,4);
                 GardenUi.Progress(progress.transform,s==null?0:MbctPolicy.CompletedCount(s)/(float)MbctPolicy.PracticeCount(MbctPolicy.ActiveProgram(s)),0,0,1,1);
             }
-            notice=GardenUi.Label(content,string.IsNullOrEmpty(error)?"":"저장하지 못했어요. 잠시 후 다시 시도해 주세요.",.07f,.01f,.86f,.05f,GardenUi.CaptionSize);
+            notice=GardenUi.Label(content,string.IsNullOrEmpty(error)?"":"저장하지 못했어요. 잠시 후 다시 시도해 주세요.",48f/720f,.01f,624f/720f,.05f,GardenUi.CaptionSize);
             if(screen=="home")GardenUi.FromTop(notice.transform,1100,80);
             notice.color=GardenUi.Warning;
             return content;
@@ -172,7 +172,7 @@ namespace CapstoneDesign.Runtime
         static void PlacePageHeader(Text label,float top,float height)
         {
             var rect=label.rectTransform;
-            rect.anchorMin=new Vector2(.07f,1);rect.anchorMax=new Vector2(.93f,1);
+            rect.anchorMin=new Vector2(48f/720f,1);rect.anchorMax=new Vector2(672f/720f,1);
             rect.offsetMin=new Vector2(0,-top-height);rect.offsetMax=new Vector2(0,-top);
         }
         public void ShowHome()
@@ -181,7 +181,7 @@ namespace CapstoneDesign.Runtime
             if(opened && !SaveActivePracticeDraft())return;ClearPracticeDraft();
             RequestWalkingBaselineRefresh();
             EnterPage("home",ShowHome);var s=opened?Service.Snapshot:null;var p=Page("오늘의 활동",s);
-            if(!opened) { GardenUi.Label(p,"저장본을 보존했습니다. 새 계정으로 초기화하지 않습니다.\n앱을 닫고 저장 공간과 복구 안내를 확인해 주세요.",.07f,.48f,.86f,.25f); return; }
+            if(!opened) { GardenUi.Label(p,"저장본을 보존했습니다. 새 계정으로 초기화하지 않습니다.\n앱을 닫고 저장 공간과 복구 안내를 확인해 주세요.",48f/720f,.48f,624f/720f,.25f); return; }
             var active=s.Sessions.LastOrDefault(a=>a.Status==ParticipationState.Selected || a.Status==ParticipationState.InProgress || a.Status==ParticipationState.Paused);
             sessionId=active?.SessionId;
             if(!s.MbctProgramChosen && active==null) { ShowProgramSelection();return; }
@@ -189,18 +189,18 @@ namespace CapstoneDesign.Runtime
             var mission=active!=null?MindfulnessContent.FindMission(active.MissionId):MbctContent.ForProgram(program).FirstOrDefault(m=>m.recommendedOrder==MbctPolicy.NextOrder(s));
             string context=active!=null?(active.Status==ParticipationState.Selected?"선택한 활동":active.Status==ParticipationState.Paused?"잠시 쉬는 활동":"진행 중인 활동"):
                 mission==null?"차곡차곡 쌓인 나의 실천":"이번 추천 · "+mission.week+"주차";
-            GardenUi.FromTop(GardenUi.Card(p,"Recommended activity",.07f,0,.86f,0,GardenUi.Pale).transform,314,184);
+            GardenUi.FromTop(GardenUi.Card(p,"Recommended activity",48f/720f,0,624f/720f,0,GardenUi.Pale).transform,314,184);
             var week=GardenUi.Label(p,context,.10f,0,.80f,0,GardenUi.CaptionSize);
             week.color=GardenUi.Muted;GardenUi.FromTop(week.transform,338,40);
             var recommendation=GardenUi.Label(p,mission?.title ?? (active!=null?"진행하던 활동":MbctPolicy.ProgramWeeks(program)+"주 활동을 마쳤어요"),.10f,0,.80f,0,GardenUi.HeadingSize);
             GardenUi.FromTop(recommendation.transform,384,104);
             GardenTypography.SetWeight(recommendation,true);
-            if(active!=null) GardenUi.FromTop(GardenUi.Button(p,active.Status==ParticipationState.Selected?"선택한 활동 안내":"진행하던 활동으로",.07f,0,.86f,0,ShowSession,true).transform,522,88);
-            else if(mission!=null && MbctPolicy.Availability(s)==null) GardenUi.FromTop(GardenUi.Button(p,"추천 활동 안내",.07f,0,.86f,0,()=>SelectMission(mission),true).transform,522,88);
-            if(string.IsNullOrEmpty(sessionId) && MbctPolicy.Availability(s)!=null) GardenUi.FromTop(GardenUi.Label(p,MbctPolicy.Availability(s),.07f,0,.86f,0,26).transform,522,104);
+            if(active!=null) GardenUi.FromTop(GardenUi.Button(p,active.Status==ParticipationState.Selected?"선택한 활동 안내":"진행하던 활동으로",48f/720f,0,624f/720f,0,ShowSession,true).transform,522,88);
+            else if(mission!=null && MbctPolicy.Availability(s)==null) GardenUi.FromTop(GardenUi.Button(p,"추천 활동 안내",48f/720f,0,624f/720f,0,()=>SelectMission(mission),true).transform,522,88);
+            if(string.IsNullOrEmpty(sessionId) && MbctPolicy.Availability(s)!=null) GardenUi.FromTop(GardenUi.Label(p,MbctPolicy.Availability(s),48f/720f,0,624f/720f,0,26).transform,522,104);
             var destinations=ActivityList(p,"Activity destinations");
             var destinationsRect=(RectTransform)destinations;
-            destinationsRect.anchorMin=new Vector2(.07f,1);destinationsRect.anchorMax=new Vector2(.93f,1);
+            destinationsRect.anchorMin=new Vector2(48f/720f,1);destinationsRect.anchorMax=new Vector2(672f/720f,1);
             destinationsRect.pivot=new Vector2(.5f,1);
             GardenUi.FromTop(destinations,650,0);
             destinations.gameObject.AddComponent<ContentSizeFitter>().verticalFit=ContentSizeFitter.FitMode.PreferredSize;
