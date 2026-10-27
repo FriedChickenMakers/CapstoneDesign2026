@@ -27,6 +27,7 @@ object AndroidPlatformBridge {
         appContext = activity.applicationContext
         unityVersion = unityVersionValue
         inputMode = inputModeValue
+        if (inputMode != "LIVE") MeasurementTelemetry.configure(activity.applicationContext, "", false, 0)
         SensorRepository.initialize(activity.applicationContext)
         HealthRepository.initialize(activity.applicationContext)
         ActivityNotifications.initialize(activity.applicationContext, inputModeValue == "LIVE")
@@ -296,6 +297,18 @@ object AndroidPlatformBridge {
 
     @JvmStatic
     fun getWalkingAchievementJson(): String = appContext?.let { MissionRewardNotifications.achievement(it) } ?: "{}"
+
+    @JvmStatic
+    fun configureMeasurements(binding: String, enabled: Boolean, since: Long): String =
+        appContext?.let { MeasurementTelemetry.configure(it, binding, enabled && inputMode == "LIVE", since) } ?: "{}"
+    @JvmStatic
+    fun getMeasurementBatch(binding: String): String = appContext?.let { MeasurementTelemetry.batch(it, binding) } ?: "{}"
+    @JvmStatic
+    fun acknowledgeMeasurements(binding: String, collection: String, accepted: String, sent: String): String =
+        appContext?.let { MeasurementTelemetry.acknowledge(it, binding, collection, accepted, sent) } ?: "{}"
+    @JvmStatic
+    fun recordMeasuredActivity(kind: String, session: String, activity: String, occurred: Long, offset: Int): String =
+        if (inputMode == "LIVE") appContext?.let { MeasurementTelemetry.activity(it, kind, session, activity, occurred, offset) } ?: "{}" else "{}"
 
     @JvmStatic
     fun getActivityNotificationSettingsJson(): String = appContext?.let { ActivityNotifications.settings(it).toString() } ?: "{}"

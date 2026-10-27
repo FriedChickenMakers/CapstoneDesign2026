@@ -136,6 +136,10 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 
 미정 항목이 해결되기 전 A는 현재 카탈로그와 상태 계약으로 표현을 개발하고 B는 기존 입력 기반 순수 정책·결측 대체 검증을 진행할 수 있다. 새 요구사항을 임의로 확정해 저장 형식을 먼저 바꾸지 않는다.
 
+## 2026-10-27 추가 범위: QA·베타 측정
+
+[수집 구현·분석 규칙·운영 준비·미정 범위](QA_BETA_MEASUREMENT_PLAN.md)를 추가했다. 알림 예정/게시 수락/클릭·오류와 전체 활동 생명주기는 별도 consent 2 측정 경로로 연결한다. 기존 추천 특징 API는 유지한다. 아래 최초 기준점 검증은 역사적 결과이며, 새 측정 변경은 통합 브랜치를 일반 merge해 가져온다. 두 팀원 브랜치 자체를 덮어쓰지 않는다.
+
 ## 8. 실행·검증·수용 기준
 
 Unity **6000.3.24f1**. 저장소의 `Packages/manifest.json`/lock을 사용한다. 기존 프로젝트를 열 때 씬을 무조건 재생성하지 않는다. Editor를 라이선스가 설정된 OS 계정과 해당 HOME으로 실행한다. 이 공유 worker는 `codex`·`HOME="/home/codex"`이며 root로 Unity를 실행하지 않는다. 라이선스 파일/키를 복사·수정하지 않는다. 자세한 환경변수·도구 설치는 [scripts 안내](../scripts/README.md), [QA 범위](QA_AUTOMATION_AND_COVERAGE.md), [개인정보 검사](REPOSITORY_PRIVACY.md)를 따른다.

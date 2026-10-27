@@ -122,6 +122,15 @@ class EventService:
                 CREATE INDEX IF NOT EXISTS events_decision ON events(subject, decision_id);
                 CREATE INDEX IF NOT EXISTS events_occurred ON events(occurred);
                 CREATE TABLE IF NOT EXISTS revoked (subject TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS measurements (
+                    subject TEXT NOT NULL, event_id TEXT NOT NULL, collection_id TEXT NOT NULL,
+                    notification_id TEXT NOT NULL, occurred INTEGER NOT NULL, payload TEXT NOT NULL,
+                    PRIMARY KEY(subject, event_id));
+                CREATE INDEX IF NOT EXISTS measurements_occurred ON measurements(occurred);
+                CREATE TABLE IF NOT EXISTS measurement_quality (
+                    subject TEXT NOT NULL, collection_id TEXT NOT NULL, dropped INTEGER NOT NULL,
+                    expired INTEGER NOT NULL, storage_error INTEGER NOT NULL, updated INTEGER NOT NULL,
+                    PRIMARY KEY(subject, collection_id));
             """)
             self._purge_expired(db, int(self.clock() * 1000))
         os.chmod(self.database, 0o600)
@@ -138,7 +147,10 @@ class EventService:
 
     @staticmethod
     def _purge_expired(db, now_ms):
-        return db.execute("DELETE FROM events WHERE occurred < ?", (now_ms - 90 * 86400000,)).rowcount
+        removed = db.execute("DELETE FROM events WHERE occurred < ?", (now_ms - 90 * 86400000,)).rowcount
+        removed += db.execute("DELETE FROM measurements WHERE occurred < ?", (now_ms - 90 * 86400000,)).rowcount
+        db.execute("DELETE FROM measurement_quality WHERE updated < ?", (now_ms - 90 * 86400000,))
+        return removed
 
     def purge_expired(self):
         """Purge on startup, authenticated traffic and the running server's timer."""
@@ -161,11 +173,16 @@ class EventService:
             self._purge_expired(db, now_ms)
             if method == "DELETE" and path == "/participant":
                 db.execute("DELETE FROM events WHERE subject=?", (subject,))
+                db.execute("DELETE FROM measurements WHERE subject=?", (subject,))
+                db.execute("DELETE FROM measurement_quality WHERE subject=?", (subject,))
                 db.execute("INSERT OR IGNORE INTO revoked VALUES (?)", (subject,))
                 # Tombstone prevents late retries from recreating erased records.
                 return {"deleted": True, "enrollment_revoked": True}
             if db.execute("SELECT 1 FROM revoked WHERE subject=?", (subject,)).fetchone():
                 raise ApiError(403, "enrollment_revoked")
+            if method == "POST" and path == "/measurements/batch":
+                from server.measurements import accept
+                return accept(db, subject, body, now_ms, ApiError)
             if method == "GET" and path == "/policy/current":
                 if self.policy_file is None:
                     return dict(BASELINE)

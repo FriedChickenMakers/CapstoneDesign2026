@@ -11,7 +11,7 @@ namespace CapstoneDesign.Runtime
 {
     // Enrollment is provisioned separately in app-private storage. Shipping a
     // universal bearer token or enabling research collection by default is forbidden.
-    public sealed class PersonalizationClient : MonoBehaviour
+    public sealed partial class PersonalizationClient : MonoBehaviour
     {
         [Serializable] sealed class Enrollment { public string endpoint, token; }
         static PersonalizationClient instance;
@@ -109,7 +109,10 @@ namespace CapstoneDesign.Runtime
             if (!Configured) return false;
             try
             {
+                if (!enabled && !SynchronizeMeasurementConsent(forceDisable:true)) throw new IOException();
                 queue.SetConsent(enabled,DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                if (enabled) queue.EnableMeasurements(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                if (!SynchronizeMeasurementConsent()) throw new IOException();
                 if (!enabled) { policy = new ResponsePolicy(); policyLoaded = false; }
                 nextAttempt = 0;
                 status = enabled ? "추천 개선에 참여 중" : "기기 대기 기록 삭제됨 · 서버 삭제 대기";
@@ -153,6 +156,7 @@ namespace CapstoneDesign.Runtime
         }
         void Update()
         {
+            if(Time.unscaledTime>=nextMeasurementSync) {nextMeasurementSync=Time.unscaledTime+3;SynchronizeMeasurementConsent();}
             if(!CollectionContextAllowed)return;
             if(!initializationAttempted)InitializeEnrollment();
             if (!Configured || busy || Time.unscaledTime < nextAttempt || (!queue.Enabled && !queue.DeletePending)) return;
@@ -218,6 +222,8 @@ namespace CapstoneDesign.Runtime
                         }
                     }
                 }
+                if (!queue.Enabled || !CollectionContextAllowed) { nextAttempt = 0; yield break; }
+                yield return SynchronizeMeasurements();
                 if (!queue.Enabled || !CollectionContextAllowed) { nextAttempt = 0; yield break; }
                 BehaviorEvent[] sent;
                 try { sent = queue.Batch(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()); }

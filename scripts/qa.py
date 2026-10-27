@@ -39,7 +39,7 @@ def catalog(output):
                  "walking-personalization", "activity-notifications", "personalization", "mission-recommendation"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("mono",)))
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
-    for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit"):
+    for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit", "measurement-buffer"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("kotlin",)))
     unity = ["bash", "scripts/unity-run.sh", "-batchmode", "-projectPath", str(ROOT)]
     def editor(name, method, tier="unity", graphics=False, quit=True):

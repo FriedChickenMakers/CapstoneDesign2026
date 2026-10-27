@@ -39,7 +39,11 @@ namespace CapstoneDesign.Runtime
             nextOptionalObservation=Time.unscaledTime+3;
             var client=PersonalizationClient.Instance;
             if(!client.Consented)return;
-            foreach(var session in Service.Snapshot.Sessions.Where(s=>s.Recommendation!=null))client.RecordSession(session);
+            foreach(var session in Service.Snapshot.Sessions)
+            {
+                client.RecordSession(session);
+                client.RecordMeasuredSession(session);
+            }
         }
         public void ShowRecommendationPreferences()
         {

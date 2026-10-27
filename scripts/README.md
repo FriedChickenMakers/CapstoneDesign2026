@@ -118,3 +118,12 @@ Before committing/pushing or creating a publishable source archive, follow
 check with real Gitleaks, then the exact `--staged` check. Missing or failed
 scanners are not passes. Device backups, journals and screenshots stay private;
 never remove a pending restoration record during cleanup.
+
+## QA/beta measurement exports
+
+See [measurement scope and operating checklist](../docs/QA_BETA_MEASUREMENT_PLAN.md).
+`test-measurement-buffer.sh` runs the required pure Kotlin outbox contracts.
+`server.analyze_measurements` exports private notification pairs, descriptive
+statistics and optional Matplotlib charts; select `live` or `synthetic` explicitly.
+Install `scripts/requirements-measurement-plots.txt` in a separate Python environment
+for charts, or pass `--no-plots` for standard-library CSV/JSON analysis.

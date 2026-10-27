@@ -109,6 +109,12 @@ internal object MissionRewardNotifications {
                 return resultJson(PlatformStatus.AVAILABLE, "M15 reminder already shown")
             if (!verifiedAchievement(context))
                 return resultJson(PlatformStatus.NO_DATA, "No verified walking achievement")
+            val at = System.currentTimeMillis()
+            val measurement = MeasurementTelemetry.ticket(context, "walking:$sessionId", 0, "walking-goal-v1", -1, -1, 0)
+            MeasurementTelemetry.notification(context, measurement, "notification_due", at)
+            val permission = ActivityNotifications.permissionStatus(context)
+            if (permission != PlatformStatus.AVAILABLE)
+                MeasurementTelemetry.notification(context, measurement, "notification_blocked", at, permission.lowercase())
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                 context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
                 return resultJson(PlatformStatus.PERMISSION_REQUIRED, "Notification permission is required")
@@ -116,9 +122,11 @@ internal object MissionRewardNotifications {
             if (!manager.areNotificationsEnabled())
                 return resultJson(PlatformStatus.PERMISSION_DENIED, "App notifications are disabled")
             manager.createNotificationChannel(NotificationChannel(CHANNEL, "미션 보상", NotificationManager.IMPORTANCE_DEFAULT))
-            if (manager.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE)
+            if (manager.getNotificationChannel(CHANNEL)?.importance == NotificationManager.IMPORTANCE_NONE) {
+                MeasurementTelemetry.notification(context, measurement, "notification_blocked", at, "channel_disabled")
                 return resultJson(PlatformStatus.PERMISSION_DENIED, "Mission reward notifications are disabled")
-            val open = ActivityNotifications.openIntent(context, "walking", sessionId, System.currentTimeMillis())
+            }
+            val open = ActivityNotifications.openIntent(context, "walking", sessionId, at, measurement)
             val notification = Notification.Builder(context, CHANNEL)
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentTitle("오늘의 걷기 목표를 달성했어요")
@@ -130,11 +138,13 @@ internal object MissionRewardNotifications {
                 // Reusing the same tag and ID makes a retry replace the visible notification
                 // if the process exits after notify() but before its dedupe marker is saved.
                 manager.notify("m15:$sessionId", NOTIFICATION_ID, notification)
+                MeasurementTelemetry.notification(context, measurement, "notification_post_accepted", System.currentTimeMillis())
                 if (!prefs.edit().putString("notifiedSessionId", sessionId).commit())
                     return resultJson(PlatformStatus.ERROR, "Reminder state could not be saved", "REMINDER_STATE_SAVE_FAILED")
                 WorkManager.getInstance(context).cancelUniqueWork(WORK)
                 resultJson(PlatformStatus.AVAILABLE, "M15 reward reminder shown")
             } catch (exception: Exception) {
+                MeasurementTelemetry.notification(context, measurement, "notification_failed", System.currentTimeMillis(), "notify_exception")
                 resultJson(PlatformStatus.ERROR, exception.safeMessage(), "REMINDER_POST_FAILED")
             }
         }

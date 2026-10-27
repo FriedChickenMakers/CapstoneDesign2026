@@ -2,6 +2,7 @@
 
 For parallel work on individual mission UI and mission personalization, start
 with the [2026-10-27 handoff and shared contracts](docs/MISSION_PARALLEL_HANDOFF_2026-10-27.md).
+QA/beta measurement scope and rollout gates: [measurement plan](docs/QA_BETA_MEASUREMENT_PLAN.md).
 The integration branch is `codex/overnight-local-loop`; the current app supports
 2/4/8-week programs. The handoff separates implemented behavior, ownership,
 pending product decisions and current validation limits.

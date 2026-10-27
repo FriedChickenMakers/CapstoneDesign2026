@@ -73,7 +73,7 @@ namespace CapstoneDesign.Runtime.Personalization
         public int SchemaVersion = 1;
         public bool Enabled, DeletePending, EnrollmentRevoked;
         public string EnrollmentFingerprint = "";
-        public long ConsentStartedUtcMs;
+        public long ConsentStartedUtcMs, MeasurementConsentUtcMs;
         public List<BehaviorEvent> Events = new List<BehaviorEvent>();
         public List<EventReceipt> Recorded = new List<EventReceipt>();
     }
@@ -113,6 +113,7 @@ namespace CapstoneDesign.Runtime.Personalization
         public bool EnrollmentRevoked => state.EnrollmentRevoked;
         public int Count => state.Events.Count;
         public long ConsentStartedUtcMs => state.ConsentStartedUtcMs;
+        public long MeasurementConsentUtcMs => state.MeasurementConsentUtcMs;
         public EventQueue(IEventQueueStore store)
         {
             this.store = store;
@@ -121,6 +122,7 @@ namespace CapstoneDesign.Runtime.Personalization
                 || state.Recorded.Count>8192 || state.Recorded.Any(r=>r==null || !Identifier(r.Id) || r.OccurredUtcMs<0)
                 || state.Recorded.Select(r=>r.Id).Distinct().Count()!=state.Recorded.Count
                 || state.Events.Any(e => !ValidEvent(e)) || state.Events.Select(e => e.event_id).Distinct().Count() != state.Events.Count
+                || state.MeasurementConsentUtcMs < 0 || state.MeasurementConsentUtcMs > 0 && (!state.Enabled || state.MeasurementConsentUtcMs < state.ConsentStartedUtcMs)
                 || state.ConsentStartedUtcMs < 0
                 || state.Enabled && (state.ConsentStartedUtcMs == 0 || string.IsNullOrEmpty(state.EnrollmentFingerprint)
                     || state.Events.Any(e=>e.occurred_utc_ms<state.ConsentStartedUtcMs)
@@ -134,7 +136,7 @@ namespace CapstoneDesign.Runtime.Personalization
             kind=e.kind, activity_id=e.activity_id, policy_id=e.policy_id, app_version=e.app_version, content_version=e.content_version,
             occurred_utc_ms=e.occurred_utc_ms, utc_offset_minutes=e.utc_offset_minutes, features=(float[])e.features.Clone() };
         EventQueueState Copy() => new EventQueueState { Enabled=state.Enabled, DeletePending=state.DeletePending,
-            EnrollmentRevoked=state.EnrollmentRevoked, EnrollmentFingerprint=state.EnrollmentFingerprint, ConsentStartedUtcMs=state.ConsentStartedUtcMs,
+            EnrollmentRevoked=state.EnrollmentRevoked, EnrollmentFingerprint=state.EnrollmentFingerprint, ConsentStartedUtcMs=state.ConsentStartedUtcMs, MeasurementConsentUtcMs=state.MeasurementConsentUtcMs,
             Events=state.Events.Select(Clone).ToList(),Recorded=state.Recorded.Select(r=>new EventReceipt {Id=r.Id,OccurredUtcMs=r.OccurredUtcMs}).ToList() };
         void Commit(EventQueueState next) { store.Save(next); state = next; }
         public bool BoundTo(string fingerprint) => !string.IsNullOrEmpty(fingerprint) && state.EnrollmentFingerprint == fingerprint;
@@ -152,8 +154,14 @@ namespace CapstoneDesign.Runtime.Personalization
                 throw new InvalidOperationException("An active enrollment is required.");
             var next = Copy(); next.Enabled = enabled;
             if (enabled) next.ConsentStartedUtcMs=now>0?now:DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (!enabled) { next.Events.Clear(); next.Recorded.Clear(); next.DeletePending = true; }
+            if (!enabled) { next.MeasurementConsentUtcMs=0; next.Events.Clear(); next.Recorded.Clear(); next.DeletePending = true; }
             Commit(next);
+        }
+        public void EnableMeasurements(long now)
+        {
+            if (!state.Enabled || now < state.ConsentStartedUtcMs) throw new InvalidOperationException("Active explicit consent required.");
+            if (state.MeasurementConsentUtcMs > 0) return;
+            var next=Copy(); next.MeasurementConsentUtcMs=now; Commit(next);
         }
         public void CompleteDeletion()
         {

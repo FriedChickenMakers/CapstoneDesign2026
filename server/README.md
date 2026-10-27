@@ -152,3 +152,25 @@ and participant split separation, frozen features, closed response windows,
 insufficient-data fallback and deterministic candidate output. They do not
 replace real-device lifecycle, TLS deployment, operational backup or participant
 usability tests.
+
+## Additional QA/beta measurements (explicit consent 2)
+
+`POST /measurements/batch` uses the existing authenticated enrollment, schema 1
+and consent 2. It is separate from the four-feature recommendation contract.
+The exact field allowlist is in `measurements.py`; batches contain 0–100 events,
+a collection ID, dropped-attempt/expired-event counters and a storage-error flag.
+Empty batches report synchronization/quality without inventing a behavioral event.
+`measurements` and `measurement_quality` tables are created on service startup;
+participant deletion and 90-day retention include both tables. Deploy this server
+change before the app; a prior server's 404 leaves the native outbox pending.
+
+Notification rows record due/planned time, accepted-post time, click time, policy
+and clock metadata. Activity rows contain catalog ID, pseudonymous session key
+and selected/started/completed/ended timestamps. Raw notes, health values and
+unrecognized fields are rejected. Existing consent does not auto-enable the new
+producer; the app asks existing participants to explicitly accept the extra scope.
+
+Read [implementation, evaluation rules and remaining beta operating steps](../docs/QA_BETA_MEASUREMENT_PLAN.md).
+Run `python3 -m server.analyze_measurements --help` for the read-only export tool.
+Native notification delivery and clicks still require real-device validation;
+server tests, a compiled APK and synthetic plots do not establish that gate.

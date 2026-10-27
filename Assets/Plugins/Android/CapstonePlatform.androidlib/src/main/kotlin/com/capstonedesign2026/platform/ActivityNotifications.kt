@@ -184,7 +184,7 @@ internal object ActivityNotifications {
     private fun pendingKey(context: Context, p: SharedPreferences) = "${context.packageName}:${p.getLong("pendingPostAt", 0)}:${p.getInt("pendingPostGeneration", -1)}"
     private fun clearPending(p: SharedPreferences) {
         if (!p.contains("pendingPostAt")) return
-        save(p.edit().remove("pendingPostDay").remove("pendingPostAt").remove("pendingPostScheduledAt").remove("pendingPostGeneration"))
+        save(p.edit().remove("pendingPostDay").remove("pendingPostAt").remove("pendingPostScheduledAt").remove("pendingPostGeneration").remove("pendingMeasurementTicket"))
         acceptedPendingKey = null
     }
     private fun confirmPending(context: Context) {
@@ -210,8 +210,11 @@ internal object ActivityNotifications {
                 it.notification.extras.getString("gardenReminderDay", "") == day &&
                 it.notification.extras.getInt("gardenReminderGeneration", -1) == generation
         }
-        if (visible || acceptedPendingKey == pendingKey(context, p) || p.getLong("postedAt", 0) == at)
+        if (visible || acceptedPendingKey == pendingKey(context, p) || p.getLong("postedAt", 0) == at) {
+            MeasurementTelemetry.notification(context, p.getString("pendingMeasurementTicket", "") ?: "",
+                "notification_post_recovered", clock(), "active_receipt")
             confirmPending(context)
+        }
         else clearPending(p)
     }
     fun postIfDue(context: Context, now: Long = clock()): Boolean = synchronized(lock) {
@@ -221,10 +224,18 @@ internal object ActivityNotifications {
         val zone = ZoneId.systemDefault()
         val minute = effectiveMinute(p)
         if (!p.getBoolean("enabled", true) || !p.getBoolean("live", false) ||
-            !ActivityReminderPolicy.due(now, zone, minute, p.getString("postedDay", "") ?: "", p.getString("completedDay", "") ?: "", p.getLong("postedAt", 0)) ||
-            permissionStatus(context, CHANNEL) != PlatformStatus.AVAILABLE) return false
+            !ActivityReminderPolicy.due(now, zone, minute, p.getString("postedDay", "") ?: "", p.getString("completedDay", "") ?: "", p.getLong("postedAt", 0))) return false
         val occurrence = ActivityReminderPolicy.dueOccurrence(now, zone, minute) ?: return false
         val generation = p.getInt("learningGeneration", 0)
+        val measurement = MeasurementTelemetry.ticket(context, "daily:${occurrence.scheduledEpochMs}:$generation",
+            occurrence.scheduledEpochMs, if (p.getBoolean("adaptive", true)) "daily-adaptive-v2" else "daily-fixed-v1",
+            p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE), minute, p.getInt("learnedClicks", 0))
+        MeasurementTelemetry.notification(context, measurement, "notification_due", now)
+        val permission = permissionStatus(context, CHANNEL)
+        if (permission != PlatformStatus.AVAILABLE) {
+            MeasurementTelemetry.notification(context, measurement, "notification_blocked", now, permission.lowercase())
+            return false
+        }
         val title = p.getString("title", "") ?: ""
         val body = if (p.getBoolean("active", false)) "하던 활동을 내 속도로 이어가 볼까요?" else
             if (title.isNotBlank()) "$title · 편한 만큼 함께해요." else "오늘은 어떤 작은 실천을 해볼까요? 편한 만큼 시작해요."
@@ -237,12 +248,15 @@ internal object ActivityNotifications {
                 putString("gardenReminderDay", occurrence.scheduledDay)
                 putLong("gardenReminderPostedAt", now)
                 putInt("gardenReminderGeneration", generation)
-            }).setContentIntent(openIntent(context, "daily", "", now)).build()
+            }).setContentIntent(openIntent(context, "daily", "", now, measurement)).build()
         save(p.edit().putString("pendingPostDay", occurrence.scheduledDay).putLong("pendingPostAt", now)
-            .putLong("pendingPostScheduledAt", occurrence.scheduledEpochMs).putInt("pendingPostGeneration", generation))
+            .putLong("pendingPostScheduledAt", occurrence.scheduledEpochMs).putInt("pendingPostGeneration", generation)
+            .putString("pendingMeasurementTicket", measurement))
         try {
             notificationPoster(context, ID, notification)
+            MeasurementTelemetry.notification(context, measurement, "notification_post_accepted", clock())
         } catch (failure: Exception) {
+            MeasurementTelemetry.notification(context, measurement, "notification_failed", clock(), "notify_exception")
             // Keep the unconfirmed reservation, not a posted-day guard. The next retry
             // checks Android's visible receipt before clearing/retrying it: even an
             // ambiguous binder failure after delivery must not immediately alert twice.
@@ -252,14 +266,15 @@ internal object ActivityNotifications {
         confirmPending(context)
         true
     }
-    fun openIntent(context: Context, kind: String, session: String, postedAt: Long): PendingIntent = PendingIntent.getActivity(context,
+    fun openIntent(context: Context, kind: String, session: String, postedAt: Long, measurement: String = ""): PendingIntent = PendingIntent.getActivity(context,
         if (kind == "daily") ID else 2615,
         Intent(context, NotificationEntryActivity::class.java).setData(Uri.parse("garden-notification://$kind/$postedAt"))
-            .putExtra("kind", kind).putExtra("sessionId", session).putExtra("postedAt", postedAt),
+            .putExtra("kind", kind).putExtra("sessionId", session).putExtra("postedAt", postedAt).putExtra("measurement", measurement),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-    fun opened(context: Context, kind: String, session: String, postedAt: Long, now: Long = clock()): Unit = synchronized(lock) {
+    fun opened(context: Context, kind: String, session: String, postedAt: Long, now: Long = clock(), measurement: String = ""): Unit = synchronized(lock) {
         if (kind != "daily" && kind != "walking") return
+        MeasurementTelemetry.notification(context, measurement, "notification_opened", now)
         val p = prefs(context)
         ensureLearningState(p)
         // A tap itself proves delivery if the process died between notify and receipt
@@ -305,7 +320,8 @@ class NotificationEntryActivity : Activity() {
         val kind = intent.getStringExtra("kind") ?: ""
         if (kind == "daily" || kind == "walking") try {
             ActivityNotifications.opened(this, kind,
-                intent.getStringExtra("sessionId") ?: "", intent.getLongExtra("postedAt", 0))
+                intent.getStringExtra("sessionId") ?: "", intent.getLongExtra("postedAt", 0),
+                measurement = intent.getStringExtra("measurement") ?: "")
         } catch (_: IOException) {
             // A failed local write must not crash the notification's app entry point.
             android.util.Log.w("GardenReminders", "Could not persist notification open")
