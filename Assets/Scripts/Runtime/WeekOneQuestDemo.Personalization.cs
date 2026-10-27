@@ -13,38 +13,25 @@ namespace CapstoneDesign.Runtime
 
         void AddOptionalRecommendation(Transform parent, GardenState state)
         {
-            var learned = MbctPolicy.AllCompletedIds(state).ToArray();
-            var candidates = MbctContent.AllCourses.Where(m => learned.Contains(m.id)).ToArray();
-            if (candidates.Length == 0) return;
-            var now = DateTimeOffset.UtcNow;
-            var preferred = state.PracticePreferences.FirstOrDefault(p => p.Key == "favorite")?.Value ?? "";
-            int availableMinutes;
-            if(!int.TryParse(state.PracticePreferences.FirstOrDefault(p=>p.Key=="recommendation-minutes")?.Value,out availableMinutes)
-                || !new[]{1,3,5}.Contains(availableMinutes))availableMinutes=3;
+            if (!MbctPolicy.AllCompletedIds(state).Any(id => MbctContent.Find(id) != null)) return;
             bool canCollect=!preview && Application.isPlaying;
             var currentPolicy = canCollect?PersonalizationClient.Instance.Policy:new Personalization.ResponsePolicy();
-            var ranked = candidates.Select(m =>
-            {
-                var sessions = state.Sessions.Where(s => s.MissionId == m.id && s.StartedUtc != null).ToArray();
-                var last = sessions.Select(s => DateTimeOffset.TryParse(s.StartedUtc, out var time) ? time : DateTimeOffset.MinValue).DefaultIfEmpty(DateTimeOffset.MinValue).Max();
-                float[] features = { RecommendationFeatures.Preference(m.mbctActivity,m.title,preferred),
-                    sessions.Length == 0 ? .5f : sessions.Count(s => s.Status == ParticipationState.RewardCommitted) / (float)sessions.Length,
-                    (float)Math.Max(0, Math.Min(1, (now-last).TotalDays / 14)), RecommendationFeatures.DurationFit(m.suggestedDurationSeconds,availableMinutes) };
-                return new { Mission=m, Features=features, Score=currentPolicy.Score(features,now.ToUnixTimeMilliseconds()) };
-            }).OrderByDescending(c => c.Score).ThenBy(c => c.Mission.id, StringComparer.Ordinal).First();
+            var ranked = OptionalActivityRecommender.Select(state, currentPolicy, DateTimeOffset.UtcNow);
+            if (ranked == null) return;
+            var mission = MbctContent.Find(ranked.MissionId);
             // One decision per actual card presentation, with frozen input features.
             // Core curriculum and rewards remain entirely in the local state service.
             string decision = Guid.NewGuid().ToString("N");
             RecommendationExposure exposure=null;
-            var row=ActivityListItem(parent,"다시 해볼 만한 활동",ranked.Mission.title,()=>
+            var row=ActivityListItem(parent,"다시 해볼 만한 활동",mission.title,()=>
             {
                 exposure?.ReportVisible();
                 var context=canCollect && PersonalizationClient.Instance.Consented?new RecommendationContext {
-                    DecisionId=decision,PolicyId=currentPolicy.policy_id,AppVersion=Application.version,UtcOffsetMinutes=(int)DateTimeOffset.Now.Offset.TotalMinutes,Features=ranked.Features}:null;
-                SelectMission(ranked.Mission,context);
+                    DecisionId=decision,PolicyId=ranked.PolicyId,AppVersion=Application.version,UtcOffsetMinutes=(int)DateTimeOffset.Now.Offset.TotalMinutes,Features=ranked.Features}:null;
+                SelectMission(mission,context);
             },PrototypeUiIcon.Symbol.Leaf);
             exposure=row.gameObject.AddComponent<RecommendationExposure>();
-            exposure.OnVisible=()=> {if(canCollect)PersonalizationClient.Instance.Record("recommendation_shown",decision,ranked.Mission.id,ranked.Features,currentPolicy.policy_id);};
+            exposure.OnVisible=()=> {if(canCollect)PersonalizationClient.Instance.Record("recommendation_shown",decision,ranked.MissionId,ranked.Features,ranked.PolicyId);};
         }
         void ObserveOptionalRecommendation()
         {

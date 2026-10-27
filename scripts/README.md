@@ -84,6 +84,7 @@ experiment scripts remain distinct from the current daily collector test.
 ## Specific synthetic and rendering checks
 
 Individual domain scripts remain available, e.g. `test-local-state.sh`,
+`test-mission-recommendation.sh` (pure optional review selection/UI contract),
 `test-mbct.sh`, `test-health-query.sh`, `test-heart-range-refresh.sh`,
 `test-walking-personalization.sh`, `test-notification-policy.sh`,
 `test-notification-personas.sh`, `test-garden-appearance.sh` and

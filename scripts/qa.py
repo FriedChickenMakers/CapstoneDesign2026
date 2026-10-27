@@ -36,7 +36,7 @@ def catalog(output):
     checks = [Check("harness", "python", [python, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"]),
               Check("server", "python", [python, "-m", "unittest", "discover", "-s", "server/tests", "-v"], ("server",))]
     for name in ("local-state", "mbct", "garden-appearance", "heart-range-refresh", "walking-baseline-refresh",
-                 "walking-personalization", "activity-notifications", "personalization"):
+                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("mono",)))
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
     for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit"):
