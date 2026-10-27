@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import secrets
+import sqlite3
 import tempfile
 import threading
 from urllib.request import Request, urlopen
@@ -34,7 +35,8 @@ class MeasurementTests(unittest.TestCase):
         self.service=EventService(Path(self.temp.name)/"synthetic.sqlite",{self.token:self.subject},clock=lambda:NOW/1000)
         self.auth="Bearer "+self.token
     def body(self,events):
-        return dict(schema_version=1,consent_version=2,collection_id=self.collection,dropped_attempts=0,expired_events=0,storage_error=False,events=events)
+        return dict(schema_version=1,consent_version=2,collection_id=self.collection,dropped_attempts=0,expired_events=0,storage_error=False,
+                    complete_through_utc_ms=NOW,events=events)
     def post(self,body):return self.service.handle("POST","/measurements/batch",self.auth,body)
     def test_retry_and_conflict_are_atomic(self):
         post,click=pair();body=self.body([post,click]);self.assertEqual(self.post(body),self.post(body))
@@ -50,12 +52,46 @@ class MeasurementTests(unittest.TestCase):
         for key,value in [("note","synthetic text"),("occurred_utc_ms",True),("elapsed_ms",-2),("kind",[]),("reason",{}),
                           ("dataset",[]),("notification_id","invalid"),("activity_id","private note"),("utc_offset_minutes",999)]:
             with self.subTest(key=key),self.assertRaises(ApiError):self.post(self.body([dict(event(),**{key:value})]))
-        for key,value in [("consent_version",1),("collection_id","invalid"),("dropped_attempts",-1),("storage_error",1)]:
+        for key,value in [("consent_version",1),("collection_id","invalid"),("dropped_attempts",-1),("storage_error",1),
+                          ("complete_through_utc_ms",True),("complete_through_utc_ms",-1),("complete_through_utc_ms",NOW+300001)]:
             with self.subTest(key=key),self.assertRaises(ApiError):self.post(dict(self.body([]),**{key:value}))
     def test_quality_survives_empty_batch_and_reordered_upload(self):
         self.post(dict(self.body([]),dropped_attempts=3,storage_error=True));self.post(self.body([]))
+        self.post(dict(self.body([]),complete_through_utc_ms=0))
         with self.service.connect() as db:
-            self.assertEqual(db.execute("SELECT dropped,storage_error FROM measurement_quality").fetchone(),(3,1))
+            self.assertEqual(db.execute("SELECT dropped,storage_error,complete_through FROM measurement_quality").fetchone(),(3,1,NOW))
+    def test_partial_backlog_never_confirms_pending_click_as_missing(self):
+        post,click=pair();unclicked=event()
+        first=[post,unclicked]+[event() for _ in range(98)]
+        self.post(dict(self.body(first),complete_through_utc_ms=0))
+        def result():
+            with self.service.connect() as db:
+                records=[(s,c,json.loads(p)) for s,c,p in db.execute("SELECT subject,collection_id,payload FROM measurements")]
+                quality={(s,c):dict(updated=t,complete_through=w) for s,c,t,w in db.execute(
+                    "SELECT subject,collection_id,updated,complete_through FROM measurement_quality")}
+            return analyze(records,quality,NOW,"synthetic")
+        report,rows=result()
+        self.assertEqual({r["outcome"] for r in rows},{"awaiting_upload_confirmation"})
+        self.assertEqual(report["policies"]["daily-adaptive-v2"]["closed_complete_posts"],0)
+        # The final batch includes every remaining pending event at this boundary.
+        self.post(self.body([click]))
+        report,rows=result()
+        self.assertEqual(next(r for r in rows if r["notification_id"]==post["notification_id"])["outcome"],"clicked")
+        self.assertEqual(next(r for r in rows if r["notification_id"]==unclicked["notification_id"])["outcome"],"no_observed_click")
+        self.assertEqual(report["policies"]["daily-adaptive-v2"]["click_rate_within_window"],.01)
+    def test_legacy_client_receipt_is_not_a_completion_watermark(self):
+        body=self.body([event()]);del body["complete_through_utc_ms"]
+        self.post(body)
+        with self.service.connect() as db:
+            self.assertEqual(db.execute("SELECT updated,complete_through FROM measurement_quality").fetchone(),(NOW,0))
+    def test_old_database_migration_preserves_quality_without_inventing_completion(self):
+        database=Path(self.temp.name)/"old-schema.sqlite"
+        with sqlite3.connect(database) as db:
+            db.execute("CREATE TABLE measurement_quality (subject TEXT, collection_id TEXT, dropped INTEGER, expired INTEGER, storage_error INTEGER, updated INTEGER, PRIMARY KEY(subject,collection_id))")
+            db.execute("INSERT INTO measurement_quality VALUES (?,?,?,?,?,?)",(self.subject,self.collection,3,0,1,NOW))
+        migrated=EventService(database,{self.token:self.subject},clock=lambda:NOW/1000)
+        with migrated.connect() as db:
+            self.assertEqual(db.execute("SELECT dropped,storage_error,updated,complete_through FROM measurement_quality").fetchone(),(3,1,NOW,0))
     def test_activity_shape_and_deletion_cover_both_tables(self):
         e=dict(event("activity_started"),notification_id="",session_key=uuid.uuid4().hex,activity_id="course:MBCT2W01",elapsed_ms=-1,boot_count=-1)
         self.post(self.body([e]));self.service.handle("DELETE","/participant",self.auth)
@@ -84,7 +120,7 @@ class MeasurementTests(unittest.TestCase):
 class AnalysisTests(unittest.TestCase):
     def analyze(self,events,quality=None,dataset="synthetic"):
         return analyze([("synthetic-subject","synthetic-collection",e) for e in events],
-                       {("synthetic-subject","synthetic-collection"):quality or dict(updated=NOW)},NOW,dataset)
+                       {("synthetic-subject","synthetic-collection"):quality or dict(updated=NOW,complete_through=NOW)},NOW,dataset)
     def test_actual_pairs_and_unclicked_denominator(self):
         post,click=pair();no_click=event()
         report,rows=self.analyze([click,no_click,post])
@@ -96,6 +132,8 @@ class AnalysisTests(unittest.TestCase):
         _,rows=self.analyze([post,click,event(at=NOW-1000)])
         self.assertEqual({r["outcome"] for r in rows},{"late_click","window_open"})
         _,rows=self.analyze([post],dict(updated=post["occurred_utc_ms"]))
+        self.assertEqual(rows[0]["outcome"],"awaiting_upload_confirmation")
+        _,rows=self.analyze([post],dict(updated=NOW))
         self.assertEqual(rows[0]["outcome"],"awaiting_upload_confirmation")
     def test_clock_change_and_reboot_do_not_claim_latency(self):
         post,click=pair()

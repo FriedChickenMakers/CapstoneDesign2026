@@ -130,8 +130,13 @@ class EventService:
                 CREATE TABLE IF NOT EXISTS measurement_quality (
                     subject TEXT NOT NULL, collection_id TEXT NOT NULL, dropped INTEGER NOT NULL,
                     expired INTEGER NOT NULL, storage_error INTEGER NOT NULL, updated INTEGER NOT NULL,
+                    complete_through INTEGER NOT NULL DEFAULT 0,
                     PRIMARY KEY(subject, collection_id));
             """)
+            # Earlier measurement clients supplied only receipt time. It cannot prove
+            # that a backlog was drained, so migrated collections remain unconfirmed.
+            if "complete_through" not in {row[1] for row in db.execute("PRAGMA table_info(measurement_quality)")}:
+                db.execute("ALTER TABLE measurement_quality ADD COLUMN complete_through INTEGER NOT NULL DEFAULT 0")
             self._purge_expired(db, int(self.clock() * 1000))
         os.chmod(self.database, 0o600)
 

@@ -127,3 +127,23 @@ See [measurement scope and operating checklist](../docs/QA_BETA_MEASUREMENT_PLAN
 statistics and optional Matplotlib charts; select `live` or `synthetic` explicitly.
 Install `scripts/requirements-measurement-plots.txt` in a separate Python environment
 for charts, or pass `--no-plots` for standard-library CSV/JSON analysis.
+
+For the isolated native Android path, build and run on an authorized QA device:
+
+```bash
+NOTIFICATION_ANDROID_OUTPUT=artifacts/measurement-native-build-new \
+  bash scripts/build-notification-test-apk.sh
+python3 scripts/test-measurements-android.py \
+  --serial "$ADB_SERIAL" \
+  --apk artifacts/measurement-native-build-new/notification-tests.apk \
+  --output artifacts/measurement-native-device-new
+```
+
+Configure the Android SDK/JDK and local `ADB_SERIAL` first; keep its actual value
+private and use fresh output directories. The runner verifies the APK package
+offline with Android `aapt` before opening a device session; use `--aapt` or
+`AAPT_BIN` if SDK discovery is unavailable. It uses the synthetic isolated package, backs it up, installs in place, and requires distinct produce/restore
+processes and verified display-setting restoration. It checks real OS posting,
+PendingIntent clicks, consent, restart recovery, ACKs and storage-error withdrawal.
+Keep all outputs private. This does not replace Unity product-to-server E2E or
+participant studies; see the linked measurement checklist for those gates.

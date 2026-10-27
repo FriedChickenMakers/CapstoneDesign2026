@@ -47,7 +47,8 @@ def analyze(records, quality, as_of, dataset, window=DAY):
                "posting_delay_ms": None, "click_delay_ms": None, "wall_click_delay_ms": None,
                "clock_quality": "unknown", "outcome": "unverified_post", "learned_samples": first["learned_samples"],
                "collection_incomplete": bool(q.get("dropped", 0) or q.get("expired", 0) or q.get("storage_error", 0)),
-               "last_upload_utc_ms": q.get("updated", 0), "recovered_post": any(e["kind"]=="notification_post_recovered" for e in values)}
+               "last_upload_utc_ms": q.get("updated", 0), "complete_through_utc_ms":q.get("complete_through", 0),
+               "recovered_post": any(e["kind"]=="notification_post_recovered" for e in values)}
         if len(posts) == 1:
             post = posts[0]; at = post["occurred_utc_ms"]; row["posted_utc_ms"] = at
             if post["scheduled_utc_ms"]:
@@ -68,7 +69,7 @@ def analyze(records, quality, as_of, dataset, window=DAY):
                 row["outcome"] = "window_open"
             elif row["collection_incomplete"]:
                 row["outcome"] = "collection_incomplete"
-            elif q.get("updated", 0) < at + window:
+            elif q.get("complete_through", 0) < at + window:
                 row["outcome"] = "awaiting_upload_confirmation"
             else:
                 row["outcome"] = "no_observed_click"
@@ -104,7 +105,7 @@ def analyze(records, quality, as_of, dataset, window=DAY):
               "policies":policies, "activity_sessions":activity, "causal_or_clinical_evidence":False,
               "limitations":["Post acceptance is not proof of display, attention or audibility.",
                              "Clicked-only latency is selected; report click rate and censored/unknown outcomes alongside it.",
-                             "Last upload must cover the response window before an unclicked post enters the rate denominator.",
+                             "A fully included outbox snapshot must cover the response window; receipt time or a partial batch cannot confirm missing clicks.",
                              "Loss counters are conservative per collection; incomplete collections are excluded from summary rates/latency.",
                              "Activity counts are observed session counts, not clinical improvement or retention estimates.",
                              "Policy groups are descriptive, not randomized; no reduction is assumed."]}
@@ -151,7 +152,10 @@ def main():
     if any(out.iterdir()):parser.error("Use a fresh private output directory")
     with sqlite3.connect("file:"+quote(str(Path(args.database).resolve()))+"?mode=ro",uri=True) as db:
         records=[(s,c,json.loads(p)) for s,c,p in db.execute("SELECT subject,collection_id,payload FROM measurements")]
-        quality={(s,c):dict(dropped=d,expired=e,storage_error=f,updated=t) for s,c,d,e,f,t in db.execute("SELECT * FROM measurement_quality")}
+        has_watermark = "complete_through" in {row[1] for row in db.execute("PRAGMA table_info(measurement_quality)")}
+        watermark_column = "complete_through" if has_watermark else "0"
+        quality={(s,c):dict(dropped=d,expired=e,storage_error=f,updated=t,complete_through=w)
+                 for s,c,d,e,f,t,w in db.execute("SELECT subject,collection_id,dropped,expired,storage_error,updated,"+watermark_column+" FROM measurement_quality")}
     report,rows=analyze(records,quality,args.as_of_ms,args.dataset,args.window_hours*3600000)
     (out/"summary.json").write_text(json.dumps(report,indent=2,ensure_ascii=False)+"\n")
     with (out/"notification-pairs.csv").open("w",newline="") as f:

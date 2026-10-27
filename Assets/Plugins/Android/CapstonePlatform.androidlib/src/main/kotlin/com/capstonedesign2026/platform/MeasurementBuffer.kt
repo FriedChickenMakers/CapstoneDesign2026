@@ -15,6 +15,7 @@ internal data class MeasurementState(
     val receipts: Map<String, Long> = emptyMap(), val dropped: Long = 0, val expired: Long = 0
 )
 internal interface MeasurementStore { fun load(): MeasurementState; fun save(state: MeasurementState) }
+internal data class MeasurementBatch(val events: List<MeasurementRecord>, val completeThrough: Long)
 internal class MeasurementBuffer(private val store: MeasurementStore, private val newId: () -> String) {
     companion object { const val CAPACITY = 1024; const val RECEIPTS = 8192; const val RETENTION = 90L * 86400000 }
     var state = store.load(); private set
@@ -47,6 +48,12 @@ internal class MeasurementBuffer(private val store: MeasurementStore, private va
         return true
     }
     fun batch(now: Long): List<MeasurementRecord> { prune(now); return if (state.enabled) state.events.take(100) else emptyList() }
+    fun batchSnapshot(now: Long): MeasurementBatch {
+        val events = batch(now)
+        // A partial upload says nothing about clicks still waiting later in the outbox.
+        // Only a snapshot containing every pending event can confirm this boundary.
+        return MeasurementBatch(events, if (state.enabled && events.size == state.events.size) now else 0)
+    }
     fun acknowledge(binding: String, collection: String, ids: Set<String>, sent: Set<String>) {
         if (!state.enabled || state.binding != binding || state.collection != collection) return
         require(sent.containsAll(ids)) { "Acknowledgement includes unsent measurements" }

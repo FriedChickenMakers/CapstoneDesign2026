@@ -19,6 +19,31 @@ internal object MeasurementTelemetry {
     private var location = ""
     private var error = false
     private var suspended = false
+    private fun stateFile(context: Context) = File(context.filesDir, "measurement-outbox.json")
+    private fun healthFile(context: Context) = File(context.filesDir, "measurement-health.json")
+    private fun writeAtomic(file: File, value: String) {
+        val atomic = AtomicFile(file)
+        val stream = atomic.startWrite()
+        try { stream.write(value.toByteArray(Charsets.UTF_8)); atomic.finishWrite(stream) }
+        catch (failure: Exception) { atomic.failWrite(stream); throw failure }
+        check(atomic.openRead().use { it.readBytes().toString(Charsets.UTF_8) } == value) { "Measurement write verification failed" }
+    }
+    private fun health(context: Context, collection: String, phase: String) =
+        writeAtomic(healthFile(context), JSONObject().put("collection", collection).put("phase", phase).toString())
+    private fun healthIsClean(context: Context, collection: String): Boolean = try {
+        val j = JSONObject(AtomicFile(healthFile(context)).openRead().use { it.readBytes().toString(Charsets.UTF_8) })
+        j.getString("collection") == collection && j.getString("phase") == "clean"
+    } catch (_: Exception) { false }
+    private fun stateJson(state: MeasurementState) = JSONObject().put("schema", 1).put("binding", state.binding)
+        .put("collection", state.collection).put("since", state.since).put("enabled", state.enabled)
+        .put("dropped", state.dropped).put("expired", state.expired)
+        .put("events", JSONArray().apply { state.events.forEach { put(recordJson(it)) } })
+        .put("receipts", JSONObject(state.receipts)).toString()
+    private fun latchError(context: Context) {
+        error = true
+        val current = buffer?.takeIf { location == stateFile(context).path }?.state
+        if (current?.enabled == true) try { health(context, current.collection, "failed") } catch (_: Exception) { }
+    }
     private fun id() = UUID.randomUUID().toString().replace("-", "")
     internal fun key(value: String) = MessageDigest.getInstance("SHA-256").digest(value.toByteArray())
         .joinToString("") { "%02x".format(it) }.take(32)
@@ -34,9 +59,11 @@ internal object MeasurementTelemetry {
         j.getInt("preferred_minute"), j.getInt("effective_minute"), j.getInt("learned_samples"), j.getString("reason"),
         j.getString("activity_id"), j.getString("app_version"), j.getString("dataset"))
     private fun get(context: Context): MeasurementBuffer {
-        val file = File(context.filesDir, "measurement-outbox.json")
+        val file = stateFile(context)
         if (buffer != null && location == file.path) return buffer!!
+        error = false
         val atomic = AtomicFile(file)
+        var savedCollection = ""
         val store = object : MeasurementStore {
             override fun load(): MeasurementState {
                 if (!file.exists() && !File(file.path + ".bak").exists()) return MeasurementState()
@@ -44,18 +71,35 @@ internal object MeasurementTelemetry {
                 require(j.getInt("schema") == 1)
                 val events = j.getJSONArray("events"); val receipts = j.getJSONObject("receipts")
                 require(events.length() <= MeasurementBuffer.CAPACITY && receipts.length() <= MeasurementBuffer.RECEIPTS)
-                return MeasurementState(j.getString("binding"), j.getString("collection"), j.getLong("since"), j.getBoolean("enabled"),
+                val state = MeasurementState(j.getString("binding"), j.getString("collection"), j.getLong("since"), j.getBoolean("enabled"),
                     (0 until events.length()).map { readRecord(events.getJSONObject(it)) },
                     receipts.keys().asSequence().associateWith { receipts.getLong(it) }, j.getLong("dropped"), j.getLong("expired"))
+                savedCollection = state.collection
+                // A killed write leaves pending; an old/missing journal cannot prove
+                // that this collection avoided an unreported write failure.
+                if (state.enabled && !healthIsClean(context, state.collection)) error = true
+                return state
             }
             override fun save(state: MeasurementState) {
-                val j = JSONObject().put("schema", 1).put("binding", state.binding).put("collection", state.collection)
-                    .put("since", state.since).put("enabled", state.enabled).put("dropped", state.dropped).put("expired", state.expired)
-                    .put("events", JSONArray().apply { state.events.forEach { put(recordJson(it)) } })
-                    .put("receipts", JSONObject(state.receipts))
-                val stream = atomic.startWrite()
-                try { stream.write(j.toString().toByteArray()); atomic.finishWrite(stream) }
-                catch (failure: Exception) { atomic.failWrite(stream); throw failure }
+                val newCollection = state.enabled && state.collection != savedCollection
+                val hadError = error && !newCollection
+                try {
+                    if (state.enabled) health(context, state.collection, if (hadError) "failed" else "pending")
+                    writeAtomic(file, stateJson(state))
+                    savedCollection = state.collection
+                    error = hadError
+                } catch (failure: Exception) {
+                    error = true
+                    if (state.enabled) try { health(context, state.collection, "failed") } catch (_: Exception) { }
+                    throw failure
+                }
+                // If clearing the journal fails after the outbox committed, preserve
+                // the new in-memory state too. Pending/failed remains conservative.
+                if (state.enabled && !hadError) try { health(context, state.collection, "clean") }
+                catch (_: Exception) {
+                    error = true
+                    try { health(context, state.collection, "failed") } catch (_: Exception) { }
+                }
             }
         }
         return MeasurementBuffer(store, ::id).also { buffer = it; location = file.path }
@@ -68,8 +112,18 @@ internal object MeasurementTelemetry {
         appVersion = version(context), dataset = dataset)
     fun configure(context: Context, binding: String, enabled: Boolean, since: Long): String = synchronized(this) {
         if (!enabled) suspended = true // Stop in memory even if the disk rejects withdrawal.
-        try { get(context).configure(binding, enabled, since); suspended = !enabled; error = false; JSONObject().put("ok", true).toString() }
-        catch (_: Exception) { error = true; JSONObject().put("ok", false).toString() }
+        try {
+            if (!enabled) {
+                // Withdrawal must work even when a previous outbox cannot be decoded.
+                // Replace and read back the canonical disabled state before acknowledging.
+                writeAtomic(stateFile(context), stateJson(MeasurementState()))
+                AtomicFile(healthFile(context)).delete()
+                check(listOf("", ".bak", ".new").none { File(healthFile(context).path + it).exists() })
+                buffer = null; location = ""; error = false
+            } else get(context).configure(binding, true, since)
+            suspended = !enabled
+            JSONObject().put("ok", true).toString()
+        } catch (_: Exception) { latchError(context); JSONObject().put("ok", false).toString() }
     }
     // Tickets are internal notification metadata, never study credentials. A changed
     // consent epoch makes already displayed notifications ineligible for later collection.
@@ -80,7 +134,7 @@ internal object MeasurementTelemetry {
             JSONObject().put("id", key(state.collection + identity)).put("collection", state.collection)
                 .put("scheduled", scheduled).put("policy", policy).put("preferred", preferred)
                 .put("effective", effective).put("samples", samples).toString()
-        } catch (_: Exception) { error = true; "" }
+        } catch (_: Exception) { latchError(context); "" }
     }
     fun notification(context: Context, ticket: String, kind: String, at: Long, reason: String = "none") = synchronized(this) {
         if (ticket.isBlank()) return@synchronized
@@ -93,7 +147,7 @@ internal object MeasurementTelemetry {
                 scheduled = t.getLong("scheduled"), policy = t.getString("policy"), preferred = t.getInt("preferred"),
                 effective = t.getInt("effective"), samples = t.getInt("samples"), reason = reason)
             b.add(r, at)
-        } catch (_: Exception) { error = true }
+        } catch (_: Exception) { latchError(context) }
     }
     fun activity(context: Context, kind: String, sessionKey: String, activity: String, at: Long, offset: Int): String = synchronized(this) {
         try {
@@ -104,22 +158,23 @@ internal object MeasurementTelemetry {
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + sessionKey + kind), sessionKey = sessionKey,
                 activity = activity, elapsed = -1, boot = -1, offset = offset) // recovered wall time, never fabricated monotonic time
             JSONObject().put("ok", b.add(r, System.currentTimeMillis())).toString()
-        } catch (_: Exception) { error = true; "{\"ok\":false}" }
+        } catch (_: Exception) { latchError(context); "{\"ok\":false}" }
     }
     fun batch(context: Context, binding: String): String = synchronized(this) {
         try {
             val b = get(context)
             if (suspended || !b.state.enabled || b.state.binding != binding) return "{}"
-            val events = b.batch(System.currentTimeMillis())
+            val snapshot = b.batchSnapshot(System.currentTimeMillis())
             JSONObject().put("schema_version", 1).put("consent_version", 2).put("collection_id", b.state.collection)
                 .put("dropped_attempts", b.state.dropped).put("expired_events", b.state.expired).put("storage_error", error)
-                .put("events", JSONArray().apply { events.forEach { put(recordJson(it)) } }).toString()
-        } catch (_: Exception) { error = true; "{}" }
+                .put("complete_through_utc_ms", snapshot.completeThrough)
+                .put("events", JSONArray().apply { snapshot.events.forEach { put(recordJson(it)) } }).toString()
+        } catch (_: Exception) { latchError(context); "{}" }
     }
     fun acknowledge(context: Context, binding: String, collection: String, accepted: String, sent: String): String = synchronized(this) {
         try {
             fun ids(s: String): Set<String> { val a = JSONArray(s); return (0 until a.length()).map { a.getString(it) }.toSet() }
             get(context).acknowledge(binding, collection, ids(accepted), ids(sent)); "{\"ok\":true}"
-        } catch (_: Exception) { error = true; "{\"ok\":false}" }
+        } catch (_: Exception) { latchError(context); "{\"ok\":false}" }
     }
 }

@@ -33,9 +33,9 @@ namespace CapstoneDesign.Runtime
             exposure=row.gameObject.AddComponent<RecommendationExposure>();
             exposure.OnVisible=()=> {if(canCollect)PersonalizationClient.Instance.Record("recommendation_shown",decision,ranked.MissionId,ranked.Features,ranked.PolicyId);};
         }
-        void ObserveOptionalRecommendation()
+        void ObserveOptionalRecommendation(bool force=false)
         {
-            if(!opened || preview || !Application.isPlaying || Time.unscaledTime<nextOptionalObservation)return;
+            if(!opened || preview || !Application.isPlaying || (!force && Time.unscaledTime<nextOptionalObservation))return;
             nextOptionalObservation=Time.unscaledTime+3;
             var client=PersonalizationClient.Instance;
             if(!client.Consented)return;

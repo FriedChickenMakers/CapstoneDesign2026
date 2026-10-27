@@ -10,7 +10,7 @@
 | 예정/제공/클릭 시각 | 예정 UTC ms, 이벤트 UTC ms, UTC offset, monotonic elapsed ms와 boot count | 일일 예정 시각은 worker가 due를 관측할 때 계산한 정책 예정값. Android 정확 알람 예약/실제 화면 표시 시각이 아님. 걷기는 시각 예약형이 아니므로 예정값 0 |
 | 정책 정보 | `daily-fixed-v1` / `daily-adaptive-v2` / `walking-goal-v1`, 사용자가 정한 분, 적용 분, 학습 표본 수, 앱 버전 | 기존 학습 알고리즘·기본값은 유지. 이 정보만으로 무작위 대조실험이 되지는 않음 |
 | 활동 이용 | 동의 이후 선택한 전체 미션의 선택·시작·완료·종료 시각, 카탈로그 ID, 가명 세션 키 | 추천 미션만 수집하던 기존 경로에 더한 별도 측정. 일기·감정 원문·건강 수치·위치·연락처·기기 식별자 제외 |
-| 전달 신뢰도 | pending outbox, 재전송·중복 제거, 용량 초과 시 거절 횟수, 만료 제거 건수, 저장 오류 여부 | `dropped_attempts`는 재시도를 포함한 **거절 시도 수**이며 유실된 고유 알림 수가 아님 |
+| 전달 신뢰도 | pending outbox, 재전송·중복 제거, 용량 초과 시 거절 횟수, 만료 제거 건수, 저장 오류 여부, 전체 대기열을 포함한 업로드의 관측 경계 | `dropped_attempts`는 재시도를 포함한 **거절 시도 수**이며 유실된 고유 알림 수가 아님. 일부 batch의 서버 도착만으로 미클릭을 확정하지 않음 |
 | 분석 산출물 | `notification-pairs.csv`, `summary.json`, `notification-evidence.png` | 기본 24시간 응답 창, 클릭 지연 중앙값/p90·클릭률·관측 불완전 건수를 함께 제시. `live`와 `synthetic`을 필수로 분리 |
 
 알림을 누른 시점은 Android 진입 Activity에서 즉시 기록한다. 기록 업로드는 Unity 앱의 연결 가능한 동기화 주기에 실행되므로, 알림을 누른 시각을 앱의 나중 polling 시각으로 바꾸지 않는다. 미클릭 알림도 게시 영수증을 보존한다. 권한 차단/실패는 실제 worker가 그 상태를 관측한 경우만 기록하며, 사용자가 알림을 꺼 worker 자체가 취소된 모든 날짜를 자동 관측한 것으로 세지 않는다.
@@ -20,23 +20,27 @@
 ## 동의·저장·전송
 
 - 기본 수집 OFF. 기존 앱 등록 파일과 참여 동의가 있어야 한다. 신규 참여 화면에는 알림·전체 활동·품질 정보, QA/발표 용도, 90일 보관, 철회·삭제를 안내한다.
-- 기존 추천 연구 동의만 있는 사용자는 추가 측정이 자동 활성화되지 않는다. 설정의 **추가 항목 확인 · 알림과 전체 활동 측정에 동의**를 눌러야 한다. 동의 경계 `MeasurementConsentUtcMs` 이전에 선택한 활동 이력을 소급 전송하지 않는다.
+- 기존 추천 연구 동의만 있는 사용자는 추가 측정이 자동 활성화되지 않는다. 설정의 **추가 항목 확인 · 알림과 전체 활동 측정에 동의**를 눌러야 한다. 동의 경계 `MeasurementConsentUtcMs` 이전에 선택한 활동 이력을 소급 전송하지 않는다. 추가 동의가 완료되면 해당 버튼을 숨기고 참여 상태를 갱신한다.
 - native `measurement-outbox.json`은 앱 private files에 원자 저장한다. 1,024 pending events / 8,192 중복 방지 영수증, 최대 100개 batch. 90일이 지난 자료는 다음 수집/동기화 시 정리한다. 앱/worker가 실행되지 않으면 즉시 만료 삭제를 수행할 수는 없다.
+- private `measurement-health.json`은 outbox 변경 전 `pending`, 저장과 재읽기 확인 후 `clean`, 오류 시 `failed`를 남긴다. 다음 실행에서 같은 수집 구간의 `pending`·`failed`·누락·손상은 `storage_error`로 보수적으로 취급하며, 같은 동의의 재동기화가 이를 초기화하지 않는다. 과거 버전의 활성 수집 구간에 이 파일이 없으면 검증된 정상 상태로 간주하지 않는다. 실제 저장 장치가 outbox와 오류 표식 기록을 모두 거부하고 그 즉시 프로세스가 종료되면 모든 실패의 영속 기록을 보장할 수 없으므로, 저장 오류가 난 기기는 운영 기록과 함께 검토한다.
 - 기존 추천용 네 특징 API와 분리한 **`POST /measurements/batch`**, schema 1 / consent 2를 사용한다. 동일 bearer 등록과 가명 subject를 사용하고 새 endpoint도 인증·필드 제한·배치 원자성·ID 충돌·멱등성을 검사한다. journal text나 임의 필드는 거부한다.
+- `complete_through_utc_ms`는 그 시점의 native 대기 이벤트가 **전부 해당 batch에 포함됐을 때만** snapshot 시각을 담는다. 100개 뒤에 클릭이 대기 중인 부분 batch는 0을 보낸다. 서버는 해당 batch를 원자 반영한 뒤 최대 확인 경계를 유지한다. 기존 클라이언트/DB의 필드 부재는 0으로 처리하므로 서버 수신 시각으로 과거 미클릭을 추정하지 않는다.
 - 서버 `measurements`와 `measurement_quality`를 함께 보관한다. 기존 `DELETE /participant`가 추천/측정/품질 행을 모두 삭제하고 revoked 등록의 늦은 업로드를 차단한다. 별도 export와 백업은 운영 담당자가 삭제해야 한다.
-- 철회 시 native outbox를 먼저 끄고 지운 뒤 기존 삭제 대기를 저장한다. 저장 실패는 성공으로 표시하지 않고 재시도가 필요하다. 새 동의 구간·계정의 outbox에 이전 HTTP 응답으로 ACK하지 않는다.
+- 철회 시 native outbox를 먼저 끄고 지운 뒤 기존 삭제 대기를 저장한다. 손상된 outbox를 해석하지 않고도 비활성·빈 상태로 원자 교체하고 재읽기 확인 후 오류 표식을 지울 수 있다. 실제 저장 실패는 성공으로 표시하지 않고 재시도가 필요하다. 새 동의 구간·계정의 outbox에 이전 HTTP 응답으로 ACK하지 않는다.
 - MOCK/REPLAY는 실사용 측정 경로에서 제외한다. 합성 native instrumentation만 내부 dataset override를 사용하며, 일반 UI나 외부 Intent로 이를 켤 수 없다. `live` 라벨은 기기 실행 경로이며 참가자 모집·실사용 진위를 대신 증명하지 않는다. QA와 베타는 등록·DB·결과 폴더도 분리한다.
+
+성공한 게임 상태 저장 직후 저장 세션을 관측하고 기존 정기 관측으로 보완한다. 저장 실패를 활동 완료로 기록하지 않으며 동일 세션 사건은 중복 제거한다.
 
 ## 분석 규칙
 
 1. **주 지연:** 최초 게시 수락→최초 클릭. 동일 부팅의 monotonic 시각으로 계산한다. wall time 차이와 2분 넘게 어긋나거나 재부팅/시각 누락이 있으면 `clock_unreliable`로 분리하며 지연 통계에 섞지 않는다. 2분은 분석 품질 점검 허용치이며 임상 기준이 아니다.
 2. **OS 지연:** 정책 예정 시각→게시 수락을 별도 그래프로 표시한다. WorkManager/Doze 지연을 사용자 반응 지연과 섞지 않는다. 이 값은 wall clock이므로 기기 시계 상태도 함께 검토한다.
-3. **분모:** 닫힌 응답 창의 게시 수락만 기본 클릭률 분모 후보로 삼는다. 미클릭 건은 마지막 서버 동기화가 응답 창 종료를 덮는지 확인하며, 아직 업로드 확인이 없으면 `awaiting_upload_confirmation`으로 분리한다. 종료 시점 직전의 알림은 `window_open`이다.
+3. **분모:** 닫힌 응답 창의 게시 수락만 기본 클릭률 분모 후보로 삼는다. 미클릭 건은 서버에 원자 반영한 **전체 대기열 snapshot 경계** `complete_through_utc_ms`가 응답 창 종료를 덮는지 확인한다. 최근 일부 batch가 도착했더라도 뒤에 클릭이 남아 있을 수 있으므로 서버 수신 시각만으로는 충분하지 않으며, 경계 확인 전에는 `awaiting_upload_confirmation`으로 분리한다. 종료 시점 직전의 알림은 `window_open`이다.
 4. **누락:** 수집 구간에 용량 초과·만료·저장 오류가 있으면 해당 구간의 요약 클릭률/지연에서 보수적으로 제외하고 원자료와 제외 건수를 남긴다. 아무 클릭이 관측되지 않았다는 사실과 클릭하지 않았다는 확정 사실을 구분한다.
 5. **고정/개인화 비교:** 정책별 표본 수·중앙값·p90·클릭률과 모든 관측 결과를 함께 본다. 클릭한 표본의 지연만 줄고 미클릭이 늘었다면 개선으로 단정하지 않는다. 동일인 전후 비교에도 순서·시간·학습 효과가 있으므로 무작위 배정이나 적절한 대조 없이 인과 효과로 발표하지 않는다.
 6. **활동:** 선택/시작/완료/종료 세션 수를 별도로 출력한다. 활동 시각은 저장된 session에서 복구하며 앱에 머문 시간·중단 시간·치료 효과를 뜻하지 않는다. 알림→미션 세션의 직접 attribution ID는 이번 범위에 없으므로 알림 때문에 활동을 시작했다고 주장하지 않는다.
 
-베타 종료 시 모든 참여 기기의 마지막 동기화를 확인하고, 마지막 분석 대상 알림의 응답 창이 닫힌 뒤 명시적인 `as-of`를 정한다. 참가자별 누락·철회 여부와 대상/대조 배정 기준은 운영 기록에 남긴다. 데이터가 부족하거나 지연이 늘어난 경우도 그대로 보고한다.
+베타 종료 시 모든 참여 기기의 전체 대기열 snapshot 경계가 마지막 분석 대상 알림의 응답 창 종료를 덮는지 확인한 뒤 명시적인 `as-of`를 정한다. 참가자별 누락·철회 여부와 대상/대조 배정 기준은 운영 기록에 남긴다. 데이터가 부족하거나 지연이 늘어난 경우도 그대로 보고한다.
 
 ## 실행·운영 순서
 
@@ -61,6 +65,23 @@ python3 -m server.analyze_measurements \
 # 그래프 의존성이 없으면 --no-plots 로 CSV/JSON만 생성 가능
 ```
 
+### 분리된 native 실기기 검사 재현
+
+지원 QA 기기와 Android SDK/JDK·Gradle 환경에서 합성 전용 APK를 빌드한다. `ADB_SERIAL`은 로컬 환경에 설정하고 실제 값은 문서·커밋·공개 로그에 넣지 않는다. 두 출력 디렉터리는 새 경로를 사용한다.
+
+```bash
+NOTIFICATION_ANDROID_OUTPUT=artifacts/measurement-native-build-new \
+  bash scripts/build-notification-test-apk.sh
+python3 scripts/test-measurements-android.py \
+  --serial "$ADB_SERIAL" \
+  --apk artifacts/measurement-native-build-new/notification-tests.apk \
+  --output artifacts/measurement-native-device-new
+```
+
+이 실행기는 Android `aapt`로 APK의 패키지를 오프라인 확인하여 제품/다른 APK를 기기 연결 전에 거부한다. SDK 자동 탐색이 안 되면 `--aapt` 또는 `AAPT_BIN`으로 도구 경로를 지정한다. 제품과 분리된 `notificationpreview` 패키지만 사용한다. `DeviceSession`으로 설정 원본 기록·임시 적용·복원 확인, 기존 테스트 패키지 백업과 인플레이스 설치를 수행한다. `produce`와 `restore`의 실제 프로세스가 서로 다름을 확인하고 현재 실행의 결과 파일만 판정한다. PASS에는 설정 복원 확인이 필요하다. 복원이 불가능하면 원본 복원 기록을 보존하고 재연결 시 먼저 복원한다. 결과·알림 시각·원본 화면은 private artifacts로 유지한다.
+
+검사는 실제 OS 게시·PendingIntent 클릭, 동의 경계, 중복 제거, 재시작 복구, 전송 경계, ACK, 오류 표식·손상 후 철회를 포함한다. **합성 native 검사이며 Unity 제품 앱의 업로드·화면·서버를 포함한 종단 검사와 실사용 효과 실험을 대신하지 않는다.**
+
 원자료 CSV에는 가명 subject와 정확한 시각이 있으므로 private로 유지한다. 발표에는 검토한 집계와 그래프만 사용한다. 기본 차트는 참가자별 알림 순번에 따른 클릭 지연·게시 지연과 정책별 관측 결과를 보여주며 결과를 자동으로 "개선"이라고 판정하지 않는다.
 
 ## 코드 소유·병행 작업 연결
@@ -69,7 +90,7 @@ python3 -m server.analyze_measurements \
 | --- | --- | --- |
 | Android 수집 | `MeasurementBuffer.kt`, `MeasurementTelemetry.kt`, `ActivityNotifications.kt`, `MissionRewardNotifications.kt` | 알림 동작/정책 자체를 바꾸지 않고 관측. 개인정보 필드를 임의 추가하지 않음 |
 | 앱 연결·동의 | `PersonalizationClient.Measurements.cs`, `PersonalizationCore.cs`, `SensorRawDisplay.cs` | 기존 동의 v1과 추가 측정 동의의 경계를 유지. 개인화 담당과 공통 변경으로 조율 |
-| 미션 UI 연결 | `WeekOneQuestDemo.Personalization.cs` | `RecordMeasuredSession`은 저장된 세션만 읽는다. UI 담당이 기록 원문을 이벤트 payload에 넣지 않음 |
+| 미션 UI 연결 | `WeekOneQuestDemo.cs`, `WeekOneQuestDemo.Personalization.cs` | `Apply` 성공 직후 관측하며 `RecordMeasuredSession`은 저장된 세션만 읽는다. UI 담당이 기록 원문을 이벤트 payload에 넣지 않음 |
 | 서버·발표 분석 | `server/measurements.py`, `server/analyze_measurements.py` | 수집 계약 변경은 API 검사·내보내기와 같이 검토. 추천 모델 특징 schema는 그대로 유지 |
 
 기존 두 작업 브랜치를 강제로 갱신하지 않는다. 이번 측정 변경이 들어간 통합 브랜치를 일반 merge하여 시작 기준을 맞춘 뒤 공통 파일 변경을 진행한다. UI 전체 구현이나 미션 완전 개인화 구현을 대신 완료한 것은 아니다.
@@ -82,7 +103,7 @@ python3 -m server.analyze_measurements \
 - 알림→활동 직접 귀속, 앱 방문/화면 흐름·pause/resume 이력, 수집 누락의 더 세밀한 진단, 배포 서버 운영 대시보드. 이번에는 구현하지 않았다.
 - 공학적 기여와 절차적 생성의 발표 방식. 회의 참고 안건이며 이번 작업에서 제품 방향을 확정하지 않는다.
 
-## 2026-10-27 검증 기록
+## 최초 측정 배포 검증 기록 — 694756d
 
 | 검증 | 실제 결과 | 범위 |
 | --- | --- | --- |
@@ -92,4 +113,28 @@ python3 -m server.analyze_measurements \
 | Android 빌드 | native instrumentation APK 빌드 및 제품 APK 패키징 성공 | Unity 전체 빌드 명령은 패키징 중 디스크 부족으로 2회 실패. 생성된 임시 objcopy/중복 IL2CPP 백업만 정리하고 동일 Gradle 프로젝트의 `:launcher:assembleDebug`를 재개하여 성공 |
 | 분석 export | 합성 DB → CSV/JSON/PNG 생성 확인 | 파이프라인 smoke test이며 실사용 개선이나 실제 페르소나 실험 결과가 아님 |
 
-원본 검증 기록과 APK는 ignored `artifacts/measurement-*`에 보존했다. 빌드 산출물과 로그는 Git에 넣지 않는다. Unity 검증과 APK 빌드는 **실기기에서 새 native 수집→앱 업로드→서버→그래프를 종단 검증한 결과가 아니다.** 이번 작업에서 기기에 접속하거나 실제 참가자 데이터를 수집하지 않았다. QA 배포 전 위 운영 순서의 실기기 검사와 서버 배포가 남아 있다.
+위 표는 `694756d` 최초 측정 배포 시점의 기록이다. 당시에는 기기에 접속하지 않았으며 Unity 검사와 APK 빌드를 새 수집 경로의 실기기 종단 결과로 취급하지 않았다. 이후 확인한 결과는 아래와 구분한다. 빌드 산출물·기기 자료·로그는 Git에 넣지 않는다.
+
+## 후속 수정본 검증 기록 — 2026-10-27
+
+| 검증 | 실제 결과 | 증거 범위 |
+| --- | --- | --- |
+| 순수 검사 | 18/18 suite PASS, FAIL/SKIP 0 | 실행기 46개·서버 39개·개인화 329개 assertion. 부분 batch와 전체 전송 경계 분석 포함 |
+| Unity | 최종 런타임 수정본 6/6 PASS, FAIL/SKIP 0 | OS 사용자 codex로 project-bindings·local-loop·EditMode·Play 저장/복원·개인화 네트워크·음악 검사 |
+| Visual 자동 검사 | 최종 category별 8/8 PASS, PNG 1,094장 | 기존 7개에 측정 동의 검사 추가. 동의 검사 22개 assertion·36장 |
+| 직접 vision 검토 | 대표 21장 확인 | 설정·안내·저장 실패·정원 주야간·동의 화면에서 의도하지 않은 겹침/잘린 조작 요소 없음. 전체 1,094장 직접 검토나 모든 실기기 해상도 보장 아님 |
+| native 실기기 실행기 | produce 14개 + restore 16개, 합계 30개 PASS | 실제 서로 다른 프로세스·전체 payload 보존·합성 정리 조건을 검사하고 설정 복원 확인. 제품/다른 APK는 연결 전 거부. 합성 전용 분리 APK이며 제품 앱 종단과 구분 |
+| 이전 제품 APK | `694756d` 인플레이스 설치·동의·품질 heartbeat·철회 확인 | 철회 후 추천/측정/품질 행 모두 0, 등록 revoked. 최신 수정본의 제품 종단 검사로 대체하지 않음 |
+| 최신 제품 APK 빌드·설치 | 전체 Unity Android 빌드 exit 0, 동일 APK 인플레이스 설치 PASS | 첫 시도는 심볼 복사 중 디스크 부족. 원본 로그 보존·생성 임시물 정리 후 OS 사용자 codex로 전체 재빌드 성공. 설치 APK SHA-256과 빌드 산출물 일치 |
+| 최신 제품 앱의 로컬 측정 | 동의 OFF/ON, 오프라인 선택→시작→종료 및 약 1.3초 선택/취소 기록 보존 확인 | 1.3초 내 선택·취소도 저장 직후 기록. 오프라인 프로세스 재시작 전후 이벤트 7개의 전체 payload 동일 |
+| 최신 제품 알림·전송·분석 | 실제 주기 WorkManager의 고정 시각 알림 게시→알림 트레이 클릭→native→Unity JNI/HTTP→로컬 QA API PASS | native 원본과 서버 이벤트 7개 전체 payload 일치, 전체 전송 경계·정상 품질 확인, ACK 후 pending 0. CSV/JSON/PNG 생성 및 차트 vision 확인 |
+| 최신 제품 철회 | native 비활성·pending 0, 서버 추천/측정/품질 행 0·등록 revoked | 실제 UI로 철회 후 활동을 수행해도 새 수집 없음. 늦은 업로드 HTTP 403, 서버 측정 행 0 유지 |
+| 실기기·차트 vision | 최신 제품 화면과 QA 차트 대표 6개 직접 확인 | Unity 합성 화면 대표 21장 검토와 별도. 전체 기기·해상도 검사를 뜻하지 않음 |
+
+ignored `artifacts/measurement-final-unit-audit/`, `measurement-unity-final-current-20261027/`, `measurement-visual-final-tabs-current-20261027/`, `measurement-visual-final-remaining-20261027/`, `measurement-native-final-v3-device/`, `measurement-final-app-retry/`, `measurement-product-current/`에 원본 결과를 보존한다. native 실행기의 오프라인 APK 거부와 payload 비교를 보강한 최종 수정도 위 실기기 검사에 포함했다. 공개 서버 배포·실제 참가자 등록·베타 수집과 효과 평가 설계는 별도이며 이번 합성/QA 결과로 개선 효과를 주장하지 않는다.
+
+제품 종단 검사는 임시 QA 등록과 로컬 ADB loopback 서버로 수행했다. 알림은 원래 하루 발송 가드와 분리하기 위해 임시 QA 고정 시각 설정을 사용했고 실제 OS 시계·주기 WorkManager 실행으로 게시한 뒤 실제 알림 트레이를 눌렀다. 일찍 실행을 요청한 시도는 worker의 시각 가드를 우회하지 않고 재예약되었다. `live` 라벨은 제품의 기기 실행 경로를 뜻하며 모집한 참가자·대조군·베타 효과 자료를 뜻하지 않는다. 이번 자료로 알림 개인화의 편차 감소·지속사용·임상 개선을 주장하지 않는다.
+
+검사 범위의 앱 설정·정원 저장 17개 파일은 원본 바이트와 존재 여부까지 복원 확인했다. 센서 기록과 WorkManager DB는 복원 작업으로 덮어쓰지 않았다. 제품 검사와 최종 native 검사 모두 화면 꺼짐 시간·밝기·밝기 모드의 원래 값 복원을 확인했다. 원본 값과 장치 식별자는 private 복원 기록에만 보존한다.
+
+원본 복원 후 제품 앱을 다시 실행해 임시 QA 등록이 없고 측정 outbox가 비활성인 상태를 확인했으며, 이 마지막 확인 후에도 화면 설정 3개를 원래 값으로 복원했다.

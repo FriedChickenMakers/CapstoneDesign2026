@@ -158,7 +158,14 @@ usability tests.
 `POST /measurements/batch` uses the existing authenticated enrollment, schema 1
 and consent 2. It is separate from the four-feature recommendation contract.
 The exact field allowlist is in `measurements.py`; batches contain 0–100 events,
-a collection ID, dropped-attempt/expired-event counters and a storage-error flag.
+a collection ID, dropped-attempt/expired-event counters, a storage-error flag and
+`complete_through_utc_ms`. The latter is the native snapshot time only when the
+batch includes **every** event then pending; partial batches send 0. A successfully
+accepted full snapshot advances the collection's completion watermark. The
+analyzer requires this watermark to cover the response window before treating an
+unobserved click as an eligible nonresponse; server receipt time alone is insufficient.
+Legacy clients may omit the field, and older databases migrate it to 0 rather than
+inventing a completion boundary.
 Empty batches report synchronization/quality without inventing a behavioral event.
 `measurements` and `measurement_quality` tables are created on service startup;
 participant deletion and 90-day retention include both tables. Deploy this server

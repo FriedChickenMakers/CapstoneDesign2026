@@ -45,10 +45,11 @@ def validate(event, now):
 
 def accept(db, subject, body, now, api_error):
     required = {"schema_version", "consent_version", "collection_id", "dropped_attempts", "expired_events", "storage_error", "events"}
-    if (not isinstance(body, dict) or set(body) != required or type(body["schema_version"]) is not int
+    if (not isinstance(body, dict) or set(body) not in (required, required | {"complete_through_utc_ms"}) or type(body["schema_version"]) is not int
             or body["schema_version"] != 1 or type(body["consent_version"]) is not int or body["consent_version"] != 2
             or not identifier(body["collection_id"]) or not integer(body["dropped_attempts"], 0, 2**63-1)
             or not integer(body["expired_events"], 0, 2**63-1) or type(body["storage_error"]) is not bool
+            or not integer(body.get("complete_through_utc_ms", 0), 0, now + 300000)
             or not isinstance(body["events"], list) or not 0 <= len(body["events"]) <= 100):
         raise api_error(400, "measurement_batch")
     if any(not validate(e, now) for e in body["events"]):
@@ -62,9 +63,13 @@ def accept(db, subject, body, now, api_error):
         db.execute("INSERT OR IGNORE INTO measurements VALUES (?, ?, ?, ?, ?, ?)",
                    (subject, event["event_id"], body["collection_id"], event["notification_id"], event["occurred_utc_ms"], payload))
         ids.append(event["event_id"])
-    db.execute("""INSERT INTO measurement_quality VALUES (?, ?, ?, ?, ?, ?)
+    db.execute("""INSERT INTO measurement_quality
+        (subject, collection_id, dropped, expired, storage_error, updated, complete_through)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(subject, collection_id) DO UPDATE SET
         dropped=MAX(dropped, excluded.dropped), expired=MAX(expired, excluded.expired),
-        storage_error=MAX(storage_error, excluded.storage_error), updated=excluded.updated""",
-               (subject, body["collection_id"], body["dropped_attempts"], body["expired_events"], int(body["storage_error"]), now))
+        storage_error=MAX(storage_error, excluded.storage_error), updated=excluded.updated,
+        complete_through=MAX(complete_through, excluded.complete_through)""",
+               (subject, body["collection_id"], body["dropped_attempts"], body["expired_events"], int(body["storage_error"]), now,
+                min(now, body.get("complete_through_utc_ms", 0))))
     return {"accepted_event_ids": ids}
