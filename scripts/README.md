@@ -27,6 +27,16 @@ parallel editors against this project's Library. `scripts/test.sh` only validate
 project wiring; it is not the full suite. Isolated synthetic saves are created by
 the combined runner, which never changes the operating-system clock.
 
+Run Unity as the OS user whose Unity license is already configured, with that
+user's actual `HOME`. On the shared worker this is `codex` with
+`HOME="/home/codex"`; a root shell must switch users before launching the Editor.
+An access-token warning alone does not establish license expiry: check whether
+entitlements resolve and the requested validation actually runs. Do not copy or
+edit license files to work around an account mismatch. Before switching users,
+check existing Editor processes and project locks; repair only specifically
+identified generated files that the wrong user left unwritable, not the entire
+checkout. Keep license logs and generated captures in ignored artifacts.
+
 ```bash
 ./scripts/bootstrap-project.sh
 ./scripts/test.sh

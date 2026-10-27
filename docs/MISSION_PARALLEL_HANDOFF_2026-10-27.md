@@ -138,7 +138,7 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 
 ## 8. 실행·검증·수용 기준
 
-Unity **6000.3.24f1**. 저장소의 `Packages/manifest.json`/lock을 사용한다. 기존 프로젝트를 열 때 씬을 무조건 재생성하지 않는다. Editor가 설치·라이선스 설정된 환경에서 실행한다. 자세한 환경변수·도구 설치는 [scripts 안내](../scripts/README.md), [QA 범위](QA_AUTOMATION_AND_COVERAGE.md), [개인정보 검사](REPOSITORY_PRIVACY.md)를 따른다.
+Unity **6000.3.24f1**. 저장소의 `Packages/manifest.json`/lock을 사용한다. 기존 프로젝트를 열 때 씬을 무조건 재생성하지 않는다. Editor를 라이선스가 설정된 OS 계정과 해당 HOME으로 실행한다. 이 공유 worker는 `codex`·`HOME="/home/codex"`이며 root로 Unity를 실행하지 않는다. 라이선스 파일/키를 복사·수정하지 않는다. 자세한 환경변수·도구 설치는 [scripts 안내](../scripts/README.md), [QA 범위](QA_AUTOMATION_AND_COVERAGE.md), [개인정보 검사](REPOSITORY_PRIVACY.md)를 따른다.
 
 ```bash
 # 빠른 개발 검사
@@ -165,8 +165,25 @@ python3 scripts/qa.py --tier visual --output artifacts/team-visual
 
 ### 이번 준비 작업의 검증 기록
 
-- 필수 `unit`: **17/17 PASS**, SKIP 없음. Python 실행기 45개·서버 22개 포함. 새 추천 선택 검사 **23개 PASS**.
-- 실제 Unity/package 참조와 기존 Editor 응답 파일로 현재 `Assembly-CSharp` 소스+새 모듈을 **Roslyn 컴파일 성공**. 캐시된 참조를 사용한 컴파일 검사이며 새 Editor 실행·Play·IL2CPP/APK 검증은 아니다.
-- `project-bindings`, `local-loop` Unity 검사를 실행했으나 **Editor 라이선스 부재로 두 항목 FAIL**. 코드 실행 전 중단했으며 과거 성공 결과로 대체하지 않았다. 라이선스가 있는 팀원 환경에서 위 Unity/visual 검사를 재실행해야 한다.
-- 로컬 결과는 ignored `artifacts/team-handoff-20261027/` 아래 `unit/results.json`, `roslyn/result.json`, `unity/results.json`. unit 결과의 기준 SHA는 시작 커밋이며 작업 트리 변경 포함 실행임을 기록한다. 실제 원격 commit/push/CI 기록은 Docs 저장소의 인수인계 문서에 남긴다.
-- 공개 대상 코드·문서·합성 테스트만 stage하고 worktree/index 개인정보 검사를 수행한다. 실제 기기에 접속하지 않았으므로 이번 작업에서 변경한 기기 설정·신규 복원 대기는 없다.
+- 필수 `unit`: **17/17 PASS**, SKIP 없음. Python 실행기 45개·서버 22개 포함. 새 추천 선택 검사 **23개 PASS**. 최초 준비 작업의 결과이며 아래 Unity 결과를 대신하지 않는다.
+- 최초 Roslyn 검사는 실제 Unity/package 캐시 참조를 사용한 컴파일 성공이었다. 이후 **2026-10-27, 코드 `49b84399429ddac2bf7dab208a082b7202173433`에서 실제 Unity 6000.3.24f1 재검증**을 실행했다. 시작 시 작업 트리는 깨끗했고 제품 소스·저장 계약을 수정하지 않았다.
+- 최초 root 실행의 `project-bindings`·`local-loop`는 라이선스 인식 실패로 실행 전 FAIL이었다. 이를 라이선스 만료로 단정하지 않는다. 기존 **OS 사용자 codex·HOME="/home/codex"**로 실행하자 entitlement를 정상 인식하고 검사가 진행되었다. 라이선스 파일/키 복사·수정과 새 사용자 로그인 없이 해결했다.
+- **Unity tier 6/6 PASS, FAIL/SKIP 0:** project-bindings, local-loop **39/39**, EditMode **151/151**, Play fresh/restore, 실제 UnityWebRequest→로컬 API 동의/업로드/철회/삭제, 음악 Play **54개 확인**. 통신 fixture의 임시 인증·서버 데이터 정리도 확인했다.
+- **Visual tier 7/7 PASS, FAIL/SKIP 0:** tabs, supplemental-ui, guided-ui, demo-polish, sky, lighting, procedural-scene. 기본 138장·추가 상태 195장·8주 전체 안내 585장, 합계 **918장**의 UI 캡처에서 보고된 텍스트 넘침은 **0건**이었다. 복습 추천·미션 단계·추천 설정의 대표 화면 3장도 직접 확인했다. 전체 이미지에 대한 사람의 검토나 모든 2/4주 화면·실기기 터치 검증을 뜻하지 않는다. 두 tier 합계 **13/13 PASS**.
+- Play 로그에는 Unity 내부 `UnityEditor.Search.SearchDatabase` 초기화의 `ArgumentOutOfRangeException`이 기록됐다. 해당 검증은 계속 실행되어 위 assertion과 결과 파일이 PASS였으며, 제품 호출 스택이 없는 Editor 검색 초기화 예외로 구분해 기록한다. 로그에 오류가 전혀 없었다는 의미는 아니다.
+- 실행 전 Editor 프로세스와 잠금을 확인했다. 이전 root 실행이 남긴 `Temp` 및 `Temp/UnityLockfile` 두 경로만 codex 소유로 수정했으며 전체 checkout chown/권한 완화는 하지 않았다. 검증 중 생성된 폰트 캐시 변경은 별도 보존 후 모든 Editor 종료를 확인하고 기준 자산으로 복원하여 배포 대상에서 제외했다.
+- 최초 증거는 ignored `artifacts/team-handoff-20261027/`에 유지한다. 재검증은 별도 `artifacts/team-handoff-20261027-codex-unity/`의 `results.json`, `editmode.xml`, 각 검사 결과·캡처에 보존한다. 실제 원격 commit/push/CI 기록은 Docs 저장소 인수인계에 남긴다.
+- 이번 추가 배포는 검증 기록·실행 계정 안내를 갱신하는 문서 변경이다. 두 팀원 브랜치는 최초 기능 기준 `49b8439`에 유지하며 강제 갱신하지 않는다. 통합 브랜치의 문서 갱신은 필요할 때 일반 merge로 가져온다.
+- Android APK·실기기·키보드/터치·배포 서버 검증과 향후 두 기능의 수용 검사는 별도다. 이번 변경에 네이티브 수정은 없고 실제 기기에 접속하지 않았으므로 신규 기기 설정 변경·복원 대기는 없다.
+
+이번 worker에서 실행한 명령(관리 셸에서 OS 계정을 전환하며, 팀원은 자신의 라이선스가 설정된 계정에서 실행):
+
+```bash
+runuser -u codex -- env HOME="/home/codex" USER=codex LOGNAME=codex \
+  UNITY_BIN=/opt/unity/editors/6000.3.24f1/Editor/Unity \
+  xvfb-run -a -s '-screen 0 1920x1080x24' \
+  python3 scripts/qa.py --tier unity --tier visual \
+  --output artifacts/team-handoff-20261027-codex-unity --timeout 600
+```
+
+이 명령의 output 경로는 이미 사용했으므로 재실행 시 새 경로로 바꾼다. 라이선스 원문·로그·캡처·합성 저장 파일은 커밋하지 않는다.
