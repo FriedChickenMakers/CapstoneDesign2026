@@ -18,7 +18,7 @@ namespace CapstoneDesign.Runtime
         readonly string[] experienceValues=new string[4];
         readonly string[] experienceQuestions={"무슨 일이 있었나요?","몸에서는 무엇이 느껴졌나요?","어떤 감정이 있었나요?","어떤 생각이 떠올랐나요?"};
 
-        public void ShowProgramSelection()
+        void ShowLegacyProgramSelection()
         {
             if(!opened)return;
             EnterPage("programs",ShowProgramSelection);var p=FocusPage("내게 맞는 기간","마음챙김 활동");
@@ -68,6 +68,7 @@ namespace CapstoneDesign.Runtime
         }
         bool SaveActivePracticeDraft()
         {
+            if(!SaveFocusDraft())return false;
             if(practiceInput==null || practiceKey==null || practiceSession==null)return true;
             var session=Service.Snapshot.Sessions.FirstOrDefault(s=>s.SessionId==practiceSession);
             if(session?.Status!=ParticipationState.InProgress || session.InstructionStep!=practiceStep)return true;

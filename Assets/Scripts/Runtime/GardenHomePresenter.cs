@@ -100,7 +100,10 @@ namespace CapstoneDesign.Runtime
             {
                 EnsureHomeBackground();
                 // Keep the actual home navigation mounted across all three tabs.
-                homeCanvas.gameObject.SetActive(true);
+                // Mission pages own the Figma header and tabs, including the
+                // distraction-free practice view. The garden canvas is restored on return.
+                bool missionSurface=navigation!=null && navigation.activitiesPanel!=null && navigation.activitiesPanel.activeSelf;
+                homeCanvas.gameObject.SetActive(!missionSurface);
                 var background=homeCanvas.transform.Find("Background");
                 if(background!=null)background.gameObject.SetActive(visible);
                 var content=homeCanvas.transform.Find("SafePortraitFrame/MainContent");
@@ -374,12 +377,12 @@ namespace CapstoneDesign.Runtime
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
                     if (progressDots[i] != null) progressDots[i].color = i <= visualStage ? Green : Pale;
-            var active = saved.Sessions.LastOrDefault(s => s.Status == ParticipationState.Selected || s.Status == ParticipationState.InProgress || s.Status == ParticipationState.Paused);
-            var completed = saved.Sessions.LastOrDefault(s => s.InstanceId == saved.LastCycleId && s.Status == ParticipationState.RewardCommitted);
+            var active = saved.Sessions.LastOrDefault(s => FocusMissionPolicy.IsFocus(s) && FocusMissionPolicy.IsActive(s));
+            var completed = saved.Sessions.LastOrDefault(s => FocusMissionPolicy.IsFocus(s) && s.InstanceId == saved.LastCycleId && s.Status == ParticipationState.RewardCommitted);
             if (dailyStatus != null) dailyStatus.text = active != null ? "이어서 하기"
                 : completed != null ? "오늘 완료한 활동" : "오늘의 활동";
-            if (missionName != null) missionName.text = active != null ? (MindfulnessContent.FindMission(active.MissionId)?.title ?? "활동 이어가기")
-                : completed != null ? (MindfulnessContent.FindMission(completed.MissionId)?.title ?? "참여 기록 보기") : "활동 선택하기";
+            if (missionName != null) missionName.text = active != null ? (active.MissionTitleSnapshot ?? FocusMissionCatalog.Find(active.MissionId)?.Title ?? "활동 이어가기")
+                : completed != null ? (completed.MissionTitleSnapshot ?? FocusMissionCatalog.Find(completed.MissionId)?.Title ?? "참여 기록 보기") : "활동 선택하기";
             if (missionActionLabel != null) missionActionLabel.text = active != null ? "활동 이어가기" : "오늘의 활동";
             if (homeTabLabel != null) homeTabLabel.text = "홈 · 정원";
             if (activityTabLabel != null) activityTabLabel.text = "오늘의 활동";

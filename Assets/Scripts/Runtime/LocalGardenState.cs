@@ -105,6 +105,78 @@ namespace CapstoneDesign.Runtime.LocalState
         }
     }
     public enum ParticipationState { Selected, InProgress, Paused, Ended, RewardCommitted }
+    // The active four-mission product uses stable source IDs and separate course occurrences.
+    // These dependency-free definitions also serve the standalone persistence tests.
+    public sealed class FocusMissionStep
+    {
+        public string Key, Title, Body, ActionLabel, InputHint;
+        public string[] Options = Array.Empty<string>();
+        public bool OptionalInput;
+    }
+    public sealed class FocusMissionDefinition
+    {
+        public string Id, Code, Title, Overview, Role, BackgroundHex, AccentHex, TextHex;
+        public FocusMissionStep[] Steps;
+    }
+    public static class FocusMissionCatalog
+    {
+        public const int Version = 1;
+        public const string BasicRole = "basic", AdditionalRole = "additional";
+        static FocusMissionStep Step(string key,string title,string body,string action,string[] options=null,bool input=false,string hint=null)
+            => new FocusMissionStep {Key=key,Title=title,Body=body,ActionLabel=action,Options=options??Array.Empty<string>(),OptionalInput=input,InputHint=hint};
+        public static readonly FocusMissionDefinition[] All = {
+            new FocusMissionDefinition {Id="course:P10",Code="P10",Title="잠시 숨 고르기",Overview="하던 일 사이에서\n잠시 멈춰봐요.",Role=BasicRole,BackgroundHex="#EFF9F7",AccentHex="#2F726E",TextHex="#224B49",Steps=new[]{
+                Step("awareness","지금 살펴보기","생각·감정·몸 감각을\n있는 그대로 살펴요.","계속"),
+                Step("breath","숨에 주의 모으기","자연스러운 숨이 느껴지는 곳에\n잠시 머물러요.","계속"),
+                Step("expand","주의 넓히기","몸 전체와 주변으로\n주의를 넓혀봐요.","계속"),
+                Step("ready","마무리하기","하던 일로 돌아갈\n준비가 되었나요?","완료")}},
+            new FocusMissionDefinition {Id="course:P23",Code="P23",Title="한입에 주의 기울이기",Overview="평소 식사의 한입을\n천천히 살펴봐요.",Role=BasicRole,BackgroundHex="#FFF2DF",AccentHex="#9B5D2B",TextHex="#183845",Steps=new[]{
+                Step("prepare","한입 준비","먹을 수 있는 음식 한입을\n준비해요.","준비했어요"),
+                Step("observe","향과 모양","먹기 전 향과 모양을\n살펴봐요.","계속"),
+                Step("bite","한입 느끼기","먹으면서 온도와 질감에\n주의를 둬요.","한입 먹었어요"),
+                Step("sensation","감각 돌아보기","어떤 감각이 눈에 띄었나요?\n선택하지 않아도 괜찮아요.","완료",new[]{"향","온도","질감","특별한 감각 없음"})}},
+            new FocusMissionDefinition {Id="course:P25",Code="P25",Title="말하기 전에 잠깐 멈추기",Overview="말하거나 메시지를 보내기 전\n잠시 멈춰봐요.",Role=BasicRole,BackgroundHex="#F8EDF1",AccentHex="#96516B",TextHex="#183845",Steps=new[]{
+                Step("pause","잠깐 멈추기","아직 말하거나 보내지 말고\n숨을 한 번 고르세요.","멈췄어요"),
+                Step("message","전할 말 확인","전하고 싶은 핵심을\n한 문장으로 떠올려요.","계속",null,true,"적거나 속으로 떠올려요"),
+                Step("speak","이제 전하기","이제 편한 방식으로\n말하거나 보내세요.","말하거나 보냈어요"),
+                Step("check","순서 확인","멈춘 뒤 내용을\n확인했나요?","완료")}},
+            new FocusMissionDefinition {Id="free-mission:M03",Code="M03",Title="물 마시기",Overview="물 한 모금으로\n잠시 쉬어가요.",Role=AdditionalRole,BackgroundHex="#F0FAFF",AccentHex="#0B7098",TextHex="#163D50",Steps=new[]{
+                Step("prepare","물 준비","마실 물 한 잔을\n가까이 두세요.","준비했어요"),
+                Step("drink","한 모금 마시기","물을 마신 뒤 가운데\n물방울을 눌러요.","물 마셨어요")}}
+        };
+        public static FocusMissionDefinition[] Basic => All.Where(m=>m.Role==BasicRole).ToArray();
+        public static FocusMissionDefinition[] Additional => All.Where(m=>m.Role==AdditionalRole).ToArray();
+        public static FocusMissionDefinition Find(string idOrCode) => All.FirstOrDefault(m=>m.Id==idOrCode || m.Code==idOrCode);
+    }
+    public sealed class FocusStepRecord
+    {
+        public int Step;
+        public string Key, Title, Prompt, Value = "", ConfirmedUtc, UpdatedUtc;
+        public bool Skipped;
+        internal FocusStepRecord Copy() => (FocusStepRecord)MemberwiseClone();
+    }
+    public static class FocusMissionPolicy
+    {
+        public const int TotalPractices = 12, PracticesPerWeek = 6;
+        static readonly string[] Sequence = {"P23","P10","P25"};
+        public static bool IsFocus(ActivitySession session) => session!=null && session.FocusVersion==FocusMissionCatalog.Version;
+        public static bool IsActive(ActivitySession session) => session!=null && (session.Status==ParticipationState.Selected || session.Status==ParticipationState.InProgress || session.Status==ParticipationState.Paused);
+        public static FocusMissionDefinition MissionAt(int order) => order<1 || order>TotalPractices?null:FocusMissionCatalog.Find(Sequence[(order-1)%Sequence.Length]);
+        public static ActivitySession Active(GardenState state,string role) => state.Sessions.LastOrDefault(s=>IsFocus(s) && s.FocusRole==role && IsActive(s));
+        public static IEnumerable<ActivitySession> History(GardenState state,string missionId=null) => state.Sessions.Where(s=>IsFocus(s) && (missionId==null || s.MissionId==missionId || FocusMissionCatalog.Find(missionId)?.Id==s.MissionId)).OrderByDescending(s=>s.SelectedUtc,StringComparer.Ordinal);
+        public static IEnumerable<ActivitySession> Completed(GardenState state) => state.Sessions.Where(s=>IsFocus(s) && s.FocusRole==FocusMissionCatalog.BasicRole && !s.FocusReview && s.Status==ParticipationState.RewardCommitted);
+        public static int CompletedCount(GardenState state) => Completed(state).Count();
+        public static int NextOrder(GardenState state) => CompletedCount(state)+1;
+        public static bool AdditionalCompletedToday(GardenState state) => state.Sessions.Any(s=>IsFocus(s) && s.FocusRole==FocusMissionCatalog.AdditionalRole && !s.FocusReview && s.Status==ParticipationState.RewardCommitted && s.InstanceId==state.LastCycleId);
+        public static string Availability(GardenState state)
+        {
+            if(NextOrder(state)>TotalPractices)return "2주 과정을 마쳤어요. 내 과정에서 기록을 돌아볼 수 있어요.";
+            var completed=Completed(state).ToArray();
+            if(completed.Any(s=>s.InstanceId==state.LastCycleId))return "오늘 기본 미션을 마쳤어요. 다음 기본 미션은 내일 열려요.";
+            if(state.LastCycleId.Length>0 && completed.Count(s=>MbctPolicy.WeekOf(s.InstanceId)==MbctPolicy.WeekOf(state.LastCycleId))>=PracticesPerWeek)return "이번 주 기본 미션을 모두 마쳤어요. 다음 주에 이어가요.";
+            return null;
+        }
+    }
     public sealed class RecommendationContext
     {
         public int UtcOffsetMinutes;
@@ -114,10 +186,15 @@ namespace CapstoneDesign.Runtime.LocalState
     }
     public sealed class ActivitySession
     {
-        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); return copy; }
+        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); return copy; }
         public RecommendationContext Recommendation;
         public string SessionId, MissionId, InstanceId, SelectedUtc, StartedUtc, EndedUtc;
         public string Mood, Note;
+        // Optional schema-1 additions: old sessions remain FocusVersion=0 and keep their meaning.
+        public int FocusVersion, FocusOrder, RewardAmount;
+        public string FocusRole, MissionTitleSnapshot, MissionDescriptionSnapshot;
+        public bool FocusReview;
+        public List<FocusStepRecord> FocusStepRecords = new List<FocusStepRecord>();
         public int CourseOrder;
         public int InstructionStep;
         public List<PracticeAnswer> Answers = new List<PracticeAnswer>();
@@ -305,6 +382,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 }
                 if(a.RealStepHighWater<0 || a.VirtualSteps<0 || a.RealStepHighWater>long.MaxValue-a.VirtualSteps)throw new InvalidDataException("Invalid session steps.");
             }
+            ValidateFocus(s);
             if (s.Environments.Any(e=>!Typed(e.EnvironmentId,"environment") || e.Slot != e.Slot.Trim().ToLowerInvariant()) || s.Plants.Any(p=>!Typed(p.PlantId,"plant") || !Finite(p.Growth) || p.Growth < 0) || s.CompletedCourseIds.Any(id=>!Typed(id,"course")) || s.DiscoveredAnimalIds.Any(id=>!Typed(id,"animal"))) throw new InvalidDataException("Invalid permanent garden records.");
             if (s.PurchaseCommands.Any(c=>string.IsNullOrWhiteSpace(c.Command) || !s.PurchaseReceipts.Contains(c.RequestId))) throw new InvalidDataException("Purchase identity mismatch.");
             if(s.GrowthHistory==null)throw new InvalidDataException("Growth history missing.");
@@ -320,6 +398,51 @@ namespace CapstoneDesign.Runtime.LocalState
                     throw new InvalidDataException("Growth record references an unavailable activity.");
             }
             GardenPlantVisuals.Validate(s);
+        }
+        static void ValidateFocus(GardenState state)
+        {
+            if(state.Sessions.Any(s=>s.FocusVersion<0 || s.FocusVersion>FocusMissionCatalog.Version))throw new InvalidDataException("Unsupported focus mission version.");
+            var sessions=state.Sessions.Where(FocusMissionPolicy.IsFocus).ToArray();
+            foreach(var session in sessions)
+            {
+                var definition=FocusMissionCatalog.Find(session.MissionId);
+                if(definition==null || session.FocusRole!=definition.Role || session.CourseOrder!=0 || string.IsNullOrWhiteSpace(session.MissionTitleSnapshot) || string.IsNullOrWhiteSpace(session.MissionDescriptionSnapshot)
+                    || session.InstructionStep>definition.Steps.Length+1 || session.FocusStepRecords==null || session.FocusStepRecords.Count!=definition.Steps.Length || session.RewardAmount<0
+                    || (session.Mood!=null && session.Mood.Length>80) || (session.Note!=null && session.Note.Length>500))throw new InvalidDataException("Invalid focus mission record.");
+                if(session.FocusRole==FocusMissionCatalog.BasicRole)
+                {
+                    if(FocusMissionPolicy.MissionAt(session.FocusOrder)?.Id!=session.MissionId)throw new InvalidDataException("Focus course occurrence mismatch.");
+                }
+                else if(session.FocusOrder!=0)throw new InvalidDataException("Invalid additional mission occurrence.");
+                bool gap=false;DateTimeOffset previous=DateTimeOffset.MinValue;
+                for(int i=0;i<session.FocusStepRecords.Count;i++)
+                {
+                    var record=session.FocusStepRecords[i];
+                    if(record==null || record.Step!=i || record.Key!=definition.Steps[i].Key || string.IsNullOrWhiteSpace(record.Title) || string.IsNullOrWhiteSpace(record.Prompt)
+                        || record.Value==null || record.Value.Length>500 || (record.Skipped && record.Value.Length>0)
+                        || (!string.IsNullOrEmpty(record.UpdatedUtc) && !Timestamp(record.UpdatedUtc)))throw new InvalidDataException("Invalid focus step record.");
+                    if(string.IsNullOrEmpty(record.ConfirmedUtc)){gap=true;continue;}
+                    DateTimeOffset confirmed;
+                    if(gap || !DateTimeOffset.TryParse(record.ConfirmedUtc,out confirmed) || confirmed<=previous || !Timestamp(session.StartedUtc) || confirmed<DateTimeOffset.Parse(session.StartedUtc))throw new InvalidDataException("Focus confirmation order mismatch.");
+                    previous=confirmed;
+                }
+                int reached=session.FocusStepRecords.Count(r=>!string.IsNullOrEmpty(r.ConfirmedUtc));
+                if(session.InstructionStep>reached && reached<definition.Steps.Length)throw new InvalidDataException("Unconfirmed focus step skipped.");
+                if(session.Status==ParticipationState.RewardCommitted && (reached!=definition.Steps.Length || DateTimeOffset.Parse(session.EndedUtc)<previous))throw new InvalidDataException("Incomplete focus mission committed.");
+                if(session.Status!=ParticipationState.RewardCommitted && session.RewardAmount!=0)throw new InvalidDataException("Uncommitted focus reward.");
+                if(session.FocusReview && session.RewardAmount!=0)throw new InvalidDataException("Review cannot award nutrients.");
+                if(session.Status==ParticipationState.RewardCommitted && !session.FocusReview)
+                {
+                    string receipt=session.FocusRole==FocusMissionCatalog.BasicRole?"focus-v1|basic|"+session.FocusOrder:session.InstanceId+"|focus-v1|additional|M03";
+                    if(!state.RewardReceipts.Contains(receipt))throw new InvalidDataException("Focus reward receipt missing.");
+                }
+            }
+            foreach(string role in new[]{FocusMissionCatalog.BasicRole,FocusMissionCatalog.AdditionalRole})
+                if(sessions.Count(s=>s.FocusRole==role && FocusMissionPolicy.IsActive(s))>1)throw new InvalidDataException("Multiple focus drafts in the same role.");
+            var completed=FocusMissionPolicy.Completed(state).OrderBy(s=>s.FocusOrder).ToArray();
+            for(int i=0;i<completed.Length;i++)if(completed[i].FocusOrder!=i+1)throw new InvalidDataException("Focus course progress is not contiguous.");
+            if(sessions.Where(s=>s.FocusRole==FocusMissionCatalog.AdditionalRole && s.RewardAmount>0).GroupBy(s=>s.InstanceId).Any(g=>g.Count()>1))throw new InvalidDataException("Additional reward duplicated.");
+            if(sessions.Any(s=>s.FocusReview && s.FocusOrder>completed.Length))throw new InvalidDataException("Unlearned focus review.");
         }
         static bool Finite(float n) { return !float.IsNaN(n) && !float.IsInfinity(n); }
         internal static void ValidateRecommendation(RecommendationContext context)
@@ -554,6 +677,138 @@ namespace CapstoneDesign.Runtime.LocalState
                 next.Sessions.Add(new ActivitySession { SessionId = sessionId, MissionId = missionId, InstanceId = next.LastCycleId, SelectedUtc = Now, Status = ParticipationState.Selected, CourseOrder = courseOrder, Recommendation=recommendation?.Copy() });
             });
         }
+        public bool BeginFocusSession(string sessionId,string missionId,int order=0,bool review=false)
+        {
+            lock(gate)
+            {
+                bool saved=Change(next=>
+                {
+                    if(string.IsNullOrWhiteSpace(sessionId) || sessionId.Contains("|"))throw new ArgumentException("Session id required.");
+                    var definition=FocusMissionCatalog.Find(missionId)??throw new ArgumentException("Unknown active mission.");
+                    var existing=next.Sessions.FirstOrDefault(s=>s.SessionId==sessionId);
+                    bool basic=definition.Role==FocusMissionCatalog.BasicRole;
+                    int occurrence=basic?(order>0?order:existing?.FocusOrder??(review?FocusMissionPolicy.Completed(next).Where(s=>s.MissionId==definition.Id).Select(s=>s.FocusOrder).DefaultIfEmpty(0).Max():FocusMissionPolicy.NextOrder(next))):0;
+                    if(existing!=null)
+                    {
+                        if(!FocusMissionPolicy.IsFocus(existing) || existing.MissionId!=definition.Id || existing.FocusOrder!=occurrence || existing.FocusReview!=review)throw new InvalidOperationException("Session belongs to a different mission occurrence.");
+                        return;
+                    }
+                    if(order<0 || (!basic && order!=0))throw new ArgumentException("Invalid mission occurrence.");
+                    AdvanceCycle(next,cycleCandidates);
+                    if(FocusMissionPolicy.Active(next,definition.Role)!=null)throw new InvalidOperationException(basic?"진행하던 기본 미션을 이어서 해주세요.":"진행하던 추가 미션을 이어서 해주세요.");
+                    if(basic)
+                    {
+                        if(FocusMissionPolicy.MissionAt(occurrence)?.Id!=definition.Id)throw new InvalidOperationException("기본 미션 순서를 확인해 주세요.");
+                        if(review)
+                        {
+                            if(occurrence>=FocusMissionPolicy.NextOrder(next))throw new InvalidOperationException("완료한 미션만 복습할 수 있어요.");
+                        }
+                        else
+                        {
+                            if(occurrence!=FocusMissionPolicy.NextOrder(next))throw new InvalidOperationException("현재 순서의 기본 미션부터 시작해 주세요.");
+                            var unavailable=FocusMissionPolicy.Availability(next);if(unavailable!=null)throw new InvalidOperationException(unavailable);
+                        }
+                    }
+                    else if(review && !next.Sessions.Any(s=>FocusMissionPolicy.IsFocus(s) && s.MissionId==definition.Id && s.Status==ParticipationState.RewardCommitted))throw new InvalidOperationException("완료한 미션만 복습할 수 있어요.");
+                    next.Sessions.Add(new ActivitySession {SessionId=sessionId,MissionId=definition.Id,InstanceId=next.LastCycleId,SelectedUtc=Now,Status=ParticipationState.Selected,
+                        FocusVersion=FocusMissionCatalog.Version,FocusRole=definition.Role,FocusOrder=occurrence,FocusReview=review,
+                        MissionTitleSnapshot=definition.Title,MissionDescriptionSnapshot=definition.Overview,
+                        FocusStepRecords=definition.Steps.Select((step,index)=>new FocusStepRecord {Step=index,Key=step.Key,Title=step.Title,Prompt=step.Body}).ToList()});
+                });
+                if(saved && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
+                return saved;
+            }
+        }
+        static ActivitySession FocusActiveSession(GardenState next,string id)
+        {
+            var session=Session(next,id);
+            if(!FocusMissionPolicy.IsFocus(session) || (session.Status!=ParticipationState.InProgress && session.Status!=ParticipationState.Paused))throw new InvalidOperationException("진행 중인 미션을 확인해 주세요.");
+            return session;
+        }
+        void UpdateFocusAnswer(ActivitySession session,int step,string answer,bool skipped)
+        {
+            var definition=FocusMissionCatalog.Find(session.MissionId);
+            if(step<0 || step>=definition.Steps.Length)throw new ArgumentException("Invalid focus step.");
+            var instruction=definition.Steps[step];string value=skipped?"":answer??"";
+            if(value.Length>500)throw new ArgumentException("기록은 500자까지 입력할 수 있어요.");
+            if(!instruction.OptionalInput && value.Length>0 && !instruction.Options.Contains(value))throw new ArgumentException("제공된 선택지 중에서 골라주세요.");
+            var record=session.FocusStepRecords[step];record.Value=value;
+            record.Skipped=(instruction.OptionalInput || instruction.Options.Length>0) && (skipped || value.Length==0);
+            record.UpdatedUtc=SessionTime(session.StartedUtc);
+            if(value.Length==0)session.Answers.RemoveAll(a=>a.Key==record.Key);else SetAnswer(session.Answers,record.Key,value);
+        }
+        public bool SaveFocusDraft(string id,int step,string answer=null,bool skipped=false) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);
+            if(step!=session.InstructionStep)throw new InvalidOperationException("현재 화면의 입력만 저장할 수 있어요.");
+            UpdateFocusAnswer(session,step,answer,skipped);
+        });
+        public bool ConfirmFocusStep(string id,int step,string answer=null,bool skipped=false) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);int count=session.FocusStepRecords.Count;
+            if(step<0 || step>=count)throw new ArgumentException("Invalid focus step.");
+            var record=session.FocusStepRecords[step];
+            // A duplicate tap cannot update an already-advanced response or award anything twice.
+            if(step<session.InstructionStep && !string.IsNullOrEmpty(record.ConfirmedUtc))return;
+            if(step!=session.InstructionStep || session.FocusStepRecords.Take(step).Any(r=>string.IsNullOrEmpty(r.ConfirmedUtc)))throw new InvalidOperationException("앞선 안내를 먼저 확인해 주세요.");
+            UpdateFocusAnswer(session,step,answer,skipped);
+            if(string.IsNullOrEmpty(record.ConfirmedUtc))
+            {
+                var previous=DateTimeOffset.Parse(step==0?session.StartedUtc:session.FocusStepRecords[step-1].ConfirmedUtc);
+                var confirmed=clock.UtcNow;if(confirmed<=previous)confirmed=previous.AddTicks(1);
+                record.ConfirmedUtc=confirmed.ToString("O");record.UpdatedUtc=record.ConfirmedUtc;
+            }
+            session.InstructionStep=step+1;
+        });
+        public bool MoveFocusStep(string id,int step) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);int reached=session.FocusStepRecords.Count(r=>!string.IsNullOrEmpty(r.ConfirmedUtc));
+            int maximum=reached==session.FocusStepRecords.Count?reached+1:reached;
+            if(step<0 || step>maximum)throw new InvalidOperationException("아직 수행하지 않은 단계를 건너뛸 수 없어요.");
+            session.InstructionStep=step;
+        });
+        public bool SaveFocusReflection(string id,string mood,string note,int stage) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);
+            if(stage<0 || stage>1 || session.FocusStepRecords.Any(r=>string.IsNullOrEmpty(r.ConfirmedUtc)))throw new InvalidOperationException("실습을 마친 뒤 기록할 수 있어요.");
+            if((mood!=null && mood.Length>80) || (note!=null && note.Length>500))throw new ArgumentException("기록 길이를 확인해 주세요.");
+            session.Mood=mood;session.Note=note;session.InstructionStep=session.FocusStepRecords.Count+stage;
+        });
+        public bool CompleteFocusSession(string id,string mood=null,string note=null)
+        {
+            lock(gate)
+            {
+                bool saved=Change(next=>
+                {
+                    var session=Session(next,id);
+                    if(!FocusMissionPolicy.IsFocus(session))throw new InvalidOperationException("Unknown focus mission session.");
+                    if(session.Status==ParticipationState.RewardCommitted)return;
+                    FocusActiveSession(next,id);
+                    if(session.FocusStepRecords.Any(r=>string.IsNullOrEmpty(r.ConfirmedUtc)))throw new InvalidOperationException("모든 실습 단계를 확인한 뒤 완료해 주세요.");
+                    if((mood!=null && mood.Length>80) || (note!=null && note.Length>500))throw new ArgumentException("기록 길이를 확인해 주세요.");
+                    AdvanceCycle(next,cycleCandidates);bool basic=session.FocusRole==FocusMissionCatalog.BasicRole;
+                    if(basic && !session.FocusReview)
+                    {
+                        if(session.FocusOrder!=FocusMissionPolicy.NextOrder(next))throw new InvalidOperationException("기본 미션 진행 상태를 확인해 주세요.");
+                        var unavailable=FocusMissionPolicy.Availability(next);if(unavailable!=null)throw new InvalidOperationException(unavailable);
+                    }
+                    session.InstanceId=next.LastCycleId;
+                    string receipt=basic?"focus-v1|basic|"+session.FocusOrder:next.LastCycleId+"|focus-v1|additional|M03";
+                    session.RewardAmount=0;
+                    if(!session.FocusReview && !next.RewardReceipts.Contains(receipt))
+                    {
+                        bool legacyAdditionalPaid=!basic && next.RewardReceipts.Contains(next.LastCycleId+"|"+session.MissionId);
+                        next.RewardReceipts.Add(receipt);session.RewardAmount=legacyAdditionalPaid?0:config.CompletionNutrient;next.Nutrient=checked(next.Nutrient+session.RewardAmount);
+                    }
+                    session.Mood=mood;session.Note=note;session.Status=ParticipationState.RewardCommitted;session.InstructionStep=session.FocusStepRecords.Count+1;
+                    var last=DateTimeOffset.Parse(session.FocusStepRecords.Last().ConfirmedUtc);var ended=clock.UtcNow;
+                    session.EndedUtc=(ended<last?last:ended).ToString("O");
+                    GardenPlantVisuals.Sync(next);
+                });
+                if(saved && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
+                return saved;
+            }
+        }
         static ActivitySession Session(GardenState next, string id)
         { return next.Sessions.FirstOrDefault(s => s.SessionId == id) ?? throw new InvalidOperationException("Unknown session."); }
         public bool CancelSelection(string id)
@@ -615,6 +870,7 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             lock(gate)
             {
+                if(state!=null && FocusMissionPolicy.IsFocus(state.Sessions.FirstOrDefault(s=>s.SessionId==id)))return CompleteFocusSession(id,mood,note);
                 bool completed=Change(next =>
                 {
                     var s = Session(next, id); if (s.Status == ParticipationState.RewardCommitted) return;

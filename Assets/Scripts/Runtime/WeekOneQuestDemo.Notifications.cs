@@ -28,8 +28,8 @@ namespace CapstoneDesign.Runtime
                 var saved=Service.Snapshot.Sessions.FirstOrDefault(s=>s.SessionId==openedNotification.sessionId && s.MissionId=="free-mission:M15");
                 if(saved!=null)
                 {
-                    if(saved.Status==ParticipationState.RewardCommitted || saved.Status==ParticipationState.Ended)ShowRecord(saved.SessionId);
-                    else {sessionId=saved.SessionId;ShowSession();}
+                    // Retained notifications open the preserved record, not a retired mission flow.
+                    ShowRecord(saved.SessionId);
                     return;
                 }
             }
@@ -40,8 +40,8 @@ namespace CapstoneDesign.Runtime
         {
             var state=Service.Snapshot;
             string completed=ActivityNotificationLogic.CompletedCalendarDay(state,Service.CurrentUtc,Service.CurrentTimeZone);
-            var current=state.Sessions.LastOrDefault(s=>s.Status==ParticipationState.Selected || s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused);
-            string title=current==null?"":MindfulnessContent.FindMission(current.MissionId)?.title ?? "";
+            var current=state.Sessions.LastOrDefault(s=>FocusMissionPolicy.IsFocus(s) && FocusMissionPolicy.IsActive(s));
+            string title=current==null?"":current.MissionTitleSnapshot ?? FocusMissionCatalog.Find(current.MissionId)?.Title ?? "";
             string signature=completed+"|"+title+"|"+(current!=null);
             // Store only a confirmed native write. JNI failure or a temporarily unavailable
             // platform bridge must leave the same payload eligible for the next poll.

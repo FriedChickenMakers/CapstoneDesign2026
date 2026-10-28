@@ -122,7 +122,11 @@ namespace CapstoneDesign.Runtime
                 if(notice!=null){notice.gameObject.SetActive(true);notice.text="일일 상태 저장 실패 · 기존 진행을 보존했어요\n"+error;}
                 return false;
             }
-            if(state.LastCycleId!=Service.Snapshot.LastCycleId)UpdateGarden();
+            if(state.LastCycleId!=Service.Snapshot.LastCycleId)
+            {
+                UpdateGarden();
+                if(screen=="home" && isActiveAndEnabled)ShowHome();
+            }
             return true;
         }
         static System.Collections.Generic.IEnumerable<string> EligibleCycleAnimals(GardenState state) => state.Environments
@@ -175,7 +179,7 @@ namespace CapstoneDesign.Runtime
             rect.anchorMin=new Vector2(48f/720f,1);rect.anchorMax=new Vector2(672f/720f,1);
             rect.offsetMin=new Vector2(0,-top-height);rect.offsetMax=new Vector2(0,-top);
         }
-        public void ShowHome()
+        void ShowLegacyHome()
         {
             using var timing = UiPerformanceProbe.Measure("Activities.ShowHome");
             if(opened && !SaveActivePracticeDraft())return;ClearPracticeDraft();
@@ -210,7 +214,7 @@ namespace CapstoneDesign.Runtime
             ActivityListItem(destinations,"참여 기록과 나의 계획",null,ShowRecords,PrototypeUiIcon.Symbol.Journal);
             AddOptionalRecommendation(destinations,s);
         }
-        public void ShowCourse()
+        void ShowLegacyCourse()
         {
             using var timing = UiPerformanceProbe.Measure("Activities.ShowCourse");
             var timer=System.Diagnostics.Stopwatch.StartNew();long reads=Service.SnapshotReads;
@@ -244,7 +248,7 @@ namespace CapstoneDesign.Runtime
             DockAction("돌아가기",ShowHome);
             LastCourseBuildMs=timer.Elapsed.TotalMilliseconds;TraceScreen("course",LastCourseBuildMs,Service.SnapshotReads-reads);
         }
-        public void ShowFree()
+        void ShowLegacyFree()
         {
             using var timing = UiPerformanceProbe.Measure("Activities.ShowFree");
             var timer=System.Diagnostics.Stopwatch.StartNew();long reads=Service.SnapshotReads;
@@ -289,6 +293,7 @@ namespace CapstoneDesign.Runtime
         ActivitySession ActiveSession() => Service.Snapshot.Sessions.FirstOrDefault(s=>s.SessionId==sessionId);
         public void ShowSession()
         {
+            if(FocusMissionPolicy.IsFocus(ActiveSession())){ShowFocusPractice();return;}
             using var timing = UiPerformanceProbe.Measure("Activities.ShowSession");
             // A platform refresh can arrive while the optional input is focused.
             // Save before taking the replacement view's snapshot or disabling it.
@@ -351,6 +356,7 @@ namespace CapstoneDesign.Runtime
         }
         public void ShowReflection()
         {
+            if(FocusMissionPolicy.IsFocus(ActiveSession())){ShowFocusEmotion();return;}
             EnterPage("reflection",ShowReflection);var p=FocusPage("지금 기분은 어떤가요?","마무리 · 선택 기록");
             GardenUi.FlowLabel(p,"잘 모르거나 기록하지 않아도 괜찮아요.");
             var faces=GardenUi.Box(p,"Reflection emotions",0,0,1,0);faces.AddComponent<LayoutElement>().preferredHeight=208;
@@ -585,7 +591,7 @@ namespace CapstoneDesign.Runtime
             GardenUi.Card(view.transform,"Preview heading",.03f,.63f,.94f,.35f,GardenUi.Background).transform.SetAsFirstSibling();
             GardenUi.Card(view.transform,"Preview actions",.03f,.01f,.94f,.33f,GardenUi.Background).transform.SetAsFirstSibling();
         }
-        public void ShowRecords()
+        void ShowLegacyRecords()
         {
             EnterPage("records",ShowRecords);var p=FocusPage("참여 기록","나의 활동");var s=Service.Snapshot;
             var all=s.Sessions.Where(x=>x.Status==ParticipationState.RewardCommitted || x.Status==ParticipationState.Ended).Reverse().ToArray();
@@ -614,7 +620,7 @@ namespace CapstoneDesign.Runtime
             ActivityListItem(destinations,"발견한 동물",null,ShowDiscoveries,PrototypeUiIcon.Symbol.Leaf);
             DockAction("돌아가기",ShowHome);
         }
-        public void ShowRecord(string id)
+        void ShowLegacyRecord(string id)
         {
             EnterPage("record",()=>ShowRecord(id),id);var s=Service.Snapshot.Sessions.First(x=>x.SessionId==id);var p=Page("활동과 측정 기록");
             GardenUi.ScrollText(p,(MindfulnessContent.FindMission(s.MissionId)?.title ?? s.MissionId)+"\n"+LocalTime(s.StartedUtc)+" ~ "+LocalTime(s.EndedUtc)+"\n기분: "+(string.IsNullOrEmpty(s.Mood)?"기록 건너뜀":s.Mood)+"\n"+(s.Note??""),.07f,.57f,.86f,.23f);

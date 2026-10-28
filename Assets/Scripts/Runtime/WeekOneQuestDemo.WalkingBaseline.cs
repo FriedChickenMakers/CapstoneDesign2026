@@ -21,7 +21,7 @@ namespace CapstoneDesign.Runtime
             preview && PreviewHealth!=null?PreviewHealth:AndroidPlatformBridge.GetSnapshot();
         string WalkingInputMode => preview?"MOCK":mode;
 
-        public void OnActivitiesOpened() { RequestWalkingBaselineRefresh(); }
+        public void OnActivitiesOpened() { RequestWalkingBaselineRefresh();ShowHome(); }
 
         void RequestWalkingBaselineRefresh()
         {
