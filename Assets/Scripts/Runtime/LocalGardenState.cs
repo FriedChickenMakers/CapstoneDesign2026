@@ -287,6 +287,8 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<PracticeAnswer> PracticePreferences = new List<PracticeAnswer>();
         public List<ExperienceRecord> Experiences = new List<ExperienceRecord>();
         public string LastCycleId = "";
+        // App-only testing date; never changes the OS clock or sensor timestamps.
+        public int PreviewDayOffset;
         public List<string> LegacyCompletedUnknownDate = new List<string>();
         public List<string> UnlockIds = new List<string>();
         public List<string> CompletedCourseIds = new List<string>();
@@ -328,7 +330,7 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         public static void Validate(GardenState s)
         {
-            if (s == null || s.SchemaVersion != 1 || !s.MigrationCompleted || s.Nutrient < 0 || s.NextCourseOrder < 1 || s.NextCourseOrder > 29 || string.IsNullOrWhiteSpace(s.InstallationId) || !Finite(s.LegacyGrowth))
+            if (s == null || s.SchemaVersion != 1 || !s.MigrationCompleted || s.Nutrient < 0 || s.NextCourseOrder < 1 || s.NextCourseOrder > 29 || string.IsNullOrWhiteSpace(s.InstallationId) || !Finite(s.LegacyGrowth) || s.PreviewDayOffset < 0 || s.PreviewDayOffset > 36500)
                 throw new InvalidDataException("Unsupported or invalid garden state; preserved for recovery.");
             Unique(s.LegacyCompletedUnknownDate); Unique(s.UnlockIds); Unique(s.CompletedCourseIds); Unique(s.RewardReceipts); Unique(s.PurchaseReceipts); Unique(s.DiscoveredAnimalIds);
             if(s.CompletedCourseIds.Count != s.NextCourseOrder-1) throw new InvalidDataException("Course progress inconsistent.");
@@ -559,8 +561,9 @@ namespace CapstoneDesign.Runtime.LocalState
         string[] cycleCandidates = Array.Empty<string>();
         public string LastError { get; private set; }
         public long SnapshotReads { get; private set; }
-        public DateTimeOffset CurrentUtc => clock.UtcNow;
+        public DateTimeOffset CurrentUtc => EffectiveUtc(state);
         public TimeZoneInfo CurrentTimeZone => clock.TimeZone;
+        DateTimeOffset EffectiveUtc(GardenState source) => clock.UtcNow.AddDays(source == null ? 0 : source.PreviewDayOffset);
         public GardenStateService(IStateStore store, IClock clock, DemoBalanceConfig config, LegacySnapshot legacy = null)
         {
             this.store = store; this.clock = clock; this.legacy = legacy ?? new LegacySnapshot();
@@ -617,10 +620,11 @@ namespace CapstoneDesign.Runtime.LocalState
                 catch (Exception ex) { LastError = ex.Message; return false; }
             }
         }
-        string Now { get { return clock.UtcNow.ToString("O"); } }
+        string Now { get { return CurrentUtc.ToString("O"); } }
+        string CycleFor(GardenState source) => TimeZoneInfo.ConvertTime(EffectiveUtc(source), clock.TimeZone).DateTime.AddHours(-config.ResetHourLocal).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         public string CurrentCycleId
         {
-            get { return TimeZoneInfo.ConvertTime(clock.UtcNow, clock.TimeZone).DateTime.AddHours(-config.ResetHourLocal).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture); }
+            get { return CycleFor(state); }
         }
         public bool RefreshCycle(IEnumerable<string> eligibleAnimalIds)
         {
@@ -638,7 +642,7 @@ namespace CapstoneDesign.Runtime.LocalState
             .Where(id=>id!=null && id.StartsWith("animal:",StringComparison.Ordinal)).Distinct().OrderBy(id=>id,StringComparer.Ordinal).ToArray();
         void AdvanceCycle(GardenState next,string[] candidates)
         {
-            string cycle=CurrentCycleId;
+            string cycle=CycleFor(next);
             if(string.CompareOrdinal(cycle,next.LastCycleId)<=0)return;
             if(pendingDecision==null || pendingDecision.CycleId!=cycle)
             {
@@ -646,13 +650,46 @@ namespace CapstoneDesign.Runtime.LocalState
                 uint roll=Convert.ToUInt32(hash.Substring(0,8),16);
                 string visitor=candidates.Length>0 && roll%100<config.VisitorChancePercent
                     ? candidates[Convert.ToUInt32(hash.Substring(8,8),16)%candidates.Length]:"";
-                pendingDecision=new DailyDecision {CycleId=cycle,VisitorId=visitor,TimeZoneId=clock.TimeZone.Id,AppliedUtc=Now};
+                pendingDecision=new DailyDecision {CycleId=cycle,VisitorId=visitor,TimeZoneId=clock.TimeZone.Id,AppliedUtc=EffectiveUtc(next).ToString("O")};
             }
             var decision=pendingDecision;
             next.LastCycleId=cycle;
             next.DailyDecisions.Add(decision.Copy());
             if(decision.VisitorId.Length>0 && !next.DiscoveredAnimalIds.Contains(decision.VisitorId))next.DiscoveredAnimalIds.Add(decision.VisitorId);
         }
+
+        public bool AdvancePreviewDay(IEnumerable<string> eligibleAnimalIds = null)
+        {
+            lock(gate)
+            {
+                RequireOpen();
+                var candidates=eligibleAnimalIds==null?cycleCandidates:NormalizeCycleCandidates(eligibleAnimalIds);
+                var previousPending=pendingDecision;
+                bool saved=Change(next=>
+                {
+                    if(next.PreviewDayOffset>=36500)throw new InvalidOperationException("앱 날짜를 더 넘길 수 없어요.");
+                    next.PreviewDayOffset++;
+                    AdvanceCycle(next,candidates);
+                });
+                if(saved){cycleCandidates=candidates;pendingDecision=null;}
+                else pendingDecision=previousPending;
+                return saved;
+            }
+        }
+
+        public bool ResetMissionHistory() => Change(next=>
+        {
+            if(next.PlantAppearance!=null)
+            {
+                next.PlantAppearance.ArchivedCredits.AddRange(next.PlantAppearance.Credits);
+                next.PlantAppearance.Credits.Clear();
+            }
+            next.Sessions.Clear();next.PracticePreferences.Clear();next.Experiences.Clear();
+            next.CompletedCourseIds.Clear();next.NextCourseOrder=1;
+            next.MbctCompletedIds.Clear();next.MbctNextOrder=1;next.MbctPrograms.Clear();
+            next.LegacyCompletedUnknownDate.Clear();next.RewardReceipts.Clear();
+            foreach(var growth in next.GrowthHistory)growth.LinkedSessionId="";
+        });
         static void Id(string id, string prefix) { if (!StateCodec.Typed(id,prefix)) throw new ArgumentException("Expected namespaced " + prefix + " id."); }
         public bool SelectMbctProgram(string program)
         {
@@ -776,7 +813,7 @@ namespace CapstoneDesign.Runtime.LocalState
             if(string.IsNullOrEmpty(record.ConfirmedUtc))
             {
                 var previous=DateTimeOffset.Parse(step==0?session.StartedUtc:session.FocusStepRecords[step-1].ConfirmedUtc);
-                var confirmed=clock.UtcNow;if(confirmed<=previous)confirmed=previous.AddTicks(1);
+                var confirmed=CurrentUtc;if(confirmed<=previous)confirmed=previous.AddTicks(1);
                 record.ConfirmedUtc=confirmed.ToString("O");record.UpdatedUtc=record.ConfirmedUtc;
             }
             session.InstructionStep=step+1;
@@ -822,7 +859,7 @@ namespace CapstoneDesign.Runtime.LocalState
                         next.RewardReceipts.Add(receipt);session.RewardAmount=legacyAdditionalPaid?0:config.CompletionNutrient;next.Nutrient=checked(next.Nutrient+session.RewardAmount);
                     }
                     session.Mood=mood;session.Note=note;session.Status=ParticipationState.RewardCommitted;session.InstructionStep=session.FocusStepRecords.Count+1;
-                    var last=DateTimeOffset.Parse(session.FocusStepRecords.Last().ConfirmedUtc);var ended=clock.UtcNow;
+                    var last=DateTimeOffset.Parse(session.FocusStepRecords.Last().ConfirmedUtc);var ended=CurrentUtc;
                     session.EndedUtc=(ended<last?last:ended).ToString("O");
                     GardenPlantVisuals.Sync(next);
                 });
@@ -851,7 +888,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(target==null)throw new ArgumentNullException("target");
                 DateTimeOffset from,until;
                 if(!DateTimeOffset.TryParse(target.QueryStartUtc,out from) || !DateTimeOffset.TryParse(target.QueryEndUtc,out until) ||
-                    clock.UtcNow<from || clock.UtcNow>=until)throw new InvalidOperationException("Walking target must belong to today.");
+                    CurrentUtc<from || CurrentUtc>=until)throw new InvalidOperationException("Walking target must belong to today.");
                 session.WalkingGoalSteps=target.GoalSteps;
                 session.WalkingQueryStartUtc=target.QueryStartUtc;session.WalkingQueryEndUtc=target.QueryEndUtc;
                 session.WalkingTargetBasis=target.Basis;session.WalkingSleepReduced=target.ReducedForSleep;
@@ -1052,7 +1089,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 catch(Exception ex){LastError=ex.Message;return false;}
             }
         }
-        string SessionTime(string minimum) { DateTimeOffset prior; return DateTimeOffset.TryParse(minimum,out prior) && prior > clock.UtcNow ? prior.ToString("O") : Now; }
+        string SessionTime(string minimum) { DateTimeOffset prior; return DateTimeOffset.TryParse(minimum,out prior) && prior > CurrentUtc ? prior.ToString("O") : Now; }
         public void Dispose() { lock(gate) { if(disposed)return; disposed=true; var disposable = store as IDisposable; if (disposable != null) disposable.Dispose(); } }
         static string Slot(string slot) { return (slot ?? "").Trim().ToLowerInvariant(); }
         public bool CanPurchaseEnvironment(string environmentId, string slot)

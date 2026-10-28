@@ -36,6 +36,10 @@ namespace CapstoneDesign.Runtime
         private Text collectorStatus;
         private Text collectorDetails;
         private Text healthActionStatus;
+        private Text missionActionStatus;
+        public Button MissionRefreshButton => refreshHealthButton;
+        public Button AdvanceMissionDayButton { get; private set; }
+        public Text MissionDateStatus { get; private set; }
         private Text permissionActionStatus;
         private Text collectorActionStatus;
         private GameObject diagnostics;
@@ -116,10 +120,18 @@ namespace CapstoneDesign.Runtime
             RowControl(music, "정원의 시간", OpenVisualDebug);
             RefreshMusicSetting();
 
+            Transform missions = Section(content, "Mission controls", "미션 관리");
+            Copy(missions, "미션 기록과 진행 상태를 처음으로 돌릴 수 있어요.", GardenUi.CaptionSize, GardenUi.Muted);
+            PlaceRow(refreshHealthButton, missions, "새로고침", false);
+            MissionDateStatus = Copy(missions, "", GardenUi.BodySize, GardenUi.Muted);
+            AdvanceMissionDayButton = RowControl(missions, "다음 날로 넘기기", AdvanceMissionDate);
+            missionActionStatus = ActionLine(missions);
+            RefreshMissionControls();
+
             Transform healthCard = Section(content, "Health records", "건강 기록");
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             RowControl(healthCard, "심박 차트 보기", OpenCharts);
-            PlaceRow(refreshHealthButton, healthCard, "새로고침", false);
+            RowControl(healthCard, "건강 기록 동기화", RefreshHealth);
             healthActionStatus = ActionLine(healthCard);
 
             Transform permissions = Section(content, "Permissions", "앱 연결 및 권한");
@@ -153,7 +165,7 @@ namespace CapstoneDesign.Runtime
             AddListener(stopServiceButton, StopService);
             AddListener(sensorPermissionButton, RequestSensorPermissions);
             AddListener(healthPermissionButton, RequestHealthPermissions);
-            AddListener(refreshHealthButton, RefreshHealth);
+            AddListener(refreshHealthButton, ResetMissionRecords);
             RefreshText();
         }
 
@@ -487,7 +499,7 @@ namespace CapstoneDesign.Runtime
             RemoveListener(stopServiceButton, StopService);
             RemoveListener(sensorPermissionButton, RequestSensorPermissions);
             RemoveListener(healthPermissionButton, RequestHealthPermissions);
-            RemoveListener(refreshHealthButton, RefreshHealth);
+            RemoveListener(refreshHealthButton, ResetMissionRecords);
         }
 
         private void StartService()
@@ -525,6 +537,36 @@ namespace CapstoneDesign.Runtime
             RefreshText();
         }
 
+        void ResetMissionRecords()
+        {
+            bool success=Loop!=null && Loop.ResetMissionProgress();
+            if(missionActionStatus!=null)
+            {
+                missionActionStatus.text=success?"미션 기록을 초기화했어요.":"초기화하지 못했어요. 다시 시도해 주세요.";
+                missionActionStatus.gameObject.SetActive(true);
+            }
+            RefreshMissionControls();
+        }
+
+        void AdvanceMissionDate()
+        {
+            bool success=Loop!=null && Loop.AdvanceMissionDay();
+            if(missionActionStatus!=null)
+            {
+                missionActionStatus.text=success?"미션 날짜를 하루 넘겼어요.":"날짜를 넘기지 못했어요. 다시 시도해 주세요.";
+                missionActionStatus.gameObject.SetActive(true);
+            }
+            RefreshMissionControls();
+        }
+
+        void RefreshMissionControls()
+        {
+            var loop=Loop;bool ready=loop!=null && loop.HasOpenState;
+            if(MissionDateStatus!=null)MissionDateStatus.text="미션 날짜 · "+(ready?loop.MissionDateLabel:"확인 중");
+            if(refreshHealthButton!=null)refreshHealthButton.interactable=ready;
+            if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready;
+        }
+
         private void OpenCharts()
         {
             ShowAction(AndroidPlatformBridge.OpenSensorHistory(), "심박 차트를 열었어요.", healthActionStatus);
@@ -545,6 +587,7 @@ namespace CapstoneDesign.Runtime
 
         private void RefreshText()
         {
+            RefreshMissionControls();
             RefreshMusicSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");

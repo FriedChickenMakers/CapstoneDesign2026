@@ -26,6 +26,8 @@ namespace CapstoneDesign.Runtime.LocalState
         public int[] BaselineProfileCounts = { 4, 0, 0, 0, 0, 2 };
         public PlantRecipe Recipe;
         public List<GardenAppearanceCredit> Credits = new List<GardenAppearanceCredit>();
+        // Minimal appearance-only ledger retained when detailed mission records are reset.
+        public List<GardenAppearanceCredit> ArchivedCredits = new List<GardenAppearanceCredit>();
 
         internal GardenPlantAppearance Copy()
         {
@@ -33,7 +35,8 @@ namespace CapstoneDesign.Runtime.LocalState
                 Version = Version, MappingVersion = MappingVersion,
                 BaselineProfileCounts = (int[])BaselineProfileCounts.Clone(),
                 Recipe = GardenPlantVisuals.CopyRecipe(Recipe),
-                Credits = Credits.Select(c => c.Copy()).ToList()
+                Credits = Credits.Select(c => c.Copy()).ToList(),
+                ArchivedCredits = ArchivedCredits.Select(c => c.Copy()).ToList()
             };
         }
     }
@@ -132,8 +135,9 @@ namespace CapstoneDesign.Runtime.LocalState
             var appearance = state.PlantAppearance;
             if (!appearance.Recipe.Mature)
             {
-                var seen = new HashSet<string>(appearance.Credits.Select(c => Key(c.CycleId, c.MissionId)), StringComparer.Ordinal);
-                var daily = appearance.Credits.GroupBy(c => c.CycleId).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
+                var retained = appearance.ArchivedCredits.Concat(appearance.Credits).ToArray();
+                var seen = new HashSet<string>(retained.Select(c => Key(c.CycleId, c.MissionId)), StringComparer.Ordinal);
+                var daily = retained.GroupBy(c => c.CycleId).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
                 foreach (var session in state.Sessions.Where(s => s.Status == ParticipationState.RewardCommitted)
                     .OrderBy(s => DateTimeOffset.Parse(s.EndedUtc, System.Globalization.CultureInfo.InvariantCulture))
                     .ThenBy(s => s.SessionId, StringComparer.Ordinal))
@@ -185,7 +189,7 @@ namespace CapstoneDesign.Runtime.LocalState
             var appearance = state.PlantAppearance;
             if (appearance == null) return; // Optional for pre-integration schema-1 saves.
             if (appearance.Version != 1 || appearance.MappingVersion != 1 || appearance.BaselineProfileCounts == null
-                || !appearance.BaselineProfileCounts.SequenceEqual(CompatibilityPrior) || appearance.Credits == null)
+                || !appearance.BaselineProfileCounts.SequenceEqual(CompatibilityPrior) || appearance.Credits == null || appearance.ArchivedCredits == null)
                 throw new InvalidDataException("Unsupported plant appearance state.");
             PlantGenerator.Validate(appearance.Recipe);
             var recipe = appearance.Recipe;
@@ -196,16 +200,17 @@ namespace CapstoneDesign.Runtime.LocalState
             var completed = new HashSet<string>(state.Sessions.Where(s => s.Status == ParticipationState.RewardCommitted)
                 .Select(s => Key(s.InstanceId, s.MissionId)), StringComparer.Ordinal);
             var counts = (int[])CompatibilityPrior.Clone();
-            foreach (var credit in appearance.Credits)
+            foreach (var credit in appearance.ArchivedCredits.Concat(appearance.Credits))
             {
                 GrowthCategory category;
                 if (credit == null || !TryCategory(credit.MissionId, out category) || credit.Category != (int)category
                     || !seen.Add(Key(credit.CycleId, credit.MissionId))
-                    || !completed.Contains(Key(credit.CycleId, credit.MissionId)))
+                    || !state.DailyDecisions.Any(day => day.CycleId == credit.CycleId)
+                    || (appearance.Credits.Contains(credit) && !completed.Contains(Key(credit.CycleId, credit.MissionId))))
                     throw new InvalidDataException("Plant appearance credit has no matching completion.");
                 counts[credit.Category] = checked(counts[credit.Category] + 1);
             }
-            if (appearance.Credits.GroupBy(c => c.CycleId).Any(g => g.Count() > 3) || !recipe.Counts.SequenceEqual(counts))
+            if (appearance.ArchivedCredits.Concat(appearance.Credits).GroupBy(c => c.CycleId).Any(g => g.Count() > 3) || !recipe.Counts.SequenceEqual(counts))
                 throw new InvalidDataException("Plant appearance profile disagrees with its credits.");
         }
 

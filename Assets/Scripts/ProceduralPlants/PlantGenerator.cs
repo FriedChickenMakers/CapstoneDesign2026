@@ -34,6 +34,16 @@ namespace CapstoneDesign.Plants
                 Distance=Enumerable.Range(0,6).Sum(k=>Math.Pow(p[k]-(k==s.Primary?.60:k==s.Secondary?.25:.0375),2)) })
                 .OrderBy(s=>s.Distance).ThenBy(s=>s.SpeciesId,StringComparer.Ordinal).ToArray();
         }
+        // Preview the current profile's selection without advancing or locking the recipe.
+        public static string SpeciesFor(PlantRecipe recipe)
+        {
+            if(recipe==null)throw new ArgumentNullException(nameof(recipe));
+            if(recipe.SpeciesId!=null)return recipe.SpeciesId;
+            var scores=Candidates(recipe.Counts);double best=scores[0].Distance;
+            return scores.Where(x=>Math.Abs(x.Distance-best)<=1e-12)
+                .OrderBy(x=>PlantMath.U(recipe.BaseSeed,"species-tie",x.SpeciesId))
+                .ThenBy(x=>x.SpeciesId,StringComparer.Ordinal).First().SpeciesId;
+        }
         // Pure transaction: never mutates the supplied recipe, including on validation failure.
         public static PlantRecipe Advance(PlantRecipe committed)
         {
@@ -60,9 +70,7 @@ namespace CapstoneDesign.Plants
         { return PlantMath.Z(profile,a,b,p.BaseSeed,node,tag); }
         static void LockSpecies(PlantRecipe p)
         {
-            var scores=Candidates(p.Counts); double best=scores[0].Distance;
-            p.SpeciesId=scores.Where(x=>Math.Abs(x.Distance-best)<=1e-12)
-                .OrderBy(x=>PlantMath.U(p.BaseSeed,"species-tie",x.SpeciesId)).ThenBy(x=>x.SpeciesId,StringComparer.Ordinal).First().SpeciesId;
+            p.SpeciesId=SpeciesFor(p);
             p.LockedProfile=PlantMath.Profile(p.Counts); var q=p.LockedProfile; var s=PlantCatalog.Get(p.SpeciesId);
             p.Height=PlantMath.Lerp(s.HeightMin,s.HeightMax,Z(p,q,2,0,"plant","height"));
             p.Radius=Math.Max(.006,p.Height*(.012+.012*Z(p,q,1,4,"plant","radius")));

@@ -116,9 +116,8 @@ namespace CapstoneDesign.Runtime
                     EnsureSharedHeader(content);
                     content.Find("Shared header background").gameObject.SetActive(!visible);
                     if(content.Find("Brand")!=null)content.Find("Brand").gameObject.SetActive(!visible);
-                    if(content.Find("Date")!=null)content.Find("Date").gameObject.SetActive(false);
                     if(content.Find("GardenAndGrowth")!=null)content.Find("GardenAndGrowth").gameObject.SetActive(visible);
-                    foreach(var label in new[]{title,stage,guide})if(label!=null)label.gameObject.SetActive(visible);
+                    foreach(var label in new[]{title,date,stage,guide})if(label!=null)label.gameObject.SetActive(visible);
                 }
                 RefreshMissionStatus();
                 if (backgroundPreview != null) backgroundPreview.gameObject.SetActive(visible);
@@ -160,7 +159,7 @@ namespace CapstoneDesign.Runtime
             TemporarySettingsButton.name="TemporarySettingsButton";
             var rect=(RectTransform)TemporarySettingsButton.transform;
             rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(1,1);rect.anchoredPosition=new Vector2(-48,-12);
-            if(date!=null)
+            if(date!=null && backgroundPreview==null)
             {
                 var dateRect=date.rectTransform;
                 dateRect.anchorMin=dateRect.anchorMax=new Vector2(1,1);dateRect.pivot=new Vector2(1,1);
@@ -201,18 +200,35 @@ namespace CapstoneDesign.Runtime
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
             PlaceOverlayText(title,content,48,32,420,58,40,false);
-            PlaceOverlayText(stage,content,48,94,420,40,28,false);
+            PlaceOverlayText(date,content,48,98,420,40,26,false);
             PlaceOverlayText(guide,content,48,100,180,40,24,true);
-            if(progressDots!=null)foreach(var dot in progressDots)if(dot!=null)dot.gameObject.SetActive(false);
-            foreach(var name in new[]{"Home overview surface","Date","Brand"})
+            var growth=home.Find("Growth surface") as RectTransform;
+            if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,GardenUi.Background).transform;
+            growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),GardenUi.Background);
+            growth.GetComponent<Image>().raycastTarget=false;
+            growth.anchorMin=growth.anchorMax=Vector2.zero;growth.pivot=new Vector2(0,1);
+            growth.anchoredPosition=new Vector2(48,328);growth.sizeDelta=new Vector2(624,64);growth.SetAsFirstSibling();
+            if(stage!=null)
+            {
+                var rect=stage.rectTransform;rect.SetParent(growth,false);
+                rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(0,.5f);rect.anchoredPosition=Vector2.zero;rect.sizeDelta=new Vector2(300,60);
+                stage.fontSize=26;stage.color=Green;stage.alignment=TextAlignmentOptions.Midline;
+                stage.raycastTarget=false;stage.gameObject.SetActive(true);
+            }
+            if(progressDots!=null)for(int i=0;i<progressDots.Length;i++)if(progressDots[i]!=null)
+            {
+                var rect=(RectTransform)progressDots[i].transform;rect.SetParent(growth,false);
+                rect.anchorMin=rect.anchorMax=new Vector2(0,.5f);rect.pivot=new Vector2(0,.5f);
+                rect.anchoredPosition=new Vector2(350+60*i,0);rect.sizeDelta=new Vector2(48,8);progressDots[i].gameObject.SetActive(true);
+            }
+            foreach(var name in new[]{"Home overview surface","Brand"})
                 if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(false);
-            if(home!=null)foreach(var name in new[]{"Growth surface","Garden view controls","보기 +","보기 −"})
+            if(home!=null)foreach(var name in new[]{"Garden view controls","보기 +","보기 −"})
                 if(home.Find(name)!=null)home.Find(name).gameObject.SetActive(false);
             OverlayTopBoundary=(RectTransform)GardenUi.Box(content,"Garden top safe boundary",0,1,1,0).transform;
             GardenUi.FromTop(OverlayTopBoundary,0,148);
             backgroundPreview.upperBoundary=OverlayTopBoundary;
-            backgroundPreview.lowerBoundary=shopButton!=null?(RectTransform)shopButton.transform:
-                NavigationBar!=null?(RectTransform)NavigationBar.transform:backgroundPreview.lowerBoundary;
+            backgroundPreview.lowerBoundary=growth;
             backgroundPreview.SetSubjectFocus(false);
             RefreshOverlayTextColor();
             var sky = GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
@@ -230,6 +246,7 @@ namespace CapstoneDesign.Runtime
         }
 
         public static Color OverlayTextColor(float daylight)=>daylight>=.5f?Color.black:Color.white;
+        public static string CurrentPlantName(PlantRecipe recipe)=>recipe==null?"식물":PlantCatalog.Get(PlantGenerator.SpeciesFor(recipe)).Name;
 
         public void RefreshOverlayTextColor()
         {
@@ -237,7 +254,7 @@ namespace CapstoneDesign.Runtime
             double hour=GardenVisualClock.CurrentHour;
             Color ink=OverlayTextColor(sky!=null?sky.Daylight:hour>=6&&hour<18?1:0);
             if(title!=null)title.color=ink;
-            if(stage!=null)stage.color=ink;
+            if(date!=null)date.color=ink;
             if(guide!=null)guide.color=ink;
         }
 
@@ -352,9 +369,8 @@ namespace CapstoneDesign.Runtime
             float growth = GardenPlantVisuals.TotalGrowth(saved);
             int visualStage = StageForGrowth(growth);
             RenderPlant(saved.PlantAppearance.Recipe, growth);
-            if (date != null) date.text = DateTime.Now.ToString("M월 d일");
-            if (title != null) title.text = RenderedRecipe.SpeciesId == null ? "오늘의 식물"
-                : "오늘의 " + PlantCatalog.Get(RenderedRecipe.SpeciesId).Name;
+            if (date != null) date.text = CurrentDateText();
+            if (title != null) title.text = CurrentPlantName(RenderedRecipe);
             if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개";
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
@@ -427,9 +443,13 @@ namespace CapstoneDesign.Runtime
         public void RefreshDate()
         {
             if (date == null || homeCanvas == null || !homeCanvas.gameObject.activeInHierarchy) return;
-            var today = DateTime.Now.ToString("M월 d일");
+            var today = CurrentDateText();
             if (date.text != today) date.text = today;
         }
+
+        string CurrentDateText()=>activity!=null&&activity.HasOpenState
+            ?TimeZoneInfo.ConvertTime(activity.Service.CurrentUtc,activity.Service.CurrentTimeZone).ToString("M월 d일")
+            :DateTime.Now.ToString("M월 d일");
 
         void OpenHome() => navigation?.ShowIsland();
         void OpenActivity() => navigation?.ShowActivities();

@@ -43,11 +43,12 @@ remove sensitive values in the current tree; do not rewrite Git history unless
 the user explicitly requests it. If a live credential is found, remove it and
 tell the user it also needs revocation/rotation; deletion alone does not revoke it.
 
-After each completed, verified logical change, commit the intended files and
-push the current work branch to its configured remote/upstream. This is an
-ongoing user-authorized workflow; do not leave completed commits only locally.
-Review the outgoing commits and remote state, use a normal non-force push, and
-verify that the remote branch points to the local HEAD. Do not include unrelated
-work or change the remote destination without a task reason. If a push fails,
-preserve the local commits and report the blocker. Do not force-push, rewrite
-history, or merge into another branch merely to make synchronization succeed.
+Commit or push only when the user explicitly asks to publish the changes to Git.
+Otherwise keep completed work local and unstaged. This overrides the former
+automatic commit/push workflow at the user's request.
+When publication is requested, review the intended files and outgoing commits,
+run the privacy checks above, use a normal non-force push to the configured
+remote/upstream, and verify that remote HEAD matches local HEAD. Do not include
+unrelated work. If a push fails, preserve local commits and report the blocker.
+Do not force-push, rewrite history, or merge into another branch merely to make
+synchronization succeed.

@@ -60,7 +60,7 @@ namespace CapstoneDesign.EditorTools
                 if(GraphicsSettings.currentRenderPipeline!=null&&RenderPipelineManager.currentPipeline==null)Blitter.Cleanup();
                 using(var fixture=new Fixture())
                 {
-                    Check(report,"Removed panels and view controls leave transparent plant information",()=>Surfaces(fixture));
+                    Check(report,"Restored growth panel and transparent plant name and date retain their intended layout",()=>Surfaces(fixture));
                     Check(report,"Night and daylight text follow the garden sky with readable actual-scene frames",()=>DayAndNight(fixture,report,request.capture));
                     Check(report,"Wheel and two-finger zoom change the garden view without rotating or changing state",()=>Zoom(fixture,report,request.capture));
                     Check(report,"Bottom-tab controls intercept scrolling while the garden accepts it",()=>UiInterception(fixture));
@@ -83,13 +83,22 @@ namespace CapstoneDesign.EditorTools
         static void Surfaces(Fixture f)
         {
             var home=f.Home;var content=home.homeCanvas.transform.Find("SafePortraitFrame/MainContent");
-            foreach(var name in new[]{"Brand","Date","Home overview surface"})
+            foreach(var name in new[]{"Brand","Home overview surface"})
             {var node=content.Find(name);Require(node==null||!node.gameObject.activeInHierarchy,"Removed upper element remains visible: "+name);}
-            foreach(var name in new[]{"Growth surface","TodayMissionCard","TodayMissionCard_Edge","DailyStatus","MissionName","MissionEmblem","Garden view controls"})
+            foreach(var name in new[]{"TodayMissionCard","TodayMissionCard_Edge","DailyStatus","MissionName","MissionEmblem","Garden view controls"})
             {var node=content.Find("GardenAndGrowth/"+name);Require(node==null||!node.gameObject.activeInHierarchy,"Removed lower element remains visible: "+name);}
-            Require(home.progressDots==null||home.progressDots.All(dot=>dot==null||!dot.gameObject.activeInHierarchy),"Growth progress dots remain visible.");
+            var growth=content.Find("GardenAndGrowth/Growth surface") as RectTransform;
+            Require(growth!=null&&growth.gameObject.activeInHierarchy,"The restored growth panel is missing.");
+            Require(growth.sizeDelta==new Vector2(624,64),"The restored growth panel changed its original dimensions.");
+            var growthImage=growth.GetComponent<Image>();
+            Require(growthImage!=null&&growthImage.color.a>.9f,"The growth panel backdrop was not restored.");
+            Require(home.stage!=null&&home.stage.gameObject.activeInHierarchy&&home.stage.transform.parent==growth,"Growth text is not inside the restored lower panel.");
+            Require(home.progressDots!=null&&home.progressDots.Length==4&&home.progressDots.All(dot=>dot!=null&&dot.gameObject.activeInHierarchy&&dot.transform.parent==growth),"Growth progress dots were not restored inside their panel.");
+            Require(f.Layout.lowerBoundary==growth,"Garden framing does not reserve space for the restored growth panel.");
+            var growthBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(content,growth);
+            Require(growthBounds.center.y<((RectTransform)content).rect.center.y,"The growth panel is no longer in the lower garden area.");
             Require(!home.homeCanvas.GetComponentsInChildren<Button>(false).Any(b=>b.GetComponentsInChildren<Text>(false).Any(t=>t.text=="보기 +"||t.text=="보기 −"||t.text=="가까이 보기"||t.text=="정원 전체")),"Retired view controls remain visible.");
-            foreach(var label in new[]{home.title,home.stage,home.guide})
+            foreach(var label in new[]{home.title,home.date,home.guide})
             {
                 Require(label!=null&&label.gameObject.activeInHierarchy&&!string.IsNullOrWhiteSpace(label.text),"Plant information is missing.");
                 Require(!label.raycastTarget,"Plant information blocks garden gestures.");
@@ -101,8 +110,13 @@ namespace CapstoneDesign.EditorTools
                     Require(surface==null||!surface.enabled||(surface.topColor.a<.01f&&surface.bottomColor.a<.01f),"Plant information has an opaque surface backdrop.");
                 }
             }
-            string species=home.RenderedRecipe.SpeciesId;
-            Require(species==null?home.title.text.Contains("식물"):home.title.text.Contains(PlantCatalog.Get(species).Name),"Selected plant name is not shown.");
+            Require(home.title.text==GardenHomePresenter.CurrentPlantName(home.RenderedRecipe)&&!home.title.text.StartsWith("오늘의",StringComparison.Ordinal),"Selected plant name is not shown without the retired heading prefix.");
+            var locked=PlantCodec.Clone(home.RenderedRecipe);
+            while(locked.SpeciesId==null)locked=PlantGenerator.Advance(locked);
+            Require(GardenHomePresenter.CurrentPlantName(locked)==PlantCatalog.Get(locked.SpeciesId).Name,"A known selected species does not display its actual name.");
+            string expectedDate=TimeZoneInfo.ConvertTime(f.Service.CurrentUtc,f.Service.CurrentTimeZone).ToString("M월 d일",System.Globalization.CultureInfo.InvariantCulture);
+            Require(home.date.text==expectedDate,"The restored date does not match the app's effective local date.");
+            Require(home.title.fontSize>home.date.fontSize&&home.title.rectTransform.parent==content,"The plant name is not the primary upper label.");
             Require(home.guide.text.Contains("영양제")&&home.guide.text.Contains("37"),"The nutrient count is not shown.");
             Require(home.guide.fontSize<home.title.fontSize,"The nutrient count is not visually secondary.");
             Require(home.stage.text==new[]{"작은 씨앗","새싹","봉오리","꽃이 피었어요"}[GardenHomePresenter.StageForGrowth(GardenPlantVisuals.TotalGrowth(f.State))],"Growth text does not describe the actual plant state.");
@@ -111,15 +125,23 @@ namespace CapstoneDesign.EditorTools
         }
         static void DayAndNight(Fixture f,Report report,bool capture)
         {
+            Color stageColor=f.Home.stage.color;
             foreach(var hour in new[]{0d,12d})
             {
                 f.Sky.SetTimeForPreview(hour);f.Home.RefreshOverlayTextColor();
                 Color expected=hour==0?Color.white:Color.black;
-                foreach(var label in new[]{f.Home.title,f.Home.stage,f.Home.guide})
+                foreach(var label in new[]{f.Home.title,f.Home.date,f.Home.guide})
                     Require(Vector4.Distance(label.color,expected)<.01f,"Overlay text has the wrong color at hour "+hour);
+                Require(Vector4.Distance(f.Home.stage.color,stageColor)<.01f,"The restored growth-panel text incorrectly follows the sky's text color.");
                 f.Capture(hour==0?"01-garden-night":"02-garden-day",report,capture);
             }
             Require(GardenHomePresenter.OverlayTextColor(.49f)==Color.white&&GardenHomePresenter.OverlayTextColor(.5f)==Color.black,"Day/night overlay threshold is inconsistent.");
+            var before=f.Service.CurrentUtc;
+            Require(f.Service.AdvancePreviewDay(),"Synthetic mission date advance failed.");
+            f.Home.RefreshFromState(f.Service.Snapshot);f.Home.RefreshOverlayTextColor();
+            string nextDate=TimeZoneInfo.ConvertTime(before.AddDays(1),f.Service.CurrentTimeZone).ToString("M월 d일",System.Globalization.CultureInfo.InvariantCulture);
+            Require(f.Home.date.text==nextDate,"Advancing the app day did not update the restored garden date.");
+            f.Capture("05-garden-next-date",report,capture);
         }
         static void Zoom(Fixture f,Report report,bool capture)
         {

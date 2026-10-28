@@ -6,6 +6,7 @@ using System.Reflection;
 using CapstoneDesign.Runtime;
 using CapstoneDesign.Runtime.LocalState;
 using CapstoneDesign.Prototype;
+using CapstoneDesign.Plants;
 using TMPro;
 using UnityEditor;
 using UnityEditor.Compilation;
@@ -116,6 +117,7 @@ namespace CapstoneDesign.EditorTools
                 Check(report, "Completed record inspection and review never grant a second reward", () => HistoryAndReview(report, request.capture));
                 Check(report, "Integrated portrait shell hides garden canvas and restores it on return", () => IntegratedShell(report, request.capture));
                 Check(report, "Fresh missions start available and weekly rest never appears as today's completion", () => InitialAndWeeklyState(report, request.capture));
+                Check(report, "Settings reset mission records atomically and advance only the app mission date", () => SettingsMissionControls(report, request.capture));
                 Check(report, "Focused-input keyboard geometry keeps entry and done controls visible and separate", KeyboardGeometry);
             }
             finally
@@ -418,6 +420,73 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
+        static void SettingsMissionControls(Report report, bool capture)
+        {
+            using(var f=new Fixture(report,true))
+            {
+                f.Click("기본 미션 시작하기");f.Click("시작");
+                f.CompletePractice(FocusMissionCatalog.Find("P23"),false);
+                f.CompleteReflection("synthetic completed record before settings reset","만족감",false);
+                var settings=f.OpenMissionSettings();
+                Assert(settings.MissionRefreshButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="새로고침")
+                    && settings.AdvanceMissionDayButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="다음 날로 넘기기"),
+                    "Mission management actions do not have their requested settings labels.");
+                f.Capture("20-settings-mission-controls",capture);
+                var original=f.Service.Snapshot;string originalState=StateCodec.Encode(original);
+                string originalDate=settings.MissionDateStatus.text;var rawClock=f.Clock.UtcNow;var effectiveClock=f.Service.CurrentUtc;
+                f.Store.FailNextSaves=1;f.ClickControl(settings.AdvanceMissionDayButton);
+                Assert(StateCodec.Encode(f.Service.Snapshot)==originalState&&f.Service.CurrentUtc==effectiveClock
+                    && settings.MissionDateStatus.text==originalDate,"Failed day advance changed records, date or the settings label.");
+                f.ClickControl(settings.AdvanceMissionDayButton);
+                var advanced=f.Service.Snapshot;string advancedCycle=advanced.LastCycleId;
+                Assert(f.Clock.UtcNow==rawClock&&f.Service.CurrentUtc==effectiveClock.AddDays(1)
+                    && advancedCycle!=original.LastCycleId,"Next-day control changed the source clock or failed to advance the mission day.");
+                Assert(advanced.Sessions.Count==original.Sessions.Count&&advanced.Nutrient==original.Nutrient
+                    && PlantCodec.Encode(advanced.PlantAppearance.Recipe)==PlantCodec.Encode(original.PlantAppearance.Recipe),
+                    "Day advance erased mission records, changed rewards or modified the saved plant.");
+                Assert(settings.MissionDateStatus.text!=originalDate&&settings.MissionDateStatus.text.Contains(f.Ui.MissionDateLabel),
+                    "Settings did not show the newly saved app date.");
+                f.Capture("21-settings-next-day",capture);
+                f.Navigation.ShowActivities();f.Invoke("ShowHome");
+                Assert(f.Has("기본 미션 시작하기")&&f.Has("추천 미션 보기"),"Next day did not reopen both available mission actions.");
+                f.AssertMissionBadge("!");
+
+                f.Click("추천 미션 보기");f.Click("추가 미션 시작하기");f.Click("시작");
+                f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("고마움");f.Click("다음");
+                const string draft="synthetic editable note preserved on failed settings save";f.SetInput(draft);
+                f.Navigation.ShowSettings();
+                string beforeReset=StateCodec.Encode(f.Service.Snapshot);var beforeResetClock=f.Service.CurrentUtc;
+                f.Store.FailNextSaves=1;f.ClickControl(settings.AdvanceMissionDayButton);
+                Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset&&f.Service.CurrentUtc==beforeResetClock,
+                    "Failed day advance changed an editable mission draft.");
+                f.Store.FailNextSaves=1;f.ClickControl(settings.MissionRefreshButton);
+                Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset,"Failed mission reset partially removed saved detail or progress.");
+                f.Navigation.ShowActivities();f.Invoke("ShowHome");f.Click("추가 미션 이어서 하기");
+                Assert(f.Input!=null&&f.Input.text==draft,"Failed settings actions destroyed the editable mission note.");
+                f.Navigation.ShowSettings();var preserved=f.Service.Snapshot;
+                string recipe=PlantCodec.Encode(preserved.PlantAppearance.Recipe);
+                f.ClickControl(settings.MissionRefreshButton);var cleared=f.Service.Snapshot;
+                Assert(cleared.Sessions.Count==0&&FocusMissionPolicy.CompletedCount(cleared)==0
+                    && cleared.PracticePreferences.Count==0&&cleared.Experiences.Count==0,
+                    "Mission refresh left saved details, course completions or practice answers behind.");
+                Assert(cleared.Nutrient==preserved.Nutrient&&cleared.GardenXp==preserved.GardenXp
+                    && PlantCodec.Encode(cleared.PlantAppearance.Recipe)==recipe&&cleared.LastCycleId==advancedCycle,
+                    "Mission refresh changed the wallet, saved plant or selected app date.");
+                f.Capture("22-settings-reset-complete",capture);
+                f.Navigation.ShowActivities();f.Invoke("ShowHome");
+                Assert(f.Has("기본 미션 시작하기")&&f.Has("추천 미션 보기"),"Mission refresh did not restore fresh mission actions.");
+                f.AssertMissionBadge("!");f.Invoke("ShowFocusHistory");
+                Assert(f.VisibleText.Contains("아직 저장된 수행 기록이 없어요")&&!f.VisibleText.Contains(draft),
+                    "Cleared mission details still appear in history.");
+                f.Invoke("ShowHome");f.Click("기본 미션 시작하기");
+                Assert(f.Latest.FocusOrder==1&&f.Latest.MissionId==FocusMissionCatalog.Find("P23").Id
+                    && f.Latest.Status==ParticipationState.Selected,"Reset retained the previous basic occurrence or practice stage.");
+                f.Click("닫기");f.Click("추천 미션 보기");f.Click("추가 미션 시작하기");f.Click("시작");
+                f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("다음");
+                Assert(f.Input!=null&&f.Input.text=="","A new mission inherited input from the reset draft.");
+            }
+        }
+
         static void KeyboardGeometry()
         {
             foreach (float height in new[] { 200f, 320f, 480f, 650f })
@@ -470,6 +539,7 @@ namespace CapstoneDesign.EditorTools
             readonly float lightIntensity;
             readonly Vector3 cameraPosition;
             readonly Color ambient;
+            SensorRawDisplay missionSettings;
             public ActivitySession Latest => Service.Snapshot.Sessions.Last(s => FocusMissionPolicy.IsFocus(s));
             public InputField Input => Ui.GetComponentsInChildren<InputField>(false).FirstOrDefault(i => i.gameObject.activeInHierarchy);
             public string VisibleText => string.Join("\n", Ui.GetComponentsInChildren<Text>(false).Where(t => t.gameObject.activeInHierarchy).Select(t => t.text));
@@ -562,6 +632,20 @@ namespace CapstoneDesign.EditorTools
             }
 
             public bool Has(string label) => Button(label) != null;
+            public SensorRawDisplay OpenMissionSettings()
+            {
+                if(missionSettings==null)
+                {
+                    Assert(!Navigation.settingsPanel.activeSelf,"Build settings while its synthetic panel is inactive.");
+                    var refresh=GardenUi.Button(Navigation.settingsPanel.transform,"Synthetic refresh control",0,0,1,.1f,()=>{});
+                    missionSettings=Navigation.settingsPanel.AddComponent<SensorRawDisplay>();
+                    missionSettings.refreshHealthButton=refresh;missionSettings.PrepareView();
+                }
+                Navigation.ShowSettings();Layout();
+                Assert(missionSettings.MissionRefreshButton!=null&&missionSettings.AdvanceMissionDayButton!=null
+                    && missionSettings.MissionDateStatus!=null,"Mission settings controls were not built.");
+                return missionSettings;
+            }
             public void AssertMissionBadge(string expected)
             {
                 var bar = Ui.GetComponentInChildren<MissionBottomNavigation>(false);
