@@ -36,21 +36,10 @@ namespace CapstoneDesign.Runtime
             try
             {
                 var result=JsonUtility.FromJson<MeasurementResult>(MeasurementCall("configureMeasurements",binding,enabled,since));
-                if(result==null || !result.ok) {status="측정 동의 저장 확인 필요 · 다시 시도해 주세요";return false;}
+                if(result==null || !result.ok) {status="측정 등록 저장 확인 필요 · 다시 시도해 주세요";return false;}
                 measurementSyncKey=key;return true;
             }
             catch(Exception) {return false;}
-        }
-        public bool EnableMeasurements()
-        {
-            if(!Consented)return false;
-            try
-            {
-                queue.EnableMeasurements(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-                if(!SynchronizeMeasurementConsent())return false;
-                status="알림·활동 측정에 참여 중"; nextAttempt=0;return true;
-            }
-            catch(Exception) {status="추가 동의를 저장하지 못했어요";return false;}
         }
         public void RecordMeasuredSession(ActivitySession session)
         {

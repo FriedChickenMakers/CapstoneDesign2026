@@ -147,3 +147,19 @@ processes and verified display-setting restoration. It checks real OS posting,
 PendingIntent clicks, consent, restart recovery, ACKs and storage-error withdrawal.
 Keep all outputs private. This does not replace Unity product-to-server E2E or
 participant studies; see the linked measurement checklist for those gates.
+
+Participant consent is collected on paper outside the app; measurement is a
+condition of the QA/beta participation. The operator provisions the existing
+endpoint/token enrollment only after written confirmation. Valid registered LIVE
+apps activate collection on the initial garden screen without visiting missions
+or settings and without an in-app participation card or toggle;
+unregistered apps do not export. Withdrawal uses operator controls/internal
+`SetConsent(false)`, the DELETE API and verified local/export cleanup, not a new
+administrator portal. The Python server and generated analysis PNG remain outside
+the app. Historical in-app-consent captures remain baseline evidence. Current-source
+activation/network/settings checks and a newly built product APK were verified
+separately, including operator deletion and original-state restoration. The linked plan contains the factual notice draft.
+
+Use the `measurement-settings` visual check for the current registered/unregistered
+settings states with no participation controls. The removed `measurement-consent`
+fixture and its 36 historical screenshots do not validate the current UI.

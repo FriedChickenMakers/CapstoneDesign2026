@@ -52,6 +52,16 @@ if mode != "no-result":
     checks = json.loads(os.environ["SYNTHETIC_CLIENT_CHECKS"])
     if mode == "incomplete-result":
         checks = checks[:1]
+    if mode == "missing-storage-recovery-result":
+        checks = [check for check in checks if check not in {
+            "activation-write-failure-keeps-collection-disabled", "activation-retries-after-storage-recovers",
+            "measurement-write-failure-keeps-measurements-disabled",
+            "measurement-activation-retries-preserving-original-boundary"}]
+    if mode == "legacy-consent-result":
+        checks = ["configured-with-explicit-test-root", "no-recording-before-consent", "consent-opt-in",
+            "synthetic-event-queued", "upload-acknowledged", "server-upload-confirmed",
+            "withdrawal-immediate-local-clear", "server-deletion-acknowledged",
+            "revoked-enrollment-cannot-reconsent", "revoked-enrollment-cannot-record"]
     marker("client-result.json", {"status": "PASS", "checks": checks})
 '''
 
@@ -97,6 +107,16 @@ class PersonalizationPlayRunnerTests(unittest.TestCase):
 
     def test_successful_process_with_incomplete_assertions_cannot_pass(self):
         self.assertEqual(self.run_fixture("incomplete-result")["status"], "FAIL")
+
+    def test_legacy_manual_consent_result_cannot_prove_automatic_registration(self):
+        report = self.run_fixture("legacy-consent-result")
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("incomplete", report["error"])
+
+    def test_activation_without_storage_recovery_evidence_cannot_pass(self):
+        report = self.run_fixture("missing-storage-recovery-result")
+        self.assertEqual(report["status"], "FAIL")
+        self.assertIn("incomplete", report["error"])
 
     def test_process_failure_preserved_and_enrollment_removed(self):
         report = self.run_fixture("exit-failure")

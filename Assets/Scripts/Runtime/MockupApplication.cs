@@ -77,6 +77,9 @@ namespace CapstoneDesign.Runtime
             }
 
             ShowIsland();
+            // Registered collection must start on the initial garden screen,
+            // without waiting for an optional mission or the settings page.
+            if (Application.isPlaying) _ = PersonalizationClient.Instance;
         }
 
         private void OnDestroy()

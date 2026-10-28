@@ -57,9 +57,9 @@ def catalog(output):
                          ("sky", "GardenSkyValidation.Capture"), ("lighting", "GardenLightingValidation.Capture"),
                          ("procedural-scene", "GardenProceduralValidation.Capture")):
         checks.append(editor(name, method, "visual", graphics=True))
-    consent = editor("measurement-consent", "MeasurementConsentCapture.Start", "visual", graphics=True, quit=False)
-    consent.environment["CAPSTONE_PERSONALIZATION_TEST_ROOT"] = str(output / "measurement-consent" / "synthetic-enrollment")
-    checks.append(consent)
+    settings = editor("measurement-settings", "MeasurementSettingsCapture.Start", "visual", graphics=True, quit=False)
+    settings.environment["CAPSTONE_PERSONALIZATION_TEST_ROOT"] = str(output / "measurement-settings" / "synthetic-enrollment")
+    checks.append(settings)
     checks += [Check("android-launch", "device", ["bash", "scripts/test-a7.sh"], ("adb", "apk"), environment={"SKIP_BUILD": "1", "SKIP_INSTALL": "0"}),
                Check("collector-lifecycle", "device", ["bash", "scripts/test-platform-background.sh"], ("adb",))]
     return checks
@@ -150,13 +150,13 @@ def execute(check, output, environ=None, timeout=900):
             xml = ET.parse(report).getroot()
             if int(xml.attrib.get("testcasecount", xml.attrib.get("total", "0"))) == 0 or xml.attrib.get("result") != "Passed":
                 raise RuntimeError("Unity test result did not report nonempty passed tests")
-        if check.name == "measurement-consent" and result["status"] == "PASS":
+        if check.name == "measurement-settings" and result["status"] == "PASS":
             capture = json.loads((directory / "result.json").read_text())
             images = capture.get("images", [])
             if capture.get("status") != "PASS" or not capture.get("checks") or not images:
-                raise RuntimeError("Consent capture must report nonempty passed checks and images")
+                raise RuntimeError("Settings capture must report nonempty passed checks and images")
             if any(Path(name).name != name or not (directory / "visual" / name).is_file() for name in images):
-                raise RuntimeError("Consent capture report references missing images")
+                raise RuntimeError("Settings capture report references missing images")
             result["testCases"] = len(capture["checks"])
             result["images"] = len(images)
     except (OSError, subprocess.TimeoutExpired, RuntimeError, ET.ParseError, json.JSONDecodeError) as error:

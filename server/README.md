@@ -6,7 +6,7 @@ missing, invalid or expired model falls back to the local recommendation rules;
 the required course order, rewards and garden state stay local.
 
 The repository does **not** deploy a public service, provision participant
-credentials, enable collection by default, or demonstrate that a learned policy
+credentials, enable collection without registration, or demonstrate that a learned policy
 outperforms the baseline with real participants. Synthetic tests verify the
 implementation. A real deployment and prospective evaluation are separate work.
 
@@ -35,14 +35,30 @@ App enrollment is provisioned separately as `personalization-enrollment.json` in
 the Android application's private files directory. Its only fields are
 `endpoint` and `token`. The endpoint is an HTTPS origin without a path, query,
 fragment or embedded credentials. Debug builds permit HTTP only for loopback
-development. The app's explicit participation consent remains necessary after
-provisioning. A token is never bundled in the APK.
+development. The operator provisions this existing file only after collecting written consent
+outside the app; measurement is a condition of this QA/beta participation. The
+app does not inspect a signed form and no new marker or enrollment schema is added.
+A valid registered LIVE app activates recommendation and measurement collection
+from the initial garden screen, without visiting missions or settings and without
+an in-app consent card, toggle or extra confirmation. Unregistered apps
+remain local and do not export these records. A token is never bundled in the APK.
+
+Existing authorized queues and collection-start boundaries are preserved. A newly
+activated measurement scope starts at activation time and excludes earlier selected
+sessions. Once enrollment is bound, transient activation-state writes retry every
+three seconds without moving an established collection boundary. This is not a
+claim that failed initial enrollment reads/binding automatically recover.
+Delete-pending and revoked registrations must not auto-enable.
 
 For any remote deployment, terminate TLS in a reviewed service configuration,
 keep the Python listener private, and configure storage and backup access before
 enrolling participants. The standard-library HTTP adapter is a development
 server. It intentionally suppresses request logging. Reverse proxies must also
 avoid logging bearer headers or behavioral request bodies.
+
+The Python API runs separately from the app. No external production deployment has
+been performed; previous end-to-end validation used a local QA server. The
+analysis PNG is also generated outside the app, not added as a new in-app chart.
 
 ## API contract
 
@@ -81,6 +97,13 @@ The maximum HTTP body is 128 KiB.
 
 Deletion removes that participant's event rows and keeps a minimal revocation
 tombstone. This prevents a delayed upload from recreating withdrawn records.
+Withdrawal is requested through the operator. The internal `SetConsent(false)`
+control/test path stops device collection and records pending deletion; there is
+no participant-facing withdrawal button or new administrator portal. The operator
+must verify that device collection/outboxes are stopped, call/confirm
+`DELETE /participant`, then reconcile local enrollment, exports and backups.
+Removing only the device enrollment file does not complete server deletion.
+
 Repeated deletion is idempotent. A new enrollment requires a new operator-issued
 identity/token; withdrawal is not silently reversed by an upload retry.
 
@@ -153,7 +176,7 @@ insufficient-data fallback and deterministic candidate output. They do not
 replace real-device lifecycle, TLS deployment, operational backup or participant
 usability tests.
 
-## Additional QA/beta measurements (explicit consent 2)
+## Additional QA/beta measurements (written consent; wire version 2)
 
 `POST /measurements/batch` uses the existing authenticated enrollment, schema 1
 and consent 2. It is separate from the four-feature recommendation contract.
@@ -174,10 +197,24 @@ change before the app; a prior server's 404 leaves the native outbox pending.
 Notification rows record due/planned time, accepted-post time, click time, policy
 and clock metadata. Activity rows contain catalog ID, pseudonymous session key
 and selected/started/completed/ended timestamps. Raw notes, health values and
-unrecognized fields are rejected. Existing consent does not auto-enable the new
-producer; the app asks existing participants to explicitly accept the extra scope.
+unrecognized fields are rejected. The operator must confirm the written scope before provisioning registration.
+The valid registered LIVE app activates this producer without additional UI; it
+preserves any existing measurement boundary and starts new measurements at first
+activation. The retained `consent_version` values describe existing wire contracts,
+not a new in-app procedure.
 
 Read [implementation, evaluation rules and remaining beta operating steps](../docs/QA_BETA_MEASUREMENT_PLAN.md).
 Run `python3 -m server.analyze_measurements --help` for the read-only export tool.
-Native notification delivery and clicks still require real-device validation;
-server tests, a compiled APK and synthetic plots do not establish that gate.
+Real notification delivery, Unity upload and deletion were validated on a device
+for the prior in-app-consent baseline. The written-consent activation change passed its current-source Editor network
+checks (18 client and 2 server checks with cleanup), plus unregistered/registered
+settings validation. A newly built Android product APK then passed 12 device
+checks: unregistered collection/export off, provisioned activation without UI,
+actual Unity HTTP quality heartbeat and selected-activity delivery, preserved
+activation boundary/collection after restart, operator API deletion/revocation,
+and original-state/display restoration. The local QA server was stopped and
+reverse forwarding removed. These are temporary QA registrations, not a beta
+cohort or evidence of clinical or personalization benefit.
+See the linked plan for the factual written-notice draft, including recommendation
+features, local-only health/free-text data, retention limits and operator fields
+that have not yet been assigned.

@@ -47,8 +47,6 @@ namespace CapstoneDesign.Runtime
         private ActivityNotificationSettings notificationSettings;
         private Text notificationActionStatus;
         private Button musicToggle;
-        private Button personalizationToggle, measurementConsentAction;
-        private Text personalizationStatus;
         private sealed class SwitchVisual
         {
             public Image Track;
@@ -118,23 +116,6 @@ namespace CapstoneDesign.Runtime
             RowControl(music, "정원의 시간", OpenVisualDebug);
             RefreshMusicSetting();
 
-            if (PersonalizationClient.Instance.Configured)
-            {
-                Transform participation = Section(content,"Recommendation participation","QA·베타 측정 참여");
-                personalizationToggle=SwitchRow(participation,"활동 이용 기록 공유",()=>
-                {
-                    var client=PersonalizationClient.Instance;
-                    client.SetConsent(!client.Consented);
-                    RefreshPersonalizationSetting();
-                });
-                Copy(participation,"추천 요약값과 활동 선택·시작·완료·종료 시각, 알림 예정·게시 수락·클릭 시각, 알림 정책·차단·실패 및 수집 누락 정보를 가명으로 공유해요. 보관 기간은 90일이며 QA와 발표 분석에 사용해요. 일기·감정 내용·원본 건강 기록·기기 식별자는 보내지 않아요. 끄면 기기 대기 기록을 지우고 서버 삭제를 요청해요. 참여하지 않아도 앱을 사용할 수 있어요.",GardenUi.BodySize,GardenUi.Muted);
-                if (PersonalizationClient.Instance.Consented && !PersonalizationClient.Instance.MeasurementConsented)
-                    measurementConsentAction=RowControl(participation,"추가 항목 확인 · 알림과 전체 활동 측정에 동의",()=>
-                    { PersonalizationClient.Instance.EnableMeasurements(); RefreshPersonalizationSetting(); });
-                personalizationStatus=ActionLine(participation);
-                RefreshPersonalizationSetting();
-            }
-
             Transform healthCard = Section(content, "Health records", "건강 기록");
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
             RowControl(healthCard, "심박 차트 보기", OpenCharts);
@@ -179,16 +160,6 @@ namespace CapstoneDesign.Runtime
         void RefreshMusicSetting()
         {
             if (musicToggle != null) UpdateSwitch(musicToggle, !GardenMusicPlayer.IsMuted);
-        }
-
-        void RefreshPersonalizationSetting()
-        {
-            if(personalizationToggle==null)return;
-            var client=PersonalizationClient.Instance;
-            UpdateSwitch(personalizationToggle,client.Consented);
-            if(measurementConsentAction!=null)measurementConsentAction.gameObject.SetActive(client.Consented && !client.MeasurementConsented);
-            personalizationStatus.text=client.Status;
-            personalizationStatus.gameObject.SetActive(true);
         }
 
         void RefreshNotificationSettings()
@@ -574,7 +545,6 @@ namespace CapstoneDesign.Runtime
 
         private void RefreshText()
         {
-            RefreshPersonalizationSetting();
             RefreshMusicSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");

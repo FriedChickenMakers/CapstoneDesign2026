@@ -9,8 +9,9 @@ using UnityEngine.Networking;
 
 namespace CapstoneDesign.Runtime
 {
-    // Enrollment is provisioned separately in app-private storage. Shipping a
-    // universal bearer token or enabling research collection by default is forbidden.
+    // Operators provision an individual enrollment in app-private storage only
+    // after written consent. Registered study collection starts without an app
+    // consent screen; ordinary unregistered installations do not upload research data.
     public sealed partial class PersonalizationClient : MonoBehaviour
     {
         [Serializable] sealed class Enrollment { public string endpoint, token; }
@@ -20,7 +21,7 @@ namespace CapstoneDesign.Runtime
         ResponsePolicy policy = new ResponsePolicy();
         bool busy, policyLoaded, initializationAttempted;
         long nextPolicyRefresh;
-        float nextAttempt;
+        float nextAttempt, nextActivationAttempt;
         string status = "연결 설정 없음";
         public static PersonalizationClient Instance
         {
@@ -78,7 +79,16 @@ namespace CapstoneDesign.Runtime
                 candidate.endpoint = candidate.endpoint.TrimEnd('/');
                 queue.Bind(EventQueue.Fingerprint(candidate.endpoint, candidate.token));
                 enrollment = candidate;
-                status = queue.DeletePending ? "서버 기록 삭제 대기" : queue.Enabled ? "추천 개선에 참여 중" : "참여 안 함";
+                status = queue.DeletePending ? "서버 기록 삭제 대기" : queue.EnrollmentRevoked ? "참가 등록 폐기됨" : "참가 등록 확인됨";
+                // Preserve a prior authorized collection boundary and pending data.
+                // First activation uses now; never backfill pre-enrollment sessions.
+                // Removing the UI must not undo an operator's pending/revoked deletion.
+                if (!queue.DeletePending && !queue.EnrollmentRevoked)
+                {
+                    nextActivationAttempt = Time.unscaledTime + 3;
+                    SetConsent(true);
+                }
+                else SynchronizeMeasurementConsent(forceDisable:true);
             }
             catch (Exception) { status = "저장된 설정 확인 필요"; enrollment = null; }
         }
@@ -104,6 +114,8 @@ namespace CapstoneDesign.Runtime
                 || uri.UserInfo.Length > 0 || uri.AbsolutePath != "/") return false;
             return uri.Scheme == "https" || (Debug.isDebugBuild || Application.isEditor) && uri.Scheme == "http" && uri.IsLoopback;
         }
+        // Internal lifecycle control for enrollment and operator/test withdrawal.
+        // There is deliberately no participant-facing toggle or consent action.
         public bool SetConsent(bool enabled)
         {
             if (!Configured) return false;
@@ -119,6 +131,15 @@ namespace CapstoneDesign.Runtime
                 return true;
             }
             catch (Exception) { status = "설정을 저장하지 못했어요"; return false; }
+        }
+        void ActivateRegisteredCollection()
+        {
+            nextActivationAttempt = Time.unscaledTime + 3;
+            // A transient durable queue write failure must recover without a UI
+            // action. Native consent synchronization has its own retry cadence.
+            // Nonzero boundaries are idempotent; withdrawal is never reopened.
+            if (Configured && !queue.DeletePending && !queue.EnrollmentRevoked
+                && (!queue.Enabled || queue.MeasurementConsentUtcMs == 0)) SetConsent(true);
         }
         public bool Record(string kind, string decisionId, string activityId, float[] features, string policyId)
         {
@@ -159,6 +180,7 @@ namespace CapstoneDesign.Runtime
             if(Time.unscaledTime>=nextMeasurementSync) {nextMeasurementSync=Time.unscaledTime+3;SynchronizeMeasurementConsent();}
             if(!CollectionContextAllowed)return;
             if(!initializationAttempted)InitializeEnrollment();
+            if(Time.unscaledTime>=nextActivationAttempt)ActivateRegisteredCollection();
             if (!Configured || busy || Time.unscaledTime < nextAttempt || (!queue.Enabled && !queue.DeletePending)) return;
             nextAttempt = Time.unscaledTime + 60;
             StartCoroutine(Synchronize());

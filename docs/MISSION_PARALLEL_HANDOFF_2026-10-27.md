@@ -88,7 +88,7 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 | 선택적 복습 추천 | 완료한 MBCT ID, `favorite`, `recommendation-minutes`(1/3/5, 기본 3), 해당 ID의 시작/완료 이력, 결정 시각, `ResponsePolicy` | `OptionalActivityRecommender.Select(state, policy, now)` → 최고 점수 1개. 동점은 ID ordinal. `AddOptionalRecommendation`이 표시 | 새 필수 미션 순서 재편·실습 안내/강도 변경·모든 미션 개인화 |
 | 걷기 목표 | [WalkingBaselineSnapshot](../Assets/Scripts/Runtime/AndroidPlatformModels.cs): 상태·완결성·최신성, 날짜별 걸음과 수면 | [WalkingPersonalization.Evaluate](../Assets/Scripts/Runtime/WalkingPersonalization.cs) → `WalkingTarget`. [WalkingBaseline UI 연결](../Assets/Scripts/Runtime/WeekOneQuestDemo.WalkingBaseline.cs)에서 시작 시 저장 | 모든 활동의 건강 기반 난이도, 의료적 처방, 누락을 0으로 채우기 |
 | 알림 시각 | 사용자 설정·허용 상태, 기존 클릭 관측 등 네이티브 정책 | `ActivityNotificationBridge`, Android `ActivityReminderPolicy`/`ActivityNotifications` | 미션 선택 정책과 같은 모델이 아님. 전체 알림→실습 관측 연결·온라인 bandit은 미완성 |
-| 선택적 서버 정책 | 명시 동의·별도 연결 설정·최소 행동 이벤트 | `PersonalizationClient.Policy`; 유효하지 않거나 미동의면 로컬 규칙 | 운영 서버 배포, 실제 사용자에서 개선 효과 입증, 원문 기록·건강 원본 업로드 |
+| 선택적 서버 정책 | 서면 동의 확인 후 별도 운영자 등록·최소 행동 이벤트 | `PersonalizationClient.Policy`; 유효하지 않거나 미동의면 로컬 규칙 | 운영 서버 배포, 실제 사용자에서 개선 효과 입증, 원문 기록·건강 원본 업로드 |
 
 복습 특징 순서는 **preference / completion_rate / days_since / duration_fit**이며 모두 유한한 [0,1]이다. 완료율은 해당 ID의 시작된 세션 중 `RewardCommitted` 비율(시작 이력 없으면 0.5), 경과는 마지막 시작 이후 14일로 정규화해 자름, 시간 적합도는 권장 시간에 대한 가용 시간 비율을 최대 1로 자른다. 시간 적합도가 실제 활동 길이를 변경하지는 않는다. 기본 점수는 `min(.99, .15 + .30*p + .20*c + .15*d + .20*t)`다. 기존 모델은 같은 네 특징의 로지스틱 추론이며 feature 순서·만료·최소 학습량 검증을 거친다. 입력·정책 객체는 null이 아닌 유효한 앱 상태를 전달한다. 결정 후 새 이력으로 노출 특징을 다시 계산하지 않는다.
 
@@ -108,7 +108,7 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 | --- | --- | --- |
 | 게임·코스·세션 | `SaveRoot/garden-live`, `garden-mock`, `garden-replay` 아래 `state.xml`; **첫 줄 SHA-256 + 다음 줄부터 XML**, `GardenState.SchemaVersion=1` | 원자 교체·백업·단일 writer. 손상 시 새 계정을 만들어 덮어쓰지 않음. 서비스/코덱을 통해 확장 |
 | 추천 전송·동의 | 앱 private `behavior-queue.xml`, schema 1; 최대 256 이벤트, 90일 보존 | 게임 저장과 별개. 철회/삭제 대기는 재시작 후 보존. 용량 초과·네트워크 실패가 게임 완료를 막지 않게 유지 |
-| 연결 설정 | 앱 private `personalization-enrollment.json`의 endpoint/token | 운영자가 별도 설정하고 사용자가 동의. APK/Git/샘플에 실제 값을 넣지 않음 |
+| 연결 설정 | 앱 private `personalization-enrollment.json`의 endpoint/token | 서면 동의 확인 후 운영자가 배치하며 유효한 등록 LIVE는 UI 조작 없이 수집 활성화. 미등록은 내보내기 없음. APK/Git/샘플에 실제 값을 넣지 않음 |
 | Android 건강·알림 상태 | 네이티브 브리지/저장, [플랫폼 구조](ANDROID_PLATFORM_ARCHITECTURE.md) | UI가 직접 파일을 읽거나 새 writer를 만들지 않기. 실제 기기 검증은 별도 |
 
 이번 분리로 위 파일 형식은 바뀌지 않는다. 새 모델에는 nullable/선택 필드의 구버전 기본값, 읽기·쓰기·실패·재실행 검사를 함께 설계한다. `Answers`, `PracticePreferences`, 감정/메모는 개인 입력이며 서버에 통째로 보내지 않는다. 합성 저장만 테스트·CI에 사용한다.
@@ -138,7 +138,7 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 
 ## 2026-10-27 추가 범위: QA·베타 측정
 
-[수집 구현·분석 규칙·운영 준비·미정 범위](QA_BETA_MEASUREMENT_PLAN.md)를 추가했다. 알림 예정/게시 수락/클릭·오류와 전체 활동 생명주기는 별도 consent 2 측정 경로로 연결한다. 기존 추천 특징 API는 유지한다. 아래 최초 기준점 검증은 역사적 결과이며, 새 측정 변경은 통합 브랜치를 일반 merge해 가져온다. 두 팀원 브랜치 자체를 덮어쓰지 않는다.
+[수집 구현·분석 규칙·운영 준비·미정 범위](QA_BETA_MEASUREMENT_PLAN.md)를 추가했다. 알림 예정/게시 수락/클릭·오류와 전체 활동 생명주기는 별도 consent 2 측정 경로로 연결한다. 기존 추천 특징 API는 유지한다. 2026-10-28 서면 절차 전환으로 앱 참여 UI를 제거하고 운영자 등록 후 자동 활성화하며, 삭제 대기/폐기 등록은 재활성화하지 않는다. 아래 최초 기준점 검증은 역사적 결과이며, 새 측정 변경은 통합 브랜치를 일반 merge해 가져온다. 두 팀원 브랜치 자체를 덮어쓰지 않는다.
 
 ## 8. 실행·검증·수용 기준
 
@@ -191,3 +191,11 @@ runuser -u codex -- env HOME="/home/codex" USER=codex LOGNAME=codex \
 ```
 
 이 명령의 output 경로는 이미 사용했으므로 재실행 시 새 경로로 바꾼다. 라이선스 원문·로그·캡처·합성 저장 파일은 커밋하지 않는다.
+
+## 2026-10-28 서면 참여 절차 반영
+
+사용자 지시에 따라 QA·베타 측정은 참여 조건에 포함하고 동의는 앱 밖에서 받는다. 기존 `personalization-enrollment.json`의 endpoint/token을 운영자가 서면 확인 후 배치하며 새 marker/schema는 만들지 않는다. 유효한 등록의 LIVE 경로는 `MockupApplication.cs`의 첫 정원 화면 시작에서 활성화하며 미션/설정 방문을 기다리지 않는다. 이전 허용 큐·수집 시작 경계를 보존한다. 연결 후 활성화 저장 실패는 3초 간격으로 재시도하고 이미 저장된 경계를 변경하지 않는다. 새 측정 시작 전 선택 세션은 전송하지 않으며 `DeletePending`·폐기 상태를 자동으로 되돌리지 않는다.
+
+A는 성공한 `WeekOneQuestDemo.Apply` 이후 저장 세션 관측을 보존한다. `SensorRawDisplay.cs`에는 참여 카드·토글·추가 동의 버튼을 다시 추가하지 않는다. `MockupApplication.cs`의 초기 클라이언트 시작은 A/B 공통 파일 변경으로 조율한다. B는 `PersonalizationClient.cs`·`.Measurements.cs`의 등록 활성화, 경계 보존과 내부 철회 경로를 유지한다. 철회는 운영자 요청과 내부 `SetConsent(false)`, 서버 DELETE, 로컬/별도 export 정리를 조합하며 사용자 버튼·관리 포털은 제공하지 않는다. 서버와 발표 그래프 생성은 앱 밖의 별도 경로다.
+
+서면 안내용 실제 항목·보관 한계·미정 운영 정보는 [측정 계획](QA_BETA_MEASUREMENT_PLAN.md#서면-안내에-넣을-정보-초안)에 정리한다. 기존 앱 내 동의 화면의 검증 결과는 당시 이력으로 보존한다. 이번 전환의 최종 초기화 소스에서 unit 18개 suite, 변경 실행기 각 10개, Unity 선별 3개(project-bindings·EditMode 151개·개인화 client 18/server 2개와 정리), `measurement-settings` 28개 assertion·6장 직접 vision 검토가 통과했다. 새 전체 Android 빌드와 실제 제품 12개 확인도 통과했다. 미등록 비활성·등록 후 UI 조작 없는 활성화·실제 HTTP 미션 선택 전송·재시작 경계 보존·운영자 API 삭제와 원본/화면 설정 복원을 확인했다. 최신 코드 기준과 배포 SHA는 Git 이력·완료 보고를 따른다.

@@ -66,11 +66,11 @@ class QaRunnerTests(unittest.TestCase):
         result = qa.execute(qa.Check("editmode", "unity", [sys.executable, "-c", "pass"]), self.output, environ={})
         self.assertEqual(result["status"], "FAIL")
 
-    def test_consent_capture_requires_nonempty_report_and_real_images(self):
-        directory = self.output / "measurement-consent"
+    def test_settings_capture_requires_nonempty_report_and_real_images(self):
+        directory = self.output / "measurement-settings"
         directory.mkdir()
         report = directory / "result.json"
-        check = qa.Check("measurement-consent", "visual", [sys.executable, "-c", "pass"])
+        check = qa.Check("measurement-settings", "visual", [sys.executable, "-c", "pass"])
         for payload in ({"status": "PASS", "checks": [], "images": []},
                         {"status": "PASS", "checks": ["synthetic-check"], "images": ["missing.png"]}):
             report.write_text(json.dumps(payload))
