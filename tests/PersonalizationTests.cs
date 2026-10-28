@@ -86,6 +86,16 @@ static class PersonalizationTests
             Throws(()=>new EventQueue(damaged),"Invalid persisted consent state fails closed");
             Check(ReferenceEquals(original,damaged.Value),"Rejected queue remains intact for recovery");
         }
+        var legacyStore=new Store {Value=new EventQueueState {Enabled=true,EnrollmentFingerprint="synthetic-enrollment",ConsentStartedUtcMs=now}};
+        var legacyQueue=new EventQueue(legacyStore);
+        Check(legacyQueue.MeasurementConsentUtcMs==0,"Old consent never silently enables additional measurements");
+        legacyQueue.EnableMeasurements(now+10);
+        Check(new EventQueue(legacyStore).MeasurementConsentUtcMs==now+10,"Explicit additional consent persists");
+        legacyQueue.EnableMeasurements(now+100);
+        Check(legacyQueue.MeasurementConsentUtcMs==now+10,"Repeated opt-in does not move consent boundary");
+        legacyQueue.SetConsent(false);
+        Check(new EventQueue(legacyStore).MeasurementConsentUtcMs==0,"Withdrawal clears additional consent");
+        Throws(()=>legacyQueue.EnableMeasurements(now+100),"Withdrawn participant cannot enable extra collection");
         var policy=new ResponsePolicy();var features=new float[]{1,.5f,.25f,1};
         Check(Math.Abs(policy.Score(features,now)-.7875)<.00001,"Rule score matches server baseline");
         policy.model_type="logistic";policy.training_rows=40;policy.expires_utc_ms=now+1000;policy.weights=new float[]{1,2,3,4};

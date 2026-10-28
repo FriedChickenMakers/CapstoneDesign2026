@@ -88,7 +88,7 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 | 선택적 복습 추천 | 완료한 MBCT ID, `favorite`, `recommendation-minutes`(1/3/5, 기본 3), 해당 ID의 시작/완료 이력, 결정 시각, `ResponsePolicy` | `OptionalActivityRecommender.Select(state, policy, now)` → 최고 점수 1개. 동점은 ID ordinal. `AddOptionalRecommendation`이 표시 | 새 필수 미션 순서 재편·실습 안내/강도 변경·모든 미션 개인화 |
 | 걷기 목표 | [WalkingBaselineSnapshot](../Assets/Scripts/Runtime/AndroidPlatformModels.cs): 상태·완결성·최신성, 날짜별 걸음과 수면 | [WalkingPersonalization.Evaluate](../Assets/Scripts/Runtime/WalkingPersonalization.cs) → `WalkingTarget`. [WalkingBaseline UI 연결](../Assets/Scripts/Runtime/WeekOneQuestDemo.WalkingBaseline.cs)에서 시작 시 저장 | 모든 활동의 건강 기반 난이도, 의료적 처방, 누락을 0으로 채우기 |
 | 알림 시각 | 사용자 설정·허용 상태, 기존 클릭 관측 등 네이티브 정책 | `ActivityNotificationBridge`, Android `ActivityReminderPolicy`/`ActivityNotifications` | 미션 선택 정책과 같은 모델이 아님. 전체 알림→실습 관측 연결·온라인 bandit은 미완성 |
-| 선택적 서버 정책 | 명시 동의·별도 연결 설정·최소 행동 이벤트 | `PersonalizationClient.Policy`; 유효하지 않거나 미동의면 로컬 규칙 | 운영 서버 배포, 실제 사용자에서 개선 효과 입증, 원문 기록·건강 원본 업로드 |
+| 선택적 서버 정책 | 서면 동의 확인 후 별도 운영자 등록·최소 행동 이벤트 | `PersonalizationClient.Policy`; 유효하지 않거나 미동의면 로컬 규칙 | 운영 서버 배포, 실제 사용자에서 개선 효과 입증, 원문 기록·건강 원본 업로드 |
 
 복습 특징 순서는 **preference / completion_rate / days_since / duration_fit**이며 모두 유한한 [0,1]이다. 완료율은 해당 ID의 시작된 세션 중 `RewardCommitted` 비율(시작 이력 없으면 0.5), 경과는 마지막 시작 이후 14일로 정규화해 자름, 시간 적합도는 권장 시간에 대한 가용 시간 비율을 최대 1로 자른다. 시간 적합도가 실제 활동 길이를 변경하지는 않는다. 기본 점수는 `min(.99, .15 + .30*p + .20*c + .15*d + .20*t)`다. 기존 모델은 같은 네 특징의 로지스틱 추론이며 feature 순서·만료·최소 학습량 검증을 거친다. 입력·정책 객체는 null이 아닌 유효한 앱 상태를 전달한다. 결정 후 새 이력으로 노출 특징을 다시 계산하지 않는다.
 
@@ -108,7 +108,7 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 | --- | --- | --- |
 | 게임·코스·세션 | `SaveRoot/garden-live`, `garden-mock`, `garden-replay` 아래 `state.xml`; **첫 줄 SHA-256 + 다음 줄부터 XML**, `GardenState.SchemaVersion=1` | 원자 교체·백업·단일 writer. 손상 시 새 계정을 만들어 덮어쓰지 않음. 서비스/코덱을 통해 확장 |
 | 추천 전송·동의 | 앱 private `behavior-queue.xml`, schema 1; 최대 256 이벤트, 90일 보존 | 게임 저장과 별개. 철회/삭제 대기는 재시작 후 보존. 용량 초과·네트워크 실패가 게임 완료를 막지 않게 유지 |
-| 연결 설정 | 앱 private `personalization-enrollment.json`의 endpoint/token | 운영자가 별도 설정하고 사용자가 동의. APK/Git/샘플에 실제 값을 넣지 않음 |
+| 연결 설정 | 앱 private `personalization-enrollment.json`의 endpoint/token | 서면 동의 확인 후 운영자가 배치하며 유효한 등록 LIVE는 UI 조작 없이 수집 활성화. 미등록은 내보내기 없음. APK/Git/샘플에 실제 값을 넣지 않음 |
 | Android 건강·알림 상태 | 네이티브 브리지/저장, [플랫폼 구조](ANDROID_PLATFORM_ARCHITECTURE.md) | UI가 직접 파일을 읽거나 새 writer를 만들지 않기. 실제 기기 검증은 별도 |
 
 이번 분리로 위 파일 형식은 바뀌지 않는다. 새 모델에는 nullable/선택 필드의 구버전 기본값, 읽기·쓰기·실패·재실행 검사를 함께 설계한다. `Answers`, `PracticePreferences`, 감정/메모는 개인 입력이며 서버에 통째로 보내지 않는다. 합성 저장만 테스트·CI에 사용한다.
@@ -136,9 +136,13 @@ GardenState snapshot + ResponsePolicy + 결정 시각
 
 미정 항목이 해결되기 전 A는 현재 카탈로그와 상태 계약으로 표현을 개발하고 B는 기존 입력 기반 순수 정책·결측 대체 검증을 진행할 수 있다. 새 요구사항을 임의로 확정해 저장 형식을 먼저 바꾸지 않는다.
 
+## 2026-10-27 추가 범위: QA·베타 측정
+
+[수집 구현·분석 규칙·운영 준비·미정 범위](QA_BETA_MEASUREMENT_PLAN.md)를 추가했다. 알림 예정/게시 수락/클릭·오류와 전체 활동 생명주기는 별도 consent 2 측정 경로로 연결한다. 기존 추천 특징 API는 유지한다. 2026-10-28 서면 절차 전환으로 앱 참여 UI를 제거하고 운영자 등록 후 자동 활성화하며, 삭제 대기/폐기 등록은 재활성화하지 않는다. 아래 최초 기준점 검증은 역사적 결과이며, 새 측정 변경은 통합 브랜치를 일반 merge해 가져온다. 두 팀원 브랜치 자체를 덮어쓰지 않는다.
+
 ## 8. 실행·검증·수용 기준
 
-Unity **6000.3.24f1**. 저장소의 `Packages/manifest.json`/lock을 사용한다. 기존 프로젝트를 열 때 씬을 무조건 재생성하지 않는다. Editor가 설치·라이선스 설정된 환경에서 실행한다. 자세한 환경변수·도구 설치는 [scripts 안내](../scripts/README.md), [QA 범위](QA_AUTOMATION_AND_COVERAGE.md), [개인정보 검사](REPOSITORY_PRIVACY.md)를 따른다.
+Unity **6000.3.24f1**. 저장소의 `Packages/manifest.json`/lock을 사용한다. 기존 프로젝트를 열 때 씬을 무조건 재생성하지 않는다. Editor를 라이선스가 설정된 OS 계정과 해당 HOME으로 실행한다. 이 공유 worker는 `codex`·`HOME="/home/codex"`이며 root로 Unity를 실행하지 않는다. 라이선스 파일/키를 복사·수정하지 않는다. 자세한 환경변수·도구 설치는 [scripts 안내](../scripts/README.md), [QA 범위](QA_AUTOMATION_AND_COVERAGE.md), [개인정보 검사](REPOSITORY_PRIVACY.md)를 따른다.
 
 ```bash
 # 빠른 개발 검사
@@ -165,8 +169,33 @@ python3 scripts/qa.py --tier visual --output artifacts/team-visual
 
 ### 이번 준비 작업의 검증 기록
 
-- 필수 `unit`: **17/17 PASS**, SKIP 없음. Python 실행기 45개·서버 22개 포함. 새 추천 선택 검사 **23개 PASS**.
-- 실제 Unity/package 참조와 기존 Editor 응답 파일로 현재 `Assembly-CSharp` 소스+새 모듈을 **Roslyn 컴파일 성공**. 캐시된 참조를 사용한 컴파일 검사이며 새 Editor 실행·Play·IL2CPP/APK 검증은 아니다.
-- `project-bindings`, `local-loop` Unity 검사를 실행했으나 **Editor 라이선스 부재로 두 항목 FAIL**. 코드 실행 전 중단했으며 과거 성공 결과로 대체하지 않았다. 라이선스가 있는 팀원 환경에서 위 Unity/visual 검사를 재실행해야 한다.
-- 로컬 결과는 ignored `artifacts/team-handoff-20261027/` 아래 `unit/results.json`, `roslyn/result.json`, `unity/results.json`. unit 결과의 기준 SHA는 시작 커밋이며 작업 트리 변경 포함 실행임을 기록한다. 실제 원격 commit/push/CI 기록은 Docs 저장소의 인수인계 문서에 남긴다.
-- 공개 대상 코드·문서·합성 테스트만 stage하고 worktree/index 개인정보 검사를 수행한다. 실제 기기에 접속하지 않았으므로 이번 작업에서 변경한 기기 설정·신규 복원 대기는 없다.
+- 필수 `unit`: **17/17 PASS**, SKIP 없음. Python 실행기 45개·서버 22개 포함. 새 추천 선택 검사 **23개 PASS**. 최초 준비 작업의 결과이며 아래 Unity 결과를 대신하지 않는다.
+- 최초 Roslyn 검사는 실제 Unity/package 캐시 참조를 사용한 컴파일 성공이었다. 이후 **2026-10-27, 코드 `49b84399429ddac2bf7dab208a082b7202173433`에서 실제 Unity 6000.3.24f1 재검증**을 실행했다. 시작 시 작업 트리는 깨끗했고 제품 소스·저장 계약을 수정하지 않았다.
+- 최초 root 실행의 `project-bindings`·`local-loop`는 라이선스 인식 실패로 실행 전 FAIL이었다. 이를 라이선스 만료로 단정하지 않는다. 기존 **OS 사용자 codex·HOME="/home/codex"**로 실행하자 entitlement를 정상 인식하고 검사가 진행되었다. 라이선스 파일/키 복사·수정과 새 사용자 로그인 없이 해결했다.
+- **Unity tier 6/6 PASS, FAIL/SKIP 0:** project-bindings, local-loop **39/39**, EditMode **151/151**, Play fresh/restore, 실제 UnityWebRequest→로컬 API 동의/업로드/철회/삭제, 음악 Play **54개 확인**. 통신 fixture의 임시 인증·서버 데이터 정리도 확인했다.
+- **Visual tier 7/7 PASS, FAIL/SKIP 0:** tabs, supplemental-ui, guided-ui, demo-polish, sky, lighting, procedural-scene. 기본 138장·추가 상태 195장·8주 전체 안내 585장, 합계 **918장**의 UI 캡처에서 보고된 텍스트 넘침은 **0건**이었다. 복습 추천·미션 단계·추천 설정의 대표 화면 3장도 직접 확인했다. 전체 이미지에 대한 사람의 검토나 모든 2/4주 화면·실기기 터치 검증을 뜻하지 않는다. 두 tier 합계 **13/13 PASS**.
+- Play 로그에는 Unity 내부 `UnityEditor.Search.SearchDatabase` 초기화의 `ArgumentOutOfRangeException`이 기록됐다. 해당 검증은 계속 실행되어 위 assertion과 결과 파일이 PASS였으며, 제품 호출 스택이 없는 Editor 검색 초기화 예외로 구분해 기록한다. 로그에 오류가 전혀 없었다는 의미는 아니다.
+- 실행 전 Editor 프로세스와 잠금을 확인했다. 이전 root 실행이 남긴 `Temp` 및 `Temp/UnityLockfile` 두 경로만 codex 소유로 수정했으며 전체 checkout chown/권한 완화는 하지 않았다. 검증 중 생성된 폰트 캐시 변경은 별도 보존 후 모든 Editor 종료를 확인하고 기준 자산으로 복원하여 배포 대상에서 제외했다.
+- 최초 증거는 ignored `artifacts/team-handoff-20261027/`에 유지한다. 재검증은 별도 `artifacts/team-handoff-20261027-codex-unity/`의 `results.json`, `editmode.xml`, 각 검사 결과·캡처에 보존한다. 실제 원격 commit/push/CI 기록은 Docs 저장소 인수인계에 남긴다.
+- 이번 추가 배포는 검증 기록·실행 계정 안내를 갱신하는 문서 변경이다. 두 팀원 브랜치는 최초 기능 기준 `49b8439`에 유지하며 강제 갱신하지 않는다. 통합 브랜치의 문서 갱신은 필요할 때 일반 merge로 가져온다.
+- Android APK·실기기·키보드/터치·배포 서버 검증과 향후 두 기능의 수용 검사는 별도다. 이번 변경에 네이티브 수정은 없고 실제 기기에 접속하지 않았으므로 신규 기기 설정 변경·복원 대기는 없다.
+
+이번 worker에서 실행한 명령(관리 셸에서 OS 계정을 전환하며, 팀원은 자신의 라이선스가 설정된 계정에서 실행):
+
+```bash
+runuser -u codex -- env HOME="/home/codex" USER=codex LOGNAME=codex \
+  UNITY_BIN=/opt/unity/editors/6000.3.24f1/Editor/Unity \
+  xvfb-run -a -s '-screen 0 1920x1080x24' \
+  python3 scripts/qa.py --tier unity --tier visual \
+  --output artifacts/team-handoff-20261027-codex-unity --timeout 600
+```
+
+이 명령의 output 경로는 이미 사용했으므로 재실행 시 새 경로로 바꾼다. 라이선스 원문·로그·캡처·합성 저장 파일은 커밋하지 않는다.
+
+## 2026-10-28 서면 참여 절차 반영
+
+사용자 지시에 따라 QA·베타 측정은 참여 조건에 포함하고 동의는 앱 밖에서 받는다. 기존 `personalization-enrollment.json`의 endpoint/token을 운영자가 서면 확인 후 배치하며 새 marker/schema는 만들지 않는다. 유효한 등록의 LIVE 경로는 `MockupApplication.cs`의 첫 정원 화면 시작에서 활성화하며 미션/설정 방문을 기다리지 않는다. 이전 허용 큐·수집 시작 경계를 보존한다. 연결 후 활성화 저장 실패는 3초 간격으로 재시도하고 이미 저장된 경계를 변경하지 않는다. 새 측정 시작 전 선택 세션은 전송하지 않으며 `DeletePending`·폐기 상태를 자동으로 되돌리지 않는다.
+
+A는 성공한 `WeekOneQuestDemo.Apply` 이후 저장 세션 관측을 보존한다. `SensorRawDisplay.cs`에는 참여 카드·토글·추가 동의 버튼을 다시 추가하지 않는다. `MockupApplication.cs`의 초기 클라이언트 시작은 A/B 공통 파일 변경으로 조율한다. B는 `PersonalizationClient.cs`·`.Measurements.cs`의 등록 활성화, 경계 보존과 내부 철회 경로를 유지한다. 철회는 운영자 요청과 내부 `SetConsent(false)`, 서버 DELETE, 로컬/별도 export 정리를 조합하며 사용자 버튼·관리 포털은 제공하지 않는다. 서버와 발표 그래프 생성은 앱 밖의 별도 경로다.
+
+서면 안내용 실제 항목·보관 한계·미정 운영 정보는 [측정 계획](QA_BETA_MEASUREMENT_PLAN.md#서면-안내에-넣을-정보-초안)에 정리한다. 기존 앱 내 동의 화면의 검증 결과는 당시 이력으로 보존한다. 이번 전환의 최종 초기화 소스에서 unit 18개 suite, 변경 실행기 각 10개, Unity 선별 3개(project-bindings·EditMode 151개·개인화 client 18/server 2개와 정리), `measurement-settings` 28개 assertion·6장 직접 vision 검토가 통과했다. 새 전체 Android 빌드와 실제 제품 12개 확인도 통과했다. 미등록 비활성·등록 후 UI 조작 없는 활성화·실제 HTTP 미션 선택 전송·재시작 경계 보존·운영자 API 삭제와 원본/화면 설정 복원을 확인했다. 최신 코드 기준과 배포 SHA는 Git 이력·완료 보고를 따른다.

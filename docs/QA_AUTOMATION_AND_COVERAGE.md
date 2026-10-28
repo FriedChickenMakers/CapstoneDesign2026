@@ -145,9 +145,12 @@ synthetic LIVE DTOs, Editor pictures, or a separate notification test package.
 
 The 2026-10-27 parallel-development handoff adds the required
 `mission-recommendation` unit suite for the extracted optional review selector.
-The unit tier now contains 17 checks; historical 16-check results below retain
-their original scope. Current handoff execution and the Unity license limitation
-are recorded in [the handoff](MISSION_PARALLEL_HANDOFF_2026-10-27.md).
+The measurement outbox adds one more required Kotlin contract suite, bringing the
+unit tier to 18 checks. See [QA/beta measurements](QA_BETA_MEASUREMENT_PLAN.md) for
+consent, native producer, API and analysis scope. Historical 16/17-check results retain
+their original scope. Current handoff execution, including the successful Unity
+rerun under the licensed OS account after the initial root-account failure,
+is recorded in [the handoff](MISSION_PARALLEL_HANDOFF_2026-10-27.md).
 
 Before this automation change, the 2026-10-25 UI release had 216 synthetic
 captures with no reported text overflows, LocalLoop 34/34, Play fresh/restore,

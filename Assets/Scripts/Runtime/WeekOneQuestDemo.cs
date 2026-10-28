@@ -130,7 +130,7 @@ namespace CapstoneDesign.Runtime
         bool Apply(bool success)
         {
             error=success ? null : Service.LastError;
-            if(success) UpdateGarden();
+            if(success) { UpdateGarden(); ObserveOptionalRecommendation(force:true); }
             else if(notice!=null){notice.gameObject.SetActive(true);notice.text="저장하지 못했어요. 입력을 유지했으니 다시 시도해 주세요.";}
             return success;
         }

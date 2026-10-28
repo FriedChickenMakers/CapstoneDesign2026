@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real Editor UnityWebRequest -> loopback API consent lifecycle gate.
+"""Real Editor UnityWebRequest -> loopback API operator-registration lifecycle gate.
 
 Only synthetic behavioral events are used. Enrollment, queue and SQLite data
 are isolated and removed in finally; reports and logs stay in private artifacts.
@@ -27,10 +27,16 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from android_device_session import durable_json, private_directory
 from server.service import EventService, make_server
 
-CLIENT_CHECKS = frozenset({"configured-with-explicit-test-root", "no-recording-before-consent", "consent-opt-in",
+CLIENT_CHECKS = frozenset({"unregistered-install-does-not-collect", "unregistered-install-cannot-record",
+                           "configured-with-explicit-test-root", "registered-start-enables-collection-without-ui",
+                           "activation-write-failure-keeps-collection-disabled", "activation-retries-after-storage-recovers",
+                           "measurement-write-failure-keeps-measurements-disabled",
+                           "measurement-activation-retries-preserving-original-boundary",
+                           "first-activation-boundaries-persisted", "client-recreation-preserves-activation-boundaries",
                            "synthetic-event-queued", "upload-acknowledged", "server-upload-confirmed",
-                           "withdrawal-immediate-local-clear", "server-deletion-acknowledged",
-                           "revoked-enrollment-cannot-reconsent", "revoked-enrollment-cannot-record"})
+                           "operator-withdrawal-immediate-local-clear", "pending-deletion-reload-cannot-reactivate",
+                           "server-deletion-acknowledged", "revoked-enrollment-reload-cannot-reactivate",
+                           "revoked-enrollment-cannot-record"})
 
 
 class ValidationFailure(RuntimeError):
@@ -51,7 +57,7 @@ def run_validation(output, command=None, timeout=360, environment=None):
     work = Path(tempfile.mkdtemp(prefix="isolated-", dir=output))
     client_root = private_directory(work / "client")
     control = private_directory(work / "control")
-    report = {"status": "FAIL", "scope": "UnityWebRequest consent lifecycle" if command is None else "runner subprocess fixture",
+    report = {"status": "FAIL", "scope": "UnityWebRequest operator-registration lifecycle" if command is None else "runner subprocess fixture",
               "checks": [], "clientChecks": [], "cleanupComplete": False}
     started = time.monotonic()
     child = server = thread = None
@@ -141,7 +147,7 @@ def main():
         report = run_validation(output, timeout=args.timeout)
     finally:
         signal.signal(signal.SIGTERM, previous)
-    print(report["status"] + ": actual UnityWebRequest consent lifecycle; private report " + str(output / "result.json"))
+    print(report["status"] + ": actual UnityWebRequest operator-registration lifecycle; private report " + str(output / "result.json"))
     return 0 if report["status"] == "PASS" else 1
 
 

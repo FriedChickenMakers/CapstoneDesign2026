@@ -29,6 +29,7 @@ dependencies { implementation project(':platform') }
 ''')
 write('app/src/main/AndroidManifest.xml', '''<manifest xmlns:android="http://schemas.android.com/apk/res/android">
  <application android:label="Synthetic notification validation" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" />
+ <instrumentation android:name="com.capstonedesign2026.platform.MeasurementValidationInstrumentation" android:targetPackage="com.capstonedesign2026.notificationpreview" android:label="Synthetic measurement validation" />
  <instrumentation android:name="com.capstonedesign2026.platform.NotificationValidationInstrumentation" android:targetPackage="com.capstonedesign2026.notificationpreview" android:label="Virtual clock notification validation" />
 </manifest>
 ''')

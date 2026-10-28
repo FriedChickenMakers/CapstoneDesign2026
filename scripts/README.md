@@ -27,6 +27,16 @@ parallel editors against this project's Library. `scripts/test.sh` only validate
 project wiring; it is not the full suite. Isolated synthetic saves are created by
 the combined runner, which never changes the operating-system clock.
 
+Run Unity as the OS user whose Unity license is already configured, with that
+user's actual `HOME`. On the shared worker this is `codex` with
+`HOME="/home/codex"`; a root shell must switch users before launching the Editor.
+An access-token warning alone does not establish license expiry: check whether
+entitlements resolve and the requested validation actually runs. Do not copy or
+edit license files to work around an account mismatch. Before switching users,
+check existing Editor processes and project locks; repair only specifically
+identified generated files that the wrong user left unwritable, not the entire
+checkout. Keep license logs and generated captures in ignored artifacts.
+
 ```bash
 ./scripts/bootstrap-project.sh
 ./scripts/test.sh
@@ -108,3 +118,48 @@ Before committing/pushing or creating a publishable source archive, follow
 check with real Gitleaks, then the exact `--staged` check. Missing or failed
 scanners are not passes. Device backups, journals and screenshots stay private;
 never remove a pending restoration record during cleanup.
+
+## QA/beta measurement exports
+
+See [measurement scope and operating checklist](../docs/QA_BETA_MEASUREMENT_PLAN.md).
+`test-measurement-buffer.sh` runs the required pure Kotlin outbox contracts.
+`server.analyze_measurements` exports private notification pairs, descriptive
+statistics and optional Matplotlib charts; select `live` or `synthetic` explicitly.
+Install `scripts/requirements-measurement-plots.txt` in a separate Python environment
+for charts, or pass `--no-plots` for standard-library CSV/JSON analysis.
+
+For the isolated native Android path, build and run on an authorized QA device:
+
+```bash
+NOTIFICATION_ANDROID_OUTPUT=artifacts/measurement-native-build-new \
+  bash scripts/build-notification-test-apk.sh
+python3 scripts/test-measurements-android.py \
+  --serial "$ADB_SERIAL" \
+  --apk artifacts/measurement-native-build-new/notification-tests.apk \
+  --output artifacts/measurement-native-device-new
+```
+
+Configure the Android SDK/JDK and local `ADB_SERIAL` first; keep its actual value
+private and use fresh output directories. The runner verifies the APK package
+offline with Android `aapt` before opening a device session; use `--aapt` or
+`AAPT_BIN` if SDK discovery is unavailable. It uses the synthetic isolated package, backs it up, installs in place, and requires distinct produce/restore
+processes and verified display-setting restoration. It checks real OS posting,
+PendingIntent clicks, consent, restart recovery, ACKs and storage-error withdrawal.
+Keep all outputs private. This does not replace Unity product-to-server E2E or
+participant studies; see the linked measurement checklist for those gates.
+
+Participant consent is collected on paper outside the app; measurement is a
+condition of the QA/beta participation. The operator provisions the existing
+endpoint/token enrollment only after written confirmation. Valid registered LIVE
+apps activate collection on the initial garden screen without visiting missions
+or settings and without an in-app participation card or toggle;
+unregistered apps do not export. Withdrawal uses operator controls/internal
+`SetConsent(false)`, the DELETE API and verified local/export cleanup, not a new
+administrator portal. The Python server and generated analysis PNG remain outside
+the app. Historical in-app-consent captures remain baseline evidence. Current-source
+activation/network/settings checks and a newly built product APK were verified
+separately, including operator deletion and original-state restoration. The linked plan contains the factual notice draft.
+
+Use the `measurement-settings` visual check for the current registered/unregistered
+settings states with no participation controls. The removed `measurement-consent`
+fixture and its 36 historical screenshots do not validate the current UI.

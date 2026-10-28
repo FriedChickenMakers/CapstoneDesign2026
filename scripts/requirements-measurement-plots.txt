@@ -1,0 +1,2 @@
+# Optional presentation export; the API and analysis without plots use stdlib only.
+matplotlib>=3.8,<4
