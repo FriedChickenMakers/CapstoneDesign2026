@@ -2,6 +2,8 @@
 
 For the 2-week MVP's 12 mission screens, use the [mission UI benchmark and Figma flow plan](docs/MISSION_UI_BENCHMARK_AND_FIGMA_FLOW_2026-10-28.md). It compares Forest, 마음정원, Headspace, and Finch and separates current behavior from proposed screen states.
 
+For the existing `M01`–`M17` free missions and `P01`–`P28` course missions, use the [individual mission screen flows](docs/MISSION_SCREEN_FLOWS_M01_P28_2026-10-29.md). Each numbered step represents a separate app/Figma screen; this is a design plan for the legacy catalog, distinct from the current 2-week MVP mission plan.
+
 For parallel work on individual mission UI and mission personalization, start
 with the [2026-10-27 handoff and shared contracts](docs/MISSION_PARALLEL_HANDOFF_2026-10-27.md).
 QA/beta measurement scope and rollout gates: [measurement plan](docs/QA_BETA_MEASUREMENT_PLAN.md).
