@@ -1,5 +1,7 @@
 # CapstoneDesign2026 Unity Mockup
 
+For the 2-week MVP's 12 mission screens, use the [mission UI benchmark and Figma flow plan](docs/MISSION_UI_BENCHMARK_AND_FIGMA_FLOW_2026-10-28.md). It compares Forest, 마음정원, Headspace, and Finch and separates current behavior from proposed screen states.
+
 For parallel work on individual mission UI and mission personalization, start
 with the [2026-10-27 handoff and shared contracts](docs/MISSION_PARALLEL_HANDOFF_2026-10-27.md).
 The integration branch is `codex/overnight-local-loop`; the current app supports
