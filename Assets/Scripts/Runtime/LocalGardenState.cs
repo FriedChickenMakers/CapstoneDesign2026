@@ -168,6 +168,15 @@ namespace CapstoneDesign.Runtime.LocalState
         public static int CompletedCount(GardenState state) => Completed(state).Count();
         public static int NextOrder(GardenState state) => CompletedCount(state)+1;
         public static bool AdditionalCompletedToday(GardenState state) => state.Sessions.Any(s=>IsFocus(s) && s.FocusRole==FocusMissionCatalog.AdditionalRole && !s.FocusReview && s.Status==ParticipationState.RewardCommitted && s.InstanceId==state.LastCycleId);
+        public static bool HasPendingToday(GardenState state)
+        {
+            if(state==null)return false;
+            // A retained normal draft still needs attention; optional reviews do not
+            // turn a completed day back into an incomplete one.
+            return state.Sessions.Any(s=>IsFocus(s) && IsActive(s) && !s.FocusReview
+                    && (s.FocusRole==FocusMissionCatalog.BasicRole || s.FocusRole==FocusMissionCatalog.AdditionalRole))
+                || Availability(state)==null || !AdditionalCompletedToday(state);
+        }
         public static string Availability(GardenState state)
         {
             if(NextOrder(state)>TotalPractices)return "2주 과정을 마쳤어요. 내 과정에서 기록을 돌아볼 수 있어요.";

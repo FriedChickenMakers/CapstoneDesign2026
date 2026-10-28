@@ -58,6 +58,8 @@ static class FocusMissionStateTests
         Check(FocusMissionCatalog.Additional.Single().Code=="M03","M03 only additional");
         Check(Enumerable.Range(1,12).All(i=>FocusMissionPolicy.MissionAt(i).Code==new[]{"P23","P10","P25"}[(i-1)%3]),"stable repeated 12-slot schedule");
         var clock=new FocusClock();var store=new FocusStore();var service=Open(store,clock);
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"initial day has basic and additional missions left");
+        Check(!FocusMissionPolicy.HasPendingToday(null),"unavailable state does not invent pending missions");
         Check(service.BeginSession("legacy-kept","course:P01",1) && service.StartSession("legacy-kept"),"legacy active record seeded");
         Check(!service.BeginFocusSession("wrong","P10",1),"reject mismatched occurrence");
         Start(service,"basic-1","P23",1);
@@ -93,16 +95,27 @@ static class FocusMissionStateTests
         Check(service.CompleteFocusSession("basic-1","changed","changed") && service.Snapshot.Nutrient==5 && Get(service,"basic-1").Note=="synthetic reflection","completed retry immutable");
         Check(service.Snapshot.NextCourseOrder==1 && service.Snapshot.MbctNextOrder==1 && Get(service,"legacy-kept").Status==ParticipationState.InProgress,"legacy progress and session preserved");
         Check(!service.BeginFocusSession("too-soon","P10",2),"daily basic quota");
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"basic completion alone leaves the additional mission pending");
         ConfirmAll(service,"extra-1");Check(service.CompleteFocusSession("extra-1"),"additional completes while basic day done");
         Check(service.Snapshot.Nutrient==10 && FocusMissionPolicy.NextOrder(service.Snapshot)==2,"additional does not advance course");
-        Complete(service,"extra-repeat","M03",0);
+        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"both daily missions complete despite a retained legacy draft");
+        Start(service,"extra-repeat","M03",0);
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"normal additional draft needs attention even after an earlier daily completion");
+        Check(service.PauseSession("extra-repeat") && FocusMissionPolicy.HasPendingToday(service.Snapshot),"paused normal additional draft remains pending");
+        Check(service.ResumeSession("extra-repeat"),"resume additional badge fixture");
+        ConfirmAll(service,"extra-repeat");Check(service.CompleteFocusSession("extra-repeat"),"repeat additional complete");
         Check(Get(service,"extra-repeat").RewardAmount==0 && service.Snapshot.Nutrient==10,"same-day extra no duplicate reward");
-        Complete(service,"extra-review","M03",0,true);
+        Start(service,"extra-review","M03",0,true);
+        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"optional additional review does not undo a complete day");
+        ConfirmAll(service,"extra-review");Check(service.CompleteFocusSession("extra-review"),"additional review complete");
         Check(Get(service,"extra-review").RewardAmount==0 && service.Snapshot.Nutrient==10,"explicit additional review has no reward");
         clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"day two");
-        Complete(service,"basic-2","P10",2);
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"daily rollover restores pending status");
         Complete(service,"extra-day2","M03",0);
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"additional completion alone leaves the basic mission pending");
+        Complete(service,"basic-2","P10",2);
         Check(service.Snapshot.Nutrient==20,"additional reward resets on new daily cycle");
+        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"daily completion works regardless of mission order");
         clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());
         Start(service,"basic-3","P25",3);
         Check(service.ConfirmFocusStep("basic-3",0),"pause confirmation");
@@ -118,11 +131,18 @@ static class FocusMissionStateTests
         {clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());Complete(service,"basic-"+order,FocusMissionPolicy.MissionAt(order).Code,order);}
         clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());
         Check(FocusMissionPolicy.Availability(service.Snapshot)!=null && !service.BeginFocusSession("week-cap","P23",7),"six-per-calendar-week cap");
+        Complete(service,"extra-week-cap","M03",0);
+        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"locked future basic missions do not keep the weekly rest day pending");
         for(int order=7;order<=12;order++)
         {clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());Complete(service,"basic-"+order,FocusMissionPolicy.MissionAt(order).Code,order);}
         Check(FocusMissionPolicy.NextOrder(service.Snapshot)==13 && FocusMissionPolicy.CompletedCount(service.Snapshot)==12,"two-week completion");
         Check(!service.BeginFocusSession("beyond","P23",13),"cannot exceed twelve occurrences");
-        before=service.Snapshot.Nutrient;Complete(service,"review","P23",1,true);
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"finished basic course still has today's additional mission pending");
+        Complete(service,"extra-course-done","M03",0);
+        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"finished course with today's additional complete has no pending missions");
+        before=service.Snapshot.Nutrient;Start(service,"review","P23",1,true);
+        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"optional basic review does not undo a complete day");
+        ConfirmAll(service,"review");Check(service.CompleteFocusSession("review"),"basic review complete");
         Check(Get(service,"review").RewardAmount==0 && service.Snapshot.Nutrient==before && FocusMissionPolicy.NextOrder(service.Snapshot)==13,"review no reward/progress");
         Check(FocusMissionPolicy.History(service.Snapshot,"P23").Count()==5,"repeated template stores four distinct occurrences and separate review");
         var detached=service.Snapshot;detached.Sessions.First(s=>s.SessionId=="basic-1").FocusStepRecords[0].Prompt="changed";

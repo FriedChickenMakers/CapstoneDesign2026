@@ -12,6 +12,7 @@ using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
@@ -103,6 +104,11 @@ namespace CapstoneDesign.EditorTools
             Directory.CreateDirectory(OutputRoot);
             try
             {
+                // A failed URP constructor after a Play-mode assembly reload can leave
+                // Blitter resources allocated with no live pipeline. Reclaim only that
+                // orphaned state; a running render pipeline must retain its resources.
+                if (GraphicsSettings.currentRenderPipeline != null && RenderPipelineManager.currentPipeline == null)
+                    Blitter.Cleanup();
                 Check(report, "Home, recommendation, course, week and garden navigation", () => Navigation(report, request.capture));
                 Check(report, "P23, P10 and P25 sequential visible controls and persisted records", () => BasicFlows(report, request.capture));
                 Check(report, "M03 droplet action, 24 emotion choices, optional note and garden return", () => AdditionalFlow(report, request.capture));
@@ -130,6 +136,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report))
             {
+                f.AssertMissionBadge("!");
                 f.Capture("01-home", capture);
                 f.Click("추천 미션 보기");
                 Assert(f.Has("추가 미션 시작하기"), "Recommendation did not expose the additional start action.");
@@ -187,7 +194,7 @@ namespace CapstoneDesign.EditorTools
 
         static void AdditionalFlow(Report report, bool capture)
         {
-            using (var f = new Fixture(report))
+            using (var f = new Fixture(report, true))
             {
                 f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기"); f.Click("시작");
                 f.Click("준비했어요"); f.ClickBack();
@@ -210,15 +217,18 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.Snapshot.Nutrient == 5, "Additional completion did not reward exactly once.");
                 f.Capture("M03-completed", capture);
                 f.Click("정원으로");
-                Assert(f.Navigation.islandPanel.activeSelf && !f.Ui.gameObject.activeSelf, "Completion garden action failed.");
+                Assert(f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Ui.gameObject.activeSelf, "Completion garden action failed.");
+                f.Navigation.home.RefreshMissionStatus();
+                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "!", "M03-only completion hid the remaining basic mission on the garden.");
                 f.Navigation.ShowActivities(); f.Invoke("ShowHome");
                 Assert(f.Has("기본 미션 시작하기") && !f.Has("추천 미션 보기"), "Additional-only completion disabled basic or retained its extra CTA.");
+                f.AssertMissionBadge("!");
             }
         }
 
         static void DraftAndRetry(Report report, bool capture)
         {
-            using (var f = new Fixture(report))
+            using (var f = new Fixture(report, true))
             {
                 f.Click("기본 미션 시작하기"); f.Click("시작"); f.Click("준비했어요");
                 string id = f.Latest.SessionId;
@@ -244,11 +254,21 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Latest.Status == ParticipationState.RewardCommitted && f.Service.Snapshot.Nutrient == 5, "Retry did not commit exactly once.");
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Basic-only done home has incorrect CTA state.");
+                f.AssertMissionBadge("!");
                 f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기"); f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("M03"), false); f.CompleteReflection("", "", false);
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && !f.Has("추천 미션 보기"), "Both-done home retained a start CTA.");
+                f.AssertMissionBadge("✓");
                 f.Capture("07-both-completed-home", capture);
+                f.Click("홈"); f.Navigation.home.RefreshMissionStatus();
+                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "✓", "Garden did not switch to a check when all today's missions were complete.");
+                f.Capture("16-garden-all-done", capture); f.Navigation.ShowActivities();
+                f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1); f.Ui.RefreshCycle();
+                f.AssertMissionBadge("!");
+                f.Click("홈"); f.Navigation.home.RefreshMissionStatus();
+                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "!", "Garden kept yesterday's completion check after rollover.");
+                f.Capture("17-garden-next-day", capture);
             }
         }
 
@@ -289,6 +309,9 @@ namespace CapstoneDesign.EditorTools
                     "Integrated mission panel is not full stretch.");
                 Assert(panel.parent.name == "Tab design frame", "PreparePresentation did not mount the integrated portrait shell.");
                 Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf, "Garden canvas obscures the mission home.");
+                var missionBar = f.Ui.GetComponentInChildren<MissionBottomNavigation>(false);
+                Assert(missionBar != null, "Mission home is not using the shared navigation component.");
+                var missionGeometry = NavigationGeometry(missionBar);
                 f.Capture("12-integrated-shell-home", capture);
                 f.Click("기본 미션 시작하기");
                 Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Has("내 과정"), "Focused practice retained garden or main tab controls.");
@@ -296,8 +319,17 @@ namespace CapstoneDesign.EditorTools
                 f.Click("닫기"); f.Click("홈");
                 Assert(f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Ui.gameObject.activeSelf, "Garden return did not restore its canvas.");
                 var home = f.Navigation.home;
-                Assert(home.homeTabLabel.text == "홈" && home.activityTabLabel.text == "미션" && home.settingsTabLabel.text == "내 과정",
+                var gardenBar = home.NavigationBar;
+                Assert(gardenBar != null && gardenBar.ActiveTab == "홈", "Garden is not using the shared navigation component with Home selected.");
+                Assert(NavigationGeometry(gardenBar).SequenceEqual(missionGeometry), "Garden icon, label or button geometry differs from the shared mission tabs.");
+                Assert(gardenBar.HomeButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "홈")
+                    && gardenBar.MissionButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "미션")
+                    && gardenBar.CourseButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "내 과정"),
                     "Garden bottom destinations do not match the unified three tabs.");
+                home.RefreshMissionStatus(); Assert(gardenBar.MissionBadge.text == "!", "Garden does not show outstanding missions.");
+                var garden = home.homeCanvas.transform.Find("SafePortraitFrame/MainContent/GardenAndGrowth");
+                foreach (var name in new[] { "TodayMissionCard", "TodayMissionCard_Edge", "DailyStatus", "MissionName", "MissionEmblem" })
+                    Assert(!garden.Find(name).gameObject.activeSelf, "Removed activity card element is still visible: " + name);
                 Assert(home.TemporarySettingsButton != null && home.TemporarySettingsButton.gameObject.activeInHierarchy,
                     "Garden top-right temporary settings action is missing.");
                 var settings = home.TemporarySettingsButton;
@@ -311,23 +343,40 @@ namespace CapstoneDesign.EditorTools
                     "Temporary settings entry is not contained in the garden's top-right corner.");
                 var dateBounds = RectTransformUtility.CalculateRelativeRectTransformBounds(homeContent, home.date.transform);
                 Assert(dateBounds.max.x <= settingsBounds.min.x - 8, "Garden date overlaps the temporary settings action.");
-                f.ClickControl(home.activityTab);
+                f.ClickControl(gardenBar.MissionButton);
                 Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf && f.Ui.gameObject.activeSelf, "Reopening missions retained the garden overlay.");
                 Assert(f.Ui.CurrentScreen == "home" && !settings.gameObject.activeInHierarchy, "Garden mission tab opened the wrong destination or retained settings.");
-                f.Click("홈"); f.ClickControl(home.settingsTab);
+                f.Click("홈"); f.ClickControl(gardenBar.CourseButton);
                 Assert(f.Ui.CurrentScreen == "course" && !f.Navigation.settingsPanel.activeSelf,
                     "Garden third tab still opens settings instead of My Course.");
                 f.Click("홈"); f.ClickControl(settings);
                 Assert(f.Navigation.settingsPanel.activeSelf && !settings.gameObject.activeInHierarchy,
                     "Settings did not open, or its home-only entry remains visible outside the garden.");
                 f.Capture("15-settings-navigation", capture);
-                f.ClickControl(home.settingsTab);
+                f.ClickControl(gardenBar.CourseButton);
                 Assert(f.Ui.CurrentScreen == "course" && !f.Navigation.settingsPanel.activeSelf,
                     "The third bottom tab on settings did not open My Course.");
-                f.Click("홈"); f.ClickControl(home.homeTab);
+                f.Click("홈"); f.ClickControl(gardenBar.HomeButton);
                 Assert(home.homeCanvas.gameObject.activeSelf && settings.gameObject.activeInHierarchy,
                     "Home tab did not restore the garden and its settings entry.");
             }
+        }
+
+        static Vector4[] NavigationGeometry(MissionBottomNavigation bar)
+        {
+            var result = new List<Vector4>();
+            foreach (var button in new[] { bar.HomeButton, bar.MissionButton, bar.CourseButton })
+            {
+                var rect = (RectTransform)button.transform;
+                result.Add(new Vector4(rect.anchoredPosition.x, rect.anchoredPosition.y, rect.sizeDelta.x, rect.sizeDelta.y));
+                var icon = button.GetComponentInChildren<RawImage>(false);
+                var label = button.GetComponentsInChildren<Text>(false).Single(t => t.text == "홈" || t.text == "미션" || t.text == "내 과정");
+                Assert(icon != null && icon.rectTransform.anchoredPosition.y > label.rectTransform.anchoredPosition.y,
+                    "Tab icon must sit above its label.");
+                result.Add(new Vector4(icon.rectTransform.anchoredPosition.x, icon.rectTransform.anchoredPosition.y, icon.rectTransform.sizeDelta.x, icon.rectTransform.sizeDelta.y));
+                result.Add(new Vector4(label.rectTransform.anchoredPosition.x, label.rectTransform.anchoredPosition.y, label.rectTransform.sizeDelta.x, label.rectTransform.sizeDelta.y));
+            }
+            return result.ToArray();
         }
 
         static void KeyboardGeometry()
@@ -439,6 +488,13 @@ namespace CapstoneDesign.EditorTools
                     Navigation.home.homeTab = HomeTab(homeContent.transform, "HomeTab", 0, out Navigation.home.homeTabLabel);
                     Navigation.home.activityTab = HomeTab(homeContent.transform, "ActivityTab", 1, out Navigation.home.activityTabLabel);
                     Navigation.home.settingsTab = HomeTab(homeContent.transform, "SettingsTab", 2, out Navigation.home.settingsTabLabel);
+                    GardenUi.Box(homeContent.transform, "BottomNavigation", 0, 0, 1, .1f, Color.white);
+                    var garden = GardenUi.Box(homeContent.transform, "GardenAndGrowth", 0, .1f, 1, .8f);
+                    GardenUi.Box(garden.transform, "TodayMissionCard", .05f, .1f, .9f, .1f, Color.white);
+                    GardenUi.Box(garden.transform, "TodayMissionCard_Edge", .05f, .1f, .9f, .01f, Color.white);
+                    Navigation.home.dailyStatus = HomeText(garden.transform, "DailyStatus", "오늘 완료한 활동");
+                    Navigation.home.missionName = HomeText(garden.transform, "MissionName", "Synthetic old activity");
+                    GardenUi.Box(garden.transform, "MissionEmblem", .8f, .1f, .1f, .1f, Color.white);
                     Navigation.home.ConfigureNavigation();
                     Navigation.legacyBottomNavigation = GardenUi.Box(root.transform, "Synthetic legacy navigation", 0, 0, 1, .1f);
                 }
@@ -448,6 +504,7 @@ namespace CapstoneDesign.EditorTools
                 {
                     Ui = Navigation.activitiesPanel.AddComponent<WeekOneQuestDemo>();
                     Ui.Balance = balance; Ui.Initialize(Service, true);
+                    if (Navigation.home != null) Navigation.home.activity = Ui;
                     root.SetActive(true); Navigation.ShowActivities(); Invoke("ShowHome");
                     Assert(ReferenceEquals(Ui.Service, Service), "Fixture did not retain its memory-only service.");
                 }
@@ -466,6 +523,12 @@ namespace CapstoneDesign.EditorTools
             }
 
             public bool Has(string label) => Button(label) != null;
+            public void AssertMissionBadge(string expected)
+            {
+                var bar = Ui.GetComponentInChildren<MissionBottomNavigation>(false);
+                Assert(bar != null && bar.MissionBadge != null && bar.MissionBadge.gameObject.activeInHierarchy
+                    && bar.MissionBadge.text == expected, "Mission status badge differs from today's outstanding work: " + expected);
+            }
             static TMP_Text HomeText(Transform parent, string name, string text)
             {
                 var caption = GardenUi.Box(parent, name, 0, 0, 1, 1).AddComponent<TextMeshProUGUI>();
@@ -599,7 +662,16 @@ namespace CapstoneDesign.EditorTools
                         Canvas.ForceUpdateCanvases(); camera.Render();
                     }
                     RenderTexture.active = target; texture.ReadPixels(new Rect(0, 0, width, height), 0, 0); texture.Apply();
-                    File.WriteAllBytes(path, texture.EncodeToPNG()); report.captures.Add(path);
+                    File.WriteAllBytes(path, texture.EncodeToPNG());
+                    int minimum = 765, maximum = 0;
+                    var pixels = texture.GetPixels32();
+                    for (int index = 0; index < pixels.Length; index += 31)
+                    {
+                        var pixel = pixels[index]; int brightness = pixel.r + pixel.g + pixel.b;
+                        minimum = Math.Min(minimum, brightness); maximum = Math.Max(maximum, brightness);
+                    }
+                    Assert(maximum - minimum >= 90, "Preview has no visible UI contrast; render validation failed: " + name);
+                    report.captures.Add(path);
                 }
                 finally
                 {

@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.UI;
+using CapstoneDesign.Runtime.LocalState;
 
 namespace CapstoneDesign.Runtime
 {
@@ -21,9 +22,13 @@ namespace CapstoneDesign.Runtime
         {FigmaMissionUi.Label(p,title,24,52,342,38,28,null,true);FigmaMissionUi.Label(p,subtitle,24,94,342,30,14,FigmaMissionUi.Muted);}
         void FigmaNavigation(Transform p,string active)
         {
-            FigmaMissionUi.Box(p,"하단 탐색",0,760,390,84,Color.white);
-            string[] labels={"홈","미션","내 과정"};string[] icons={"home",active=="미션"?"leaf":"leaf-muted",active=="내 과정"?"book-active":"book"};Action[] actions={GoGarden,ShowHome,ShowFocusCourse};
-            for(int i=0;i<labels.Length;i++){int j=i;float x=12+122*i;var b=FigmaMissionUi.Button(p,labels[i],x,768,122,64,actions[j],labels[i]==active?FigmaMissionUi.Soft:Color.white,FigmaMissionUi.Green,14);b.GetComponentInChildren<Text>().gameObject.SetActive(false);FigmaMissionUi.Asset(b.transform,"FocusMissions/Main/"+icons[i],50,7,22,22);FigmaMissionUi.Label(b.transform,labels[i],8,33,106,24,14,labels[i]==active?FigmaMissionUi.Green:FigmaMissionUi.Muted,true,TextAnchor.MiddleCenter);}
+            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,ShowFocusCourse,opened?(bool?)FocusMissionPolicy.HasPendingToday(Service.Snapshot):null);
+        }
+        void RefreshMissionNavigation()
+        {
+            if(!opened)return;
+            bool pending=FocusMissionPolicy.HasPendingToday(Service.Snapshot);
+            foreach(var bar in transform.root.GetComponentsInChildren<MissionBottomNavigation>(true))bar.Refresh(bar.ActiveTab,pending);
         }
         RectTransform FigmaScroll(Transform p,float y=132,float height=628,float contentHeight=900)
         {

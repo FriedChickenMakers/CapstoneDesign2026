@@ -656,7 +656,7 @@ namespace CapstoneDesign.Runtime
         string VisitorText(GardenState state=null){if(!opened)return "저장 상태 확인 필요";var d=(state??Service.Snapshot).DailyDecisions.LastOrDefault();return string.IsNullOrEmpty(d?.VisitorId)?"오늘은 방문한 동물이 없어요":(MindfulnessContent.FindAnimal(d.VisitorId)?.title ?? d.VisitorId)+" · "+(MindfulnessContent.FindAnimal(d.VisitorId)?.tapReaction ?? "쉬고 있어요");}
         public void UpdateGarden()
         {
-            if(!opened)return;var s=Service.Snapshot;
+            if(!opened)return;RefreshMissionNavigation();var s=Service.Snapshot;
             if(stateSummary!=null)stateSummary.text=(mode=="LIVE"?"":"["+mode+"]  ")+CourseProgressLabel(s);
             var home=transform.root.GetComponent<GardenHomePresenter>();
             bool integratedHome=home!=null && home.gardenRoot!=null;

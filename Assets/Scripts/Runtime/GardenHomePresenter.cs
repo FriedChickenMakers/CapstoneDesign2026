@@ -40,6 +40,7 @@ namespace CapstoneDesign.Runtime
         public Button settingsTab;
         // Keep the serialized third-tab reference; its destination is now My Course.
         public Button TemporarySettingsButton { get; private set; }
+        public MissionBottomNavigation NavigationBar { get; private set; }
         public PrototypeUiSurface[] progressDots;
         public bool IsGardenVisible => title!=null && title.gameObject.activeInHierarchy;
         public ProceduralPlantView ProceduralPlant { get; private set; }
@@ -121,9 +122,7 @@ namespace CapstoneDesign.Runtime
                     foreach(var name in new[]{"Date","GardenAndGrowth"})
                         if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(visible);
                 }
-                StyleTab(homeTab,homeTabLabel,visible || (navigation!=null && navigation.settingsPanel!=null && navigation.settingsPanel.activeSelf));
-                StyleTab(activityTab,activityTabLabel,navigation!=null && navigation.activitiesPanel.activeSelf);
-                StyleTab(settingsTab,settingsTabLabel,false);
+                RefreshMissionStatus();
                 if (backgroundPreview != null) backgroundPreview.gameObject.SetActive(visible);
             }
             // Integrated tabs are opaque overlay canvases; rendering the legacy
@@ -136,20 +135,29 @@ namespace CapstoneDesign.Runtime
 
         public void ConfigureNavigation()
         {
-            if(homeTab!=null){homeTab.onClick.RemoveListener(OpenHome);homeTab.onClick.AddListener(OpenHome);}
-            if(activityTab!=null){activityTab.onClick.RemoveListener(OpenActivity);activityTab.onClick.AddListener(OpenActivity);}
-            if(settingsTab!=null)
-            {
-                settingsTab.onClick.RemoveListener(OpenSettings);
-                settingsTab.onClick.RemoveListener(OpenCourse);settingsTab.onClick.AddListener(OpenCourse);
-                var icon=settingsTab.GetComponentInChildren<PrototypeUiIcon>(true);
-                if(icon!=null){icon.symbol=PrototypeUiIcon.Symbol.Journal;icon.SetAllDirty();}
-            }
-            if(homeTabLabel!=null)homeTabLabel.text="홈";
-            if(activityTabLabel!=null)activityTabLabel.text="미션";
-            if(settingsTabLabel!=null)settingsTabLabel.text="내 과정";
             var content=homeCanvas==null?null:homeCanvas.transform.Find("SafePortraitFrame/MainContent");
-            if(content==null || TemporarySettingsButton!=null)return;
+            if(content==null)return;
+            foreach(var name in new[]{"BottomNavigation","HomeTab","ActivityTab","SettingsTab"})
+                if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(false);
+            var garden=content.Find("GardenAndGrowth");
+            if(garden!=null)
+                foreach(var name in new[]{"TodayMissionCard","TodayMissionCard_Edge","DailyStatus","MissionName","MissionEmblem"})
+                    if(garden.Find(name)!=null)garden.Find(name).gameObject.SetActive(false);
+            if(NavigationBar==null)
+            {
+                var frame=GardenUi.Box(content,"Shared mission navigation",0,0,1,1);
+                var design=FigmaMissionUi.Rect(frame.transform,"Figma 390 x 844",0,0,390,844);
+                var fit=frame.AddComponent<FigmaMissionCanvasFit>();fit.Design=design;fit.Fit();
+                NavigationBar=MissionBottomNavigation.Create(design,"홈",OpenHome,OpenActivity,OpenCourse,null);
+                homeTab=NavigationBar.HomeButton;activityTab=NavigationBar.MissionButton;settingsTab=NavigationBar.CourseButton;
+                if(shopButton!=null)
+                {
+                    var shopRect=(RectTransform)shopButton.transform;
+                    shopRect.anchoredPosition=new Vector2(shopRect.anchoredPosition.x,168);
+                }
+            }
+            RefreshMissionStatus();
+            if(TemporarySettingsButton!=null)return;
             TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",552,12,120,72,OpenSettings,GardenUi.Pale,GardenUi.Green,28);
             TemporarySettingsButton.name="TemporarySettingsButton";
             var rect=(RectTransform)TemporarySettingsButton.transform;
@@ -160,6 +168,13 @@ namespace CapstoneDesign.Runtime
                 dateRect.anchorMin=dateRect.anchorMax=new Vector2(1,1);dateRect.pivot=new Vector2(1,1);
                 dateRect.anchoredPosition=new Vector2(-188,-32);dateRect.sizeDelta=new Vector2(160,48);
             }
+        }
+
+        public void RefreshMissionStatus()
+        {
+            if(NavigationBar==null)return;
+            var loop=activity!=null?activity:navigation==null||navigation.activitiesPanel==null?null:navigation.activitiesPanel.GetComponent<WeekOneQuestDemo>();
+            NavigationBar.Refresh("홈",loop!=null&&loop.HasOpenState?(bool?)FocusMissionPolicy.HasPendingToday(loop.Service.Snapshot):null);
         }
 
         static void EnsureSharedHeader(Transform content)
@@ -381,6 +396,7 @@ namespace CapstoneDesign.Runtime
         public void RefreshFromState(GardenState saved)
         {
             using var timing = UiPerformanceProbe.Measure("Home.RefreshFromState");
+            RefreshMissionStatus();
             EnsureHomeBackground();
             GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (activity == null || !activity.HasOpenState || saved == null)
