@@ -70,8 +70,9 @@ namespace CapstoneDesign.Runtime
             for (int i=transform.childCount-1;i>=0;i--) transform.GetChild(i).gameObject.SetActive(false);
             try
             {
-                Service = injected ?? new GardenStateService(new FileStateStore(Path.Combine(SaveRoot,
-                    "garden-" + mode.ToLowerInvariant(), "state.xml")), new SystemClock(), Balance, mode == "LIVE" ? ReadLegacy() : new LegacySnapshot());
+                Service = injected ?? new GardenStateService(new FileStateStore(GardenStatePaths.StateFile(
+                    Application.persistentDataPath,mode,Application.isEditor,EditorSaveOverride)), new SystemClock(), Balance,
+                    GardenStatePaths.ShouldMigrateLegacy(Application.isEditor,mode) ? ReadLegacy() : new LegacySnapshot());
                 opened=Service.Open();
                 if (!opened) error=Service.LastError;
                 else { RefreshCycle(); sessionId=Service.Snapshot.Sessions.LastOrDefault(s=>s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused || s.Status==ParticipationState.Selected)?.SessionId; }
@@ -80,7 +81,7 @@ namespace CapstoneDesign.Runtime
             SetupIsland(); ShowHome();
             if(opened)ReconcileMissionReminder();
         }
-        static string SaveRoot
+        static string EditorSaveOverride
         {
             get
             {
@@ -88,7 +89,7 @@ namespace CapstoneDesign.Runtime
                 var smoke=Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT");
                 if(!string.IsNullOrEmpty(smoke))return smoke;
 #endif
-                return Application.persistentDataPath;
+                return null;
             }
         }
         static LegacySnapshot ReadLegacy()

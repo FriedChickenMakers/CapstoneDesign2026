@@ -115,6 +115,7 @@ namespace CapstoneDesign.EditorTools
                 Check(report, "Draft survives close and resume; failed completion preserves input and retries once", () => DraftAndRetry(report, request.capture));
                 Check(report, "Completed record inspection and review never grant a second reward", () => HistoryAndReview(report, request.capture));
                 Check(report, "Integrated portrait shell hides garden canvas and restores it on return", () => IntegratedShell(report, request.capture));
+                Check(report, "Fresh missions start available and weekly rest never appears as today's completion", () => InitialAndWeeklyState(report, request.capture));
                 Check(report, "Focused-input keyboard geometry keeps entry and done controls visible and separate", KeyboardGeometry);
             }
             finally
@@ -136,6 +137,10 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report))
             {
+                Assert(f.Service.Snapshot.Sessions.Count == 0 && FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 0,
+                    "A fresh preview contains a saved mission or completion.");
+                Assert(f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Fresh basic or additional mission starts unavailable.");
+                Assert(!f.VisibleText.Contains("오늘 완료했어요"), "A fresh mission is labeled completed.");
                 f.AssertMissionBadge("!");
                 f.Capture("01-home", capture);
                 f.Click("추천 미션 보기");
@@ -144,6 +149,7 @@ namespace CapstoneDesign.EditorTools
                 f.Click("‹");
                 f.Click("내 과정");
                 Assert(f.Has("미션 창으로 돌아가기"), "Course return action is absent.");
+                Assert(f.VisibleText.Contains("완료한 실습 0 / 12"), "A fresh course does not start at zero completed practices.");
                 f.Capture("03-course", capture);
                 f.Click("1주");
                 Assert(f.Has("내 과정으로 돌아가기"), "Week return action is absent.");
@@ -377,6 +383,39 @@ namespace CapstoneDesign.EditorTools
                 result.Add(new Vector4(label.rectTransform.anchoredPosition.x, label.rectTransform.anchoredPosition.y, label.rectTransform.sizeDelta.x, label.rectTransform.sizeDelta.y));
             }
             return result.ToArray();
+        }
+
+        static void InitialAndWeeklyState(Report report, bool capture)
+        {
+            using (var f = new Fixture(report))
+            {
+                // Six real service completions on separate days reach Sunday rest;
+                // no screen callback or stored user fixture fabricates the weekly state.
+                for (int order = 1; order <= 6; order++)
+                {
+                    var definition = FocusMissionPolicy.MissionAt(order);
+                    string id = "synthetic-weekly-" + order;
+                    Assert(f.Service.BeginFocusSession(id, definition.Id, order), "Weekly setup did not begin the scheduled basic mission.");
+                    Assert(f.Service.StartSession(id), "Weekly setup did not start practice.");
+                    for (int step = 0; step < definition.Steps.Length; step++)
+                        Assert(f.Service.ConfirmFocusStep(id, step, "", true), "Weekly setup lost a practice confirmation.");
+                    Assert(f.Service.CompleteFocusSession(id, "", ""), "Weekly setup did not commit the practice.");
+                    f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1);
+                    Assert(f.Ui.RefreshCycle(), "Weekly setup did not advance its synthetic day.");
+                }
+                f.Invoke("ShowHome");
+                Assert(FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 6 && FocusMissionPolicy.Availability(f.Service.Snapshot) != null,
+                    "Sunday rest did not enforce the six-practice weekly limit.");
+                Assert(f.VisibleText.Contains("다음 주에 이어가요") && !f.VisibleText.Contains("오늘 완료했어요"),
+                    "Weekly rest is mislabeled as a completion today.");
+                Assert(!f.Has("기본 미션 시작하기"), "Weekly rest permits another basic start.");
+                f.Capture("18-weekly-rest", capture);
+                f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1);
+                Assert(f.Ui.RefreshCycle(), "Next Monday did not refresh the cycle.");
+                Assert(f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Next week did not reopen both mission start actions.");
+                f.AssertMissionBadge("!");
+                f.Capture("19-next-week-start", capture);
+            }
         }
 
         static void KeyboardGeometry()

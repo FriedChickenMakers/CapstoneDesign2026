@@ -22,12 +22,14 @@ namespace CapstoneDesign.Runtime
             if(!opened){FigmaMissionUi.Label(p,"저장된 내용을 불러오지 못했어요.\n기존 기록을 보존하고 있습니다.",24,170,342,100);return;}
             var s=Service.Snapshot;var active=FocusMissionPolicy.Active(s,FocusMissionCatalog.BasicRole);var extra=FocusMissionPolicy.Active(s,FocusMissionCatalog.AdditionalRole);
             string unavailable=FocusMissionPolicy.Availability(s);bool finished=FocusMissionPolicy.CompletedCount(s)>=12;
+            bool doneToday=FocusMissionPolicy.Completed(s).Any(a=>a.InstanceId==s.LastCycleId);
+            bool waitingForWeek=!finished&&!doneToday&&unavailable!=null;
             var body=FigmaScroll(p,132,628,628);
             var card=FigmaMissionUi.Box(body,"기본 미션",24,8,342,252,FigmaMissionUi.Green,24);
             FigmaMissionUi.Asset(card,"FocusMissions/Main/basic-leaf",24,24,24,24);FigmaMissionUi.Label(card,"MBCT 과정",56,24,238,24,14,Color.white,true);
             FigmaMissionUi.Label(card,"기본 미션",24,61,294,32,22,Color.white,true);
-            FigmaMissionUi.Label(card,finished?"차곡차곡 쌓은 실천을\n내 과정에서 돌아봐요.":active!=null?"진행하던 단계부터\n편하게 이어가요.":unavailable!=null?"오늘의 실천을 마쳤어요.\n내일 다시 이어가요.":"오늘의 순서에 따라\n차근차근 이어가요.",24,108,294,58,16,Color.white);
-            var basic=FigmaMissionUi.Button(card,active!=null?"기본 미션 이어서 하기":finished?"과정 완료":unavailable!=null?"오늘 완료했어요":"기본 미션 시작하기",24,176,294,52,StartFocusBasic,Color.white,FigmaMissionUi.Green);basic.interactable=active!=null||(!finished&&unavailable==null);
+            FigmaMissionUi.Label(card,finished?"차곡차곡 쌓은 실천을\n내 과정에서 돌아봐요.":active!=null?"진행하던 단계부터\n편하게 이어가요.":waitingForWeek?"이번 주 실습을 모두 마쳤어요.\n다음 주에 다시 이어가요.":doneToday?"오늘의 실천을 마쳤어요.\n내일 다시 이어가요.":"오늘의 순서에 따라\n차근차근 이어가요.",24,108,294,58,16,Color.white);
+            var basic=FigmaMissionUi.Button(card,active!=null?"기본 미션 이어서 하기":finished?"과정 완료":waitingForWeek?"다음 주에 이어가요":doneToday?"오늘 완료했어요":"기본 미션 시작하기",24,176,294,52,StartFocusBasic,Color.white,FigmaMissionUi.Green);basic.interactable=active!=null||(!finished&&unavailable==null);
             FigmaMissionUi.Label(body,"추가 미션",24,284,240,27,18,null,true);FigmaMissionUi.Label(body,"선택 활동",264,284,102,27,14,FigmaMissionUi.Muted,false,TextAnchor.MiddleRight);
             var additional=FigmaMissionUi.Box(body,"추가 추천 미션",24,322,342,202,FigmaMissionUi.Warm,24);
             FigmaMissionUi.Asset(additional,"FocusMissions/Main/spark",20,20,24,24);FigmaMissionUi.Label(additional,"나를 위한 추천",52,20,260,24,14,FigmaMissionUi.Brown,true);

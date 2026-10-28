@@ -494,6 +494,18 @@ namespace CapstoneDesign.Runtime.LocalState
         public static string Hash(string value)
         { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", ""); }
     }
+    public static class GardenStatePaths
+    {
+        public static string StateFile(string persistentRoot,string inputMode,bool editor,string overrideRoot=null)
+        {
+            if(string.IsNullOrEmpty(inputMode))throw new ArgumentException("An input mode is required.",nameof(inputMode));
+            string root=!string.IsNullOrWhiteSpace(overrideRoot)?overrideRoot:
+                editor?Path.Combine(persistentRoot,"editor-mission-preview"):persistentRoot;
+            return Path.Combine(root,"garden-"+inputMode.ToLowerInvariant(),"state.xml");
+        }
+
+        public static bool ShouldMigrateLegacy(bool editor,string mode) => !editor && mode=="LIVE";
+    }
     // Lifetime lock prevents independent writers. A missing/corrupt primary with backup is NEVER a new account.
     public sealed class FileStateStore : IStateStore, IDisposable
     {

@@ -158,7 +158,57 @@ static class FocusMissionStateTests
         Complete(migration,"new-water","M03",0);
         Check(migration.Snapshot.Nutrient==5 && Get(migration,"new-water").RewardAmount==0,"upgrade does not duplicate an existing same-day M03 reward");
         RealFileReload();
+        EditorProfileIsolation();
         Console.WriteLine("PASS "+assertions+" focus mission assertions (synthetic data)");
+    }
+    static void EditorProfileIsolation()
+    {
+        var temporaryRoot=Path.GetFullPath(Path.GetTempPath());
+        var directory=Path.Combine(temporaryRoot,"capstone-editor-state-paths-"+Guid.NewGuid().ToString("N"));
+        var livePath=GardenStatePaths.StateFile(directory,"LIVE",false);
+        var editorPath=GardenStatePaths.StateFile(directory,"LIVE",true);
+        var overrideRoot=Path.Combine(directory,"explicit-preview");
+        Check(livePath==Path.Combine(directory,"garden-live","state.xml"),"device live storage path remains unchanged");
+        Check(editorPath==Path.Combine(directory,"editor-mission-preview","garden-live","state.xml"),"editor state has its own profile directory");
+        Check(GardenStatePaths.StateFile(directory,"MOCK",true)==Path.Combine(directory,"editor-mission-preview","garden-mock","state.xml"),"editor input modes stay isolated");
+        Check(GardenStatePaths.StateFile(directory,"REPLAY",false)==Path.Combine(directory,"garden-replay","state.xml"),"device replay path remains unchanged");
+        Check(GardenStatePaths.StateFile(directory,"MOCK",true,overrideRoot)==Path.Combine(overrideRoot,"garden-mock","state.xml"),"explicit editor override has highest priority");
+        Check(GardenStatePaths.StateFile(directory,"LIVE",false,overrideRoot)==Path.Combine(overrideRoot,"garden-live","state.xml"),"explicit device override has highest priority");
+        Check(GardenStatePaths.StateFile(directory,"LIVE",true,"")==editorPath,"empty override keeps editor isolation");
+        Check(!Directory.Exists(directory),"path selection has no filesystem side effects");
+        Check(GardenStatePaths.ShouldMigrateLegacy(false,"LIVE"),"device live keeps legacy migration");
+        Check(!GardenStatePaths.ShouldMigrateLegacy(true,"LIVE") && !GardenStatePaths.ShouldMigrateLegacy(true,"MOCK"),"editor profiles never import old PlayerPrefs");
+        Check(!GardenStatePaths.ShouldMigrateLegacy(false,"MOCK") && !GardenStatePaths.ShouldMigrateLegacy(false,"REPLAY"),"nonlive device profiles never import old PlayerPrefs");
+        var clock=new FocusClock();Directory.CreateDirectory(directory);
+        try
+        {
+            using(var live=Open(new FileStateStore(livePath),clock))
+            {
+                Complete(live,"synthetic-live-basic","P23",1);Complete(live,"synthetic-live-extra","M03",0);
+                Check(!FocusMissionPolicy.HasPendingToday(live.Snapshot),"synthetic older live profile has completed its day");
+            }
+            string originalLive=File.ReadAllText(livePath);
+            using(var editor=Open(new FileStateStore(editorPath),clock))
+            {
+                Check(editor.Snapshot.Sessions.Count==0 && editor.Snapshot.Nutrient==0,"first editor launch has no old sessions or rewards");
+                Check(FocusMissionPolicy.CompletedCount(editor.Snapshot)==0 && !FocusMissionPolicy.AdditionalCompletedToday(editor.Snapshot),"first editor launch does not inherit live completion flags");
+                Check(FocusMissionPolicy.Availability(editor.Snapshot)==null && FocusMissionPolicy.HasPendingToday(editor.Snapshot),"first editor launch offers unfinished missions");
+                Complete(editor,"synthetic-editor-basic","P23",1);
+            }
+            using(var editor=Open(new FileStateStore(editorPath),clock))
+            {
+                Check(FocusMissionPolicy.CompletedCount(editor.Snapshot)==1 && editor.Snapshot.Nutrient==5,"editor replay preserves explicitly completed practice");
+                Check(Get(editor,"synthetic-editor-basic").Status==ParticipationState.RewardCommitted,"editor restart restores its own completion");
+                Check(!FocusMissionPolicy.AdditionalCompletedToday(editor.Snapshot),"editor restart keeps untouched additional mission available");
+            }
+            Check(File.ReadAllText(livePath)==originalLive,"editor testing preserves the original live save bytes");
+        }
+        finally
+        {
+            string resolved=Path.GetFullPath(directory);
+            Check(resolved.StartsWith(temporaryRoot.TrimEnd(Path.DirectorySeparatorChar,Path.AltDirectorySeparatorChar)+Path.DirectorySeparatorChar,StringComparison.Ordinal),"synthetic profile cleanup stays within its temporary directory");
+            Directory.Delete(resolved,true);
+        }
     }
     static void RealFileReload()
     {
