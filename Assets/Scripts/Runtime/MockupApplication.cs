@@ -36,7 +36,11 @@ namespace CapstoneDesign.Runtime
             presentationPrepared=true;
             var scaler=GetComponent<CanvasScaler>();
             if(scaler!=null){scaler.referenceResolution=new Vector2(720,1280);scaler.matchWidthOrHeight=.5f;}
-            if(home==null)return;
+            if(home==null)
+            {
+                if(islandPanel!=null)GardenUi.Button(islandPanel.transform,"설정",.78f,.91f,.18f,.07f,ShowSettings);
+                return;
+            }
             var backing=GardenUi.Box(transform,"Shared page background",0,0,1,1,GardenUi.Background);
             backing.transform.SetAsFirstSibling();backing.GetComponent<Image>().raycastTarget=false;
             var frame=GardenUi.Box(transform,"Tab design frame",0,0,1,1);
@@ -73,8 +77,10 @@ namespace CapstoneDesign.Runtime
 
             if (settingsButton != null)
             {
-                settingsButton.onClick.AddListener(ShowSettings);
+                settingsButton.onClick.AddListener(ShowCourse);
             }
+
+            RenameTab(islandButton,"홈");RenameTab(activitiesButton,"미션");RenameTab(settingsButton,"내 과정");
 
             ShowIsland();
             // Registered collection must start on the initial garden screen,
@@ -96,7 +102,7 @@ namespace CapstoneDesign.Runtime
 
             if (settingsButton != null)
             {
-                settingsButton.onClick.RemoveListener(ShowSettings);
+                settingsButton.onClick.RemoveListener(ShowCourse);
             }
         }
 
@@ -118,6 +124,18 @@ namespace CapstoneDesign.Runtime
             SetActivePanel(settingsPanel);
             if (activePanel == settingsPanel)
                 GetComponentInChildren<SensorRawDisplay>(true)?.OnSettingsOpened();
+        }
+
+        public void ShowCourse()
+        {
+            SetActivePanel(activitiesPanel);
+            if(activePanel==activitiesPanel)activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.ShowFocusCourse();
+        }
+
+        static void RenameTab(Button button,string label)
+        {
+            var text=button==null?null:button.GetComponentInChildren<Text>(true);
+            if(text!=null)text.text=label;
         }
 
         private float nextCycleCheck;
@@ -170,10 +188,10 @@ namespace CapstoneDesign.Runtime
             }
 
             if (legacyBottomNavigation != null)
-                legacyBottomNavigation.SetActive(home==null && selected != islandPanel);
+                legacyBottomNavigation.SetActive(home==null && selected != activitiesPanel);
             SetLegacyTabActive(activitiesButton, selected == activitiesPanel);
-            SetLegacyTabActive(settingsButton, selected == settingsPanel);
-            SetLegacyTabActive(islandButton, selected == islandPanel);
+            SetLegacyTabActive(settingsButton, false);
+            SetLegacyTabActive(islandButton, selected == islandPanel || selected == settingsPanel);
 
             if (activitiesPanel != null)
             {

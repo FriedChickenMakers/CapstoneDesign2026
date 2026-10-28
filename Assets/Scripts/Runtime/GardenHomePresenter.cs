@@ -38,6 +38,8 @@ namespace CapstoneDesign.Runtime
         public Button homeTab;
         public Button activityTab;
         public Button settingsTab;
+        // Keep the serialized third-tab reference; its destination is now My Course.
+        public Button TemporarySettingsButton { get; private set; }
         public PrototypeUiSurface[] progressDots;
         public bool IsGardenVisible => title!=null && title.gameObject.activeInHierarchy;
         public ProceduralPlantView ProceduralPlant { get; private set; }
@@ -65,9 +67,7 @@ namespace CapstoneDesign.Runtime
         {
             missionButton?.onClick.AddListener(OpenActivity);
             shopButton?.onClick.AddListener(OpenShop);
-            homeTab?.onClick.AddListener(OpenHome);
-            activityTab?.onClick.AddListener(OpenActivity);
-            settingsTab?.onClick.AddListener(OpenSettings);
+            ConfigureNavigation();
             GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             RefreshFromState();
         }
@@ -78,7 +78,8 @@ namespace CapstoneDesign.Runtime
             shopButton?.onClick.RemoveListener(OpenShop);
             homeTab?.onClick.RemoveListener(OpenHome);
             activityTab?.onClick.RemoveListener(OpenActivity);
-            settingsTab?.onClick.RemoveListener(OpenSettings);
+            settingsTab?.onClick.RemoveListener(OpenCourse);
+            TemporarySettingsButton?.onClick.RemoveListener(OpenSettings);
         }
 
         private void Update()
@@ -94,6 +95,8 @@ namespace CapstoneDesign.Runtime
 
         public void Show(bool visible)
         {
+            ConfigureNavigation();
+            if(TemporarySettingsButton!=null)TemporarySettingsButton.gameObject.SetActive(visible);
             // Disable renderers before the drag target's OnDisable resets its view.
             if (gardenVisuals != null) gardenVisuals.SetActive(visible);
             if (homeCanvas != null)
@@ -118,9 +121,9 @@ namespace CapstoneDesign.Runtime
                     foreach(var name in new[]{"Date","GardenAndGrowth"})
                         if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(visible);
                 }
-                StyleTab(homeTab,homeTabLabel,visible);
+                StyleTab(homeTab,homeTabLabel,visible || (navigation!=null && navigation.settingsPanel!=null && navigation.settingsPanel.activeSelf));
                 StyleTab(activityTab,activityTabLabel,navigation!=null && navigation.activitiesPanel.activeSelf);
-                StyleTab(settingsTab,settingsTabLabel,navigation!=null && navigation.settingsPanel.activeSelf);
+                StyleTab(settingsTab,settingsTabLabel,false);
                 if (backgroundPreview != null) backgroundPreview.gameObject.SetActive(visible);
             }
             // Integrated tabs are opaque overlay canvases; rendering the legacy
@@ -129,6 +132,34 @@ namespace CapstoneDesign.Runtime
             if (oldCamera != null) oldCamera.enabled = legacySceneVisible;
             if (oldLight != null) oldLight.enabled = legacySceneVisible;
             if (visible) RefreshFromState();
+        }
+
+        public void ConfigureNavigation()
+        {
+            if(homeTab!=null){homeTab.onClick.RemoveListener(OpenHome);homeTab.onClick.AddListener(OpenHome);}
+            if(activityTab!=null){activityTab.onClick.RemoveListener(OpenActivity);activityTab.onClick.AddListener(OpenActivity);}
+            if(settingsTab!=null)
+            {
+                settingsTab.onClick.RemoveListener(OpenSettings);
+                settingsTab.onClick.RemoveListener(OpenCourse);settingsTab.onClick.AddListener(OpenCourse);
+                var icon=settingsTab.GetComponentInChildren<PrototypeUiIcon>(true);
+                if(icon!=null){icon.symbol=PrototypeUiIcon.Symbol.Journal;icon.SetAllDirty();}
+            }
+            if(homeTabLabel!=null)homeTabLabel.text="홈";
+            if(activityTabLabel!=null)activityTabLabel.text="미션";
+            if(settingsTabLabel!=null)settingsTabLabel.text="내 과정";
+            var content=homeCanvas==null?null:homeCanvas.transform.Find("SafePortraitFrame/MainContent");
+            if(content==null || TemporarySettingsButton!=null)return;
+            TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",552,12,120,72,OpenSettings,GardenUi.Pale,GardenUi.Green,28);
+            TemporarySettingsButton.name="TemporarySettingsButton";
+            var rect=(RectTransform)TemporarySettingsButton.transform;
+            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(1,1);rect.anchoredPosition=new Vector2(-48,-12);
+            if(date!=null)
+            {
+                var dateRect=date.rectTransform;
+                dateRect.anchorMin=dateRect.anchorMax=new Vector2(1,1);dateRect.pivot=new Vector2(1,1);
+                dateRect.anchoredPosition=new Vector2(-188,-32);dateRect.sizeDelta=new Vector2(160,48);
+            }
         }
 
         static void EnsureSharedHeader(Transform content)
@@ -384,9 +415,9 @@ namespace CapstoneDesign.Runtime
             if (missionName != null) missionName.text = active != null ? (active.MissionTitleSnapshot ?? FocusMissionCatalog.Find(active.MissionId)?.Title ?? "활동 이어가기")
                 : completed != null ? (completed.MissionTitleSnapshot ?? FocusMissionCatalog.Find(completed.MissionId)?.Title ?? "참여 기록 보기") : "활동 선택하기";
             if (missionActionLabel != null) missionActionLabel.text = active != null ? "활동 이어가기" : "오늘의 활동";
-            if (homeTabLabel != null) homeTabLabel.text = "홈 · 정원";
-            if (activityTabLabel != null) activityTabLabel.text = "오늘의 활동";
-            if (settingsTabLabel != null) settingsTabLabel.text = "설정";
+            if (homeTabLabel != null) homeTabLabel.text = "홈";
+            if (activityTabLabel != null) activityTabLabel.text = "미션";
+            if (settingsTabLabel != null) settingsTabLabel.text = "내 과정";
             RefreshAdditions(saved);
             if (Application.isPlaying && homeCanvas.gameObject.activeInHierarchy
                 && gardenVisuals.activeInHierarchy && gardenCamera != null)
@@ -450,6 +481,7 @@ namespace CapstoneDesign.Runtime
 
         void OpenHome() => navigation?.ShowIsland();
         void OpenActivity() => navigation?.ShowActivities();
+        void OpenCourse() => navigation?.ShowCourse();
         void OpenSettings() => navigation?.ShowSettings();
         void OpenShop()
         {

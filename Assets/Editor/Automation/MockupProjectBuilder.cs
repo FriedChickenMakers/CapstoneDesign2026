@@ -527,9 +527,9 @@ namespace CapstoneDesign.EditorTools
             SetRect(navigation.GetComponent<RectTransform>(), Vector2.zero, new Vector2(1f, .105f), Vector2.zero, Vector2.zero);
             GameObject navigationCard=CreatePanel("NavigationCard",navigation.transform,Color.white);
             SetRect(navigationCard.GetComponent<RectTransform>(),new Vector2(.035f,.10f),new Vector2(.965f,.96f),Vector2.zero,Vector2.zero);
-            Button activitiesButton = CreateButton("ActivitiesButton", navigationCard.transform, "오늘의 활동", Color.white, GardenUi.Green);
-            Button islandButton = CreateButton("IslandButton", navigationCard.transform, "홈 · 정원", Color.white, GardenUi.Green);
-            Button settingsButton = CreateButton("SettingsButton", navigationCard.transform, "설정", Color.white, GardenUi.Green);
+            Button activitiesButton = CreateButton("ActivitiesButton", navigationCard.transform, "미션", Color.white, GardenUi.Green);
+            Button islandButton = CreateButton("IslandButton", navigationCard.transform, "홈", Color.white, GardenUi.Green);
+            Button settingsButton = CreateButton("SettingsButton", navigationCard.transform, "내 과정", Color.white, GardenUi.Green);
             SetRect(islandButton.GetComponent<RectTransform>(), new Vector2(.02f,.18f),new Vector2(.32f,.82f),Vector2.zero,Vector2.zero);
             SetRect(activitiesButton.GetComponent<RectTransform>(), new Vector2(.35f,.18f),new Vector2(.65f,.82f),Vector2.zero,Vector2.zero);
             SetRect(settingsButton.GetComponent<RectTransform>(), new Vector2(.68f,.18f),new Vector2(.98f,.82f),Vector2.zero,Vector2.zero);

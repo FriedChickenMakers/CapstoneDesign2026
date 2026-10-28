@@ -22,7 +22,7 @@ namespace CapstoneDesign.Runtime
         void FigmaNavigation(Transform p,string active)
         {
             FigmaMissionUi.Box(p,"하단 탐색",0,760,390,84,Color.white);
-            string[] labels={"정원","미션","내 과정"};string[] icons={"home",active=="미션"?"leaf":"leaf-muted",active=="내 과정"?"book-active":"book"};Action[] actions={GoGarden,ShowHome,ShowFocusCourse};
+            string[] labels={"홈","미션","내 과정"};string[] icons={"home",active=="미션"?"leaf":"leaf-muted",active=="내 과정"?"book-active":"book"};Action[] actions={GoGarden,ShowHome,ShowFocusCourse};
             for(int i=0;i<labels.Length;i++){int j=i;float x=12+122*i;var b=FigmaMissionUi.Button(p,labels[i],x,768,122,64,actions[j],labels[i]==active?FigmaMissionUi.Soft:Color.white,FigmaMissionUi.Green,14);b.GetComponentInChildren<Text>().gameObject.SetActive(false);FigmaMissionUi.Asset(b.transform,"FocusMissions/Main/"+icons[i],50,7,22,22);FigmaMissionUi.Label(b.transform,labels[i],8,33,106,24,14,labels[i]==active?FigmaMissionUi.Green:FigmaMissionUi.Muted,true,TextAnchor.MiddleCenter);}
         }
         RectTransform FigmaScroll(Transform p,float y=132,float height=628,float contentHeight=900)

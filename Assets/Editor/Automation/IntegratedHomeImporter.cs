@@ -66,8 +66,11 @@ namespace CapstoneDesign.EditorTools
                 var settingsObject = UnityEngine.Object.Instantiate(activityTab.gameObject, content);
                 settingsObject.name = "SettingsTab";
                 var settingsTab = settingsObject.GetComponent<Button>();
-                settingsTab.GetComponentInChildren<PrototypeUiIcon>(true).symbol = PrototypeUiIcon.Symbol.Gear;
+                settingsTab.GetComponentInChildren<PrototypeUiIcon>(true).symbol = PrototypeUiIcon.Symbol.Journal;
                 activityTab.name = "ActivityTab";
+                homeTab.GetComponentInChildren<TMP_Text>(true).text = "홈";
+                activityTab.GetComponentInChildren<TMP_Text>(true).text = "미션";
+                settingsTab.GetComponentInChildren<TMP_Text>(true).text = "내 과정";
                 foreach (var button in new[] { homeTab, activityTab, settingsTab }) ClearPersistent(button);
                 // Match the 624px action/content column. Keep each tab's 192px
                 // touch target, with 16px outer padding and 8px between tabs.

@@ -5,6 +5,8 @@ using System.Linq;
 using System.Reflection;
 using CapstoneDesign.Runtime;
 using CapstoneDesign.Runtime.LocalState;
+using CapstoneDesign.Prototype;
+using TMPro;
 using UnityEditor;
 using UnityEditor.Compilation;
 using UnityEditor.SceneManagement;
@@ -142,7 +144,7 @@ namespace CapstoneDesign.EditorTools
                 f.Click("내 과정으로 돌아가기");
                 f.Click("미션 창으로 돌아가기");
                 f.Click("내 과정"); f.Click("2주"); f.Click("미션");
-                f.Click("정원");
+                f.Click("홈");
                 Assert(f.Navigation.islandPanel.activeSelf && !f.Ui.gameObject.activeSelf, "Garden tab did not return to the existing navigation panel.");
             }
         }
@@ -291,10 +293,40 @@ namespace CapstoneDesign.EditorTools
                 f.Click("기본 미션 시작하기");
                 Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Has("내 과정"), "Focused practice retained garden or main tab controls.");
                 f.Capture("13-integrated-shell-practice", capture);
-                f.Click("닫기"); f.Click("정원");
+                f.Click("닫기"); f.Click("홈");
                 Assert(f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Ui.gameObject.activeSelf, "Garden return did not restore its canvas.");
-                f.Navigation.ShowActivities();
+                var home = f.Navigation.home;
+                Assert(home.homeTabLabel.text == "홈" && home.activityTabLabel.text == "미션" && home.settingsTabLabel.text == "내 과정",
+                    "Garden bottom destinations do not match the unified three tabs.");
+                Assert(home.TemporarySettingsButton != null && home.TemporarySettingsButton.gameObject.activeInHierarchy,
+                    "Garden top-right temporary settings action is missing.");
+                var settings = home.TemporarySettingsButton;
+                home.ConfigureNavigation(); home.ConfigureNavigation();
+                Assert(home.TemporarySettingsButton == settings, "Repeated navigation setup duplicated the temporary settings button.");
+                f.Capture("14-garden-navigation", capture);
+                var homeContent = (RectTransform)home.homeCanvas.transform.Find("SafePortraitFrame/MainContent");
+                var settingsBounds = RectTransformUtility.CalculateRelativeRectTransformBounds(homeContent, settings.transform);
+                Assert(settingsBounds.center.x > homeContent.rect.center.x && settingsBounds.center.y > homeContent.rect.center.y
+                    && settingsBounds.max.x <= homeContent.rect.xMax + 1 && settingsBounds.max.y <= homeContent.rect.yMax + 1,
+                    "Temporary settings entry is not contained in the garden's top-right corner.");
+                var dateBounds = RectTransformUtility.CalculateRelativeRectTransformBounds(homeContent, home.date.transform);
+                Assert(dateBounds.max.x <= settingsBounds.min.x - 8, "Garden date overlaps the temporary settings action.");
+                f.ClickControl(home.activityTab);
                 Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf && f.Ui.gameObject.activeSelf, "Reopening missions retained the garden overlay.");
+                Assert(f.Ui.CurrentScreen == "home" && !settings.gameObject.activeInHierarchy, "Garden mission tab opened the wrong destination or retained settings.");
+                f.Click("홈"); f.ClickControl(home.settingsTab);
+                Assert(f.Ui.CurrentScreen == "course" && !f.Navigation.settingsPanel.activeSelf,
+                    "Garden third tab still opens settings instead of My Course.");
+                f.Click("홈"); f.ClickControl(settings);
+                Assert(f.Navigation.settingsPanel.activeSelf && !settings.gameObject.activeInHierarchy,
+                    "Settings did not open, or its home-only entry remains visible outside the garden.");
+                f.Capture("15-settings-navigation", capture);
+                f.ClickControl(home.settingsTab);
+                Assert(f.Ui.CurrentScreen == "course" && !f.Navigation.settingsPanel.activeSelf,
+                    "The third bottom tab on settings did not open My Course.");
+                f.Click("홈"); f.ClickControl(home.homeTab);
+                Assert(home.homeCanvas.gameObject.activeSelf && settings.gameObject.activeInHierarchy,
+                    "Home tab did not restore the garden and its settings entry.");
             }
         }
 
@@ -393,6 +425,21 @@ namespace CapstoneDesign.EditorTools
                     Navigation.home = root.AddComponent<GardenHomePresenter>(); Navigation.home.navigation = Navigation;
                     var gardenCanvas = new GameObject("Synthetic preserved garden canvas", typeof(RectTransform), typeof(Canvas));
                     gardenCanvas.transform.SetParent(root.transform, false); Navigation.home.homeCanvas = gardenCanvas.GetComponent<Canvas>();
+                    var gardenRect = (RectTransform)gardenCanvas.transform; gardenRect.anchorMin = Vector2.zero; gardenRect.anchorMax = Vector2.one; gardenRect.offsetMin = gardenRect.offsetMax = Vector2.zero;
+                    var safeFrame = GardenUi.Box(gardenCanvas.transform, "SafePortraitFrame", 0, 0, 1, 1);
+                    var homeContent = GardenUi.Box(safeFrame.transform, "MainContent", 0, 0, 1, 1);
+                    var brand = HomeText(homeContent.transform, "Brand", "마음 정원");
+                    brand.rectTransform.anchorMin = brand.rectTransform.anchorMax = new Vector2(0, 1);
+                    brand.rectTransform.pivot = new Vector2(0, 1); brand.rectTransform.anchoredPosition = new Vector2(48, -32);
+                    brand.rectTransform.sizeDelta = new Vector2(280, 48);
+                    Navigation.home.date = HomeText(homeContent.transform, "Date", "10월 29일");
+                    Navigation.home.date.rectTransform.anchorMin = Navigation.home.date.rectTransform.anchorMax = new Vector2(1, 1);
+                    Navigation.home.date.rectTransform.pivot = new Vector2(1, 1); Navigation.home.date.rectTransform.anchoredPosition = new Vector2(-48, -32);
+                    Navigation.home.date.rectTransform.sizeDelta = new Vector2(200, 48); Navigation.home.date.alignment = TextAlignmentOptions.Right;
+                    Navigation.home.homeTab = HomeTab(homeContent.transform, "HomeTab", 0, out Navigation.home.homeTabLabel);
+                    Navigation.home.activityTab = HomeTab(homeContent.transform, "ActivityTab", 1, out Navigation.home.activityTabLabel);
+                    Navigation.home.settingsTab = HomeTab(homeContent.transform, "SettingsTab", 2, out Navigation.home.settingsTabLabel);
+                    Navigation.home.ConfigureNavigation();
                     Navigation.legacyBottomNavigation = GardenUi.Box(root.transform, "Synthetic legacy navigation", 0, 0, 1, .1f);
                 }
                 var balance = new DemoBalanceConfig { CompletionNutrient = 5, VisitorChancePercent = 0 };
@@ -419,6 +466,25 @@ namespace CapstoneDesign.EditorTools
             }
 
             public bool Has(string label) => Button(label) != null;
+            static TMP_Text HomeText(Transform parent, string name, string text)
+            {
+                var caption = GardenUi.Box(parent, name, 0, 0, 1, 1).AddComponent<TextMeshProUGUI>();
+                GardenTypography.ApplyBody(caption); caption.text = text; caption.fontSize = 28; caption.color = GardenUi.Ink;
+                caption.raycastTarget = false; return caption;
+            }
+            static Button HomeTab(Transform parent, string name, int index, out TMP_Text label)
+            {
+                var box = GardenUi.Box(parent, name, .04f + index * .32f, .02f, .28f, .06f, Color.white);
+                var button = box.AddComponent<Button>(); button.targetGraphic = box.GetComponent<Image>();
+                var caption = GardenUi.Box(box.transform, "Label", 0, 0, 1, 1).AddComponent<TextMeshProUGUI>();
+                GardenTypography.ApplyBody(caption); caption.fontSize = 22; caption.alignment = TextAlignmentOptions.Center;
+                caption.raycastTarget = false; label = caption; return button;
+            }
+            public void ClickControl(Button button)
+            {
+                Assert(button != null && button.gameObject.activeInHierarchy && button.interactable, "Navigation control is not visible and enabled.");
+                Reveal(button); AssertRaycastTarget(button); button.onClick.Invoke(); report.buttonClicks++; Layout();
+            }
             Button Button(string label) => Ui.GetComponentsInChildren<Button>(false).FirstOrDefault(b =>
                 b.gameObject.activeInHierarchy && b.interactable && (b.name == label
                     || b.GetComponentsInChildren<Text>(false).Any(t => t.text.Trim() == label)));
