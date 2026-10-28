@@ -55,6 +55,18 @@ namespace CapstoneDesign.Prototype
             Zoom = Mathf.Clamp01(value);
             Apply();
         }
+        public static float ZoomScale(float value)
+        {
+            if(float.IsNaN(value) || float.IsInfinity(value))return 1;
+            value=Mathf.Clamp01(value);
+            return value<=.85f?Mathf.Lerp(.5f,1,value/.85f):Mathf.Lerp(1,2.25f,(value-.85f)/.15f);
+        }
+        public static float ZoomForScale(float scale)
+        {
+            if(float.IsNaN(scale) || float.IsInfinity(scale))return .85f;
+            return scale<=1?Mathf.Clamp01((scale-.5f)/.5f)*.85f:
+                .85f+Mathf.Clamp01((scale-1)/1.25f)*.15f;
+        }
         public Rect VisibleAreaInViewport { get; private set; } = new Rect(0, 0, 1, 1);
 
         private void OnEnable()
@@ -118,14 +130,11 @@ namespace CapstoneDesign.Prototype
             float aspect = display.width / display.height;
             if (!TryGetComposition(display, area, horizontalRadius, radius, edgeMargin,
                 out float size, out Vector2 projectionCenter)) return;
-            // Zoom stops at the complete-subject fit. Even at maximum, the
-            // measured plant/pot (or whole garden) stays clear of every UI edge.
-            if (subject != null)
-            {
-                float zoomScale = Mathf.Lerp(.72f, 1, Zoom);
-                size /= zoomScale;
-                projectionCenter /= zoomScale;
-            }
+            // .85 is the original complete-garden composition. Gestures can
+            // zoom out to half scale or move closer for details without changing
+            // the stored plant, camera orbit or the initial fit.
+            float zoomScale=ZoomScale(Zoom);
+            size/=zoomScale;projectionCenter/=zoomScale;
             VisibleAreaInViewport = new Rect((area.xMin - display.xMin) / display.width,
                 (area.yMin - display.yMin) / display.height, area.width / display.width, area.height / display.height);
             var camera = orbit.previewCamera;

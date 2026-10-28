@@ -50,9 +50,7 @@ namespace CapstoneDesign.Runtime
         public bool IsOverview => backgroundPreview != null && !backgroundPreview.IsSubjectFocused;
         public float Zoom => backgroundPreview != null ? backgroundPreview.Zoom : .85f;
         public bool ViewControlsExpanded { get; private set; }
-        Button plantViewButton, overviewButton, zoomOutButton, zoomInButton;
-        Button viewControlsToggle;
-        GameObject viewControlsRow;
+        public RectTransform OverlayTopBoundary { get; private set; }
         string growthConfirmation;
         float growthConfirmationUntil;
 
@@ -60,7 +58,6 @@ namespace CapstoneDesign.Runtime
         string additionsSignature;
         string plantSignature;
         PrototypeGardenPreviewLayout backgroundPreview;
-        GameObject overviewSurface;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
 
@@ -85,6 +82,7 @@ namespace CapstoneDesign.Runtime
 
         private void Update()
         {
+            if(IsGardenVisible)RefreshOverlayTextColor();
             if (growthConfirmation != null && Time.unscaledTime >= growthConfirmationUntil)
             {
                 growthConfirmation = null;
@@ -117,10 +115,10 @@ namespace CapstoneDesign.Runtime
                     // every tab, so font metrics and safe-area placement cannot drift.
                     EnsureSharedHeader(content);
                     content.Find("Shared header background").gameObject.SetActive(!visible);
-                    if (overviewSurface != null) overviewSurface.SetActive(visible);
-                    if(content.Find("Brand")!=null)content.Find("Brand").gameObject.SetActive(true);
-                    foreach(var name in new[]{"Date","GardenAndGrowth"})
-                        if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(visible);
+                    if(content.Find("Brand")!=null)content.Find("Brand").gameObject.SetActive(!visible);
+                    if(content.Find("Date")!=null)content.Find("Date").gameObject.SetActive(false);
+                    if(content.Find("GardenAndGrowth")!=null)content.Find("GardenAndGrowth").gameObject.SetActive(visible);
+                    foreach(var label in new[]{title,stage,guide})if(label!=null)label.gameObject.SetActive(visible);
                 }
                 RefreshMissionStatus();
                 if (backgroundPreview != null) backgroundPreview.gameObject.SetActive(visible);
@@ -202,99 +200,50 @@ namespace CapstoneDesign.Runtime
             backgroundPreview.UseFullScreenBackground(homeCanvas);
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
-            // The activity card is a destination, so its icon should communicate
-            // navigation instead of repeating the decorative plant motif.
-            var missionEmblem = home.Find("MissionEmblem");
-            if (missionEmblem != null)
-            {
-                var surface = missionEmblem.GetComponent<PrototypeUiSurface>();
-                if (surface != null) { surface.topColor = surface.bottomColor = Color.clear; surface.SetAllDirty(); }
-                var icon = missionEmblem.GetComponentInChildren<PrototypeUiIcon>();
-                if (icon != null) { icon.symbol = PrototypeUiIcon.Symbol.Arrow; icon.color = GardenUi.Green; icon.SetAllDirty(); }
-            }
-            overviewSurface = GardenUi.Box(content, "Home overview surface", 0, 1, 1, 0, GardenUi.Background);
-            GardenUi.Round(overviewSurface.GetComponent<Image>(), GardenUi.Background);
-            GardenUi.FromTop(overviewSurface.transform, 14, 366);
-            var overview = (RectTransform)overviewSurface.transform;
-            overview.offsetMin = new Vector2(24, overview.offsetMin.y);
-            overview.offsetMax = new Vector2(-24, overview.offsetMax.y);
-            overview.SetAsFirstSibling();
-            var growth = GardenUi.Box(home, "Growth surface", 0, 0, 1, 0, GardenUi.Background);
-            GardenUi.Round(growth.GetComponent<Image>(), GardenUi.Background);
-            var growthRect = (RectTransform)growth.transform;
-            growthRect.anchorMin = growthRect.anchorMax = Vector2.zero;
-            growthRect.pivot = new Vector2(0, 1);
-            growthRect.anchoredPosition = new Vector2(48, 328);
-            growthRect.sizeDelta = new Vector2(624, 64);
-            growthRect.SetAsFirstSibling();
-            // The compact surface is higher than the old prototype row. Anchor
-            // its contents to the surface, including the visible glyph bounds.
-            if (stage != null)
-            {
-                CenterInGrowthSurface(stage.rectTransform, growthRect);
-                stage.alignment = TextAlignmentOptions.Midline;
-            }
-            if (progressDots != null)
-                foreach (var dot in progressDots)
-                    if (dot != null) CenterInGrowthSurface(dot.rectTransform, growthRect);
-            backgroundPreview.lowerBoundary = growthRect;
-            EnsureViewControls(home);
-            // A true background is behind the UI. These opaque surfaces block
-            // drag gestures even where there is no text or button graphic.
+            PlaceOverlayText(title,content,48,32,420,58,40,false);
+            PlaceOverlayText(stage,content,48,94,420,40,28,false);
+            PlaceOverlayText(guide,content,48,100,180,40,24,true);
+            if(progressDots!=null)foreach(var dot in progressDots)if(dot!=null)dot.gameObject.SetActive(false);
+            foreach(var name in new[]{"Home overview surface","Date","Brand"})
+                if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(false);
+            if(home!=null)foreach(var name in new[]{"Growth surface","Garden view controls","보기 +","보기 −"})
+                if(home.Find(name)!=null)home.Find(name).gameObject.SetActive(false);
+            OverlayTopBoundary=(RectTransform)GardenUi.Box(content,"Garden top safe boundary",0,1,1,0).transform;
+            GardenUi.FromTop(OverlayTopBoundary,0,148);
+            backgroundPreview.upperBoundary=OverlayTopBoundary;
+            backgroundPreview.lowerBoundary=shopButton!=null?(RectTransform)shopButton.transform:
+                NavigationBar!=null?(RectTransform)NavigationBar.transform:backgroundPreview.lowerBoundary;
+            backgroundPreview.SetSubjectFocus(false);
+            RefreshOverlayTextColor();
             var sky = GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             if (sky != null) sky.PreviewLayout = backgroundPreview;
         }
 
-        void EnsureViewControls(Transform home)
+        static void PlaceOverlayText(TMP_Text label,Transform parent,float x,float y,float width,float height,int size,bool right)
         {
-            // Keep the plant visible by default; the existing view/zoom targets
-            // remain full size in the optional row.
-            if (title != null) title.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 472);
-            if (guide != null)
-            {
-                var guideRect=guide.rectTransform;
-                guideRect.anchoredPosition=new Vector2(guideRect.anchoredPosition.x,-92);
-                guideRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,42);
-            }
-            viewControlsToggle = GardenUi.Button(home, "보기 +", 0, 0, 0, 0,
-                () => SetViewControlsExpanded(!ViewControlsExpanded));
-            var toggleRect = (RectTransform)viewControlsToggle.transform;
-            toggleRect.anchorMin = toggleRect.anchorMax = new Vector2(0, 1);
-            toggleRect.pivot = new Vector2(0, 1);
-            toggleRect.anchoredPosition = new Vector2(536, -12);
-            toggleRect.sizeDelta = new Vector2(136, 78);
-            viewControlsToggle.GetComponentInChildren<Text>().fontSize = 30;
-            var row = GardenUi.Box(home, "Garden view controls", 0, 1, 1, 0);
-            viewControlsRow = row;
-            var rect = (RectTransform)row.transform;
-            rect.anchorMin = rect.anchorMax = new Vector2(0, 1);
-            rect.pivot = new Vector2(0, 1);
-            rect.anchoredPosition = new Vector2(48, -146);
-            rect.sizeDelta = new Vector2(624, 96);
-            plantViewButton = GardenUi.Button(row.transform, "가까이 보기", 0, 0, 200f / 624, 1, () => SetOverview(false));
-            overviewButton = GardenUi.Button(row.transform, "정원 전체", 208f / 624, 0, 200f / 624, 1, () => SetOverview(true));
-            zoomOutButton = GardenUi.Button(row.transform, "−", 416f / 624, 0, 100f / 624, 1, () => SetZoom(Zoom - .2f));
-            zoomInButton = GardenUi.Button(row.transform, "+", 524f / 624, 0, 100f / 624, 1, () => SetZoom(Zoom + .2f));
-            zoomOutButton.name = "축소"; zoomInButton.name = "확대";
-            foreach (var button in new[] { plantViewButton, overviewButton, zoomOutButton, zoomInButton })
-                button.GetComponentInChildren<Text>().fontSize = 30;
-            backgroundPreview.upperBoundary = (RectTransform)overviewSurface.transform;
-            backgroundPreview.SetSubjectFocus(false);
-            SetViewControlsExpanded(false);
-            UpdateViewControls();
+            if(label==null)return;var rect=label.rectTransform;rect.SetParent(parent,false);
+            rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(right?1:0,1);
+            rect.anchoredPosition=new Vector2(right?-x:x,-y);rect.sizeDelta=new Vector2(width,height);
+            label.fontSize=size;label.enableAutoSizing=false;label.textWrappingMode=TextWrappingModes.NoWrap;
+            label.overflowMode=TextOverflowModes.Ellipsis;label.alignment=right?TextAlignmentOptions.MidlineRight:TextAlignmentOptions.MidlineLeft;
+            label.raycastTarget=false;
+        }
+
+        public static Color OverlayTextColor(float daylight)=>daylight>=.5f?Color.black:Color.white;
+
+        public void RefreshOverlayTextColor()
+        {
+            var sky=gardenVisuals==null?null:gardenVisuals.GetComponent<GardenSkyEnvironment>();
+            double hour=GardenVisualClock.CurrentHour;
+            Color ink=OverlayTextColor(sky!=null?sky.Daylight:hour>=6&&hour<18?1:0);
+            if(title!=null)title.color=ink;
+            if(stage!=null)stage.color=ink;
+            if(guide!=null)guide.color=ink;
         }
 
         public void SetViewControlsExpanded(bool expanded)
         {
-            ViewControlsExpanded = expanded;
-            if (viewControlsRow == null) return;
-            viewControlsRow.SetActive(expanded);
-            viewControlsToggle.GetComponentInChildren<Text>().text = expanded ? "보기 −" : "보기 +";
-            GardenUi.FromTop(overviewSurface.transform, 14, expanded ? 354 : 242);
-            var surface = (RectTransform)overviewSurface.transform;
-            surface.offsetMin = new Vector2(24, surface.offsetMin.y);
-            surface.offsetMax = new Vector2(-24, surface.offsetMax.y);
-            RenderView();
+            ViewControlsExpanded=false;
         }
 
         // A presentation preset changes only the view, never the saved garden.
@@ -305,7 +254,6 @@ namespace CapstoneDesign.Runtime
             backgroundPreview?.SetZoom(.85f);
             backgroundPreview?.orbit?.ResetView();
             SetViewControlsExpanded(false);
-            UpdateViewControls();
             RenderView();
         }
 
@@ -319,24 +267,13 @@ namespace CapstoneDesign.Runtime
         public void SetOverview(bool overview)
         {
             backgroundPreview?.SetSubjectFocus(!overview);
-            UpdateViewControls();
             RenderView();
         }
 
         public void SetZoom(float zoom)
         {
             backgroundPreview?.SetZoom(zoom);
-            UpdateViewControls();
             RenderView();
-        }
-
-        void UpdateViewControls()
-        {
-            if (plantViewButton == null) return;
-            GardenUi.StyleButton(plantViewButton, selected: !IsOverview);
-            GardenUi.StyleButton(overviewButton, selected: IsOverview);
-            zoomOutButton.interactable = Zoom > .001f;
-            zoomInButton.interactable = Zoom < .999f;
         }
 
         void RenderView()
@@ -418,8 +355,7 @@ namespace CapstoneDesign.Runtime
             if (date != null) date.text = DateTime.Now.ToString("M월 d일");
             if (title != null) title.text = RenderedRecipe.SpeciesId == null ? "오늘의 식물"
                 : "오늘의 " + PlantCatalog.Get(RenderedRecipe.SpeciesId).Name;
-            if (guide != null) guide.text = growthConfirmation != null && Time.unscaledTime < growthConfirmationUntil
-                ? growthConfirmation : "영양제 " + saved.Nutrient + "개";
+            if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개";
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
