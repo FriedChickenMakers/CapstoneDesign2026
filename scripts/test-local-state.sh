@@ -5,5 +5,5 @@ mono_root="${UNITY_MONO_ROOT:-/opt/unity/editors/6000.3.24f1/Editor/Data/MonoBle
 test_dir="$(mktemp -d)"
 trap 'rm -rf "$test_dir"' EXIT
 garden_plant_sources=("$project_dir"/Assets/Scripts/ProceduralPlants/Plant{Catalog,Math,Recipe,Generator,Geometry}.cs)
-"$mono_root/bin/mono" "$mono_root/lib/mono/4.5/mcs.exe" -langversion:latest -r:System.Xml.dll -r:System.Core.dll -out:"$test_dir/local-state-tests.exe" "$project_dir/Assets/Scripts/Runtime/LocalGardenState.cs" "$project_dir/Assets/Scripts/Runtime/GardenPlantAppearance.cs" "${garden_plant_sources[@]}" "$project_dir/tests/LocalGardenStateTests.cs"
+"$mono_root/bin/mono" "$mono_root/lib/mono/4.5/mcs.exe" -langversion:latest -r:System.Xml.dll -r:System.Core.dll -out:"$test_dir/local-state-tests.exe" "$project_dir/Assets/Scripts/Runtime/LocalGardenState.cs" "$project_dir/Assets/Scripts/Runtime/FocusMissionCatalog.cs" "$project_dir/Assets/Scripts/Runtime/FocusDrawingData.cs" "$project_dir/Assets/Scripts/Runtime/GardenPlantAppearance.cs" "${garden_plant_sources[@]}" "$project_dir/tests/LocalGardenStateTests.cs"
 "$mono_root/bin/mono" "$test_dir/local-state-tests.exe"

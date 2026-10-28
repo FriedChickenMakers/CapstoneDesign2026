@@ -111,7 +111,7 @@ namespace CapstoneDesign.EditorTools
                 if (GraphicsSettings.currentRenderPipeline != null && RenderPipelineManager.currentPipeline == null)
                     Blitter.Cleanup();
                 Check(report, "Home, recommendation, course, week and garden navigation", () => Navigation(report, request.capture));
-                Check(report, "P23, P10 and P25 sequential visible controls and persisted records", () => BasicFlows(report, request.capture));
+                Check(report, "P04, P01 and P03 sequential visible controls and persisted records", () => BasicFlows(report, request.capture));
                 Check(report, "M03 droplet action, 24 emotion choices, optional note and garden return", () => AdditionalFlow(report, request.capture));
                 Check(report, "Draft survives close and resume; failed completion preserves input and retries once", () => DraftAndRetry(report, request.capture));
                 Check(report, "Completed record inspection and review never grant a second reward", () => HistoryAndReview(report, request.capture));
@@ -153,12 +153,12 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Has("미션 창으로 돌아가기"), "Course return action is absent.");
                 Assert(f.VisibleText.Contains("완료한 실습 0 / 12"), "A fresh course does not start at zero completed practices.");
                 f.Capture("03-course", capture);
-                f.Click("1주");
+                f.Click("Focus.CourseRecords.2w");
                 Assert(f.Has("내 과정으로 돌아가기"), "Week return action is absent.");
                 f.Capture("04-week-one", capture);
                 f.Click("내 과정으로 돌아가기");
                 f.Click("미션 창으로 돌아가기");
-                f.Click("내 과정"); f.Click("2주"); f.Click("미션");
+                f.Click("내 과정"); f.Click("Focus.CourseRecords.2w"); f.Click("미션");
                 f.Click("홈");
                 Assert(f.Navigation.islandPanel.activeSelf && !f.Ui.gameObject.activeSelf, "Garden tab did not return to the existing navigation panel.");
             }
@@ -168,7 +168,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report))
             {
-                foreach (var code in new[] { "P23", "P10", "P25" })
+                foreach (var code in new[] { "P04", "P01", "P03" })
                 {
                     f.Invoke("ShowHome");
                     f.Click("기본 미션 시작하기");
@@ -177,7 +177,7 @@ namespace CapstoneDesign.EditorTools
                     f.Capture(code + "-overview", capture);
                     f.Click("시작");
                     f.CompletePractice(definition, capture);
-                    f.CompleteReflection(code + " synthetic reflection", "편안함", capture && code == "P23");
+                    f.CompleteReflection(code + " synthetic reflection", "편안함", capture && code == "P04");
                     var completed = f.Latest;
                     Assert(completed.Status == ParticipationState.RewardCommitted, code + " did not persist completion.");
                     Assert(completed.FocusStepRecords.Count(r => !string.IsNullOrEmpty(r.ConfirmedUtc)) == definition.Steps.Length,
@@ -193,10 +193,10 @@ namespace CapstoneDesign.EditorTools
                 Assert(FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 3, "Three scheduled completions were not counted.");
                 Assert(f.Service.Snapshot.Nutrient == 15, "Basic reward total differs from 3 × 5.");
                 f.Invoke("ShowFocusRecord", f.Latest.SessionId); f.Click("다시 연습하기 · 추가 보상 없음"); f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("P25"), false, true);
+                f.CompletePractice(FocusMissionCatalog.Find("P03"), false);
                 f.CompleteReflection("", "", false);
-                Assert(f.Latest.FocusStepRecords.Single(r => r.Key == "message").Skipped, "Think-only action did not preserve optional-input skip.");
-                Assert(f.Service.Snapshot.Nutrient == 15, "Think-only review granted another reward.");
+                Assert(f.Latest.FocusReview, "Review did not remain a separate practice.");
+                Assert(f.Service.Snapshot.Nutrient == 15, "Review granted another reward.");
             }
         }
 
@@ -229,7 +229,7 @@ namespace CapstoneDesign.EditorTools
                 f.Navigation.home.RefreshMissionStatus();
                 Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "!", "M03-only completion hid the remaining basic mission on the garden.");
                 f.Navigation.ShowActivities(); f.Invoke("ShowHome");
-                Assert(f.Has("기본 미션 시작하기") && !f.Has("추천 미션 보기"), "Additional-only completion disabled basic or retained its extra CTA.");
+                Assert(f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Additional-only completion disabled basic or hid the next recommendation.");
                 f.AssertMissionBadge("!");
             }
         }
@@ -238,14 +238,14 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report, true))
             {
-                f.Click("기본 미션 시작하기"); f.Click("시작"); f.Click("준비했어요");
+                f.Click("기본 미션 시작하기"); f.Click("시작"); f.Click(FocusMissionCatalog.Find("P04").Steps[0].ActionLabel);
                 string id = f.Latest.SessionId;
                 f.Click("닫기");
                 Assert(f.Has("기본 미션 이어서 하기"), "Close did not expose resume on home.");
                 f.Capture("05-paused-home", capture);
                 f.Click("기본 미션 이어서 하기");
                 Assert(f.Latest.SessionId == id && f.Latest.InstructionStep == 1, "Resume lost the session or stage.");
-                f.CompletePractice(FocusMissionCatalog.Find("P23"), false);
+                f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
                 f.Click("고마움"); f.Click("다음"); f.SetInput("synthetic retained note");
                 f.ClickBack();
                 Assert(f.Has("고마움"), "Note back did not return to emotion.");
@@ -266,11 +266,11 @@ namespace CapstoneDesign.EditorTools
                 f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기"); f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("M03"), false); f.CompleteReflection("", "", false);
                 f.Invoke("ShowHome");
-                Assert(!f.Has("기본 미션 시작하기") && !f.Has("추천 미션 보기"), "Both-done home retained a start CTA.");
-                f.AssertMissionBadge("✓");
+                Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Completing M03 hid the other available recommendations.");
+                f.AssertMissionBadge("!");
                 f.Capture("07-both-completed-home", capture);
                 f.Click("홈"); f.Navigation.home.RefreshMissionStatus();
-                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "✓", "Garden did not switch to a check when all today's missions were complete.");
+                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "!", "Garden hid remaining additional missions after completing only M03.");
                 f.Capture("16-garden-all-done", capture); f.Navigation.ShowActivities();
                 f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1); f.Ui.RefreshCycle();
                 f.AssertMissionBadge("!");
@@ -285,22 +285,22 @@ namespace CapstoneDesign.EditorTools
             using (var f = new Fixture(report))
             {
                 f.Click("기본 미션 시작하기"); f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("P23"), false);
+                f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
                 f.CompleteReflection("<size=99>synthetic history detail</size>", "뿌듯함", false);
                 f.Invoke("ShowFocusCourse");
-                f.Click("저장된 기록 보기");
+                f.Click("Focus.CourseRecords.2w"); f.Click("저장된 기록 보기");
                 f.Capture("08-history", capture);
-                f.Click(FocusMissionCatalog.Find("P23").Title);
+                f.Click("Focus.Record." + f.Latest.SessionId);
                 var copy = f.VisibleText;
                 Assert(copy.Contains("synthetic history detail") && copy.Contains("뿌듯함"), "Saved detail omitted reflection fields.");
                 Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(t => t.text.Contains("<size=99>synthetic history detail</size>") && !t.supportRichText),
                     "Saved user markup was interpreted as rich text instead of displayed literally.");
-                Assert(copy.Contains("향") && copy.Contains("한입"), "Saved detail omitted step content/choice.");
+                Assert(copy.Contains("감촉") && copy.Contains("한 모금"), "Saved detail omitted step content/choice.");
                 f.Capture("09-record-detail", capture);
                 f.ScrollBottom(); f.Capture("09b-record-reflection", capture);
                 var before = f.Service.Snapshot.Nutrient;
                 f.Click("다시 연습하기 · 추가 보상 없음");
-                f.Click("시작"); f.CompletePractice(FocusMissionCatalog.Find("P23"), false);
+                f.Click("시작"); f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
                 f.CompleteReflection("synthetic review", "", false);
                 Assert(f.Latest.FocusReview && f.Latest.Status == ParticipationState.RewardCommitted, "Review was not saved separately.");
                 Assert(f.Service.Snapshot.Nutrient == before && FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 1,
@@ -425,7 +425,7 @@ namespace CapstoneDesign.EditorTools
             using(var f=new Fixture(report,true))
             {
                 f.Click("기본 미션 시작하기");f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("P23"),false);
+                f.CompletePractice(FocusMissionCatalog.Find("P04"),false);
                 f.CompleteReflection("synthetic completed record before settings reset","만족감",false);
                 var settings=f.OpenMissionSettings();
                 Assert(settings.MissionRefreshButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="새로고침")
@@ -475,11 +475,11 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("22-settings-reset-complete",capture);
                 f.Navigation.ShowActivities();f.Invoke("ShowHome");
                 Assert(f.Has("기본 미션 시작하기")&&f.Has("추천 미션 보기"),"Mission refresh did not restore fresh mission actions.");
-                f.AssertMissionBadge("!");f.Invoke("ShowFocusHistory");
+                f.AssertMissionBadge("!");f.Invoke("ShowFocusHistory",null,0,"2w");
                 Assert(f.VisibleText.Contains("아직 저장된 수행 기록이 없어요")&&!f.VisibleText.Contains(draft),
                     "Cleared mission details still appear in history.");
                 f.Invoke("ShowHome");f.Click("기본 미션 시작하기");
-                Assert(f.Latest.FocusOrder==1&&f.Latest.MissionId==FocusMissionCatalog.Find("P23").Id
+                Assert(f.Latest.FocusOrder==1&&f.Latest.MissionId==FocusMissionCatalog.Find("P04").Id
                     && f.Latest.Status==ParticipationState.Selected,"Reset retained the previous basic occurrence or practice stage.");
                 f.Click("닫기");f.Click("추천 미션 보기");f.Click("추가 미션 시작하기");f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("다음");
@@ -502,7 +502,7 @@ namespace CapstoneDesign.EditorTools
 
         static void Assert(bool value, string message) { if (!value) throw new InvalidOperationException(message); }
 
-        sealed class MemoryStore : IStateStore
+        internal sealed class MemoryStore : IStateStore
         {
             string data;
             public int FailNextSaves;
@@ -513,13 +513,13 @@ namespace CapstoneDesign.EditorTools
                 FailNextSaves = 0; data = StateCodec.Encode(state);
             }
         }
-        sealed class SyntheticClock : IClock
+        internal sealed class SyntheticClock : IClock
         {
             public DateTimeOffset UtcNow { get; set; } = DateTimeOffset.Parse("2026-10-26T03:00:00Z");
             public TimeZoneInfo TimeZone => TimeZoneInfo.CreateCustomTimeZone("FocusValidation-Seoul", TimeSpan.FromHours(9), "Synthetic Seoul", "Synthetic Seoul");
         }
 
-        sealed class Fixture : IDisposable
+        internal sealed class Fixture : IDisposable
         {
             public readonly MemoryStore Store = new MemoryStore();
             public readonly SyntheticClock Clock = new SyntheticClock();
@@ -544,7 +544,7 @@ namespace CapstoneDesign.EditorTools
             public InputField Input => Ui.GetComponentsInChildren<InputField>(false).FirstOrDefault(i => i.gameObject.activeInHierarchy);
             public string VisibleText => string.Join("\n", Ui.GetComponentsInChildren<Text>(false).Where(t => t.gameObject.activeInHierarchy).Select(t => t.text));
 
-            public Fixture(Report report, bool integratedShell = false)
+            public Fixture(Report report, bool integratedShell = false, bool chooseCourse = true)
             {
                 this.report = report;
                 previous = SceneManager.GetActiveScene();
@@ -609,6 +609,11 @@ namespace CapstoneDesign.EditorTools
                 }
                 var balance = new DemoBalanceConfig { CompletionNutrient = 5, VisitorChancePercent = 0 };
                 Service = new GardenStateService(Store, Clock, balance, new LegacySnapshot());
+                if (chooseCourse)
+                {
+                    Assert(Service.Open(), Service.LastError);
+                    Assert(Service.SelectMbctProgram("2w"), Service.LastError);
+                }
                 try
                 {
                     Ui = Navigation.activitiesPanel.AddComponent<WeekOneQuestDemo>();
@@ -710,7 +715,12 @@ namespace CapstoneDesign.EditorTools
                 var point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(rect.rect.center));
                 var hits = new List<RaycastResult>();
                 // Query only the isolated raycaster, without changing EventSystem.current or the user's input modules.
-                raycaster.Raycast(new PointerEventData(pointerContext) { position = point }, hits);
+                // uGUI clears this scratch buffer only after a successful query. A failed
+                // disposable preview must not leave destroyed graphics in the next query.
+                var scratch = typeof(GraphicRaycaster).GetField("s_SortedGraphics", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as List<Graphic>;
+                scratch?.Clear();
+                try { raycaster.Raycast(new PointerEventData(pointerContext) { position = point }, hits); }
+                finally { scratch?.Clear(); }
                 var hit = hits.OrderByDescending(item => item.depth).FirstOrDefault();
                 Assert(hit.gameObject != null && hit.gameObject.GetComponentInParent<Button>() == button,
                     "Button center is blocked or not hittable: " + button.name + " on " + Ui.CurrentScreen
@@ -730,26 +740,90 @@ namespace CapstoneDesign.EditorTools
                 foreach (var scroll in Ui.GetComponentsInChildren<ScrollRect>(false)) scroll.verticalNormalizedPosition = 0;
                 Layout();
             }
-            public void CompletePractice(FocusMissionDefinition definition, bool capture, bool thinkOnly = false)
+            public void CompletePractice(FocusMissionDefinition definition, bool capture, bool thinkOnly = false, string alternateRoute = null)
             {
                 int limit = 0;
                 while (Latest.InstructionStep < definition.Steps.Length)
                 {
                     Assert(++limit <= definition.Steps.Length + 1, "Practice did not advance.");
                     int index = Latest.InstructionStep; var step = definition.Steps[index];
-                    if (step.OptionalInput && !thinkOnly)
+                    AssertVisibleAssets();
+                    if (step.Kind == "draw")
+                    {
+                        DrawSyntheticStroke(); Click("Focus.DrawingUndo");
+                        Assert(FocusDrawingData.Decode(Ui.GetComponentInChildren<FocusDrawingSurface>().Value).Count == 0, "Drawing undo did not remove the stroke.");
+                        DrawSyntheticStroke(); Click("Focus.DrawingClear"); DrawSyntheticStroke();
+                    }
+                    else if (step.OptionalInput && !thinkOnly)
                     {
                         SetInput("synthetic message before speaking");
-                        Click("닫기"); Click("기본 미션 이어서 하기");
+                        Click("닫기"); Click(definition.Role == FocusMissionCatalog.BasicRole ? "기본 미션 이어서 하기" : "추가 미션 이어서 하기");
                         Assert(Latest.InstructionStep == index && Input != null && Input.text == "synthetic message before speaking",
                             "Optional practice draft did not survive close/resume.");
                     }
-                    if (step.Options.Length > 0) Click(step.Options[0]);
+                    if (step.Options.Length > 0) Click(step.Key == "route" && alternateRoute != null && step.Options.Contains(alternateRoute) ? alternateRoute : step.Options[0]);
+                    if (Has("Focus.TimerToggle"))
+                    {
+                        Click("Focus.TimerToggle");
+                        Assert(Ui.GetComponentInChildren<FocusPracticeClock>().Running, "Focus timer did not start.");
+                        Click("Focus.TimerToggle");
+                        Assert(!Ui.GetComponentInChildren<FocusPracticeClock>().Running, "Focus timer did not pause.");
+                    }
+                    if (Has("Focus.RefreshSteps")) Click("Focus.RefreshSteps");
+                    if (Has("Focus.AudioToggle"))
+                    {
+                        Click("Focus.AudioToggle"); Click("Focus.AudioToggle"); Click("Focus.AudioReplay");
+                    }
+                    if (Has("Focus.AudioTranscript"))
+                    {
+                        Click("Focus.AudioTranscript"); Assert(VisibleText.Contains(FocusMissionCatalog.StoryText), "Story text fallback is missing."); Click("Focus.CloseTranscript");
+                    }
+                    if (Has("Focus.ContinueLater"))
+                    {
+                        string before = Latest.SessionId; Click("Focus.ContinueLater"); Click("기본 미션 이어서 하기");
+                        Assert(Latest.SessionId == before && Latest.InstructionStep == index, "Continue-later lost the saved practice position.");
+                    }
                     Capture(definition.Code + "-step-" + (index + 1), capture);
-                    Click(step.OptionalInput && thinkOnly ? "속으로 확인했어요" : step.ActionLabel);
+                    Click(step.OptionalInput && thinkOnly ? (Has("속으로 확인했어요") ? "속으로 확인했어요" : "건너뛰기") : step.ActionLabel);
                     Assert(Latest.InstructionStep > index, "Practice action did not advance: " + definition.Code + " " + step.Key);
                 }
                 Assert(Has("다음"), "Practice did not lead to shared emotion.");
+            }
+            public void AssertVisibleAssets()
+            {
+                foreach (var image in Ui.GetComponentsInChildren<RawImage>(false))
+                {
+                    Assert(image.texture != null && image.texture.width > 0 && image.texture.height > 0,
+                        "A visible mission asset is missing: " + image.name + " on " + Ui.CurrentScreen);
+                    var size = image.rectTransform.rect.size;
+                    Assert(size.x > 0 && size.y > 0 && Mathf.Abs(size.x / size.y - image.texture.width / (float)image.texture.height) < .02f,
+                        "A visible mission asset is stretched: " + image.name + " on " + Ui.CurrentScreen);
+                }
+            }
+            public void DrawSyntheticStroke()
+            {
+                Layout(); var surface = Ui.GetComponentsInChildren<FocusDrawingSurface>(false).FirstOrDefault(s => !s.ReadOnly);
+                Assert(surface != null, "Editable drawing surface is missing.");
+                var rect = surface.rectTransform; var center = rect.TransformPoint(rect.rect.center);
+                var data = new PointerEventData(pointerContext) { button = PointerEventData.InputButton.Left,
+                    position = RectTransformUtility.WorldToScreenPoint(camera, center), pointerPressRaycast = new RaycastResult { module = raycaster } };
+                foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
+                {
+                    GraphicRegistry.RegisterGraphicForCanvas(canvas, graphic); graphic.SetAllDirty();
+                    graphic.Rebuild(CanvasUpdate.PreRender); graphic.Rebuild(CanvasUpdate.LatePreRender);
+                }
+                Canvas.ForceUpdateCanvases(); camera.Render();
+                var hits = new List<RaycastResult>();
+                var scratch = typeof(GraphicRaycaster).GetField("s_SortedGraphics", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as List<Graphic>;
+                scratch?.Clear();
+                try { raycaster.Raycast(data, hits); }
+                finally { scratch?.Clear(); }
+                var first = hits.OrderByDescending(hit => hit.depth).FirstOrDefault();
+                Assert(first.gameObject != null && first.gameObject.GetComponentInParent<FocusDrawingSurface>() == surface,
+                    "An empty drawing canvas does not receive the first stroke; first hit=" + first.gameObject?.name);
+                report.raycastChecks++;
+                surface.OnPointerDown(data); data.position += new Vector2(24, 24); surface.OnDrag(data); surface.OnPointerUp(data);
+                Assert(FocusDrawingData.Decode(surface.Value).Any(s => s.Count > 1), "Drawing pointer action did not persist a stroke.");
             }
             public void CompleteReflection(string value, string mood, bool capture)
             {

@@ -76,6 +76,9 @@ namespace CapstoneDesign.Runtime
         {
             var beforeState=Service.Snapshot;
             var before=beforeState.Sessions.FirstOrDefault(s=>s.SessionId==id);
+            // Focus missions finish through their own guidance and reflection transaction.
+            // A step notification must not submit or discard the user's editable focus draft.
+            if(FocusMissionPolicy.IsFocus(before))return;
             if(!WalkingEvidence.CanAutomaticallyComplete(before,DebugWalkEnabled))return;
             // Do not discard a reflection the user is currently composing. Its explicit Finish
             // uses the same atomic completion; leaving the form lets the verified goal finish.
