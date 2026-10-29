@@ -54,6 +54,7 @@ namespace CapstoneDesign.EditorTools
             {
                 "Synthetic Editor state; MOCK platform; no application save; deviceTested=false.",
                 "Pressed preview sends synthetic pointer events; it does not claim physical device touch coverage.",
+                "settings-toggle-off previews the real music switch renderer without changing PlayerPrefs or audio settings.",
                 "Renderer: " + SystemInfo.graphicsDeviceName + "; API: " + SystemInfo.graphicsDeviceType
             };
             var manifest = new StringBuilder("image,width,height,case\n");
@@ -86,10 +87,11 @@ namespace CapstoneDesign.EditorTools
                     string file = name + "-" + size.x + "x" + size.y + ".png";
                     string path = Path.Combine(output, file);
                     LocalLoopPreview.Render(size, path);
-                    if (name.StartsWith("settings", StringComparison.Ordinal))
+                    if (name.StartsWith("settings", StringComparison.Ordinal) || name == "shop-progress")
                     {
                         var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
-                        var scroll = sensor.PrimaryScroll;
+                        var scroll = name == "shop-progress" ? ui.GetComponentInChildren<ScrollRect>() : sensor.PrimaryScroll;
+                        Require(scroll != null, "Capture scroll view is missing: " + name);
                         scroll.verticalNormalizedPosition = name.EndsWith("bottom", StringComparison.Ordinal) ? 0 : 1;
                         if (scroll.verticalScrollbar != null) scroll.verticalScrollbar.value = scroll.verticalNormalizedPosition;
                         LocalLoopPreview.Render(size, path);
@@ -162,6 +164,22 @@ namespace CapstoneDesign.EditorTools
             if (name == "programs") { ui.ShowProgramSelection(); return; }
             if (name == "course") { ui.ShowCourse(); return; }
             if (name == "preferences") { ui.ShowRecommendationPreferences(); return; }
+            if (name == "shop-progress")
+            {
+                Require(service.SelectMbctProgram("2w"), service.LastError);
+                foreach (var mission in MbctContent.ForProgram("2w").Take(3))
+                {
+                    ui.SelectMission(mission);
+                    string progressId = service.Snapshot.Sessions.Last().SessionId;
+                    Require(service.StartSession(progressId), service.LastError);
+                    clock.Time = clock.Time.AddMinutes(4);
+                    ui.Finish(null, null);
+                    clock.Time = clock.Time.AddDays(1);
+                    Require(service.RefreshCycle(Array.Empty<string>()), service.LastError);
+                }
+                Require(MbctPolicy.CompletedCount(service.Snapshot) == 3, "Synthetic course progress is missing.");
+                ui.ShowShop(); return;
+            }
             if (name.StartsWith("growth-", StringComparison.Ordinal))
             {
                 ui.PreviewGrowth();
@@ -173,6 +191,18 @@ namespace CapstoneDesign.EditorTools
                 var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
                 sensor.PrepareView(); nav.ShowSettings();
                 sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
+                if (name == "settings-toggle-off")
+                {
+                    // Visual state evidence only. The real music callback writes
+                    // PlayerPrefs, so render its off state without changing preferences.
+                    const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
+                    var button = typeof(SensorRawDisplay).GetField("musicToggle", hidden)?.GetValue(sensor) as Button;
+                    var updateSwitch = typeof(SensorRawDisplay).GetMethod("UpdateSwitch", hidden);
+                    Require(button != null && updateSwitch != null, "Music switch preview binding is missing.");
+                    updateSwitch.Invoke(sensor, new object[] { button, false });
+                    Require(button.GetComponentsInChildren<Text>().Any(label => label.text == "꺼짐"),
+                        "Music switch off state was not rendered.");
+                }
                 return;
             }
             if (name == "journal-long")
@@ -228,7 +258,9 @@ namespace CapstoneDesign.EditorTools
             string filter = Environment.GetEnvironmentVariable("CAPSTONE_GARDEN_THEME_CASES");
             if (string.IsNullOrWhiteSpace(filter)) return Cases;
             var selected = filter.Split(',').Select(value => value.Trim()).Where(value => value.Length > 0).Distinct().ToArray();
-            Require(selected.Length > 0 && selected.All(Cases.Contains), "Unknown or empty CAPSTONE_GARDEN_THEME_CASES.");
+            Require(selected.Length > 0 && selected.All(name => Cases.Contains(name)
+                || name == "settings-toggle-off" || name == "shop-progress"),
+                "Unknown or empty CAPSTONE_GARDEN_THEME_CASES.");
             return selected;
         }
         static Vector2Int[] ReadSizes()
