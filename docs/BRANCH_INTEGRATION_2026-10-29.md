@@ -1,6 +1,6 @@
 # 정원 테마와 최신 미션 브랜치 통합 · 2026-10-29
 
-**코드 통합과 아래 선별 검증을 완료했다.** 이 문서는 조사 당시의 계보, 실제 충돌 해결과 검증 결과를 기록한다. 게시 SHA·원격 확인은 게시 후 기록한다.
+**코드 통합·아래 선별 검증·원격 게시를 완료했다.** 실제 merge는 [`78a1d29201511a78710027ea5fcd09992a655f09`](https://github.com/FriedChickenMakers/CapstoneDesign2026/commit/78a1d29201511a78710027ea5fcd09992a655f09)이며, `main`과 `codex/integrate-garden-missions-20261029` 양쪽에 일반 push한 뒤 원격 SHA 일치를 확인했다. 이후 문서 기록 커밋은 이 merge의 후손이다. 팀원 기준은 최신 `origin/main`이다.
 
 ## 통합 기준과 원본 보존
 
@@ -75,7 +75,7 @@
 
 ### 실제 충돌과 해결 내용
 
-Git이 표시한 텍스트 충돌은 `GardenHomePresenter.cs`의 **5개 구간**이었다. 나머지는 자동 병합되어도 화면·진입점·관측 동작이 함께 유지되는지 확인해야 하는 의미 충돌이다. 아래의 “확인 항목”는 필요한 확인 항목을 적은 것으로, 수정했다는 사실만으로 통과를 뜻하지 않는다. 실제 실행 결과는 다음 절의 최종 검증 표를 따른다.
+Git이 표시한 텍스트 충돌은 `GardenHomePresenter.cs`의 **5개 구간**이었다. 나머지는 자동 병합되어도 화면·진입점·관측 동작이 함께 유지되는지 확인해야 하는 의미 충돌이다. 아래의 “확인 항목”은 필요한 확인 항목을 적은 것으로, 수정했다는 사실만으로 통과를 뜻하지 않는다. 실제 실행 결과는 다음 절의 최종 검증 표를 따른다.
 
 | 파일·영역 | 양쪽 변경의 의도 | 충돌 원인 | 해결 | 최종 동작 | 확인 항목 |
 | --- | --- | --- | --- | --- | --- |
@@ -123,8 +123,13 @@ Unity는 기존 라이선스가 있는 OS 사용자 `codex`, `HOME="/home/codex"
 | 실제 씬 화면 | **44장 PASS** | `scene-reviewed`: 11개 상태 × 900×1950/900×1600/1200×2000/1200×800. 장식 비차단·렌더 전후 영구 상태 불변 |
 | Focus UI 캡처 | **147장 생성** | 실제 UI를 격리한 합성 fixture. 실제 씬 44장과 합계 191장. 전체 화면의 사람 전수검토·텍스트 넘침 0건을 주장하지 않음 |
 | Android IL2CPP 빌드·APK 서명 | **Success / PASS** | `android-final/build/capstone-mockup.apk`, 188,199,907 bytes. `BEE_BUILD_THREADS=2`. 개발용 APK, 실제 기기 설치 없음 |
-| privacy·diff | 게시 직전 다시 검사 | 전체 tree와 정확한 index 검사. 원시 로그·화면·APK 제외, PNG 100개에 텍스트/EXIF 메타데이터 없음 확인 |
-| merge SHA / 원격 게시 | 게시 후 갱신 | 통합 브랜치와 main을 일반 push하고 동일 SHA 여부 확인 예정 |
+| privacy·diff | **PASS** | 공개 대상 1,685개 파일의 worktree·정확한 index 검사와 `git diff --check` 통과. 각 push 전 worktree 재검사. 원시 로그·화면·APK 제외, PNG 100개에 텍스트/EXIF 메타데이터 없음 확인 |
+| GitHub push CI | **양쪽 success** | 통합 커밋 `78a1d29`의 [main 실행](https://github.com/FriedChickenMakers/CapstoneDesign2026/actions/runs/40882361486)과 [통합 브랜치 실행](https://github.com/FriedChickenMakers/CapstoneDesign2026/actions/runs/40882297180). 독립 Linux runner의 unit·privacy이며 Unity 검증은 위 로컬 결과로 구분 |
+| merge SHA / 원격 게시 | **`78a1d29` 게시·일치 확인** | 첫 부모 `1e60135`, 두 번째 부모 `e7c0011`. 통합 브랜치 신규 일반 push, main은 `e0234ea`에서 fast-forward. 로컬 main `be160d8`과 원본 기능 브랜치 유지 |
+
+검증 JSON의 `commit=1e60135`, `workingTreeDirty=true`는 merge commit 생성 전 통합 작업 트리를 실행했기 때문이다. 원본 misssion만 검사한 결과가 아니다. 검증 후 생성 캐시 정리와 문서 갱신을 거쳐 커밋한 통합 tree는 `383deb44eab8d465c6404e43c31eec2c43df6f72`이며, 이후 게시 기록 갱신은 문서만 변경한다.
+
+게시 명령은 `git push -u origin codex/integrate-garden-missions-20261029`, `git push origin HEAD:main`이었다. 게시 전 원격을 재조회하고 main의 조상 관계를 확인했으며, 게시 후 `git ls-remote`로 양쪽 `78a1d29`를 확인했다. force push·브랜치 삭제·타인 작업 브랜치 갱신은 수행하지 않았다. 상세 명령 로그와 최종 검증·원격 확인 기록은 비공개 `artifacts/integration-20261029/workflow-record.json` 및 `push-*.log`에 보관한다.
 
 APK SHA-256: `ee77fe056364c58896971cbca1217c2330fb6c6b368c8b6d8541619b4049500e`.
 
