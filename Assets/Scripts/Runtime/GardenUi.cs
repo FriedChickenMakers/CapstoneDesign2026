@@ -17,13 +17,13 @@ namespace CapstoneDesign.Runtime
         }
         // Same 720 x 1280 design frame and type scale as the integrated home.
         public const int TitleSize=46, HeadingSize=34, BodySize=28, CaptionSize=26, ButtonSize=34;
-        public static readonly Color Background = new Color32(245,247,243,255);
-        public static readonly Color Ink = new Color32(36,60,47,255);
-        public static readonly Color Muted = new Color32(100,116,104,255);
-        public static readonly Color Green = new Color32(49,91,72,255);
-        public static readonly Color Pale = new Color32(227,238,216,255);
-        public static readonly Color Border = new Color32(217,225,215,255);
-        public static readonly Color Warning = new Color32(145,79,42,255);
+        public static readonly Color Background = GardenThemePalette.Background;
+        public static readonly Color Ink = GardenThemePalette.Ink;
+        public static readonly Color Muted = GardenThemePalette.Muted;
+        public static readonly Color Green = GardenThemePalette.Forest;
+        public static readonly Color Pale = GardenThemePalette.Mint;
+        public static readonly Color Border = GardenThemePalette.Border;
+        public static readonly Color Warning = new Color32(137,63,32,255);
         public const float Spacing = 8f;
         static Sprite roundedSprite;
 
@@ -73,6 +73,8 @@ namespace CapstoneDesign.Runtime
         public static void StyleButton(Button button,bool primary=false,bool selected=false)
         {
             Round(button.GetComponent<Image>(),primary?Green:selected?Pale:Color.white,!primary && !selected);
+            GardenThemeSurface.Apply(button.gameObject,primary?GardenThemeSurface.Style.Primary:
+                selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Wood);
             var colors=button.colors;colors.normalColor=Color.white;
             colors.highlightedColor=new Color(.96f,.99f,.95f);colors.pressedColor=new Color(.83f,.91f,.82f);
             colors.selectedColor=Color.white;colors.disabledColor=new Color(.95f,.965f,.94f,1);button.colors=colors;
@@ -91,7 +93,9 @@ namespace CapstoneDesign.Runtime
         public static GameObject Card(Transform parent,string name,float x,float y,float w,float h,Color? color=null)
         {
             var card=Box(parent,name,x,y,w,h,Color.white);
-            Round(card.GetComponent<Image>(),color??Color.white,true);card.GetComponent<Image>().raycastTarget=false;return card;
+            Round(card.GetComponent<Image>(),color??Color.white,true);
+            GardenThemeSurface.Apply(card,GardenThemeSurface.Style.Paper);
+            card.GetComponent<Image>().raycastTarget=false;return card;
         }
         public static GameObject Box(Transform parent, string name, float x, float y, float w, float h, Color? color = null)
         {
@@ -126,10 +130,22 @@ namespace CapstoneDesign.Runtime
             var icon=Box(parent,"Icon "+symbol,x,y,w,h).AddComponent<PrototypeUiIcon>();
             icon.symbol=symbol;icon.color=tint??Green;icon.raycastTarget=false;return icon;
         }
+        public static void Emblem(Transform parent,PrototypeUiIcon.Symbol symbol,float height=88)
+        {
+            var row=Box(parent,"Garden illustration",0,0,1,0);
+            row.AddComponent<LayoutElement>().preferredHeight=height;
+            var icon=Icon(row.transform,symbol,.5f,.5f,0,0);
+            icon.rectTransform.sizeDelta=new Vector2(height*.8f,height*.8f);
+        }
         public static void Progress(Transform parent,float value,float x,float y,float w,float h)
         {
-            Card(parent,"Progress track",x,y,w,h,Border);
-            if(value>0)Card(parent,"Progress fill",x,y,w*Mathf.Clamp01(value),h,Green);
+            var track=Card(parent,"Progress track",x,y,w,h,Border);
+            GardenThemeSurface.Apply(track,GardenThemeSurface.Style.ProgressTrack);
+            if(value>0)
+            {
+                var fill=Card(parent,"Progress fill",x,y,w*Mathf.Clamp01(value),h,Green);
+                GardenThemeSurface.Apply(fill,GardenThemeSurface.Style.ProgressFill);
+            }
         }
         public static Button MenuButton(Transform parent,string title,string detail,float x,float y,float w,float h,Action action,PrototypeUiIcon.Symbol symbol,bool emphasized=false)
         {
@@ -179,6 +195,7 @@ namespace CapstoneDesign.Runtime
         public static InputField Input(Transform parent, string hint, float x,float y,float w,float h)
         {
             var go=Card(parent,"Optional note",x,y,w,h);
+            GardenThemeSurface.Apply(go,GardenThemeSurface.Style.Input);
             go.GetComponent<Image>().raycastTarget=true;
             var input=go.AddComponent<GardenInputField>();
             input.targetGraphic=go.GetComponent<Image>();
@@ -215,6 +232,7 @@ namespace CapstoneDesign.Runtime
         public static Transform ScrollPage(Transform parent,string name,float bottom,float top,float minimumHeight)
         {
             var viewport=Box(parent,name,0,bottom,1,top-bottom,Background);
+            GardenThemeSurface.Apply(viewport,GardenThemeSurface.Style.Backdrop);
             viewport.AddComponent<RectMask2D>();
             var scroll=viewport.AddComponent<ScrollRect>();
             var content=Box(viewport.transform,"Page content",0,1,1,0);
@@ -230,7 +248,7 @@ namespace CapstoneDesign.Runtime
             var track=Box(scroll.transform,"Scroll indicator",.981f,.02f,.006f,.96f);
             var scrollbar=track.AddComponent<Scrollbar>();
             var handle=Box(track.transform,"Handle",0,0,1,1);
-            var image=handle.AddComponent<Image>();Round(image,new Color(.39f,.49f,.41f,.55f));
+            var image=handle.AddComponent<Image>();Round(image,GardenThemePalette.WoodDark);
             scrollbar.handleRect=(RectTransform)handle.transform;scrollbar.targetGraphic=image;
             scrollbar.direction=Scrollbar.Direction.BottomToTop;
             scroll.verticalScrollbar=scrollbar;scroll.verticalScrollbarVisibility=ScrollRect.ScrollbarVisibility.AutoHide;

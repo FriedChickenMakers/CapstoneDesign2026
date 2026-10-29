@@ -38,6 +38,7 @@ namespace CapstoneDesign.Runtime
             if(scaler!=null){scaler.referenceResolution=new Vector2(720,1280);scaler.matchWidthOrHeight=.5f;}
             if(home==null)return;
             var backing=GardenUi.Box(transform,"Shared page background",0,0,1,1,GardenUi.Background);
+            CapstoneDesign.Prototype.GardenThemeSurface.Apply(backing,CapstoneDesign.Prototype.GardenThemeSurface.Style.Backdrop);
             backing.transform.SetAsFirstSibling();backing.GetComponent<Image>().raycastTarget=false;
             var frame=GardenUi.Box(transform,"Tab design frame",0,0,1,1);
             var layout=GetComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>()

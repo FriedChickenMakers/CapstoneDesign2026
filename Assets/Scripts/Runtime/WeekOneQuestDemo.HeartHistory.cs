@@ -37,8 +37,9 @@ namespace CapstoneDesign.Runtime
                 if (Application.isPlaying) Destroy(recordHeartView); else DestroyImmediate(recordHeartView);
             }
             recordHeartView = GardenUi.Box(recordHeartPage,"Activity heart history",0,0,1,1);
-            // Keep the graph behind the persistent action controls when replacing it.
-            recordHeartView.transform.SetAsFirstSibling();
+            // Keep the graph above the decorative paper and below persistent actions.
+            var backdrop=recordHeartPage.Find("Garden theme surface");
+            recordHeartView.transform.SetSiblingIndex(backdrop!=null?backdrop.GetSiblingIndex()+1:0);
             recordHeartStatus = HeartHistoryView.Build(recordHeartView.transform,
                 snapshot ?? new AndroidPlatformSnapshot(),recordHeartStart,recordHeartEnd);
         }

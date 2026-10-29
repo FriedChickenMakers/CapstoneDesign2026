@@ -35,10 +35,12 @@ namespace CapstoneDesign.Runtime
             var background = GetComponent<Image>();
             if (background != null) background.color = GardenUi.Background;
             activityFrame = GardenUi.Box(transform, "Activity focus frame", 0, .105f, 1, .895f, GardenUi.Background);
+            GardenThemeSurface.Apply(activityFrame, GardenThemeSurface.Style.Backdrop);
             var frame = (RectTransform)activityFrame.transform;
             frame.offsetMax = new Vector2(0, GardenUi.HasSharedHeader(transform) ? -96 : 0);
             var layout = activityFrame.AddComponent<GardenActivityLayout>();
             var header = GardenUi.Box(frame, "Activity fixed heading", 0, 1, 1, 0);
+            GardenThemeSurface.Apply(header, GardenThemeSurface.Style.Header);
             var headerRect = (RectTransform)header.transform;
             headerRect.pivot = new Vector2(.5f, 1);
             var headerFlow = GardenUi.VerticalFlow(header.transform, 12, 24, 20);
@@ -52,6 +54,7 @@ namespace CapstoneDesign.Runtime
             var fit = body.gameObject.AddComponent<ContentSizeFitter>();
             fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             var footer = GardenUi.Box(frame, "Activity fixed actions", 0, 0, 1, 0, GardenUi.Background);
+            GardenThemeSurface.Apply(footer, GardenThemeSurface.Style.Backdrop);
             var footerRect = (RectTransform)footer.transform;
             footerRect.pivot = new Vector2(.5f, 0);
             activityActions = GardenUi.VerticalFlow(footer.transform, 12, 16, 24);
@@ -108,7 +111,7 @@ namespace CapstoneDesign.Runtime
         Button ActivityListItem(Transform parent, string title, string detail, Action action,
             PrototypeUiIcon.Symbol symbol, bool emphasized = false, bool divider = true)
         {
-            if (divider && parent.childCount > 0)
+            if (divider && parent.GetComponentInChildren<Button>() != null)
             {
                 var line = GardenUi.Box(parent, "List divider", 0, 0, 1, 0);
                 line.AddComponent<LayoutElement>().preferredHeight = 1;
@@ -119,6 +122,7 @@ namespace CapstoneDesign.Runtime
             var oldLabel = button.GetComponentInChildren<Text>();
             oldLabel.gameObject.SetActive(false);
             GardenUi.Round(button.GetComponent<Image>(), emphasized ? GardenUi.Pale : Color.white);
+            GardenThemeSurface.Apply(button.gameObject, emphasized ? GardenThemeSurface.Style.Selected : GardenThemeSurface.Style.Paper);
             var colors = button.colors;
             // Lock icons and muted text communicate availability without making
             // every unavailable row look like another filled pill.
@@ -133,8 +137,8 @@ namespace CapstoneDesign.Runtime
             row.childAlignment = TextAnchor.MiddleLeft;
             var icon = GardenUi.Icon(button.transform, symbol, 0, 0, 0, 0);
             var iconSize = icon.gameObject.AddComponent<LayoutElement>();
-            iconSize.minWidth = iconSize.preferredWidth = 32;
-            iconSize.minHeight = iconSize.preferredHeight = 32;
+            iconSize.minWidth = iconSize.preferredWidth = 40;
+            iconSize.minHeight = iconSize.preferredHeight = 40;
             var copy = GardenUi.Box(button.transform, "List text", 0, 0, 1, 0);
             var copySize = copy.AddComponent<LayoutElement>();
             copySize.minWidth = 0;

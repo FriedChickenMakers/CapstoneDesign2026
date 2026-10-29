@@ -132,6 +132,7 @@ namespace CapstoneDesign.Runtime
         {
             if(content.Find("Shared header background")!=null)return;
             var background=GardenUi.Box(content,"Shared header background",0,1,1,0,GardenUi.Background);
+            GardenThemeSurface.Apply(background,GardenThemeSurface.Style.Header);
             GardenUi.FromTop(background.transform,0,96);
             // This canvas is above the scrolling tab bodies. An opaque band
             // also prevents hidden controls from receiving taps behind the header.
@@ -146,6 +147,12 @@ namespace CapstoneDesign.Runtime
             GardenTypography.ApplyDisplay(stage);
             var brand = homeCanvas.transform.Find("SafePortraitFrame/MainContent/Brand")?.GetComponent<TMP_Text>();
             GardenTypography.ApplyDisplay(brand);
+            if(brand!=null)brand.color=GardenUi.Green;
+            if(date!=null)date.color=GardenUi.Muted;
+            if(title!=null)title.color=GardenUi.Ink;
+            if(guide!=null)guide.color=GardenUi.Muted;
+            if(dailyStatus!=null)dailyStatus.color=GardenUi.Muted;
+            if(missionName!=null)missionName.color=GardenUi.Ink;
             GardenButtonBotanicals.Apply(shopButton, true);
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
@@ -153,6 +160,17 @@ namespace CapstoneDesign.Runtime
             backgroundPreview.UseFullScreenBackground(homeCanvas);
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
+            var shelf=content.Find("BottomNavigation");
+            if(shelf!=null)GardenThemeSurface.Apply(shelf.gameObject,GardenThemeSurface.Style.Shelf);
+            var missionCard=home.Find("TodayMissionCard");
+            if(missionCard!=null)GardenThemeSurface.Apply(missionCard.gameObject,GardenThemeSurface.Style.Paper);
+            if(shopButton!=null)
+            {
+                GardenThemeSurface.Apply(shopButton.gameObject,GardenThemeSurface.Style.Primary);
+                foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.color=Color.white;
+            }
+            var homeIcon=homeTab!=null?homeTab.GetComponentInChildren<PrototypeUiIcon>():null;
+            if(homeIcon!=null){homeIcon.symbol=PrototypeUiIcon.Symbol.Pot;homeIcon.SetAllDirty();}
             // The activity card is a destination, so its icon should communicate
             // navigation instead of repeating the decorative plant motif.
             var missionEmblem = home.Find("MissionEmblem");
@@ -165,6 +183,7 @@ namespace CapstoneDesign.Runtime
             }
             overviewSurface = GardenUi.Box(content, "Home overview surface", 0, 1, 1, 0, GardenUi.Background);
             GardenUi.Round(overviewSurface.GetComponent<Image>(), GardenUi.Background);
+            GardenThemeSurface.Apply(overviewSurface,GardenThemeSurface.Style.Header);
             GardenUi.FromTop(overviewSurface.transform, 14, 366);
             var overview = (RectTransform)overviewSurface.transform;
             overview.offsetMin = new Vector2(24, overview.offsetMin.y);
@@ -172,6 +191,7 @@ namespace CapstoneDesign.Runtime
             overview.SetAsFirstSibling();
             var growth = GardenUi.Box(home, "Growth surface", 0, 0, 1, 0, GardenUi.Background);
             GardenUi.Round(growth.GetComponent<Image>(), GardenUi.Background);
+            GardenThemeSurface.Apply(growth,GardenThemeSurface.Style.Paper);
             var growthRect = (RectTransform)growth.transform;
             growthRect.anchorMin = growthRect.anchorMax = Vector2.zero;
             growthRect.pivot = new Vector2(0, 1);
@@ -186,8 +206,17 @@ namespace CapstoneDesign.Runtime
                 stage.alignment = TextAlignmentOptions.Midline;
             }
             if (progressDots != null)
-                foreach (var dot in progressDots)
-                    if (dot != null) CenterInGrowthSurface(dot.rectTransform, growthRect);
+                for(int i=0;i<progressDots.Length;i++)
+                {
+                    var dot=progressDots[i];
+                    if(dot==null)continue;
+                    CenterInGrowthSurface(dot.rectTransform,growthRect);
+                    dot.rectTransform.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,34);
+                    var symbol=i==0?PrototypeUiIcon.Symbol.Seed:i==1?PrototypeUiIcon.Symbol.Leaf:
+                        i==2?PrototypeUiIcon.Symbol.Pot:PrototypeUiIcon.Symbol.Flower;
+                    var icon=GardenUi.Icon(dot.transform,symbol,.5f,.5f,0,0);
+                    icon.rectTransform.sizeDelta=new Vector2(30,30);
+                }
             backgroundPreview.lowerBoundary = growthRect;
             EnsureViewControls(home);
             // A true background is behind the UI. These opaque surfaces block
@@ -204,9 +233,15 @@ namespace CapstoneDesign.Runtime
             if (guide != null)
             {
                 var guideRect=guide.rectTransform;
-                guideRect.anchoredPosition=new Vector2(guideRect.anchoredPosition.x,-92);
+                guideRect.anchoredPosition=new Vector2(88,-92);
                 guideRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical,42);
+                guideRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal,584);
             }
+            var nutrient=GardenUi.Icon(home,PrototypeUiIcon.Symbol.Nutrient,0,1,0,0);
+            nutrient.name="Nutrient illustration";
+            nutrient.rectTransform.pivot=new Vector2(0,1);
+            nutrient.rectTransform.anchoredPosition=new Vector2(48,-96);
+            nutrient.rectTransform.sizeDelta=new Vector2(32,32);
             viewControlsToggle = GardenUi.Button(home, "보기 +", 0, 0, 0, 0,
                 () => SetViewControlsExpanded(!ViewControlsExpanded));
             var toggleRect = (RectTransform)viewControlsToggle.transform;
@@ -319,6 +354,7 @@ namespace CapstoneDesign.Runtime
             var icon=button.GetComponentInChildren<PrototypeUiIcon>();
             if(icon!=null)icon.color=selected?GardenUi.Green:GardenUi.Muted;
             CenterTabContents(button,label,icon);
+            GardenThemeSurface.Apply(button.gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper);
         }
 
         static void CenterTabContents(Button button,TMP_Text label,PrototypeUiIcon icon)
@@ -373,7 +409,14 @@ namespace CapstoneDesign.Runtime
             if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
-                    if (progressDots[i] != null) progressDots[i].color = i <= visualStage ? Green : Pale;
+                    if (progressDots[i] != null)
+                    {
+                        progressDots[i].color = i <= visualStage ? Green : Pale;
+                        GardenThemeSurface.Apply(progressDots[i].gameObject,i<=visualStage?
+                            GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper);
+                        var icon=progressDots[i].GetComponentInChildren<PrototypeUiIcon>();
+                        if(icon!=null)icon.color=i<=visualStage?Color.white:new Color(1,1,1,.40f);
+                    }
             var active = saved.Sessions.LastOrDefault(s => s.Status == ParticipationState.Selected || s.Status == ParticipationState.InProgress || s.Status == ParticipationState.Paused);
             var completed = saved.Sessions.LastOrDefault(s => s.InstanceId == saved.LastCycleId && s.Status == ParticipationState.RewardCommitted);
             if (dailyStatus != null) dailyStatus.text = active != null ? "이어서 하기"

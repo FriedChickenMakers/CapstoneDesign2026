@@ -34,7 +34,10 @@ text selects the actual face with normal styling instead of synthesizing bold.
 The existing size scale is unchanged. LINE Seed is limited to short garden
 display text; long instructions and settings remain Wanted Sans.
 
-The button-edge vines and leaves are original geometry in
-`GardenButtonBotanicals.cs`. They use no downloaded image asset or extra texture.
-Only wide primary buttons receive them; the label area, layout and hit target
-remain unchanged.
+The paper, timber, botanical button edges and colored UI illustrations are
+original geometry in `GardenThemeSurface.cs`, `PrototypeUiIcon.cs` and
+`PrototypeMoodFace.cs`. `GardenButtonBotanicals.cs` preserves the existing call
+interface and delegates to the shared theme. They use no downloaded image asset
+or extra texture. Compact actions receive smaller corner accents; decorations
+do not participate in layout or hit testing. See the
+[theme inventory and validation](GARDEN_THEME_2026-10-29.md).
