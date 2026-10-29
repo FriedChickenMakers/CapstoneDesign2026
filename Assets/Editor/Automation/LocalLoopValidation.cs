@@ -19,7 +19,7 @@ namespace CapstoneDesign.EditorTools
         [Serializable] public sealed class CaseResult { public string name, status, detail; }
         [Serializable] public sealed class Report
         {
-            public string environment = "Unity Editor edit-mode / synthetic fixtures / no device";
+            public string environment = "Unity Editor edit-mode / legacy MBCT and current shell regression / synthetic fixtures / no device";
             public string utc, unityVersion;
             public int passed, failed;
             public List<CaseResult> cases = new List<CaseResult>();
@@ -143,7 +143,7 @@ namespace CapstoneDesign.EditorTools
                 service = new GardenStateService(store, clock, balance, new LegacySnapshot { Nutrient = 50 });
                 loop.Balance = balance; loop.Initialize(service, true);
                 Assert(service.SelectMbctProgram("8w"), service.LastError);
-                loop.ShowHome();
+                ShowLegacy(loop, "Home");
                 home.RefreshFromState();
                 Assert(home.ProceduralPlant != null && home.RenderedRecipe.GrowthStep == 0
                     && home.guide.text.Contains("영양제 50개"), "Fresh saved state did not show a generated seed and nutrient.");
@@ -202,8 +202,10 @@ namespace CapstoneDesign.EditorTools
                 home.SendMessage("Awake", SendMessageOptions.RequireReceiver);
                 nav.ShowIsland();
                 home.activityTab.onClick.Invoke();
-                Assert(nav.activitiesPanel.activeSelf && !home.IsGardenVisible && home.activityTab.gameObject.activeInHierarchy, "Activity entry did not preserve the shared navigation.");
-                nav.ShowIsland(); home.settingsTab.onClick.Invoke();
+                var missionNavigation = loop.GetComponentsInChildren<MissionBottomNavigation>().Single();
+                Assert(nav.activitiesPanel.activeSelf && !home.IsGardenVisible && missionNavigation.MissionButton.gameObject.activeInHierarchy
+                    && missionNavigation.ActiveTab == "미션", "Activity entry did not preserve the shared navigation.");
+                nav.ShowIsland(); home.TemporarySettingsButton.onClick.Invoke();
                 Assert(nav.settingsPanel.activeSelf && !home.gardenVisuals.activeSelf, "Settings entry left the garden camera active.");
                 VerifySharedHeader(nav, loop);
                 VerifyCollapsedDiagnostics(nav, loop);
@@ -314,32 +316,48 @@ namespace CapstoneDesign.EditorTools
                 "Integrated Home enabled the hidden legacy renderer.");
             var header = nav.home.homeCanvas.transform.Find("SafePortraitFrame/MainContent/Brand").GetComponent<TMPro.TMP_Text>();
             var font = header.font;
-            Canvas.ForceUpdateCanvases();
-            var corners = new Vector3[4];
-            header.rectTransform.GetWorldCorners(corners);
             var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
             sensor.PrepareView();
+            // Focus pages own their header/navigation; settings retains the fixed
+            // home-canvas brand. Both shells must stay fixed above their scroll body.
             foreach (bool settings in new[] { false, true })
             {
-                if (settings) nav.ShowSettings(); else { nav.ShowActivities(); loop.ShowHome(); }
+                if (settings) nav.ShowSettings(); else nav.ShowActivities();
                 Assert(!nav.home.oldCamera.enabled && !nav.home.oldLight.enabled,
                     "An integrated tab enabled the hidden legacy renderer.");
                 var scroll = settings ? sensor.PrimaryScroll : loop.GetComponentInChildren<ScrollRect>();
+                Assert(scroll != null, "Current tab did not provide its scroll body.");
+                var navigation = settings ? nav.home.NavigationBar : loop.GetComponentsInChildren<MissionBottomNavigation>().Single();
+                Assert(navigation != null && navigation.gameObject.activeInHierarchy,
+                    "Current tab lost its shared three-destination navigation.");
+                var rect = (RectTransform)navigation.transform;
+                Canvas.ForceUpdateCanvases();
+                var corners = new Vector3[4]; rect.GetWorldCorners(corners);
+                var headerCorners = new Vector3[4]; header.rectTransform.GetWorldCorners(headerCorners);
                 foreach (float position in new[] { 1f, 0f })
                 {
                     scroll.verticalNormalizedPosition = position;
                     Canvas.ForceUpdateCanvases();
-                    var actual = new Vector3[4];
-                    header.rectTransform.GetWorldCorners(actual);
-                    Assert(header.isActiveAndEnabled && header.font == font && actual.SequenceEqual(corners),
-                        "Brand typography or position changed across tabs/scroll.");
+                    var actual = new Vector3[4]; rect.GetWorldCorners(actual);
+                    Assert(actual.SequenceEqual(corners), "Bottom navigation moved with scrolling content.");
+                    Assert(new[] { navigation.HomeButton, navigation.MissionButton, navigation.CourseButton }
+                        .All(button => button != null && button.IsActive() && button.interactable),
+                        "A shared destination became unavailable while scrolling.");
+                    if (settings)
+                    {
+                        var actualHeader = new Vector3[4]; header.rectTransform.GetWorldCorners(actualHeader);
+                        Assert(header.isActiveAndEnabled && header.font == font && actualHeader.SequenceEqual(headerCorners),
+                            "Settings brand typography or position changed while scrolling.");
+                    }
+                    else Assert(!nav.home.homeCanvas.gameObject.activeInHierarchy,
+                        "Inactive home chrome overlays the Focus page's own header/navigation.");
                     Assert(!nav.GetComponentsInChildren<Text>().Any(text => text.text == "마음 정원"),
-                        "A legacy duplicate brand is still visible behind the shared header.");
+                        "A legacy duplicate brand is still visible behind the current header.");
                 }
             }
             var cover = header.transform.parent.Find("Shared header background").GetComponent<Image>();
-            Assert(cover.color.a == 1 && cover.raycastTarget,
-                "Scrolled controls can show through or receive taps behind the fixed brand.");
+            Assert(cover.gameObject.activeInHierarchy && cover.color.a == 1 && cover.raycastTarget,
+                "Settings controls can show through or receive taps behind the fixed brand.");
         }
 
         static void Catalog()
@@ -367,7 +385,7 @@ namespace CapstoneDesign.EditorTools
             foreach (string program in new[] { "2w", "4w", "8w" })
             using (var f = new Fixture(chooseDefaultProgram: false))
             {
-                f.Ui.ShowHome();
+                ShowLegacy(f.Ui, "Home");
                 Assert(f.Ui.CurrentScreen == "programs" && !f.Service.Snapshot.MbctProgramChosen,
                     "A fresh account must choose its course duration.");
                 int weeks = MbctPolicy.ProgramWeeks(program);
@@ -382,7 +400,7 @@ namespace CapstoneDesign.EditorTools
                 Click(f.Ui, "이 기간으로 시작");
                 Assert(f.Service.Snapshot.MbctProgramChosen && MbctPolicy.ActiveProgram(f.Service.Snapshot) == program
                     && f.Ui.CurrentScreen == "home", "Retry did not open the selected course.");
-                f.Ui.ShowCourse();
+                ShowLegacy(f.Ui, "Course");
                 Assert(Button(f.Ui, "1일차  ").interactable && !Button(f.Ui, "2일차  ").interactable,
                     "Selecting a duration bypassed ordered course progress.");
             }
@@ -399,7 +417,7 @@ namespace CapstoneDesign.EditorTools
                 for(int index=0;index<2;index++)
                 {
                     if(index>0){f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);Assert(f.Ui.RefreshCycle(),"Could not advance the synthetic course day.");}
-                    f.Ui.ShowCourse();Click(f.Ui,(index+1)+"일차  ");Click(f.Ui,"시작");
+                    ShowLegacy(f.Ui, "Course");Click(f.Ui,(index+1)+"일차  ");Click(f.Ui,"시작");
                     string session=f.Service.Snapshot.Sessions.Last().SessionId;
                     if(index==0)remembered=session;
                     for(int step=0;step<course[index].steps.Length;step++)f.Ui.AdvancePractice(false);
@@ -408,7 +426,7 @@ namespace CapstoneDesign.EditorTools
                     Assert(f.Ui.CurrentScreen=="complete" && f.Service.Snapshot.Nutrient==(index+1)*5,
                         program+" completion did not commit the ordinary five nutrient reward.");
                 }
-                f.Ui.ShowHome();f.Ui.ShowShop();f.Ui.PreviewGrowth();
+                ShowLegacy(f.Ui, "Home");f.Ui.ShowShop();f.Ui.PreviewGrowth();
                 string before=StateCodec.Encode(f.Service.Snapshot);
                 Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
                 Assert(f.Ui.CurrentScreen=="growth" && StateCodec.Encode(f.Service.Snapshot)==before,
@@ -434,7 +452,7 @@ namespace CapstoneDesign.EditorTools
                     && state.PurchaseReceipts.Count==1 && MbctPolicy.NextOrder(state)==3,
                     "Retry did not atomically commit one growth purchase linked to the chosen original activity.");
                 string committed=StateCodec.Encode(state);
-                f.Ui.ShowRecords();Click(f.Ui,"식물 성장 기록");Click(f.Ui,"씨앗 → 새싹");
+                ShowLegacy(f.Ui, "Records");Click(f.Ui,"식물 성장 기록");Click(f.Ui,"씨앗 → 새싹");
                 Assert(f.Ui.CurrentScreen=="growth-record","Growth list did not open its detail.");
                 Click(f.Ui,"그때의 활동과 감정 보기");
                 string recordText=string.Join("\n",f.Ui.GetComponentsInChildren<Text>(true).Select(text=>text.text));
@@ -452,7 +470,7 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(30))
             {
-                f.Ui.ShowRecords();Click(f.Ui,"식물 성장 기록");
+                ShowLegacy(f.Ui, "Records");Click(f.Ui,"식물 성장 기록");
                 Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("다음에 식물을 키우면")),
                     "Empty growth history did not explain how it is created.");
                 f.Ui.ShowShop();f.Ui.PreviewGrowth();Click(f.Ui,"함께 기억할 활동");
@@ -476,7 +494,7 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(0,5))
             {
-                f.Ui.ShowRecords();Click(f.Ui,"이번 주와 지금까지");
+                ShowLegacy(f.Ui, "Records");Click(f.Ui,"이번 주와 지금까지");
                 Assert(f.Ui.GetComponentsInChildren<Text>(true).Count(text=>text.text=="활동 완료 0회 · 참여 종료 0회")==2,
                     "Empty summaries did not show explicit zero participation.");
                 Assert(f.Service.BeginSession("summary-older",MbctPolicy.MissionId(1),1)
@@ -491,7 +509,7 @@ namespace CapstoneDesign.EditorTools
                     && f.Service.SaveExperience("summary-current-b","불편함",null,null,null,null)
                     && f.Service.SaveExperience("summary-current-c","중립",null,null,null,null)
                     && f.Service.BeginSession("summary-unfinished",MbctPolicy.MissionId(1),1),f.Service.LastError);
-                f.Ui.ShowRecords();string before=StateCodec.Encode(f.Service.Snapshot);Click(f.Ui,"이번 주와 지금까지");
+                ShowLegacy(f.Ui, "Records");string before=StateCodec.Encode(f.Service.Snapshot);Click(f.Ui,"이번 주와 지금까지");
                 var labels=f.Ui.GetComponentsInChildren<Text>(true).Select(text=>text.text).ToArray();
                 Assert(labels.Contains("활동 완료 1회 · 참여 종료 1회") && labels.Contains("활동 완료 2회 · 참여 종료 1회")
                     && labels.Contains("경험 기록 3개") && labels.Contains("경험 기록 4개")
@@ -506,7 +524,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture())
             {
-                f.Ui.ShowCourse();
+                ShowLegacy(f.Ui, "Course");
                 Assert(Button(f.Ui, "1일차  ").interactable && !Button(f.Ui, "2일차  ").interactable, "Future course order unexpectedly selectable.");
                 f.Ui.SelectMission(MindfulnessContent.Course[0]);
                 Click(f.Ui, "시작"); f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(2);
@@ -586,9 +604,9 @@ namespace CapstoneDesign.EditorTools
             using (var f = new Fixture(50))
             {
                 Assert(!f.Ui.TryNavigateBack(), "Activity root should yield to tab history.");
-                f.Ui.ShowCourse();f.Ui.ShowCourse();f.Ui.ShowCourse();
+                ShowLegacy(f.Ui, "Course");ShowLegacy(f.Ui, "Course");ShowLegacy(f.Ui, "Course");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="home", "Page refreshes polluted Back history.");
-                f.Ui.ShowRecords();f.Ui.ShowExperienceHistory();f.Ui.ShowPersonalPlan();f.Ui.ShowPlanField("support");
+                ShowLegacy(f.Ui, "Records");f.Ui.ShowExperienceHistory();f.Ui.ShowPersonalPlan();f.Ui.ShowPlanField("support");
                 f.Ui.GetComponentInChildren<InputField>(true).text="synthetic unfinished plan";
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="personal-plan", "Plan editor did not return to its list.");
                 f.Ui.ShowPlanField("support");
@@ -600,7 +618,7 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.ShowRecord("synthetic-back-record");f.Ui.ShowPracticeAnswers("synthetic-back-record");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="record", "Answers Back lost its record parameter.");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="records", "Record Back did not restore list.");
-                f.Ui.ShowHome();f.Ui.ShowShop();
+                ShowLegacy(f.Ui, "Home");f.Ui.ShowShop();
                 string before=StateCodec.Encode(f.Service.Snapshot);
                 f.Ui.PreviewEnvironment("environment:E01");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="shop" && StateCodec.Encode(f.Service.Snapshot)==before,
@@ -615,7 +633,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture())
             {
-                f.Ui.ShowCourse();f.Ui.SelectMission(MbctContent.Course[0]);Click(f.Ui,"시작");
+                ShowLegacy(f.Ui, "Course");f.Ui.SelectMission(MbctContent.Course[0]);Click(f.Ui,"시작");
                 var input=f.Ui.GetComponentInChildren<InputField>(true);input.text="synthetic practice draft";
                 f.Store.FailNextSaves=1;
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="session" && input.text=="synthetic practice draft",
@@ -633,7 +651,7 @@ namespace CapstoneDesign.EditorTools
                     "Reflection Back looped into reflection instead of the last practice step.");
                 f.Ui.AdvancePractice(false);f.Ui.Finish(null,null);
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="home", "Completion Back resurrected a completed session.");
-                f.Ui.ShowRecords();f.Ui.ShowExperienceTypes();Click(f.Ui,"즐거움");
+                ShowLegacy(f.Ui, "Records");f.Ui.ShowExperienceTypes();Click(f.Ui,"즐거움");
                 f.Ui.GetComponentInChildren<InputField>(true).text="synthetic experience draft";Click(f.Ui,"다음");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.GetComponentInChildren<InputField>(true).text=="synthetic experience draft",
                     "Experience step Back lost the previous answer.");
@@ -763,7 +781,7 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.ShowReflection();Click(f.Ui,"기뻐요");
                 f.Ui.GetComponentInChildren<InputField>(true).text="합성 걷기 회고 초안";
                 Assert(f.Ui.LeaveActivityPanel(),"Could not leave reflection panel.");
-                f.Ui.ShowHome(); // The reflection field is now gone; the session draft must survive.
+                ShowLegacy(f.Ui, "Home"); // The reflection field is now gone; the session draft must survive.
                 Assert(f.Service.ObserveMissionSteps(id,5000,WalkingPersonalization.AggregateSource),f.Service.LastError);
                 const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
                 var complete=typeof(WeekOneQuestDemo).GetMethod("CompleteWalkingGoal",hidden);
@@ -793,7 +811,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture())
             {
-                f.Ui.ShowFree(); Click(f.Ui, "걸음 기록과 걷기"); Click(f.Ui, "시작");
+                ShowLegacy(f.Ui, "Free"); Click(f.Ui, "걸음 기록과 걷기"); Click(f.Ui, "시작");
                 Assert(f.Ui.ToggleDebugWalk(), "Could not enable demo walking mode.");
                 for (int i = 0; i < 10; i++) Assert(f.Ui.AddVirtualDebugStep(), "Virtual step was not saved.");
                 var walking = f.Service.Snapshot;
@@ -818,7 +836,7 @@ namespace CapstoneDesign.EditorTools
             using (var f = new Fixture())
             {
                 f.Ui.SelectMission(MindfulnessContent.Course[0]); Click(f.Ui, "시작"); Click(f.Ui, "잠시 쉬기");
-                f.Ui.ShowHome(); f.Ui.SelectMission(MindfulnessContent.FreeMissions[0]);
+                ShowLegacy(f.Ui, "Home"); f.Ui.SelectMission(MindfulnessContent.FreeMissions[0]);
                 Assert(f.Service.Snapshot.Sessions.Count == 1 && f.Service.Snapshot.Sessions[0].Status == ParticipationState.Paused, "Navigation cloned or lost active session.");
                 Click(f.Ui, "이어서 하기"); Click(f.Ui, "잠시 쉬기"); Click(f.Ui, "오늘은 여기까지");
                 Assert(f.Service.Snapshot.Sessions[0].Status == ParticipationState.Ended && f.Service.Snapshot.Nutrient == 0 && f.Service.Snapshot.NextCourseOrder == 1, "Participation stop rewarded or advanced course.");
@@ -998,7 +1016,7 @@ namespace CapstoneDesign.EditorTools
                 query.Tick("LIVE",result,6,accepted);apply.Invoke(f.Ui,null);
                 Assert(!query.IsPending && query.Result==null && secondChart==chartField.GetValue(f.Ui),
                     "Leaving the activity tab accepted a late result.");
-                query.Start("LIVE",start,end,before,7,accepted);f.Ui.ShowRecords();
+                query.Start("LIVE",start,end,before,7,accepted);ShowLegacy(f.Ui, "Records");
                 query.Tick("LIVE",result,8,accepted);apply.Invoke(f.Ui,null);
                 Assert(f.Ui.CurrentScreen=="records" && query.Result==null,"Leaving the detail page reopened it after query completion.");
             }
@@ -1121,11 +1139,11 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(0,5))
             {
-                f.Ui.ShowCourse();Click(f.Ui,"1일차  ");Click(f.Ui,"시작");Click(f.Ui,"물");
+                ShowLegacy(f.Ui, "Course");Click(f.Ui,"1일차  ");Click(f.Ui,"시작");Click(f.Ui,"물");
                 Click(f.Ui,"다음");Click(f.Ui,"다음");Click(f.Ui,"다음");Click(f.Ui,"실습 마치기");
                 Click(f.Ui,"기록 건너뛰고 완료");
                 Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.MbctNextOrder==2,"Guided completion did not reward five/advance.");
-                f.Ui.ShowCourse();Assert(!Button(f.Ui,"2일차  ").interactable,"Daily quota bypass through course UI.");
+                ShowLegacy(f.Ui, "Course");Assert(!Button(f.Ui,"2일차  ").interactable,"Daily quota bypass through course UI.");
                 Click(f.Ui,"1일차  ");Click(f.Ui,"시작");
                 Assert(f.Ui.GetComponentInChildren<InputField>(true).text=="물","Eating choice did not persist for reuse.");
                 f.Ui.AdvancePractice(false);f.Ui.AdvancePractice(false);f.Ui.AdvancePractice(false);f.Ui.AdvancePractice(false);
@@ -1187,7 +1205,7 @@ namespace CapstoneDesign.EditorTools
                     f.Service.StartSession("preference-learned") && f.Service.CompleteSession("preference-learned"),
                     "Could not seed a learned activity for recommendation preferences.");
                 var before = f.Service.Snapshot;
-                f.Ui.ShowFree();
+                ShowLegacy(f.Ui, "Free");
                 Click(f.Ui, "추가 활동 추천 설정");
                 Assert(f.Ui.CurrentScreen == "recommendation-preferences", "Free activities did not open recommendation preferences.");
                 var preferences = new[] { "몸 살펴보기", "호흡 관찰", "일상 행동", "잠시 멈추기" };
@@ -1213,13 +1231,13 @@ namespace CapstoneDesign.EditorTools
                         "Available duration did not save or retained stale selection feedback.");
                 }
                 Click(f.Ui, "배운 활동으로");
-                Assert(f.Ui.CurrentScreen == "free", "Preferences did not return to learned activities.");
+                Assert(f.Ui.CurrentScreen == "learned-recommendations", "Preferences did not return to the learned recommendation hub.");
                 Click(f.Ui, "추가 활동 추천 설정");
                 Assert(Button(f.Ui, "잠시 멈추기").GetComponentsInChildren<Text>(true).Any(label => label.text == "선택함") &&
                     Button(f.Ui, "5분 정도").GetComponentsInChildren<Text>(true).Any(label => label.text == "선택함"),
                     "Reopening recommendation preferences lost the selected values.");
-                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen == "free", "Back did not return from preferences to free activities.");
-                f.Ui.ShowCourse();
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen == "learned-recommendations", "Back did not return from preferences to the learned recommendation hub.");
+                ShowLegacy(f.Ui, "Course");
                 var after = f.Service.Snapshot;
                 Assert(MbctPolicy.ActiveProgram(after) == program && MbctPolicy.NextOrder(after) == 2,
                     "Editing optional recommendations changed the sequential course.");
@@ -1287,18 +1305,18 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.SelectMission(mission);Click(f.Ui,"시작");f.Ui.Finish(null,null);
                 var first=f.Service.Snapshot.Sessions.Last();
                 f.Clock.UtcNow=f.Clock.UtcNow.AddMinutes(5);
-                f.Ui.SelectMission(mission);f.Ui.ShowHome();
+                f.Ui.SelectMission(mission);ShowLegacy(f.Ui, "Home");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text==mission.title) &&
                     f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="선택한 활동"),"Selected review card shows the next recommended mission.");
-                Click(f.Ui,"선택한 활동 안내");Click(f.Ui,"시작");f.Ui.ShowHome();
+                Click(f.Ui,"선택한 활동 안내");Click(f.Ui,"시작");ShowLegacy(f.Ui, "Home");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="진행 중인 활동"),"Active card lost its participation state.");
                 var review=f.Service.Snapshot.Sessions.Last();
-                Assert(f.Service.PauseSession(review.SessionId),f.Service.LastError);f.Ui.ShowHome();
+                Assert(f.Service.PauseSession(review.SessionId),f.Service.LastError);ShowLegacy(f.Ui, "Home");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text==mission.title) &&
                     f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="잠시 쉬는 활동"),"Paused review card lost its mission or state.");
                 Click(f.Ui,"진행하던 활동으로");Click(f.Ui,"이어서 하기");f.Ui.Finish(null,null);
                 Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.Sessions.Count==2,"Presenting or completing a review changed the reward or cloned a session.");
-                string before=StateCodec.Encode(f.Service.Snapshot);f.Ui.ShowRecords();
+                string before=StateCodec.Encode(f.Service.Snapshot);ShowLegacy(f.Ui, "Records");
                 var labels=f.Ui.GetComponentsInChildren<Text>().Select(t=>t.text).ToArray();
                 string firstDate=DateTimeOffset.Parse(first.EndedUtc).ToLocalTime().ToString("MM/dd HH:mm");
                 string secondDate=f.Clock.UtcNow.ToLocalTime().ToString("MM/dd HH:mm");
@@ -1311,9 +1329,9 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(0,5))
             {
-                SeedFullMbct(f,6);f.Ui.ShowCourse();
+                SeedFullMbct(f,6);ShowLegacy(f.Ui, "Course");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="2주 · "+MbctContent.WeekTitles[1]),"First course visit did not open the recommended week.");
-                Click(f.Ui,"이전 주");f.Ui.ShowHome();f.Ui.ShowCourse();
+                Click(f.Ui,"이전 주");ShowLegacy(f.Ui, "Home");ShowLegacy(f.Ui, "Course");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="1주 · "+MbctContent.WeekTitles[0]),"Returning to the course discarded manual browsing.");
                 Click(f.Ui,"다음 주");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="2주 · "+MbctContent.WeekTitles[1]),"Course paging no longer advances after automatic first selection.");
@@ -1332,9 +1350,9 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(0,5))
             {
-                SeedFullMbct(f);long reads=f.Service.SnapshotReads;f.Ui.ShowFree();
+                SeedFullMbct(f);long reads=f.Service.SnapshotReads;ShowLegacy(f.Ui, "Free");
                 Assert(f.Service.SnapshotReads-reads==1,"Free rendering cloned state inside catalog predicate");
-                reads=f.Service.SnapshotReads;f.Ui.ShowCourse();
+                reads=f.Service.SnapshotReads;ShowLegacy(f.Ui, "Course");
                 Assert(f.Service.SnapshotReads-reads==1,"Course rendering cloned state for each row");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="8주 · "+MbctContent.WeekTitles[7]),"Completed course did not clamp its initial page to the final week.");
                 var gardenBefore=GameObject.Find("Saved garden additions");f.Ui.UpdateGarden();f.Ui.UpdateGarden();
@@ -1440,7 +1458,7 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(0,5))
             {
-                SeedFullMbct(f);f.Ui.ShowHome();AssertSeparateControls(f.Ui);f.Ui.ShowCourse();AssertSeparateControls(f.Ui);f.Ui.ShowFree();AssertSeparateControls(f.Ui);
+                SeedFullMbct(f);ShowLegacy(f.Ui, "Home");AssertSeparateControls(f.Ui);ShowLegacy(f.Ui, "Course");AssertSeparateControls(f.Ui);ShowLegacy(f.Ui, "Free");AssertSeparateControls(f.Ui);
                 foreach(var mission in MbctContent.Course)
                 {
                     f.Ui.SelectMission(mission);AssertSeparateControls(f.Ui);Click(f.Ui,"시작");
@@ -1459,6 +1477,19 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.ShowPlanField("warning-sign");AssertSeparateControls(f.Ui);
                 f.Ui.ShowRecord(f.Service.Snapshot.Sessions.First().SessionId);AssertSeparateControls(f.Ui);
             }
+        }
+
+        // These regressions intentionally exercise saved MBCT/journal compatibility.
+        // Public ShowHome/Course/Free/Records now open Focus; its complete flows are
+        // independently covered by FocusMissionValidation and AllCourseValidation.
+        internal static void ShowLegacy(WeekOneQuestDemo ui, string page)
+        {
+            var method = typeof(WeekOneQuestDemo).GetMethod("ShowLegacy" + page,
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert(method != null, "Missing legacy compatibility entry: " + page);
+            try { method.Invoke(ui, null); }
+            catch (System.Reflection.TargetInvocationException error) when (error.InnerException != null)
+            { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw(); throw; }
         }
 
         static Button Button(WeekOneQuestDemo ui, string prefix)
@@ -1510,7 +1541,7 @@ namespace CapstoneDesign.EditorTools
                     if (chooseDefaultProgram)
                     {
                         Assert(Service.SelectMbctProgram("8w"), Service.LastError);
-                        Ui.ShowHome();
+                        ShowLegacy(Ui, "Home");
                     }
                     Assert(ReferenceEquals(Ui.Service, Service), "Fixture did not use injected memory service.");
                 }

@@ -146,18 +146,22 @@ namespace CapstoneDesign.Runtime
             ClearIntegratedPurchasePreview();
             var background=GetComponent<Image>();if(background!=null)background.color=GardenUi.Background;
             ClearPageView();
-            var content=GardenUi.ScrollPage(transform,"Local garden flow",.105f,1,
+            var content=GardenUi.ScrollPage(transform,"Local garden flow",GardenUi.HasSharedHeader(transform)?.105f:0,1,
                 screen=="course"?1840:screen=="home"?1200:1600);
             pageViewport=content.parent.gameObject;view=content.gameObject;
             view.AddComponent<Image>().color=GardenUi.Background;
+            GardenThemeSurface.Apply(view,GardenThemeSurface.Style.Backdrop);
             if(!GardenUi.HasSharedHeader(transform))
             {
                 var brand=GardenUi.Label(content,"마음 정원",48f/720f,.962f,624f/720f,.03f,30);
                 GardenTypography.SetWeight(brand,true);brand.color=GardenUi.Green;PlacePageHeader(brand,24,54);
             }
+            var titleBoard=GardenUi.Box(content,"Page title board",32f/720f,0,656f/720f,0);
+            GardenThemeSurface.Apply(titleBoard,GardenThemeSurface.Style.Header);
             var heading=GardenUi.Label(content,title,48f/720f,.87f,624f/720f,.09f,GardenUi.TitleSize);GardenTypography.SetWeight(heading,true);
             bool longTitle=heading.preferredWidth>624;
             PlacePageHeader(heading,118,longTitle?138:78);
+            GardenUi.FromTop(titleBoard.transform,108,longTitle?158:98);
             if(longTitle)((RectTransform)content).sizeDelta+=new Vector2(0,240);
             var s=opened ? state??Service.Snapshot : null;
             stateSummary=GardenUi.Label(content,(mode=="LIVE"?"":"["+mode+"]  ")+ (s==null ? "저장 상태를 확인해 주세요" : CourseProgressLabel(s)),48f/720f,.81f,624f/720f,.05f,GardenUi.BodySize);
@@ -166,8 +170,8 @@ namespace CapstoneDesign.Runtime
             if(screen!="placement" && screen!="growth")
             {
                 var progress=GardenUi.Box(content,"Course progress",48f/720f,0,624f/720f,0);
-                GardenUi.FromTop(progress.transform,longTitle?342:282,4);
-                GardenUi.Progress(progress.transform,s==null?0:MbctPolicy.CompletedCount(s)/(float)MbctPolicy.PracticeCount(MbctPolicy.ActiveProgram(s)),0,0,1,1);
+                GardenUi.FromTop(progress.transform,longTitle?342:282,12);
+                GardenUi.Progress(progress.transform,s==null?0:DisplayedCourseProgress(s)/(float)DisplayedCourseTotal(s),0,0,1,1);
             }
             notice=GardenUi.Label(content,string.IsNullOrEmpty(error)?"":"저장하지 못했어요. 잠시 후 다시 시도해 주세요.",48f/720f,.01f,624f/720f,.05f,GardenUi.CaptionSize);
             if(screen=="home")GardenUi.FromTop(notice.transform,1100,80);
@@ -182,19 +186,21 @@ namespace CapstoneDesign.Runtime
         }
         void ShowLegacyHome()
         {
-            using var timing = UiPerformanceProbe.Measure("Activities.ShowHome");
+            using var timing = UiPerformanceProbe.Measure("Activities.ShowLegacyHome");
             if(opened && !SaveActivePracticeDraft())return;ClearPracticeDraft();
             RequestWalkingBaselineRefresh();
-            EnterPage("home",ShowHome);var s=opened?Service.Snapshot:null;var p=Page("오늘의 활동",s);
+            EnterPage("home",ShowLegacyHome);var s=opened?Service.Snapshot:null;var p=Page("오늘의 활동",s);
             if(!opened) { GardenUi.Label(p,"저장본을 보존했습니다. 새 계정으로 초기화하지 않습니다.\n앱을 닫고 저장 공간과 복구 안내를 확인해 주세요.",48f/720f,.48f,624f/720f,.25f); return; }
             var active=s.Sessions.LastOrDefault(a=>a.Status==ParticipationState.Selected || a.Status==ParticipationState.InProgress || a.Status==ParticipationState.Paused);
             sessionId=active?.SessionId;
-            if(!s.MbctProgramChosen && active==null) { ShowProgramSelection();return; }
+            if(!s.MbctProgramChosen && active==null) { ShowLegacyProgramSelection();return; }
             string program=MbctPolicy.ActiveProgram(s);
             var mission=active!=null?MindfulnessContent.FindMission(active.MissionId):MbctContent.ForProgram(program).FirstOrDefault(m=>m.recommendedOrder==MbctPolicy.NextOrder(s));
             string context=active!=null?(active.Status==ParticipationState.Selected?"선택한 활동":active.Status==ParticipationState.Paused?"잠시 쉬는 활동":"진행 중인 활동"):
                 mission==null?"차곡차곡 쌓인 나의 실천":"이번 추천 · "+mission.week+"주차";
-            GardenUi.FromTop(GardenUi.Card(p,"Recommended activity",48f/720f,0,624f/720f,0,GardenUi.Pale).transform,314,184);
+            var recommendationCard=GardenUi.Card(p,"Recommended activity",48f/720f,0,624f/720f,0,GardenUi.Pale);
+            GardenThemeSurface.Apply(recommendationCard,GardenThemeSurface.Style.Selected);
+            GardenUi.FromTop(recommendationCard.transform,314,184);
             var week=GardenUi.Label(p,context,.10f,0,.80f,0,GardenUi.CaptionSize);
             week.color=GardenUi.Muted;GardenUi.FromTop(week.transform,338,40);
             var recommendation=GardenUi.Label(p,mission?.title ?? (active!=null?"진행하던 활동":MbctPolicy.ProgramWeeks(program)+"주 활동을 마쳤어요"),.10f,0,.80f,0,GardenUi.HeadingSize);
@@ -209,15 +215,15 @@ namespace CapstoneDesign.Runtime
             destinationsRect.pivot=new Vector2(.5f,1);
             GardenUi.FromTop(destinations,650,0);
             destinations.gameObject.AddComponent<ContentSizeFitter>().verticalFit=ContentSizeFitter.FitMode.PreferredSize;
-            ActivityListItem(destinations,MbctPolicy.ProgramWeeks(program)+"주 코스 둘러보기",null,ShowCourse,PrototypeUiIcon.Symbol.Journal);
-            ActivityListItem(destinations,"배운 활동 다시 하기",null,ShowFree,PrototypeUiIcon.Symbol.Leaf);
+            ActivityListItem(destinations,MbctPolicy.ProgramWeeks(program)+"주 코스 둘러보기",null,ShowLegacyCourse,PrototypeUiIcon.Symbol.Journal);
+            ActivityListItem(destinations,"배운 활동 다시 하기",null,ShowLegacyFree,PrototypeUiIcon.Symbol.Leaf);
             ActivityListItem(destinations,"정원 가꾸기",null,ShowShop,PrototypeUiIcon.Symbol.Leaf);
-            ActivityListItem(destinations,"참여 기록과 나의 계획",null,ShowRecords,PrototypeUiIcon.Symbol.Journal);
+            ActivityListItem(destinations,"참여 기록과 나의 계획",null,ShowGardenJournal,PrototypeUiIcon.Symbol.Journal);
             AddOptionalRecommendation(destinations,s);
         }
         void ShowLegacyCourse()
         {
-            using var timing = UiPerformanceProbe.Measure("Activities.ShowCourse");
+            using var timing = UiPerformanceProbe.Measure("Activities.ShowLegacyCourse");
             var timer=System.Diagnostics.Stopwatch.StartNew();long reads=Service.SnapshotReads;
             var state=Service.Snapshot;string availability=MbctPolicy.Availability(state);
             string program=MbctPolicy.ActiveProgram(state);int weeks=MbctPolicy.ProgramWeeks(program),nextOrder=MbctPolicy.NextOrder(state);
@@ -228,7 +234,7 @@ namespace CapstoneDesign.Runtime
                 coursePageInitialized=true;
             }
             coursePage=Mathf.Clamp(coursePage,0,weeks-1);
-            EnterPage("course",ShowCourse);var p=FocusPage(weeks+"주 마음챙김 활동",(coursePage+1)+"주 · "+MbctContent.TitlesForProgram(program)[coursePage]);
+            EnterPage("course",ShowLegacyCourse);var p=FocusPage(weeks+"주 마음챙김 활동",(coursePage+1)+"주 · "+MbctContent.TitlesForProgram(program)[coursePage]);
             GardenUi.FlowLabel(p,"새 활동은 순서대로 열려요. 완료한 활동은 다시 할 수 있어요.",GardenUi.BodySize,GardenUi.Muted);
             var activities=ActivityList(p,"Week activities");
             for(int i=0;i<6;i++)
@@ -241,19 +247,19 @@ namespace CapstoneDesign.Runtime
                 b.interactable=learned || (current && availability==null);
                 if(!b.interactable){foreach(var label in b.GetComponentsInChildren<Text>())label.color=GardenUi.Muted;foreach(var icon in b.GetComponentsInChildren<PrototypeUiIcon>())icon.color=GardenUi.Muted;}
             }
-            DockPair("이전 주",()=>{coursePage--;ShowCourse();},"다음 주",()=>{coursePage++;ShowCourse();});
+            DockPair("이전 주",()=>{coursePage--;ShowLegacyCourse();},"다음 주",()=>{coursePage++;ShowLegacyCourse();});
             var buttons=activityActions.GetComponentsInChildren<Button>();
             buttons.First(b=>b.name=="이전 주").interactable=coursePage>0;
             buttons.First(b=>b.name=="다음 주").interactable=coursePage<weeks-1;
-            DockAction("다른 기간 살펴보기",ShowProgramSelection);
-            DockAction("돌아가기",ShowHome);
+            DockAction("다른 기간 살펴보기",ShowLegacyProgramSelection);
+            DockAction("돌아가기",ShowLegacyHome);
             LastCourseBuildMs=timer.Elapsed.TotalMilliseconds;TraceScreen("course",LastCourseBuildMs,Service.SnapshotReads-reads);
         }
         void ShowLegacyFree()
         {
             using var timing = UiPerformanceProbe.Measure("Activities.ShowFree");
             var timer=System.Diagnostics.Stopwatch.StartNew();long reads=Service.SnapshotReads;
-            var state=Service.Snapshot;EnterPage("free",ShowFree);var p=FocusPage("배운 활동 다시 하기","내 속도로 복습");
+            var state=Service.Snapshot;EnterPage("free",ShowLegacyFree);var p=FocusPage("배운 활동 다시 하기","내 속도로 복습");
             var learnedIds=new System.Collections.Generic.HashSet<string>(MbctPolicy.AllCompletedIds(state));
             var learned=MbctContent.AllCourses.Where(m=>learnedIds.Contains(m.id)).ToArray();
             if(learned.Length==0)Guidance(p,"추천 활동을 해본 뒤 다시 연습할 수 있어요.");
@@ -264,7 +270,7 @@ namespace CapstoneDesign.Runtime
                 GardenTypography.SetWeight(GardenUi.FlowLabel(p,m.title,GardenUi.HeadingSize),true);
                 Guidance(p,m.purpose);
                 GardenUi.FlowLabel(p,"복습에는 추가 보상이 없어요.",GardenUi.CaptionSize,GardenUi.Muted);
-                var another=GardenUi.Button(p,"다른 활동",0,0,1,0,()=>{freeIndex=(freeIndex+1)%learned.Length;ShowFree();});
+                var another=GardenUi.Button(p,"다른 활동",0,0,1,0,()=>{freeIndex=(freeIndex+1)%learned.Length;ShowLegacyFree();});
                 another.gameObject.AddComponent<GardenFlowButton>();
                 DockAction("이 활동 안내",()=>SelectMission(m),true);
             }
@@ -272,10 +278,15 @@ namespace CapstoneDesign.Runtime
             walking.gameObject.AddComponent<LayoutElement>().preferredHeight=96;
             var preference=GardenUi.MenuButton(p,"추가 활동 추천 설정",null,0,0,1,0,ShowRecommendationPreferences,PrototypeUiIcon.Symbol.Gear);
             preference.gameObject.AddComponent<LayoutElement>().preferredHeight=96;
-            DockAction("돌아가기",ShowHome);
+            DockAction("돌아가기",ShowLearnedPracticeRecommendations);
             LastFreeBuildMs=timer.Elapsed.TotalMilliseconds;TraceScreen("free",LastFreeBuildMs,Service.SnapshotReads-reads);
         }
-        static string CourseProgressLabel(GardenState state) => "영양제 "+state.Nutrient+"  ·  "+MbctPolicy.ProgramWeeks(MbctPolicy.ActiveProgram(state))+"주 코스 "+MbctPolicy.CompletedCount(state)+" / "+MbctPolicy.PracticeCount(MbctPolicy.ActiveProgram(state));
+        bool UsesFocusCourseProgress => screen=="shop" || screen=="growth" || screen=="placement";
+        int DisplayedCourseProgress(GardenState state) => UsesFocusCourseProgress
+            ? FocusMissionPolicy.CompletedCount(state) : MbctPolicy.CompletedCount(state);
+        int DisplayedCourseTotal(GardenState state) => UsesFocusCourseProgress
+            ? FocusMissionPolicy.TotalPracticesFor(state.MbctProgramId) : MbctPolicy.PracticeCount(MbctPolicy.ActiveProgram(state));
+        string CourseProgressLabel(GardenState state) => "영양제 "+state.Nutrient+"  ·  "+MbctPolicy.ProgramWeeks(MbctPolicy.ActiveProgram(state))+"주 코스 "+DisplayedCourseProgress(state)+" / "+DisplayedCourseTotal(state);
         static void TraceScreen(string name,double milliseconds,long snapshots)
         {
             if(Debug.isDebugBuild)Debug.Log("MBCT_UI "+name+" buildMs="+milliseconds.ToString("F2",System.Globalization.CultureInfo.InvariantCulture)+" snapshots="+snapshots);
@@ -384,6 +395,7 @@ namespace CapstoneDesign.Runtime
         {
             EnterPage("complete",()=>ShowCompletion(rewarded));var p=FocusPage("활동을 마쳤어요","오늘의 작은 참여",true);
             Guidance(p,!rewarded?"복습을 기록했어요. 추가 보상은 없어요.":"활동을 기록하고 영양제 "+Balance.CompletionNutrient+"개를 받았어요.");
+            GardenUi.Emblem(p,rewarded?PrototypeUiIcon.Symbol.Flower:PrototypeUiIcon.Symbol.Check,92);
             GardenUi.FlowLabel(p,"오늘의 작은 참여가 정원에 남아요.");
             DockAction("정원으로",GoGarden,true);
             DockAction("영양제로 정원 가꾸기",ShowShop);
@@ -547,10 +559,12 @@ namespace CapstoneDesign.Runtime
                 :GardenUi.Box(view.transform,"Purchase garden viewport",.07f,.345f,.86f,.275f);
             if(screen=="growth" && viewport.GetComponent<LayoutElement>()==null)
                 viewport.AddComponent<LayoutElement>().preferredHeight=400;
+            GardenThemeSurface.Apply(viewport,GardenThemeSurface.Style.Paper);
             var existingImage=viewport.GetComponentInChildren<RawImage>();
             if(existingImage==null)
             {
-                var picture=GardenUi.Box(viewport.transform,"Garden preview",0,0,1,1);
+                var inset=GardenUi.Box(viewport.transform,"Garden preview inset",.02f,.03f,.96f,.94f);
+                var picture=GardenUi.Box(inset.transform,"Garden preview",0,0,1,1);
                 existingImage=picture.AddComponent<RawImage>();existingImage.raycastTarget=false;
                 var fit=picture.AddComponent<AspectRatioFitter>();fit.aspectMode=AspectRatioFitter.AspectMode.FitInParent;fit.aspectRatio=1.6f;
             }
@@ -589,12 +603,20 @@ namespace CapstoneDesign.Runtime
                 var background=GetComponent<Image>();if(background!=null)background.color=Color.clear;
             }
             var tint=GardenUi.Background;tint.a=.30f;view.GetComponent<Image>().color=tint;
+            var backdrop=view.transform.Find("Garden theme surface")?.GetComponent<GardenThemeSurface>();
+            if(backdrop!=null)backdrop.color=new Color(1,1,1,.30f);
             GardenUi.Card(view.transform,"Preview heading",.03f,.63f,.94f,.35f,GardenUi.Background).transform.SetAsFirstSibling();
             GardenUi.Card(view.transform,"Preview actions",.03f,.01f,.94f,.33f,GardenUi.Background).transform.SetAsFirstSibling();
+            if(backdrop!=null)backdrop.transform.SetAsFirstSibling();
+        }
+        public void ShowGardenJournal()
+        {
+            if(!opened || !SaveActivePracticeDraft())return;
+            ShowLegacyRecords();
         }
         void ShowLegacyRecords()
         {
-            EnterPage("records",ShowRecords);var p=FocusPage("참여 기록","나의 활동");var s=Service.Snapshot;
+            EnterPage("records",ShowGardenJournal);var p=FocusPage("참여 기록","나의 활동");var s=Service.Snapshot;
             var all=s.Sessions.Where(x=>x.Status==ParticipationState.RewardCommitted || x.Status==ParticipationState.Ended).Reverse().ToArray();
             int pages=Math.Max(1,(all.Length+2)/3);recordsPage=Math.Min(recordsPage,pages-1);
             var sessions=all.Skip(recordsPage*3).Take(3).ToArray();
@@ -603,12 +625,16 @@ namespace CapstoneDesign.Runtime
             {
                 var entry=sessions[i];
                 string detail=LocalTime(entry.EndedUtc)+" · "+StateLabel(entry.Status);
-                ActivityListItem(records,MindfulnessContent.FindMission(entry.MissionId)?.title ?? entry.MissionId,detail,()=>ShowRecord(entry.SessionId),PrototypeUiIcon.Symbol.Journal);
+                ActivityListItem(records,FocusSessionTitle(entry),detail,()=>ShowRecord(entry.SessionId),PrototypeUiIcon.Symbol.Journal);
             }
-            if(sessions.Length==0) Guidance(p,"아직 참여 기록이 없어요. 활동을 마치면 이곳에서 볼 수 있어요.");
+            if(sessions.Length==0)
+            {
+                GardenUi.Emblem(p,PrototypeUiIcon.Symbol.Journal,88);
+                Guidance(p,"아직 참여 기록이 없어요. 활동을 마치면 이곳에서 볼 수 있어요.");
+            }
             if(pages>1)
             {
-                DockPair("이전 기록",()=>{recordsPage--;ShowRecords();},"다음 기록",()=>{recordsPage++;ShowRecords();});
+                DockPair("이전 기록",()=>{recordsPage--;ShowGardenJournal();},"다음 기록",()=>{recordsPage++;ShowGardenJournal();});
                 var buttons=activityActions.GetComponentsInChildren<Button>();
                 buttons.First(b=>b.name=="이전 기록").interactable=recordsPage>0;
                 buttons.First(b=>b.name=="다음 기록").interactable=recordsPage<pages-1;
@@ -627,14 +653,14 @@ namespace CapstoneDesign.Runtime
             GardenUi.ScrollText(p,(MindfulnessContent.FindMission(s.MissionId)?.title ?? s.MissionId)+"\n"+LocalTime(s.StartedUtc)+" ~ "+LocalTime(s.EndedUtc)+"\n기분: "+(string.IsNullOrEmpty(s.Mood)?"기록 건너뜀":s.Mood)+"\n"+(s.Note??""),.07f,.57f,.86f,.23f);
             if(MbctPolicy.IsMbct(s.MissionId))GardenUi.Button(p,"실습에서 적은 내용",.07f,.075f,.54f,.055f,()=>ShowPracticeAnswers(id));
             BuildRecordHeart(p,s);
-            GardenUi.Button(p,"기록 목록",.65f,.075f,.28f,.055f,ShowRecords);
+            GardenUi.Button(p,"기록 목록",.65f,.075f,.28f,.055f,ShowGardenJournal);
         }
         public void ShowDiscoveries()
         {
             EnterPage("discoveries",ShowDiscoveries);var p=Page("정원에서 만난 친구들");
             var ids=Service.Snapshot.DiscoveredAnimalIds;
             GardenUi.Label(p,ids.Count==0?"아직 만난 동물이 없어요.\n아무도 방문하지 않는 날도 자연스러워요.":string.Join("\n",ids.Select(id=>MindfulnessContent.FindAnimal(id)?.title ?? id)),.07f,.29f,.86f,.48f,32);
-            GardenUi.Button(p,"돌아가기",.07f,.15f,.86f,.08f,ShowRecords);
+            GardenUi.Button(p,"돌아가기",.07f,.15f,.86f,.08f,ShowGardenJournal);
         }
         static string StateLabel(ParticipationState s) => s==ParticipationState.Selected?"선택됨":s==ParticipationState.InProgress?"참여 중":s==ParticipationState.Paused?"일시정지":s==ParticipationState.Ended?"참여 종료":"완료";
         static string LocalTime(string iso) => DateTimeOffset.TryParse(iso,out var time)?time.ToLocalTime().ToString("MM/dd HH:mm"):"시작 전";

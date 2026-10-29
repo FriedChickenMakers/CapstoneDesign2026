@@ -36,7 +36,7 @@ def catalog(output):
     checks = [Check("harness", "python", [python, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"]),
               Check("server", "python", [python, "-m", "unittest", "discover", "-s", "server/tests", "-v"], ("server",))]
     for name in ("local-state", "mbct", "garden-appearance", "heart-range-refresh", "walking-baseline-refresh",
-                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation"):
+                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation", "focus-state", "all-missions"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("mono",)))
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
     for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit", "measurement-buffer"):
@@ -55,7 +55,8 @@ def catalog(output):
     for name, method in (("tabs", "TabConsistencyCapture.Capture"), ("supplemental-ui", "TabConsistencyCapture.CaptureRemaining"),
                          ("guided-ui", "TabConsistencyCapture.CaptureGuidance"), ("demo-polish", "DemoPolishValidation.Capture"),
                          ("sky", "GardenSkyValidation.Capture"), ("lighting", "GardenLightingValidation.Capture"),
-                         ("procedural-scene", "GardenProceduralValidation.Capture")):
+                         ("procedural-scene", "GardenProceduralValidation.Capture"),
+                         ("focus-missions", "FocusMissionValidation.Run")):
         checks.append(editor(name, method, "visual", graphics=True))
     settings = editor("measurement-settings", "MeasurementSettingsCapture.Start", "visual", graphics=True, quit=False)
     settings.environment["CAPSTONE_PERSONALIZATION_TEST_ROOT"] = str(output / "measurement-settings" / "synthetic-enrollment")

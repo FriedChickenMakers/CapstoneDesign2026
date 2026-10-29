@@ -325,10 +325,14 @@ namespace CapstoneDesign.EditorTools
                 // canvas depths and TMP meshes before a frame can count as evidence.
                 for (int i = 0; i < 4; i++) Draw();
                 var previous = Pixels();
+                bool identical = false;
+                string labelFailure = null;
                 for (int pass = 0; pass < 4; pass++)
                 {
                     Draw(); var current = Pixels();
-                    if (current.SequenceEqual(previous) && HasVisibleHomeLabels(current))
+                    identical = current.SequenceEqual(previous);
+                    bool labelsVisible = HasVisibleHomeLabels(current, out labelFailure);
+                    if (identical && labelsVisible)
                     {
                         File.WriteAllBytes(path, texture.EncodeToPNG());
                         report.Add(Path.GetFileName(path) + " consecutive complete frames pixel-identical after " + (pass + 5) + " passes");
@@ -336,14 +340,18 @@ namespace CapstoneDesign.EditorTools
                     }
                     previous = current;
                 }
-                throw new Exception("Home capture did not settle: " + Path.GetFileName(path));
+                throw new Exception("Home capture did not settle: " + Path.GetFileName(path)
+                    + "; identical=" + identical + "; " + (labelFailure ?? "labels visible"));
             }
-            bool HasVisibleHomeLabels(Color32[] pixels)
+            bool HasVisibleHomeLabels(Color32[] pixels, out string failure)
             {
-                foreach (var label in new[] { home.title, home.guide, home.stage,
-                    home.homeTabLabel, home.activityTabLabel, home.settingsTabLabel })
+                failure = null;
+                var labels = new[] { home.title, home.guide, home.stage,
+                    home.homeTabLabel, home.activityTabLabel, home.settingsTabLabel }
+                    .Where(label => label != null && label.gameObject.activeInHierarchy
+                        && !string.IsNullOrEmpty(label.text)).ToArray();
+                var regions = labels.Select(label =>
                 {
-                    if (label == null || !label.gameObject.activeInHierarchy || string.IsNullOrEmpty(label.text)) continue;
                     var bounds = GlyphBounds(label);
                     var min = camera.WorldToViewportPoint(label.transform.TransformPoint(bounds.min));
                     var max = camera.WorldToViewportPoint(label.transform.TransformPoint(bounds.max));
@@ -351,13 +359,38 @@ namespace CapstoneDesign.EditorTools
                     int x1 = Mathf.Clamp(Mathf.CeilToInt(max.x * size.x), 0, size.x);
                     int y0 = Mathf.Clamp(Mathf.FloorToInt(min.y * size.y), 0, size.y);
                     int y1 = Mathf.Clamp(Mathf.CeilToInt(max.y * size.y), 0, size.y);
+                    return new RectInt(x0, y0, x1 - x0, y1 - y0);
+                }).ToArray();
+                Color32[] withoutLabels;
+                try
+                {
+                    // A negative-control frame proves the glyphs contribute visible
+                    // pixels, independent of palette, antialiasing or panel colour.
+                    foreach (var label in labels) label.gameObject.SetActive(false);
+                    Draw(); withoutLabels = Pixels();
+                }
+                finally
+                {
+                    foreach (var label in labels) label.gameObject.SetActive(true);
+                    Draw(); Pixels(); // Restore the texture that will be written as evidence.
+                }
+                for (int i = 0; i < labels.Length; i++)
+                {
                     int ink = 0;
-                    for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++)
+                    var region = regions[i];
+                    for (int y = region.yMin; y < region.yMax; y++)
+                    for (int x = region.xMin; x < region.xMax; x++)
                     {
                         var p = pixels[y * size.x + x];
-                        if (p.g < 180 && p.g > p.r && p.g > p.b) ink++;
+                        var background = withoutLabels[y * size.x + x];
+                        if (Mathf.Abs(p.r - background.r) > 8 || Mathf.Abs(p.g - background.g) > 8
+                            || Mathf.Abs(p.b - background.b) > 8) ink++;
                     }
-                    if (ink < 20) return false;
+                    if (ink < 20)
+                    {
+                        failure = "label=" + labels[i].text + "; visible ink pixels=" + ink;
+                        return false;
+                    }
                 }
                 return true;
             }

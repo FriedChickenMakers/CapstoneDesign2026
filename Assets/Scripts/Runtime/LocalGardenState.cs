@@ -540,6 +540,9 @@ namespace CapstoneDesign.Runtime.LocalState
         string[] cycleCandidates = Array.Empty<string>();
         public string LastError { get; private set; }
         public long SnapshotReads { get; private set; }
+        // A scalar from the committed state; status polling must not clone every
+        // session, drawing and plant recipe just to display the applied date.
+        public string AppliedCycleId { get { lock(gate) { RequireOpen(); return state.LastCycleId; } } }
         public DateTimeOffset CurrentUtc => EffectiveUtc(state);
         public TimeZoneInfo CurrentTimeZone => clock.TimeZone;
         DateTimeOffset EffectiveUtc(GardenState source) => clock.UtcNow.AddDays(source == null ? 0 : source.PreviewDayOffset);

@@ -1,20 +1,19 @@
 # CapstoneDesign2026 Unity Mockup
 
-For the 2-week MVP's 12 mission screens, use the [mission UI benchmark and Figma flow plan](docs/MISSION_UI_BENCHMARK_AND_FIGMA_FLOW_2026-10-28.md). It compares Forest, 마음정원, Headspace, and Finch and separates current behavior from proposed screen states.
+The integrated app combines the garden theme with all 45 M/P missions and
+2/4/8-week courses. Start with the [2026-10-29 integration record](docs/BRANCH_INTEGRATION_2026-10-29.md)
+for branch ancestry, conflict resolutions, validation, and teammate merge guidance.
+Current mission behavior and persistence: [all missions and courses](docs/ALL_MISSIONS_AND_COURSES_2026-10-29.md).
+The [earlier UI benchmarks](docs/MISSION_UI_BENCHMARK_AND_FIGMA_FLOW_2026-10-28.md)
+and [screen flow plan](docs/MISSION_SCREEN_FLOWS_M01_P28_2026-10-29.md) remain design history.
 
-For the existing `M01`–`M17` free missions and `P01`–`P28` course missions, use the [individual mission screen flows](docs/MISSION_SCREEN_FLOWS_M01_P28_2026-10-29.md). Each numbered step represents a separate app/Figma screen; this is a design plan for the legacy catalog, distinct from the current 2-week MVP mission plan.
-
-For parallel work on individual mission UI and mission personalization, start
-with the [2026-10-27 handoff and shared contracts](docs/MISSION_PARALLEL_HANDOFF_2026-10-27.md).
+The integration branch is `main`. Existing UI/personalization branches must merge
+this integrated main before continuing; their original refs have not been moved.
+Use the [parallel handoff](docs/MISSION_PARALLEL_HANDOFF_2026-10-27.md) for ownership
+and contracts, together with the newer integration record. Personalization still
+covers the existing learned-MBCT review policy, walking targets and reminders;
+the new Focus M recommendation order has not become a learned policy.
 QA/beta measurement scope and rollout gates: [measurement plan](docs/QA_BETA_MEASUREMENT_PLAN.md).
-The integration branch is `main`; the current app supports
-2/4/8-week programs. The handoff separates implemented behavior, ownership,
-pending product decisions and current validation limits.
-
-The next UI and personalization work starts from `main` on
-`codex/mission-ui-next` and `codex/mission-personalization-next`. The first UI
-focus is the 2-week, 12-mission plan; existing 4/8-week behavior is preserved.
-The first personalization focus is the existing optional review recommendation.
 
 Beta measurement code is included in `main`, but public server rollout and real
 participant enrollment are on hold until operational ownership, written consent,

@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.UI;
+using CapstoneDesign.Prototype;
 
 namespace CapstoneDesign.Runtime
 {
@@ -19,6 +20,7 @@ namespace CapstoneDesign.Runtime
         public static MissionBottomNavigation Create(Transform design,string active,Action home,Action missions,Action course,bool? hasPending)
         {
             var rect=FigmaMissionUi.Box(design,"하단 탐색",0,760,390,84,Color.white);
+            GardenThemeSurface.Apply(rect.gameObject,GardenThemeSurface.Style.Shelf);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
             bar.Build(home,missions,course);bar.Refresh(active,hasPending);return bar;
         }
@@ -45,7 +47,7 @@ namespace CapstoneDesign.Runtime
             string[] paths={"home",active=="미션"?"leaf":"leaf-muted",active=="내 과정"?"book-active":"book"};
             for(int i=0;i<3;i++)
             {
-                bool selected=active==labels[i];buttons[i].GetComponent<Image>().color=selected?FigmaMissionUi.Soft:Color.white;
+                bool selected=active==labels[i];FigmaMissionUi.SetSelected(buttons[i],selected);
                 captions[i].color=selected?FigmaMissionUi.Green:FigmaMissionUi.Muted;
                 icons[i].texture=Resources.Load<Texture2D>("FocusMissions/Main/"+paths[i]);
             }

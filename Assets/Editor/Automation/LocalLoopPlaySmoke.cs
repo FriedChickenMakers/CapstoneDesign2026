@@ -110,7 +110,23 @@ namespace CapstoneDesign.EditorTools
                     pages[index]();
                     yield return null;
                     yield return new WaitForEndOfFrame();
-                    AssertSharedChromePixels(home,Path.Combine(root,"shared-chrome-"+names[index]+".png"));
+                    var graphics=CurrentChromeGraphics(ui);
+                    var visible=ScreenCapture.CaptureScreenshotAsTexture();
+                    Texture2D hidden=null;
+                    try
+                    {
+                        foreach(var graphic in graphics)graphic.enabled=false;
+                        yield return null;
+                        yield return new WaitForEndOfFrame();
+                        hidden=ScreenCapture.CaptureScreenshotAsTexture();
+                        AssertSharedChromePixels(graphics,visible,hidden,Path.Combine(root,"shared-chrome-"+names[index]+".png"));
+                    }
+                    finally
+                    {
+                        foreach(var graphic in graphics)if(graphic!=null)graphic.enabled=true;
+                        if(visible!=null)UnityEngine.Object.Destroy(visible);
+                        if(hidden!=null)UnityEngine.Object.Destroy(hidden);
+                    }
                 }
             }
             else if(phase=="fresh")
@@ -121,63 +137,57 @@ namespace CapstoneDesign.EditorTools
                 if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || !home.homeCanvas.gameObject.activeSelf)
                     throw new Exception("Fresh home did not show the saved seed");
                 yield return null;
-                if(home.ViewControlsExpanded)throw new Exception("Home view controls must start folded");
-                var viewToggle=home.homeCanvas.GetComponentsInChildren<Button>().Single(button=>button.name=="보기 +");
-                AssertRaycastTarget(viewToggle);
-                viewToggle.onClick.Invoke();
-                yield return null;
-                if(!home.ViewControlsExpanded)throw new Exception("Home view toggle did not reveal controls");
-                var viewButtons = home.homeCanvas.GetComponentsInChildren<Button>();
-                var plantView = viewButtons.Single(button=>button.name=="가까이 보기");
-                var overview = viewButtons.Single(button=>button.name=="정원 전체");
-                var zoomIn = viewButtons.Single(button=>button.name=="확대");
-                var zoomOut = viewButtons.Single(button=>button.name=="축소");
-                foreach(var button in new[]{plantView,overview,zoomIn,zoomOut}) AssertRaycastTarget(button);
+                if(home.ViewControlsExpanded || home.homeCanvas.GetComponentsInChildren<Button>()
+                    .Any(button=>button.name=="보기 +" || button.name=="가까이 보기" || button.name=="확대"))
+                    throw new Exception("Retired view buttons overlay the gesture-based garden");
                 if(!home.IsOverview)throw new Exception("Home did not default to the complete garden");
                 var gardenContext=GardenProceduralValidation.CaptureGardenContext(home);
                 if(UnityEngine.Object.FindObjectsByType<Transform>(FindObjectsInactive.Include,FindObjectsSortMode.None)
                     .Any(node=>node.name=="Saved garden additions" && node.parent==null))
                     throw new Exception("Legacy saved scenery leaks into the integrated garden camera");
-                plantView.onClick.Invoke();
-                if(home.IsOverview)throw new Exception("Close view did not focus the saved plant");
+                string stateBeforeView=StateCodec.Encode(ui.Service.Snapshot);
+                float initialZoom=home.Zoom;
+                ScrollGarden(home,-1);
+                if(home.Zoom>=initialZoom)throw new Exception("Garden wheel gesture did not zoom out");
                 GardenProceduralValidation.AssertGardenContext(home,gardenContext);
-                overview.onClick.Invoke();
-                if(!home.IsOverview)throw new Exception("Overview did not show the complete garden");
-                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
-                plantView.onClick.Invoke();
-                GardenProceduralValidation.AssertGardenContext(home,gardenContext);
+                ScrollGarden(home,1);
+                if(Mathf.Abs(home.Zoom-initialZoom)>.001f || home.RenderedRecipe.GrowthStep!=0)
+                    throw new Exception("Opposite garden gestures failed to restore the view or changed plant growth");
+                ScrollGarden(home,-1);
                 float previousZoom=home.Zoom;
-                zoomOut.onClick.Invoke();
-                if(home.Zoom>=previousZoom)throw new Exception("Zoom out did not change the camera view");
-                zoomIn.onClick.Invoke();
-                if(Mathf.Abs(home.Zoom-previousZoom)>.001f || home.RenderedRecipe.GrowthStep!=0)
-                    throw new Exception("Zoom controls changed the plant or failed to restore the view");
+                if(StateCodec.Encode(ui.Service.Snapshot)!=stateBeforeView)
+                    throw new Exception("Garden view gestures changed saved mission or garden state");
                 GardenProceduralValidation.AssertGardenContext(home,gardenContext);
+                AssertRaycastTarget(home.activityTab);
                 home.activityTab.onClick.Invoke();
                 AssertLegacyRendererParked(home);
                 if(!nav.activitiesPanel.activeSelf || home.gardenVisuals.activeSelf)
                     throw new Exception("Activity tab did not park the garden camera");
                 GardenProceduralValidation.AssertGardenContext(home,gardenContext,requireActive:false);
-                if (ui.CurrentScreen != "programs" || ui.Service.Snapshot.MbctProgramChosen)
+                if (ui.CurrentScreen != "focus-programs" || ui.Service.Snapshot.MbctProgramChosen)
                     throw new Exception("Fresh activity tab bypassed course duration selection");
                 yield return null;
-                var duration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="8주 · 충분히 연습하기");
+                var duration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="Focus.SelectProgram.8w");
+                ScrollIntoView(ui.GetComponentInChildren<ScrollRect>(),duration);
                 AssertRaycastTarget(duration); duration.onClick.Invoke();
                 yield return null;
-                var confirmDuration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="이 기간으로 시작");
+                var confirmDuration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="Focus.ConfirmProgram.8w");
+                ScrollIntoView(ui.GetComponentInChildren<ScrollRect>(),confirmDuration);
                 AssertRaycastTarget(confirmDuration); confirmDuration.onClick.Invoke();
                 yield return null;
                 if (!ui.Service.Snapshot.MbctProgramChosen || MbctPolicy.ActiveProgram(ui.Service.Snapshot) != "8w")
                     throw new Exception("Course confirmation did not persist the selected duration");
-                AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="추천 활동 안내"));
+                AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="기본 미션 시작하기"));
                 nav.ShowIsland();
-                if(home.IsOverview || Mathf.Abs(home.Zoom-previousZoom)>.001f)
-                    throw new Exception("Tab return lost the selected close view or zoom");
+                if(!home.IsOverview || Mathf.Abs(home.Zoom-previousZoom)>.001f)
+                    throw new Exception("Tab return lost the complete garden or selected gesture zoom");
                 GardenProceduralValidation.AssertGardenContext(home,gardenContext);
-                home.settingsTab.onClick.Invoke();
+                yield return null;
+                AssertRaycastTarget(home.TemporarySettingsButton);
+                home.TemporarySettingsButton.onClick.Invoke();
                 AssertLegacyRendererParked(home);
-                if(!nav.settingsPanel.activeSelf || home.IsGardenVisible || !home.settingsTab.gameObject.activeInHierarchy)
-                    throw new Exception("Settings tab did not open existing settings");
+                if(!nav.settingsPanel.activeSelf || home.IsGardenVisible || !home.NavigationBar.gameObject.activeInHierarchy)
+                    throw new Exception("Home settings entry did not open settings with shared navigation");
                 GardenProceduralValidation.AssertGardenContext(home,gardenContext,requireActive:false);
                 var settings = nav.GetComponentInChildren<SensorRawDisplay>(true);
                 var heartChart = settings.GetComponentsInChildren<Button>().Single(button=>button.name=="심박 차트 보기");
@@ -211,10 +221,10 @@ namespace CapstoneDesign.EditorTools
                 ui.Finish(null,null);
                 if(!ui.Service.SaveExperience("play-record","즐거움","바깥 소리","어깨가 내려감","차분해요","소리가 들린다") || !ui.Service.SavePreference("support","치료진"))throw new Exception(ui.Service.LastError);
                 if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
-                ui.ShowHome();
+                LocalLoopValidation.ShowLegacy(ui,"Home");
                 yield return null;
                 AssertPageStartsAtTop(ui,"오늘의 활동");
-                ui.ShowRecords();
+                ui.ShowGardenJournal();
                 yield return null;
                 AssertPageStartsAtTop(ui,"참여 기록");
                 ui.PreviewEnvironment("environment:E01");nav.ShowIsland();
@@ -250,7 +260,7 @@ namespace CapstoneDesign.EditorTools
                 ui.ShowHome();nav.ShowIsland();
                 if(!ui.ToggleDebugWalk())throw new Exception("Could not enable synthetic debug walk");
                 for(int i=0;i<10;i++)if(!ui.AddVirtualDebugStep())throw new Exception("Synthetic step failed");
-                nav.ShowActivities();
+                nav.ShowActivities();LocalLoopValidation.ShowLegacy(ui,"Home");
                 if(ui.Service.Snapshot.Nutrient!=1 || !home.guide.text.Contains("영양제 1개")
                     || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  8주 코스")))
                     throw new Exception("Activity header retained stale nutrients after a hidden reward update");
@@ -269,48 +279,71 @@ namespace CapstoneDesign.EditorTools
             EditorApplication.Exit(failure==null?0:1);
         }
 
+        static void ScrollGarden(GardenHomePresenter home,float direction)
+        {
+            var layout=home.homeCanvas.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeGardenPreviewLayout>();
+            var orbit=layout==null?null:layout.orbit;
+            if(orbit==null || EventSystem.current==null)throw new Exception("Gesture smoke needs the actual garden orbit and EventSystem");
+            Canvas.ForceUpdateCanvases();
+            var point=new Vector2(Screen.width*.5f,Screen.height*.48f);
+            var pointer=new PointerEventData(EventSystem.current){position=point,scrollDelta=new Vector2(0,direction)};
+            var hits=new List<RaycastResult>();EventSystem.current.RaycastAll(pointer,hits);
+            if(hits.Count==0 || hits[0].gameObject.GetComponentInParent<CapstoneDesign.Prototype.PrototypeIslandDrag>()!=orbit)
+                throw new Exception("Garden gesture intercepted by UI at "+point+": "+string.Join(" > ",hits.Take(5).Select(hit=>hit.gameObject.name)));
+            pointer.pointerCurrentRaycast=hits[0];
+            ExecuteEvents.ExecuteHierarchy(hits[0].gameObject,pointer,ExecuteEvents.scrollHandler);
+        }
+
         static void AssertLegacyRendererParked(GardenHomePresenter home)
         {
             if(home.oldCamera.enabled || home.oldLight.enabled)
                 throw new Exception("Integrated tab rendered the hidden legacy camera or light");
         }
 
-        static void AssertSharedChromePixels(GardenHomePresenter home,string path)
+        static Graphic[] CurrentChromeGraphics(WeekOneQuestDemo ui)
         {
-            var brand=home.homeCanvas.transform.Find("SafePortraitFrame/MainContent/Brand").GetComponent<TMP_Text>();
-            var graphics=new List<Graphic>{brand,home.homeTabLabel,home.activityTabLabel,home.settingsTabLabel};
-            foreach(var tab in new[]{home.homeTab,home.activityTab,home.settingsTab})
-                graphics.Add(tab.GetComponentInChildren<CapstoneDesign.Prototype.PrototypeUiIcon>());
-            var capture=ScreenCapture.CaptureScreenshotAsTexture();
-            if(capture==null)throw new Exception("The chrome phase did not receive a rendered Game view image.");
-            try
+            var bar=ui.GetComponentsInChildren<MissionBottomNavigation>().Single();
+            var heading=ui.GetComponentsInChildren<Text>().Single(text=>text.fontSize==28 && !text.transform.IsChildOf(bar.transform));
+            var graphics=new List<Graphic>{heading};
+            foreach(var button in new[]{bar.HomeButton,bar.MissionButton,bar.CourseButton})
             {
-                Directory.CreateDirectory(Path.GetDirectoryName(path));
-                File.WriteAllBytes(path,capture.EncodeToPNG());
-                var pixels=capture.GetPixels32();
-                foreach(var graphic in graphics)
-                {
-                    if(graphic==null || !graphic.isActiveAndEnabled || graphic.canvasRenderer.cull)
-                        throw new Exception("Shared header/tab Graphic is missing, inactive or culled: "+graphic?.name);
-                    var canvas=graphic.canvas.rootCanvas;
-                    Camera camera=canvas.renderMode==RenderMode.ScreenSpaceOverlay?null:canvas.worldCamera;
-                    var corners=new Vector3[4];graphic.rectTransform.GetWorldCorners(corners);
-                    var minimum=RectTransformUtility.WorldToScreenPoint(camera,corners[0]);
-                    var maximum=RectTransformUtility.WorldToScreenPoint(camera,corners[2]);
-                    int x0=Mathf.Clamp(Mathf.FloorToInt(minimum.x*capture.width/Screen.width),0,capture.width);
-                    int x1=Mathf.Clamp(Mathf.CeilToInt(maximum.x*capture.width/Screen.width),0,capture.width);
-                    int y0=Mathf.Clamp(Mathf.FloorToInt(minimum.y*capture.height/Screen.height),0,capture.height);
-                    int y1=Mathf.Clamp(Mathf.CeilToInt(maximum.y*capture.height/Screen.height),0,capture.height);
-                    int ink=0;
-                    for(int y=y0;y<y1;y++)for(int x=x0;x<x1;x++)
-                    {
-                        var pixel=pixels[y*capture.width+x];
-                        if(pixel.g<180 && pixel.g>pixel.r && pixel.g>pixel.b)ink++;
-                    }
-                    if(ink<8)throw new Exception("Shared header/tab has no visible green geometry: "+graphic.name+"; pixels="+ink+"; image="+path);
-                }
+                graphics.Add(button.GetComponentsInChildren<Text>().Single(text=>text.gameObject.activeInHierarchy && text!=bar.MissionBadge));
+                graphics.Add(button.GetComponentInChildren<RawImage>());
             }
-            finally{UnityEngine.Object.Destroy(capture);}
+            foreach(var graphic in graphics)
+                if(graphic==null || !graphic.isActiveAndEnabled || graphic.canvasRenderer.cull)
+                    throw new Exception("Current header/tab Graphic is missing, inactive or culled: "+graphic?.name);
+            return graphics.ToArray();
+        }
+
+        static void AssertSharedChromePixels(Graphic[] graphics,Texture2D visible,Texture2D hidden,string path)
+        {
+            if(visible==null || hidden==null || visible.width!=hidden.width || visible.height!=hidden.height)
+                throw new Exception("The chrome phase did not receive matching rendered Game view frames.");
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllBytes(path,visible.EncodeToPNG());
+            var pixels=visible.GetPixels32();var control=hidden.GetPixels32();
+            // Compare with a frame where only the target glyphs/icons are hidden.
+            // This observes actual rendering without assuming the former green palette.
+            foreach(var graphic in graphics)
+            {
+                var canvas=graphic.canvas.rootCanvas;
+                Camera camera=canvas.renderMode==RenderMode.ScreenSpaceOverlay?null:canvas.worldCamera;
+                var corners=new Vector3[4];graphic.rectTransform.GetWorldCorners(corners);
+                var minimum=RectTransformUtility.WorldToScreenPoint(camera,corners[0]);
+                var maximum=RectTransformUtility.WorldToScreenPoint(camera,corners[2]);
+                int x0=Mathf.Clamp(Mathf.FloorToInt(minimum.x*visible.width/Screen.width),0,visible.width);
+                int x1=Mathf.Clamp(Mathf.CeilToInt(maximum.x*visible.width/Screen.width),0,visible.width);
+                int y0=Mathf.Clamp(Mathf.FloorToInt(minimum.y*visible.height/Screen.height),0,visible.height);
+                int y1=Mathf.Clamp(Mathf.CeilToInt(maximum.y*visible.height/Screen.height),0,visible.height);
+                int ink=0;
+                for(int y=y0;y<y1;y++)for(int x=x0;x<x1;x++)
+                {
+                    int offset=y*visible.width+x;var pixel=pixels[offset];var absent=control[offset];
+                    if(Mathf.Abs(pixel.r-absent.r)>8 || Mathf.Abs(pixel.g-absent.g)>8 || Mathf.Abs(pixel.b-absent.b)>8)ink++;
+                }
+                if(ink<8)throw new Exception("Current header/tab has no rendered glyph/icon difference: "+graphic.name+"; pixels="+ink+"; image="+path);
+            }
             Debug.Log("LOCAL_LOOP_SHARED_CHROME_PIXELS_PASS "+Path.GetFileName(path));
         }
 
@@ -378,8 +411,8 @@ namespace CapstoneDesign.EditorTools
 
         static void AssertRaycastTarget(Button target)
         {
-            // The home Canvas stays mounted to share its navigation. Callback-only
-            // tests cannot detect a transparent home Graphic intercepting these taps.
+            // Callback-only tests cannot detect an inactive page
+            // or decorative Graphic intercepting the current control's tap.
             Canvas.ForceUpdateCanvases();
             // Flow text height depends on the width resolved in the first pass.
             Canvas.ForceUpdateCanvases();

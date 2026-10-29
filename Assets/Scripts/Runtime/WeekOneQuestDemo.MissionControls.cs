@@ -4,7 +4,7 @@ namespace CapstoneDesign.Runtime
 {
     public sealed partial class WeekOneQuestDemo
     {
-        public string MissionDateLabel => opened?Service.Snapshot.LastCycleId.Replace('-','.') : "확인 중";
+        public string MissionDateLabel => opened?Service.AppliedCycleId.Replace('-','.') : "확인 중";
 
         public bool ResetMissionProgress()
         {

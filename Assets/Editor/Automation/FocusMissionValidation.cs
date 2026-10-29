@@ -45,7 +45,16 @@ namespace CapstoneDesign.EditorTools
             "궁금함", "반가움", "놀람", "무덤덤함", "슬픔", "외로움", "서운함", "아쉬움",
             "불안함", "두려움", "답답함", "막막함", "화남", "짜증", "부끄러움", "미안함"
         };
-        static string OutputRoot => Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "focus-validation");
+        static string OutputRoot
+        {
+            get
+            {
+                string requested = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS");
+                return string.IsNullOrWhiteSpace(requested)
+                    ? Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "focus-validation")
+                    : Path.Combine(Path.GetFullPath(requested), "focus-validation");
+            }
+        }
         static string RequestPath => Path.Combine(OutputRoot, "request.json");
 
         static FocusMissionValidation()
@@ -119,6 +128,10 @@ namespace CapstoneDesign.EditorTools
                 Check(report, "Fresh missions start available and weekly rest never appears as today's completion", () => InitialAndWeeklyState(report, request.capture));
                 Check(report, "Settings reset mission records atomically and advance only the app mission date", () => SettingsMissionControls(report, request.capture));
                 Check(report, "Focused-input keyboard geometry keeps entry and done controls visible and separate", KeyboardGeometry);
+                Check(report, "Learned MBCT recommendation settings and selected candidate remain reachable", () => LearnedRecommendations(report, request.capture));
+                Check(report, "Garden shop progress and linked history preserve Focus and legacy meanings", () => GardenProgressAndRecordTitles(report, request.capture));
+                Check(report, "2/4/8 week course selection preserves its independent progress", () => CourseSelections(report, request.capture));
+                Check(report, "All 45 missions retain overview, interaction, completion and restart records", () => AllMissionFlows(report, request.capture));
             }
             finally
             {
@@ -127,6 +140,9 @@ namespace CapstoneDesign.EditorTools
             }
             Debug.Log("FOCUS_VALIDATION passed=" + report.passed + " failed=" + report.failed + " clicks=" + report.buttonClicks + " raycasts=" + report.raycastChecks
                 + " report=" + Path.Combine(OutputRoot, "report.json"));
+            // A report with failures must also fail -executeMethod/CI. The report
+            // is written first so failures remain inspectable in the fresh run.
+            if (report.failed > 0) throw new InvalidOperationException("Focus validation failed: " + report.failed + " checks. See report.json.");
         }
 
         static void Check(Report report, string name, Action action)
@@ -144,6 +160,21 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Fresh basic or additional mission starts unavailable.");
                 Assert(!f.VisibleText.Contains("오늘 완료했어요"), "A fresh mission is labeled completed.");
                 f.AssertMissionBadge("!");
+                f.AssertScrollStartsAtTop("기본 미션");
+                f.ScrollToBottomViaBar();
+                f.Invoke("ShowHome");
+                f.AssertScrollStartsAtTop("기본 미션");
+                f.Click("내 과정");
+                f.AssertScrollStartsAtTop("Focus.CourseRecords.2w");
+                f.ScrollToBottomViaBar();
+                f.Invoke("ShowFocusCourse");
+                f.AssertScrollStartsAtTop("Focus.CourseRecords.2w");
+                f.Click("미션");
+                f.AssertScrollStartsAtTop("기본 미션");
+                Assert(f.Ui.GetComponentsInChildren<GardenThemeSurface>(false).Any(surface => surface.style == GardenThemeSurface.Style.Backdrop),
+                    "The new mission home lost the shared garden theme background.");
+                Assert(f.Ui.GetComponentsInChildren<GardenThemeSurface>(false).Any(surface => surface.style == GardenThemeSurface.Style.Primary),
+                    "The new mission home lost its garden theme emphasis surface.");
                 f.Capture("01-home", capture);
                 f.Click("추천 미션 보기");
                 Assert(f.Has("추가 미션 시작하기"), "Recommendation did not expose the additional start action.");
@@ -487,6 +518,198 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
+        static void LearnedRecommendations(Report report, bool capture)
+        {
+            using (var f = new Fixture(report))
+            {
+                var learned = MbctContent.ForProgram("2w").First();
+                f.Ui.SelectMission(learned);
+                string id = f.Service.Snapshot.Sessions.Last().SessionId;
+                Assert(f.Service.StartSession(id), f.Service.LastError);
+                f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(4);
+                f.Ui.Finish(null, null);
+                Assert(MbctPolicy.AllCompletedIds(f.Service.Snapshot).Contains(learned.id), "Synthetic legacy lesson did not persist completion.");
+                int nutrients = f.Service.Snapshot.Nutrient;
+                var completed = f.Service.Snapshot.Sessions.Single(entry => entry.SessionId == id);
+                long start = DateTimeOffset.Parse(completed.StartedUtc).ToUnixTimeMilliseconds();
+                long end = DateTimeOffset.Parse(completed.EndedUtc).ToUnixTimeMilliseconds();
+                f.Ui.PreviewHealth = new AndroidPlatformSnapshot
+                {
+                    inputMode = "MOCK", healthConnect = new HealthConnectSnapshot
+                    {
+                        heartRate = new HealthMetricSnapshot
+                        {
+                            status = "AVAILABLE", queryComplete = true, queryStartEpochMs = start, queryEndEpochMs = end,
+                            sampleCount = 2, displaySampleCount = 2,
+                            heartRateSamples = new[]
+                            {
+                                new HeartRateSampleSnapshot { measuredAtEpochMs = start, beatsPerMinute = 72, sourcePackage = "Synthetic UI fixture", segmentId = 0 },
+                                new HeartRateSampleSnapshot { measuredAtEpochMs = start + 60000, beatsPerMinute = 74, sourcePackage = "Synthetic UI fixture", segmentId = 0 }
+                            }
+                        }
+                    }
+                };
+                f.Invoke("ShowFocusCourse");
+                f.Click("정원·건강 기록");
+                Assert(f.Ui.CurrentScreen == "records" && f.Has("식물 성장 기록"), "New course navigation did not open the retained garden journal.");
+                f.Capture("legacy-garden-journal", capture);
+                f.Click(learned.title);
+                f.AssertScrollStartsAtTop("활동과 측정 기록", "Local garden flow");
+                var graph = f.Ui.GetComponentInChildren<HeartSampleGraph>();
+                Assert(f.Ui.CurrentScreen == "record" && graph != null && graph.Samples.Length == 2,
+                    "Non-Focus record no longer opens its activity health chart.");
+                var layer = graph.transform.parent.parent;
+                var paper = layer.parent.Find("Garden theme surface");
+                Assert(paper == null || layer.GetSiblingIndex() > paper.GetSiblingIndex(), "Paper theme covers the retained health graph.");
+                f.Capture("legacy-health-record", capture); // Preserve the untouched initial top/title evidence.
+                f.RevealGraphic(graph);
+                f.Capture("legacy-health-chart-scrolled", capture);
+                f.Click("기록 목록"); f.Click("돌아가기"); f.Click("내 과정");
+                f.Click("이전 활동 복습·추천");
+                Assert(f.Has("다시 해볼 만한 활동") && f.Has("추가 활동 추천 설정"), "Learned recommendation entry is unreachable from the new course screen.");
+                f.Capture("learned-recommendation-hub", capture);
+                f.Click("추가 활동 추천 설정");
+                f.Click("호흡 관찰");
+                f.Click("1분 정도");
+                Assert(f.Service.Snapshot.PracticePreferences.Any(p => p.Key == "favorite" && p.Value == "호흡 관찰")
+                    && f.Service.Snapshot.PracticePreferences.Any(p => p.Key == "recommendation-minutes" && p.Value == "1"),
+                    "Recommendation preferences did not persist through the retained UI.");
+                f.Capture("learned-recommendation-preferences", capture);
+                f.Click("배운 활동으로");
+                var policy = new CapstoneDesign.Runtime.Personalization.ResponsePolicy();
+                var decision = CapstoneDesign.Runtime.Personalization.OptionalActivityRecommender.Select(f.Service.Snapshot, policy, DateTimeOffset.UtcNow);
+                Assert(decision != null && decision.MissionId == learned.id, "Learned MBCT candidate was reinterpreted as a new P/M mission.");
+                f.Click("다시 해볼 만한 활동");
+                var selected = f.Service.Snapshot.Sessions.Last();
+                Assert(selected.MissionId == decision.MissionId && !FocusMissionPolicy.IsFocus(selected), "Recommendation click selected a different candidate or save format.");
+                Assert(f.Service.Snapshot.Nutrient == nutrients && MbctPolicy.AllCompletedIds(f.Service.Snapshot).Contains(learned.id),
+                    "Opening a recommendation changed legacy completion or rewards.");
+                f.Capture("learned-recommendation-selected", capture);
+            }
+        }
+
+        static void GardenProgressAndRecordTitles(Report report, bool capture)
+        {
+            var store = new MemoryStore();
+            var clock = new SyntheticClock();
+            var balance = new DemoBalanceConfig { CompletionNutrient = 5, VisitorChancePercent = 0 };
+            const string savedFocusTitle = "합성 이전 제목 · 한 모금의 감각";
+            const string ignoredLegacyFocusTitle = "합성 무시할 Focus 제목";
+            var focus = FocusMissionPolicy.MissionAt(1, "2w");
+            var legacy = MindfulnessContent.FindMission("free-mission:M03");
+            using (var seed = new GardenStateService(store, clock, balance))
+            {
+                Assert(seed.Open() && seed.RefreshCycle(Array.Empty<string>()) && seed.SelectMbctProgram("2w"), seed.LastError);
+                Assert(seed.BeginFocusSession("synthetic-focus-title", focus.Id, 1) && seed.StartSession("synthetic-focus-title"), seed.LastError);
+                for (int step = 0; step < focus.Steps.Length; step++)
+                {
+                    string answer = focus.Steps[step].Options.FirstOrDefault() ?? "";
+                    Assert(seed.ConfirmFocusStep("synthetic-focus-title", step, answer, answer.Length == 0), seed.LastError);
+                }
+                Assert(seed.CompleteFocusSession("synthetic-focus-title"), seed.LastError);
+                Assert(seed.BeginSession("synthetic-legacy-title", legacy.id) && seed.StartSession("synthetic-legacy-title")
+                    && seed.CompleteSession("synthetic-legacy-title"), seed.LastError);
+                // Explicit synthetic saved-content variation: a prior Focus
+                // title can differ from today's catalog. A non-Focus record
+                // must still use its own legacy content interpretation.
+                var saved = seed.Snapshot;
+                saved.Sessions.Single(entry => entry.SessionId == "synthetic-focus-title").MissionTitleSnapshot = savedFocusTitle;
+                saved.Sessions.Single(entry => entry.SessionId == "synthetic-legacy-title").MissionTitleSnapshot = ignoredLegacyFocusTitle;
+                StateCodec.Validate(saved); store.Save(saved);
+            }
+            using (var f = new Fixture(report, false, true, store))
+            {
+                Assert(FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 1 && MbctPolicy.CompletedCount(f.Service.Snapshot) == 0,
+                    "Fixture does not distinguish the new Focus course from legacy MBCT progress.");
+                string before = StateCodec.Encode(f.Service.Snapshot);
+                f.Invoke("ShowShop");
+                Assert(f.VisibleText.Contains("2주 코스 1 / 12"), "Garden shop displayed legacy zero progress after a Focus completion.");
+                f.Capture("focus-progress-in-garden-shop", capture);
+                f.Click("식물 성장 · " + f.Ui.Balance.GrowthCost + " 영양제");
+                f.Click("함께 기억할 활동");
+                Assert(f.Has(savedFocusTitle) && f.Has(legacy.title) && !f.VisibleText.Contains(ignoredLegacyFocusTitle),
+                    "Growth activity picker renamed a saved Focus title or misinterpreted a legacy title.");
+                f.Capture("growth-link-versioned-titles", capture);
+                f.Click(savedFocusTitle);
+                Assert(f.VisibleText.Contains(savedFocusTitle), "Growth preview did not retain the selected session's saved title.");
+                f.Capture("growth-link-saved-focus-title", capture);
+                f.Click("취소");
+                f.Invoke("ShowGardenJournal");
+                Assert(f.Has(savedFocusTitle) && f.Has(legacy.title) && !f.VisibleText.Contains(ignoredLegacyFocusTitle),
+                    "Garden journal renamed a saved Focus or legacy record.");
+                f.Capture("garden-journal-versioned-titles", capture);
+                Assert(StateCodec.Encode(f.Service.Snapshot) == before,
+                    "Inspecting progress, picking a linked record or cancelling a preview changed persistent state.");
+            }
+        }
+
+        static void CourseSelections(Report report, bool capture)
+        {
+            foreach (string program in new[] { "2w", "4w", "8w" })
+            using (var f = new Fixture(report, false, false))
+            {
+                Assert(!f.Service.Snapshot.MbctProgramChosen, "Course fixture starts with a selected course.");
+                f.Capture("program-selection-" + program, capture);
+                f.Click("Focus.SelectProgram." + program);
+                f.Capture("program-confirm-" + program, capture);
+                f.Click("Focus.ConfirmProgram." + program);
+                Assert(f.Service.Snapshot.MbctProgramChosen && f.Service.Snapshot.MbctProgramId == program,
+                    "Course confirmation did not persist " + program);
+                f.Click("기본 미션 시작하기");
+                Assert(f.Latest.MissionId == FocusMissionPolicy.MissionAt(1, program).Id && f.Latest.FocusProgramId == program,
+                    "First basic mission did not use the chosen program.");
+                f.Capture("program-first-mission-" + program, capture);
+            }
+        }
+
+        static void AllMissionFlows(Report report, bool capture)
+        {
+            var representative = new HashSet<string> { "M07", "M10", "M11", "M15", "P19", "P24", "P26", "P27", "P28" };
+            using (var f = new Fixture(report))
+            {
+                foreach (var mission in FocusMissionCatalog.Additional)
+                {
+                    f.Invoke("StartFocusAdditionalMission", mission.Id);
+                    VerifyMissionFlow(f, mission, representative.Contains(mission.Code), capture);
+                }
+                Assert(f.Service.SelectMbctProgram("8w"), f.Service.LastError);
+                // The first 28 occurrences of the real 8-week curriculum cover
+                // all 28 P missions; progress is obtained only by real commands.
+                for (int order = 1; order <= 28; order++)
+                {
+                    while (FocusMissionPolicy.Availability(f.Service.Snapshot, "8w") != null)
+                    {
+                        f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1);
+                        Assert(f.Ui.RefreshCycle(), f.Service.LastError);
+                    }
+                    var mission = FocusMissionPolicy.MissionAt(order, "8w");
+                    f.Invoke("StartFocusBasic");
+                    VerifyMissionFlow(f, mission, representative.Contains(mission.Code), capture);
+                }
+                var completed = f.Service.Snapshot.Sessions.Where(s => s.Status == ParticipationState.RewardCommitted).ToArray();
+                Assert(FocusMissionCatalog.All.All(m => completed.Any(s => s.MissionId == m.Id)), "One of the 45 missions was not completed through UI controls.");
+                string saved = StateCodec.Encode(f.Service.Snapshot);
+                using (var reopened = new GardenStateService(f.Store, f.Clock, new DemoBalanceConfig()))
+                {
+                    Assert(reopened.Open(), reopened.LastError);
+                    Assert(StateCodec.Encode(reopened.Snapshot) == saved, "Reopening changed completed sessions, garden or reward state.");
+                }
+            }
+        }
+
+        static void VerifyMissionFlow(Fixture f, FocusMissionDefinition mission, bool representative, bool capture)
+        {
+            Assert(f.Latest.MissionId == mission.Id, "Unexpected catalog mission " + mission.Code);
+            f.AssertVisibleAssets();
+            f.Capture("catalog-" + mission.Code + "-overview", capture);
+            f.Click("시작");
+            f.CompletePractice(mission, representative && capture);
+            f.CompleteReflection("", "", false);
+            Assert(f.Latest.Status == ParticipationState.RewardCommitted, "Catalog mission did not complete: " + mission.Code);
+            if (representative) f.Capture("catalog-" + mission.Code + "-complete", capture);
+            f.Click("확인");
+        }
+
         static void KeyboardGeometry()
         {
             foreach (float height in new[] { 200f, 320f, 480f, 650f })
@@ -544,9 +767,10 @@ namespace CapstoneDesign.EditorTools
             public InputField Input => Ui.GetComponentsInChildren<InputField>(false).FirstOrDefault(i => i.gameObject.activeInHierarchy);
             public string VisibleText => string.Join("\n", Ui.GetComponentsInChildren<Text>(false).Where(t => t.gameObject.activeInHierarchy).Select(t => t.text));
 
-            public Fixture(Report report, bool integratedShell = false, bool chooseCourse = true)
+            public Fixture(Report report, bool integratedShell = false, bool chooseCourse = true, MemoryStore seededStore = null)
             {
                 this.report = report;
+                if (seededStore != null) Store = seededStore;
                 previous = SceneManager.GetActiveScene();
                 previousRoots = new HashSet<int>(previous.GetRootGameObjects().Select(o => o.GetInstanceID()));
                 ambient = RenderSettings.ambientLight;
@@ -687,18 +911,28 @@ namespace CapstoneDesign.EditorTools
                 AssertRaycastTarget(button);
                 button.onClick.Invoke(); report.buttonClicks++; Layout();
             }
-            void Reveal(Button button)
+            void Reveal(Button button) => Reveal((RectTransform)button.transform);
+            void Reveal(RectTransform rect)
             {
-                // Scroll controls into view before checking the actual uGUI target and callback.
-                var scroll = button.GetComponentInParent<ScrollRect>();
+                // Scroll controls or an explicitly requested chart into view. This
+                // is never used to repair the initial top-position assertions.
+                var scroll = rect.GetComponentInParent<ScrollRect>();
                 if (scroll == null || scroll.content == null || scroll.viewport == null) return;
                 Layout();
-                var rect = (RectTransform)button.transform;
                 Vector3 center = scroll.content.InverseTransformPoint(rect.TransformPoint(rect.rect.center));
                 float y = Mathf.Clamp(-center.y - scroll.viewport.rect.height / 2, 0,
                     Mathf.Max(0, scroll.content.rect.height - scroll.viewport.rect.height));
                 scroll.content.anchoredPosition = new Vector2(scroll.content.anchoredPosition.x, y);
                 scroll.velocity = Vector2.zero; Layout();
+            }
+            public void RevealGraphic(Graphic graphic)
+            {
+                Reveal(graphic.rectTransform);
+                var scroll = graphic.GetComponentInParent<ScrollRect>();
+                Assert(scroll != null, "Chart is not inside the expected record scroll view.");
+                var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(scroll.viewport, graphic.rectTransform);
+                Assert(bounds.min.y >= scroll.viewport.rect.yMin - 1 && bounds.max.y <= scroll.viewport.rect.yMax + 1,
+                    "Scrolled health graph is still clipped by its viewport.");
             }
             void AssertRaycastTarget(Button button)
             {
@@ -711,6 +945,8 @@ namespace CapstoneDesign.EditorTools
                     graphic.SetAllDirty(); graphic.Rebuild(CanvasUpdate.PreRender); graphic.Rebuild(CanvasUpdate.LatePreRender);
                 }
                 Canvas.ForceUpdateCanvases(); camera.Render();
+                Assert(root.GetComponentsInChildren<GardenThemeSurface>(false).All(surface => !surface.raycastTarget),
+                    "A decorative garden theme surface intercepts input.");
                 var rect = (RectTransform)button.transform;
                 var point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(rect.rect.center));
                 var hits = new List<RaycastResult>();
@@ -740,6 +976,30 @@ namespace CapstoneDesign.EditorTools
                 foreach (var scroll in Ui.GetComponentsInChildren<ScrollRect>(false)) scroll.verticalNormalizedPosition = 0;
                 Layout();
             }
+            public void AssertScrollStartsAtTop(string firstElementName, string scrollName = "스크롤 영역")
+            {
+                // Deliberately inspect the first real layout. Never repair scroll
+                // position in validation; the production scrollbar must start at top.
+                Layout();
+                var scroll = Ui.GetComponentsInChildren<ScrollRect>(false).Single(item => item.name == scrollName);
+                Assert(Mathf.Abs(scroll.verticalNormalizedPosition - 1f) < .001f
+                    && Mathf.Abs(scroll.content.anchoredPosition.y) < .5f,
+                    "Fresh page starts below its first card: " + Ui.CurrentScreen + "; content y=" + scroll.content.anchoredPosition.y);
+                var first = scroll.content.Find(firstElementName) as RectTransform
+                    ?? scroll.content.GetComponentsInChildren<Text>(false).SingleOrDefault(label => label.text == firstElementName)?.rectTransform;
+                Assert(first != null, "Initial page card/title missing: " + firstElementName);
+                var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(scroll.viewport, first);
+                Assert(bounds.min.y >= scroll.viewport.rect.yMin - 1 && bounds.max.y <= scroll.viewport.rect.yMax + 1,
+                    "First page card/title is clipped before any scroll: " + firstElementName);
+            }
+            public void ScrollToBottomViaBar()
+            {
+                var scroll = Ui.GetComponentsInChildren<ScrollRect>(false).Single(item => item.name == "스크롤 영역");
+                Assert(scroll.verticalScrollbar != null, "The themed page has no scrollbar.");
+                scroll.verticalScrollbar.value = 0;
+                Layout();
+                Assert(scroll.content.anchoredPosition.y > 1, "Scrollbar did not move its page content.");
+            }
             public void CompletePractice(FocusMissionDefinition definition, bool capture, bool thinkOnly = false, string alternateRoute = null)
             {
                 int limit = 0;
@@ -754,7 +1014,7 @@ namespace CapstoneDesign.EditorTools
                         Assert(FocusDrawingData.Decode(Ui.GetComponentInChildren<FocusDrawingSurface>().Value).Count == 0, "Drawing undo did not remove the stroke.");
                         DrawSyntheticStroke(); Click("Focus.DrawingClear"); DrawSyntheticStroke();
                     }
-                    else if (step.OptionalInput && !thinkOnly)
+                    else if ((step.OptionalInput || step.RequiredAnswer) && Input != null && !thinkOnly)
                     {
                         SetInput("synthetic message before speaking");
                         Click("닫기"); Click(definition.Role == FocusMissionCatalog.BasicRole ? "기본 미션 이어서 하기" : "추가 미션 이어서 하기");

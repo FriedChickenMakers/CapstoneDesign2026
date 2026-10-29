@@ -21,13 +21,13 @@ namespace CapstoneDesign.Runtime
         void ShowLegacyProgramSelection()
         {
             if(!opened)return;
-            EnterPage("programs",ShowProgramSelection);var p=FocusPage("내게 맞는 기간","마음챙김 활동");
+            EnterPage("programs",ShowLegacyProgramSelection);var p=FocusPage("내게 맞는 기간","마음챙김 활동");
             var state=Service.Snapshot;
             Guidance(p,"2주와 4주도 처음부터 마무리까지 이어지는 활동이에요. 하루에 하나씩, 쉬는 날은 자유롭게 가져요.");
             if(state.Sessions.Any(s=>s.Status==ParticipationState.Selected || s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused))
             {
                 GardenUi.FlowLabel(p,"진행 중인 활동을 마치거나 종료한 뒤 기간을 바꿀 수 있어요.");
-                DockAction("활동으로",ShowHome,true);return;
+                DockAction("활동으로",ShowLegacyHome,true);return;
             }
             var programs=ActivityList(p,"Course programs");
             foreach(string program in new[]{"2w","4w","8w"})
@@ -40,7 +40,7 @@ namespace CapstoneDesign.Runtime
                 ActivityListItem(programs,title,detail,()=>ShowProgramConfirmation(id),PrototypeUiIcon.Symbol.Leaf,id!="8w");
             }
             GardenUi.FlowLabel(p,"어느 기간이든 감각 관찰부터 나를 돌보는 계획과 다시 시작하는 방법까지 배워요.",GardenUi.BodySize,GardenUi.Muted);
-            if(state.MbctProgramChosen)DockAction("현재 활동으로",ShowHome);
+            if(state.MbctProgramChosen)DockAction("현재 활동으로",ShowLegacyHome);
             else DockAction("정원으로",GoGarden);
         }
         void ShowProgramConfirmation(string program)
@@ -56,9 +56,9 @@ namespace CapstoneDesign.Runtime
             GardenUi.FlowLabel(p,"처음 마친 활동마다 영양제 "+Balance.CompletionNutrient+"개를 받아요. 기간 변경과 복습에는 추가 보상이 없어요.",GardenUi.BodySize,GardenUi.Muted);
             DockAction(completed>=MbctPolicy.PracticeCount(program)?"완료한 코스 보기":completed>0?"이어서 하기":"이 기간으로 시작",()=>
             {
-                if(Apply(Service.SelectMbctProgram(program))) { coursePageInitialized=false;freeIndex=0;ShowHome(); }
+                if(Apply(Service.SelectMbctProgram(program))) { coursePageInitialized=false;freeIndex=0;ShowLegacyHome(); }
             },true);
-            DockAction("다른 기간 보기",ShowProgramSelection);
+            DockAction("다른 기간 보기",ShowLegacyProgramSelection);
         }
 
         string Remembered(ActivitySession session,string key)
@@ -162,7 +162,7 @@ namespace CapstoneDesign.Runtime
                     {experienceId=Guid.NewGuid().ToString("N");experienceType=type;experienceStep=0;Array.Clear(experienceValues,0,4);ShowExperienceStep();});
                 button.gameObject.AddComponent<GardenFlowButton>();
             }
-            DockAction("기록 목록",ShowRecords);
+            DockAction("기록 목록",ShowGardenJournal);
         }
         public void ShowExperienceStep()
         {
@@ -180,8 +180,8 @@ namespace CapstoneDesign.Runtime
                 field.onValueChanged.AddListener(picker.SetValue);
             }
             DockPair("건너뛰기",()=>AdvanceExperience(true),experienceStep==3?"기록 저장":"다음",()=>AdvanceExperience(false),true);
-            if(experienceStep>0)DockPair("이전",()=>{experienceStep--;ShowExperienceStep();},"기록 취소",ShowRecords);
-            else DockAction("기록 취소",ShowRecords);
+            if(experienceStep>0)DockPair("이전",()=>{experienceStep--;ShowExperienceStep();},"기록 취소",ShowGardenJournal);
+            else DockAction("기록 취소",ShowGardenJournal);
         }
         void AdvanceExperience(bool skip)
         {
@@ -210,7 +210,7 @@ namespace CapstoneDesign.Runtime
                 buttons.First(b=>b.name=="이전 기록").interactable=experiencePage>0;
                 buttons.First(b=>b.name=="다음 기록").interactable=experiencePage<pages-1;
             }
-            DockAction("참여 기록",ShowRecords);
+            DockAction("참여 기록",ShowGardenJournal);
         }
         public void ShowExperienceRecord(string id)
         {

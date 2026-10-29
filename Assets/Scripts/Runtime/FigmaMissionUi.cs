@@ -8,7 +8,7 @@ namespace CapstoneDesign.Runtime
     // Figma points, measured from the top left of a 390 x 844 safe-area canvas.
     public static class FigmaMissionUi
     {
-        public static readonly Color Background=Hex("F5F7F3"), Ink=Hex("243C2F"), Muted=Hex("647468"), Green=Hex("315B48"), Soft=Hex("E3EED8"), Border=Hex("D9E1D7"), Warm=Hex("F9EEE1"), Brown=Hex("8E5D3A");
+        public static readonly Color Background=GardenThemePalette.Background, Ink=Hex("243C2F"), Muted=Hex("647468"), Green=Hex("315B48"), Soft=Hex("E3EED8"), Border=Hex("D9E1D7"), Warm=Hex("F9EEE1"), Brown=Hex("8E5D3A");
         public static Color Hex(string value){Color c;ColorUtility.TryParseHtmlString("#"+value.TrimStart('#'),out c);return c;}
         public static RectTransform Rect(Transform p,string name,float x,float y,float w,float h)
         {
@@ -16,7 +16,36 @@ namespace CapstoneDesign.Runtime
             rt.anchorMin=rt.anchorMax=new Vector2(0,1);rt.pivot=new Vector2(0,1);rt.anchoredPosition=new Vector2(x,-y);rt.sizeDelta=new Vector2(w,h);return rt;
         }
         public static RectTransform Box(Transform p,string name,float x,float y,float w,float h,Color fill,float radius=0)
-        {var rt=Rect(p,name,x,y,w,h);var im=rt.gameObject.AddComponent<Image>();if(radius>0){GardenUi.Round(im,fill);im.pixelsPerUnitMultiplier=22f/Mathf.Min(radius,Mathf.Min(w,h)/2f);}else im.color=fill;im.raycastTarget=false;return rt;}
+        {
+            var rt=Rect(p,name,x,y,w,h);var im=rt.gameObject.AddComponent<Image>();
+            if(radius>0){GardenUi.Round(im,fill);im.pixelsPerUnitMultiplier=22f/Mathf.Min(radius,Mathf.Min(w,h)/2f);}else im.color=fill;
+            im.raycastTarget=false;
+            if(HasGardenShell(p) && fill.a>.99f && radius>0 && (w>=80 || h<=12))
+            {
+                var style=h<=12? (fill==Green?GardenThemeSurface.Style.ProgressFill:GardenThemeSurface.Style.ProgressTrack)
+                    :fill==Green?GardenThemeSurface.Style.Primary:fill==Soft?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper;
+                GardenThemeSurface.Apply(rt.gameObject,style);
+            }
+            return rt;
+        }
+        // Only navigation/record pages opt in. Per-mission colours, diagrams and
+        // dynamically rebuilt choice states keep their focused presentation.
+        static bool HasGardenShell(Transform parent)
+        {
+            for(var node=parent;node!=null;node=node.parent)
+                if(node.GetComponent<FigmaGardenThemeScope>()!=null)return true;
+            return false;
+        }
+        public static void UseGardenShell(GameObject surface)
+        {
+            if(surface.GetComponent<FigmaGardenThemeScope>()==null)surface.AddComponent<FigmaGardenThemeScope>();
+            GardenThemeSurface.Apply(surface,GardenThemeSurface.Style.Backdrop);
+        }
+        public static void SetSelected(Button button,bool selected)
+        {
+            button.GetComponent<Image>().color=selected?Soft:Color.white;
+            GardenThemeSurface.Apply(button.gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Wood);
+        }
         public static Text Label(Transform p,string text,float x,float y,float w,float h,int size=16,Color? color=null,bool bold=false,TextAnchor align=TextAnchor.UpperLeft)
         {
             var rt=Rect(p,text.Length>40?text.Substring(0,40):text,x,y,w,h);var t=rt.gameObject.AddComponent<Text>();
@@ -28,7 +57,12 @@ namespace CapstoneDesign.Runtime
             var rt=Box(p,label,x,y,w,h,fill??Green,16);var im=rt.GetComponent<Image>();im.raycastTarget=true;
             var b=rt.gameObject.AddComponent<Button>();b.targetGraphic=im;b.navigation=new Navigation{mode=Navigation.Mode.None};
             var colors=b.colors;colors.highlightedColor=new Color(.94f,.97f,.94f);colors.pressedColor=new Color(.78f,.86f,.80f);colors.disabledColor=new Color(.80f,.83f,.80f);colors.fadeDuration=.1f;b.colors=colors;
-            Label(rt,label,8,0,w-16,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());return b;
+            bool themed=HasGardenShell(p) && (fill??Green).a>.99f;
+            bool primary=themed && ((fill??Green)==Green || (fill??Green)==Brown);
+            if(themed)GardenThemeSurface.Apply(rt.gameObject,primary?GardenThemeSurface.Style.Primary:
+                fill==Soft?GardenThemeSurface.Style.Selected:string.IsNullOrEmpty(label)?GardenThemeSurface.Style.Paper:GardenThemeSurface.Style.Wood);
+            float inset=primary && w>=280?28:8;
+            Label(rt,label,inset,0,w-2*inset,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());return b;
         }
         public static RawImage Asset(Transform p,string resourcesPath,float x,float y,float w,float h)
         {
@@ -40,10 +74,14 @@ namespace CapstoneDesign.Runtime
         {
             var rt=Box(p,"입력 · "+hint,x,y,w,h,Color.white,16);rt.GetComponent<Image>().raycastTarget=true;
             var input=rt.gameObject.AddComponent<GardenInputField>();input.targetGraphic=rt.GetComponent<Image>();
+            if(HasGardenShell(p))GardenThemeSurface.Apply(rt.gameObject,GardenThemeSurface.Style.Input);
             input.textComponent=Label(rt,"",16,16,w-32,h-32,16);input.placeholder=Label(rt,hint,16,16,w-32,h-32,16,Muted);
             input.lineType=InputField.LineType.MultiLineNewline;input.characterLimit=limit;input.customCaretColor=true;input.caretColor=Green;input.selectionColor=Soft;return input;
         }
     }
+
+    // Runtime-only marker: no serialized scene or prefab changes are required.
+    public sealed class FigmaGardenThemeScope:MonoBehaviour { }
 
     [ExecuteAlways]
     public sealed class FigmaMissionCanvasFit:MonoBehaviour

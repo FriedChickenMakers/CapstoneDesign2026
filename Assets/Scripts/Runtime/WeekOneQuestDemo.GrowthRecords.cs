@@ -16,7 +16,7 @@ namespace CapstoneDesign.Runtime
         {
             var linked=state.Sessions.FirstOrDefault(session=>session.SessionId==pendingGrowthRecordSession);
             var button=GardenUi.MenuButton(parent,"함께 기억할 활동",linked==null?"선택하지 않아도 괜찮아요":
-                MindfulnessContent.FindMission(linked.MissionId)?.title??"선택한 활동",0,0,1,0,ShowGrowthLinkPicker,PrototypeUiIcon.Symbol.Journal);
+                FocusSessionTitle(linked),0,0,1,0,ShowGrowthLinkPicker,PrototypeUiIcon.Symbol.Journal);
             button.gameObject.AddComponent<LayoutElement>().preferredHeight=120;
         }
 
@@ -34,7 +34,7 @@ namespace CapstoneDesign.Runtime
                 foreach(var entry in sessions.Skip(growthLinkPage*4).Take(4))
                 {
                     string id=entry.SessionId;
-                    ActivityListItem(list,MindfulnessContent.FindMission(entry.MissionId)?.title??"활동 기록",LocalTime(entry.EndedUtc),()=>
+                    ActivityListItem(list,FocusSessionTitle(entry),LocalTime(entry.EndedUtc),()=>
                     {pendingGrowthRecordSession=id;RenderGrowthPreview();},PrototypeUiIcon.Symbol.Journal);
                 }
             }
@@ -73,7 +73,7 @@ namespace CapstoneDesign.Runtime
                 buttons.First(button=>button.name=="이전 성장").interactable=growthHistoryPage>0;
                 buttons.First(button=>button.name=="다음 성장").interactable=growthHistoryPage<pages-1;
             }
-            DockAction("참여 기록",ShowRecords);
+            DockAction("참여 기록",ShowGardenJournal);
         }
         static string GrowthRecordTitle(GardenGrowthRecord record)
         {
@@ -92,7 +92,7 @@ namespace CapstoneDesign.Runtime
             else
             {
                 GardenUi.FlowLabel(p,"함께 기억하기로 고른 활동",GardenUi.CaptionSize,GardenUi.Muted);
-                GardenTypography.SetWeight(GardenUi.FlowLabel(p,MindfulnessContent.FindMission(linked.MissionId)?.title??"활동 기록",GardenUi.HeadingSize),true);
+                GardenTypography.SetWeight(GardenUi.FlowLabel(p,FocusSessionTitle(linked),GardenUi.HeadingSize),true);
                 GardenUi.FlowLabel(p,LocalTime(linked.EndedUtc),GardenUi.BodySize,GardenUi.Muted);
                 DockAction("그때의 활동과 감정 보기",()=>ShowRecord(linked.SessionId),true);
             }
@@ -109,7 +109,7 @@ namespace CapstoneDesign.Runtime
             RenderSummaryGroup(p,"이번 주 · "+monday.ToString("M/d")+"부터",GardenRecordSummary.Calculate(state,start,now.AddTicks(1)));
             RenderSummaryGroup(p,"지금까지",GardenRecordSummary.Calculate(state,DateTimeOffset.MinValue,now.AddTicks(1)));
             GardenUi.FlowLabel(p,"복습도 참여 횟수에 포함돼요. 빈도는 남긴 기록의 수이며, 마음 상태의 좋고 나쁨을 평가하지 않아요.",GardenUi.BodySize,GardenUi.Muted);
-            DockAction("참여 기록",ShowRecords);
+            DockAction("참여 기록",ShowGardenJournal);
         }
         static void RenderSummaryGroup(Transform parent,string title,GardenRecordSummary summary)
         {

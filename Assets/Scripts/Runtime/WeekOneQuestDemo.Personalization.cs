@@ -45,6 +45,25 @@ namespace CapstoneDesign.Runtime
                 client.RecordMeasuredSession(session);
             }
         }
+        // Keep learned MBCT recommendations reachable after the Focus navigation
+        // migration. This does not reinterpret P/M missions as MBCT candidates.
+        public void ShowLearnedPracticeRecommendations()
+        {
+            if(!opened || !SaveActivePracticeDraft())return;
+            // Returning from settings must not leave the old settings page behind
+            // this hub, otherwise reopening it jumps past the hub on Back.
+            pageHistory.RemoveAll(page=>page.Key=="recommendation-preferences");
+            EnterPage("learned-recommendations",ShowLearnedPracticeRecommendations);
+            var p=FocusPage("이전 활동 복습·추천","저장한 마음챙김 활동을 이어가요");
+            var state=Service.Snapshot;
+            var choices=ActivityList(p,"Learned practice recommendations");
+            AddOptionalRecommendation(choices,state);
+            if(!MbctPolicy.AllCompletedIds(state).Any(id=>MbctContent.Find(id)!=null))
+                Guidance(p,"이전에 완료한 마음챙김 활동이 있으면 복습을 추천해 드려요.");
+            ActivityListItem(choices,"배운 활동 모두 보기",null,ShowLegacyFree,PrototypeUiIcon.Symbol.Journal);
+            ActivityListItem(choices,"추가 활동 추천 설정",null,ShowRecommendationPreferences,PrototypeUiIcon.Symbol.Gear);
+            DockAction("내 과정으로",ShowFocusCourse);
+        }
         public void ShowRecommendationPreferences()
         {
             EnterPage("recommendation-preferences",ShowRecommendationPreferences);
@@ -68,7 +87,7 @@ namespace CapstoneDesign.Runtime
                 ActivityListItem(durations,value+"분 정도",minutes==value?"선택함":null,()=>
                     {if(Apply(Service.SavePreference("recommendation-minutes",value)))ShowRecommendationPreferences();},PrototypeUiIcon.Symbol.Journal);
             }
-            DockAction("배운 활동으로",ShowFree);
+            DockAction("배운 활동으로",ShowLearnedPracticeRecommendations);
         }
     }
 }

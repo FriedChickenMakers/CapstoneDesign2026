@@ -20,7 +20,11 @@ namespace CapstoneDesign.Runtime
         static string FocusProgramTitle(string program) => program == "legacy" ? "이전 예시 과정" : program == "additional" ? "추천·자유 미션" : MbctPolicy.ProgramWeeks(program) + "주 코스";
         static string FocusProgramDescription(string program) => program == "2w" ? "감각에서 시작해 나를 돌보는 계획까지" : program == "4w" ? "몸·생각·행동을 차근차근 살피기" : "다양한 상황에서 반복하며 익히기";
         static string FocusCode(ActivitySession entry) => FocusMissionCatalog.Find(entry.MissionId)?.Code ?? "";
-        static string FocusSessionTitle(ActivitySession entry) => entry.MissionTitleSnapshot ?? FocusMissionCatalog.Find(entry.MissionId)?.Title ?? MindfulnessContent.FindMission(entry.MissionId)?.title ?? entry.MissionId;
+        // IDs overlap between historical P/M content and Focus versions. Read
+        // the session's own definition/snapshot, never rename an older record.
+        static string FocusSessionTitle(ActivitySession entry) => FocusMissionPolicy.IsFocus(entry)
+            ? entry.MissionTitleSnapshot ?? FocusMissionCatalog.FindForSession(entry)?.Title ?? entry.MissionId
+            : MindfulnessContent.FindMission(entry.MissionId)?.title ?? entry.MissionId;
 
         FocusMissionDefinition RecommendedFocusMission(GardenState state)
         {
@@ -233,7 +237,7 @@ namespace CapstoneDesign.Runtime
             var root = BeginFigmaPage("course", ShowFocusCourse, FigmaMissionUi.Background, true, "내 과정");
             FigmaHeader(root, "내 과정", "코스별로 실천과 저장한 기록을 돌아봐요.");
             bool legacy = state.Sessions.Any(a => !FocusMissionPolicy.IsFocus(a) || FocusMissionPolicy.ProgramFor(a) == "legacy");
-            var body = FigmaScroll(root, 132, 628, legacy ? 850 : 740);
+            var body = FigmaScroll(root, 132, 628, legacy ? 1018 : 824);
             for (int i = 0; i < FocusPrograms.Length; i++)
             {
                 string program = FocusPrograms[i]; int done = FocusMissionPolicy.CompletedCount(state, program), total = FocusMissionPolicy.TotalPracticesFor(program);
@@ -248,7 +252,12 @@ namespace CapstoneDesign.Runtime
             }
             FigmaMissionUi.Button(body, "추천·자유 미션 기록", 24, 452, 342, 64, () => ShowFocusHistory(null, 0, "additional"), FigmaMissionUi.Warm, FigmaMissionUi.Brown);
             float y = 536;
-            if (legacy) { FigmaMissionUi.Button(body, "이전 과정·예시 기록", 24, y, 342, 64, () => ShowFocusHistory(null, 0, "legacy"), Color.white, FigmaMissionUi.Green); y += 84; }
+            if (legacy)
+            {
+                FigmaMissionUi.Button(body, "이전 과정·예시 기록", 24, y, 342, 64, () => ShowFocusHistory(null, 0, "legacy"), Color.white, FigmaMissionUi.Green); y += 84;
+                FigmaMissionUi.Button(body, "이전 활동 복습·추천", 24, y, 342, 64, ShowLearnedPracticeRecommendations, Color.white, FigmaMissionUi.Green); y += 84;
+            }
+            FigmaMissionUi.Button(body, "정원·건강 기록", 24, y, 342, 64, ShowGardenJournal, Color.white, FigmaMissionUi.Green); y += 84;
             FigmaMissionUi.Button(body, "코스 선택·변경", 24, y, 342, 52, ShowFocusProgramSelection, Color.white, FigmaMissionUi.Green);
             FigmaMissionUi.Button(body, "미션 창으로 돌아가기", 24, y + 68, 342, 52, ShowHome, Color.clear, FigmaMissionUi.Green, 14);
         }
@@ -336,6 +345,7 @@ namespace CapstoneDesign.Runtime
             if (!opened || !SaveActivePracticeDraft()) return;
             var entry = Service.Snapshot.Sessions.FirstOrDefault(a => a.SessionId == id);
             if (entry == null) { ShowFocusCourse(); return; }
+            if (!FocusMissionPolicy.IsFocus(entry)) { ShowLegacyRecord(id); return; }
             bool focus = FocusMissionPolicy.IsFocus(entry); string program = focus ? FocusMissionPolicy.ProgramFor(entry) : "legacy";
             var root = BeginFigmaPage("focus-record", () => ShowFocusRecord(id), FigmaMissionUi.Background, true, "내 과정");
             FigmaHeader(root, FocusCode(entry) + " 미션 기록", FocusSessionTitle(entry));
