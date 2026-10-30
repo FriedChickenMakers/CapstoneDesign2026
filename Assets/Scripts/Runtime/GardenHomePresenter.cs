@@ -155,10 +155,10 @@ namespace CapstoneDesign.Runtime
             }
             RefreshMissionStatus();
             if(TemporarySettingsButton!=null)return;
-            TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",552,12,120,72,OpenSettings,GardenUi.Pale,GardenUi.Green,28);
+            TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",552,4,120,96,OpenSettings,GardenUi.Pale,GardenUi.Green,28);
             TemporarySettingsButton.name="TemporarySettingsButton";
             var rect=(RectTransform)TemporarySettingsButton.transform;
-            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(1,1);rect.anchoredPosition=new Vector2(-48,-12);
+            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(1,1);rect.anchoredPosition=new Vector2(-48,-4);
             if(date!=null && backgroundPreview==null)
             {
                 var dateRect=date.rectTransform;
@@ -171,7 +171,9 @@ namespace CapstoneDesign.Runtime
         {
             if(NavigationBar==null)return;
             var loop=activity!=null?activity:navigation==null||navigation.activitiesPanel==null?null:navigation.activitiesPanel.GetComponent<WeekOneQuestDemo>();
-            NavigationBar.Refresh("홈",loop!=null&&loop.HasOpenState?(bool?)FocusMissionPolicy.HasPendingToday(loop.Service.Snapshot):null);
+            var snapshot = loop != null && loop.HasOpenState ? loop.Service.Snapshot : null;
+            NavigationBar.Refresh("홈",snapshot == null ? (bool?)null : FocusNavigationStatus.NeedsAttention(snapshot),
+                snapshot != null && FocusNavigationStatus.HasOptional(snapshot));
         }
 
         static void EnsureSharedHeader(Transform content)
@@ -242,6 +244,9 @@ namespace CapstoneDesign.Runtime
             rect.anchoredPosition=new Vector2(right?-x:x,-y);rect.sizeDelta=new Vector2(width,height);
             label.fontSize=size;label.enableAutoSizing=false;label.textWrappingMode=TextWrappingModes.NoWrap;
             label.overflowMode=TextOverflowModes.Ellipsis;label.alignment=right?TextAlignmentOptions.MidlineRight:TextAlignmentOptions.MidlineLeft;
+            // A thin opposite-color edge keeps the camera scene visible while
+            // separating the day/night text from leaves, clouds and bright sky.
+            label.outlineWidth = .12f;
             label.raycastTarget=false;
         }
 
@@ -253,9 +258,15 @@ namespace CapstoneDesign.Runtime
             var sky=gardenVisuals==null?null:gardenVisuals.GetComponent<GardenSkyEnvironment>();
             double hour=GardenVisualClock.CurrentHour;
             Color ink=OverlayTextColor(sky!=null?sky.Daylight:hour>=6&&hour<18?1:0);
-            if(title!=null)title.color=ink;
-            if(date!=null)date.color=ink;
-            if(guide!=null)guide.color=ink;
+            Color32 edge = ink == Color.white ? new Color(0,0,0,.52f) : new Color(1,1,1,.68f);
+            ApplyOverlayInk(title,ink,edge);ApplyOverlayInk(date,ink,edge);ApplyOverlayInk(guide,ink,edge);
+        }
+
+        static void ApplyOverlayInk(TMP_Text label,Color ink,Color32 edge)
+        {
+            if(label==null)return;
+            if(label.color!=ink)label.color=ink;
+            if(!label.outlineColor.Equals(edge))label.outlineColor=edge;
         }
 
         public void SetViewControlsExpanded(bool expanded)

@@ -8,11 +8,11 @@ namespace CapstoneDesign.Runtime
     {
         CanvasGroup group;
         float elapsed;
-        void Awake() { group = gameObject.AddComponent<CanvasGroup>(); group.alpha = 0; }
+        void Awake() { group = GetComponent<CanvasGroup>() ?? gameObject.AddComponent<CanvasGroup>(); group.alpha = FigmaMissionUi.ReducedMotion?1:.65f; }
         void Update()
         {
             elapsed += Time.unscaledDeltaTime;
-            group.alpha = Mathf.Clamp01(elapsed / .16f);
+            group.alpha = FigmaMissionUi.ReducedMotion?1:Mathf.Lerp(.65f,1,Mathf.Clamp01(elapsed / .18f));
             if (elapsed >= .16f) Destroy(this);
         }
     }

@@ -97,7 +97,7 @@ namespace CapstoneDesign.Runtime
             }
             if(session.InstructionStep>=mission.steps.Length){ShowReflection();return;}
             int index=session.InstructionStep;var step=mission.steps[index];
-            activityEyebrow.text=(index+1)+" / "+mission.steps.Length+" · "+step.title;
+            activityEyebrow.text=step.title;
             Guidance(p,step.guidance);
             if(step.answerKey!=null)
             {

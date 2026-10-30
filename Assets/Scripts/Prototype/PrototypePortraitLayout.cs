@@ -7,6 +7,7 @@ namespace CapstoneDesign.Prototype
     {
         public RectTransform designFrame;
         public Vector2 referenceSize = new Vector2(720, 1280);
+        public bool fitByWidth;
         private void OnEnable()
         {
             Canvas.preWillRenderCanvases += Apply;
@@ -22,6 +23,12 @@ namespace CapstoneDesign.Prototype
             var canvas = (RectTransform)transform;
             if (!TryCalculate(new Vector2(Screen.width, Screen.height), canvas.rect.size,
                 AndroidSystemBarSafeArea.Current(), referenceSize, out var size, out float scale, out var position)) return;
+            if(fitByWidth)
+            {
+                var safe=AndroidSystemBarSafeArea.Current();
+                float widthScale=safe.width*canvas.rect.width/Mathf.Max(1,Screen.width)/referenceSize.x;
+                if(widthScale>0){scale=widthScale;size=new Vector2(referenceSize.x,safe.height*canvas.rect.height/Mathf.Max(1,Screen.height)/scale);}
+            }
             designFrame.anchorMin = designFrame.anchorMax = new Vector2(.5f, .5f);
             designFrame.pivot = new Vector2(.5f, .5f);
             // One stable shell for every page. Never resize the header/navigation on tab changes.

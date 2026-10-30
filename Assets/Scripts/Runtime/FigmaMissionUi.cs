@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using UnityEngine;
 using UnityEngine.UI;
 using CapstoneDesign.Prototype;
@@ -10,6 +11,13 @@ namespace CapstoneDesign.Runtime
     {
         public static readonly Color Background=Hex("F5F7F3"), Ink=Hex("243C2F"), Muted=Hex("647468"), Green=Hex("315B48"), Soft=Hex("E3EED8"), Border=Hex("D9E1D7"), Warm=Hex("F9EEE1"), Brown=Hex("8E5D3A");
         public static Color Hex(string value){Color c;ColorUtility.TryParseHtmlString("#"+value.TrimStart('#'),out c);return c;}
+        public static bool ReducedMotion { get => PlayerPrefs.GetInt("ui.reduce-motion",0)==1; set {PlayerPrefs.SetInt("ui.reduce-motion",value?1:0);PlayerPrefs.Save();} }
+        public static T Find<T>(Transform root,string name) where T:Component => root.GetComponentsInChildren<T>(true).FirstOrDefault(item=>item.name==name);
+        public static float Contrast(Color a,Color b) {float x=Luminance(a),y=Luminance(b);return (Mathf.Max(x,y)+.05f)/(Mathf.Min(x,y)+.05f);}
+        static float Luminance(Color c) => .2126f*Linear(c.r)+.7152f*Linear(c.g)+.0722f*Linear(c.b);
+        static float Linear(float c) => c<=.04045f?c/12.92f:Mathf.Pow((c+.055f)/1.055f,2.4f);
+        // Decorative theme colors remain unchanged; action/text colors meet the small-text target.
+        public static Color ActionColor(Color color) {while(Contrast(color,Color.white)<4.6f){color.r*=.97f;color.g*=.97f;color.b*=.97f;}return color;}
         public static RectTransform Rect(Transform p,string name,float x,float y,float w,float h)
         {
             var go=new GameObject(name,typeof(RectTransform));var rt=(RectTransform)go.transform;rt.SetParent(p,false);
@@ -26,9 +34,10 @@ namespace CapstoneDesign.Runtime
         public static Button Button(Transform p,string label,float x,float y,float w,float h,Action action,Color? fill=null,Color? ink=null,int size=16)
         {
             var rt=Box(p,label,x,y,w,h,fill??Green,16);var im=rt.GetComponent<Image>();im.raycastTarget=true;
-            var b=rt.gameObject.AddComponent<Button>();b.targetGraphic=im;b.navigation=new Navigation{mode=Navigation.Mode.None};
+            var b=rt.gameObject.AddComponent<Button>();b.targetGraphic=im;b.navigation=new Navigation{mode=Navigation.Mode.Automatic};
             var colors=b.colors;colors.highlightedColor=new Color(.94f,.97f,.94f);colors.pressedColor=new Color(.78f,.86f,.80f);colors.disabledColor=new Color(.80f,.83f,.80f);colors.fadeDuration=.1f;b.colors=colors;
-            Label(rt,label,8,0,w-16,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());return b;
+            Label(rt,label,8,0,w-16,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());
+            rt.gameObject.AddComponent<FocusControlFeedback>().Control=b;return b;
         }
         public static RawImage Asset(Transform p,string resourcesPath,float x,float y,float w,float h)
         {
@@ -49,8 +58,9 @@ namespace CapstoneDesign.Runtime
     public sealed class FigmaMissionCanvasFit:MonoBehaviour
     {
         public RectTransform Design;
+        public bool WidthBased=true;
         void OnEnable(){Canvas.preWillRenderCanvases+=Fit;Fit();}
         void OnDisable(){Canvas.preWillRenderCanvases-=Fit;}
-        public void Fit(){if(Design==null)return;var r=((RectTransform)transform).rect;float s=Mathf.Min(r.width/390f,r.height/844f);if(s<=0)return;Design.anchorMin=Design.anchorMax=new Vector2(.5f,.5f);Design.pivot=new Vector2(.5f,.5f);Design.anchoredPosition=Vector2.zero;Design.sizeDelta=new Vector2(390,844);Design.localScale=Vector3.one*s;}
+        public void Fit(){if(Design==null)return;var r=((RectTransform)transform).rect;float s=WidthBased?r.width/390f:Mathf.Min(r.width/390f,r.height/844f);if(s<=0)return;Design.anchorMin=Design.anchorMax=new Vector2(.5f,.5f);Design.pivot=new Vector2(.5f,.5f);Design.anchoredPosition=Vector2.zero;Design.sizeDelta=new Vector2(390,WidthBased?r.height/s:844);Design.localScale=Vector3.one*s;}
     }
 }

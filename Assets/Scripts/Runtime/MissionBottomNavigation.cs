@@ -5,6 +5,7 @@ using UnityEngine.UI;
 namespace CapstoneDesign.Runtime
 {
     // One 390-point navigation design for the garden and mission pages.
+    [ExecuteAlways]
     public sealed class MissionBottomNavigation : MonoBehaviour
     {
         public Button HomeButton, MissionButton, CourseButton;
@@ -16,11 +17,11 @@ namespace CapstoneDesign.Runtime
         RawImage[] icons;
         Image badge;
 
-        public static MissionBottomNavigation Create(Transform design,string active,Action home,Action missions,Action course,bool? hasPending)
+        public static MissionBottomNavigation Create(Transform design,string active,Action home,Action missions,Action course,bool? hasPending,bool hasOptional=false)
         {
             var rect=FigmaMissionUi.Box(design,"하단 탐색",0,760,390,84,Color.white);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
-            bar.Build(home,missions,course);bar.Refresh(active,hasPending);return bar;
+            bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);return bar;
         }
 
         void Build(Action home,Action missions,Action course)
@@ -39,7 +40,7 @@ namespace CapstoneDesign.Runtime
             MissionBadge=FigmaMissionUi.Label(marker,"!",0,0,16,16,11,Color.white,true,TextAnchor.MiddleCenter);
         }
 
-        public void Refresh(string active,bool? hasPending)
+        public void Refresh(string active,bool? hasPending,bool hasOptional=false)
         {
             if(buttons==null)return;ActiveTab=active;
             string[] paths={"home",active=="미션"?"leaf":"leaf-muted",active=="내 과정"?"book-active":"book"};
@@ -52,9 +53,17 @@ namespace CapstoneDesign.Runtime
             badge.gameObject.SetActive(hasPending.HasValue);
             if(hasPending.HasValue)
             {
-                badge.color=hasPending.Value?FigmaMissionUi.Brown:FigmaMissionUi.Green;
-                MissionBadge.text=hasPending.Value?"!":"✓";
+                badge.color=hasPending.Value?FigmaMissionUi.Brown:hasOptional?FigmaMissionUi.Soft:FigmaMissionUi.Green;
+                MissionBadge.color=hasPending.Value||!hasOptional?Color.white:FigmaMissionUi.Green;
+                MissionBadge.text=hasPending.Value?"!":hasOptional?"·":"✓";
             }
+        }
+        void OnEnable(){Canvas.preWillRenderCanvases+=Fit;Fit();}
+        void OnDisable(){Canvas.preWillRenderCanvases-=Fit;}
+        void Fit()
+        {
+            var parent=transform.parent as RectTransform;if(parent==null)return;
+            ((RectTransform)transform).anchoredPosition=new Vector2(0,-(parent.rect.height-84));
         }
     }
 }

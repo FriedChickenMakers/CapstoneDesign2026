@@ -16,19 +16,22 @@ namespace CapstoneDesign.Runtime
             var fit=activityFrame.AddComponent<FigmaMissionCanvasFit>();fit.Design=design;fit.Fit();view=design.gameObject;
             if(navigation)FigmaNavigation(design,activeTab);
             notice=FigmaMissionUi.Label(design,string.IsNullOrEmpty(error)?"":"저장하지 못했어요. 입력을 유지했으니 다시 시도해 주세요.",24,714,342,40,14,GardenUi.Warning);notice.gameObject.SetActive(!string.IsNullOrEmpty(error));
+            notice.name="Focus.SaveNotice";
+            var mobile=design.gameObject.AddComponent<FocusMobilePageLayout>();mobile.Page=key;mobile.Navigation=navigation;mobile.Notice=notice;
+            design.gameObject.AddComponent<FocusKeyboardNavigation>();
             return design;
         }
         void FigmaHeader(Transform p,string title,string subtitle)
         {FigmaMissionUi.Label(p,title,24,52,342,38,28,null,true);FigmaMissionUi.Label(p,subtitle,24,94,342,30,14,FigmaMissionUi.Muted);}
         void FigmaNavigation(Transform p,string active)
         {
-            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,ShowFocusCourse,opened?(bool?)FocusMissionPolicy.HasPendingToday(Service.Snapshot):null);
+            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,ShowFocusCourse,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
         }
         void RefreshMissionNavigation()
         {
             if(!opened)return;
-            bool pending=FocusMissionPolicy.HasPendingToday(Service.Snapshot);
-            foreach(var bar in transform.root.GetComponentsInChildren<MissionBottomNavigation>(true))bar.Refresh(bar.ActiveTab,pending);
+            bool pending=FocusNavigationStatus.NeedsAttention(Service.Snapshot);
+            foreach(var bar in transform.root.GetComponentsInChildren<MissionBottomNavigation>(true))bar.Refresh(bar.ActiveTab,pending,FocusNavigationStatus.HasOptional(Service.Snapshot));
         }
         RectTransform FigmaScroll(Transform p,float y=132,float height=628,float contentHeight=900)
         {

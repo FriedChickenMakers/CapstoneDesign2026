@@ -107,6 +107,7 @@ namespace CapstoneDesign.EditorTools
                     int total = FocusMissionPolicy.TotalPracticesFor(program);
                     Assert(f.VisibleText.Contains("완료한 실습 0 / " + total), "Course total is wrong.");
                     Assert(!f.VisibleText.Contains("1주차 미션"), "History retained weekly groups.");
+                    f.Click("Focus.CurriculumToggle");
                     Assert(f.Ui.GetComponentsInChildren<Button>(false).Count(b => b.name.StartsWith("Focus.Occurrence." + program + ".", StringComparison.Ordinal)) == total, "Not all course occurrences are listed.");
                     f.Click("Focus.Occurrence." + program + "." + total);
                     Assert(f.VisibleText.Contains(FocusMissionPolicy.MissionAt(total, program).Title) && f.VisibleText.Contains("아직 저장된 수행 기록이 없어요"), "Future occurrence information is inaccessible.");
@@ -127,7 +128,7 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("allcourse-05-course-grouped-history", capture);
                 f.Click("Focus.CourseRecords.2w"); f.Click("저장된 기록 보기");
                 Assert(f.Has("Focus.Record." + two) && !f.Has("Focus.Record." + four) && !f.Has("Focus.Record." + additional), "Course history contains another course or independent recommendation.");
-                f.Click("Focus.Record." + two);
+                f.Click("Focus.Record." + two);f.Click("Focus.RecordStepsToggle");
                 Assert(f.VisibleText.Contains("synthetic two-week note") && f.VisibleText.Contains("2주 코스") && f.VisibleText.Contains("확인 ·"), "Detailed course response or timestamp was lost.");
                 f.Capture("allcourse-06-deep-record", capture);
                 f.Click("다시 연습하기 · 추가 보상 없음");
@@ -187,7 +188,7 @@ namespace CapstoneDesign.EditorTools
                     f.CompleteReflection("synthetic " + code + " record", "", false);
                     Assert(f.Latest.Status == ParticipationState.RewardCommitted, code + " did not complete through its visible controls.");
                     f.AssertVisibleAssets();
-                    f.Click("확인"); f.Clock.UtcNow = f.Clock.UtcNow.AddDays(2); Assert(f.Ui.RefreshCycle(), f.Service.LastError);
+                    f.Click("Focus.ConfirmHome"); f.Clock.UtcNow = f.Clock.UtcNow.AddDays(2); Assert(f.Ui.RefreshCycle(), f.Service.LastError);
                 }
                 foreach (var mission in FocusMissionCatalog.Additional)
                 {
