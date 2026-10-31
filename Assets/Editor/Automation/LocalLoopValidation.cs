@@ -265,6 +265,8 @@ namespace CapstoneDesign.EditorTools
             Assert(sensor.output.text == "Synthetic unchanged diagnostic text" && loop.Service.SnapshotReads == reads,
                 "Closed diagnostics still format raw output or clone the garden state.");
             Assert(summary.text != "Synthetic stale visible status", "Visible status stopped refreshing with diagnostics closed.");
+            // Diagnostics now live inside the explicitly opened development tools.
+            sensor.TestToolsToggleButton.onClick.Invoke();
             sensor.ToggleDiagnostics();
             Assert(sensor.output.text.Contains("PLATFORM") && sensor.output.text.Contains("HEALTH") &&
                 sensor.output.text.Contains("ACTION:"), "Expanding diagnostics did not populate current data immediately.");

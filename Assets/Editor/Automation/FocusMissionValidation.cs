@@ -155,6 +155,9 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report))
             {
+                // The compact mobile viewport guarantees actual overflow; the
+                // simplified home intentionally fits without scrolling on tall phones.
+                f.Resize(360, 640); f.Ui.ShowHome();
                 Assert(f.Service.Snapshot.Sessions.Count == 0 && FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 0,
                     "A fresh preview contains a saved mission or completion.");
                 Assert(f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Fresh basic or additional mission starts unavailable.");
@@ -179,7 +182,7 @@ namespace CapstoneDesign.EditorTools
                 f.Click("추천 미션 보기");
                 Assert(f.Has("추가 미션 시작하기"), "Recommendation did not expose the additional start action.");
                 f.Capture("02-recommendation", capture);
-                f.Click("‹");
+                f.Click("미션 창으로 돌아가기");
                 f.Click("내 과정");
                 Assert(f.Has("미션 창으로 돌아가기"), "Course return action is absent.");
                 Assert(f.VisibleText.Contains("완료한 실습 0 / 12"), "A fresh course does not start at zero completed practices.");
@@ -215,7 +218,7 @@ namespace CapstoneDesign.EditorTools
                         code + " lost a confirmed step.");
                     Assert(completed.Note == code + " synthetic reflection" && completed.Mood == "편안함", code + " lost reflection.");
                     f.Capture(code + "-completed", capture);
-                    f.Click("확인");
+                    f.Click("Focus.ConfirmHome");
                     Assert(f.Ui.CurrentScreen == "home", "Completion confirm did not return to mission home.");
                     f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1);
                     f.Ui.RefreshCycle();
@@ -243,6 +246,7 @@ namespace CapstoneDesign.EditorTools
                 f.CompletePractice(FocusMissionCatalog.Find("M03"), capture);
                 f.ClickBack(); f.Click("물 마셨어요");
                 Assert(f.Has("다음"), "Emotion back and last-step reconfirm did not return to emotion.");
+                f.Click("Focus.MoreEmotions");
                 foreach (var label in Emotions)
                 {
                     Assert(f.Has(label), "Missing Figma emotion: " + label);
@@ -269,7 +273,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report, true))
             {
-                f.Click("기본 미션 시작하기"); f.Click("시작"); f.Click(FocusMissionCatalog.Find("P04").Steps[0].ActionLabel);
+                f.Click("기본 미션 시작하기"); f.Click("시작"); f.Click("Focus.Action");
                 string id = f.Latest.SessionId;
                 f.Click("닫기");
                 Assert(f.Has("기본 미션 이어서 하기"), "Close did not expose resume on home.");
@@ -277,7 +281,7 @@ namespace CapstoneDesign.EditorTools
                 f.Click("기본 미션 이어서 하기");
                 Assert(f.Latest.SessionId == id && f.Latest.InstructionStep == 1, "Resume lost the session or stage.");
                 f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
-                f.Click("고마움"); f.Click("다음"); f.SetInput("synthetic retained note");
+                f.Click("Focus.MoreEmotions"); f.Click("고마움"); f.Click("다음"); f.SetInput("synthetic retained note");
                 f.ClickBack();
                 Assert(f.Has("고마움"), "Note back did not return to emotion.");
                 f.Click("다음");
@@ -293,15 +297,15 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Latest.Status == ParticipationState.RewardCommitted && f.Service.Snapshot.Nutrient == 5, "Retry did not commit exactly once.");
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Basic-only done home has incorrect CTA state.");
-                f.AssertMissionBadge("!");
+                f.AssertMissionBadge("·");
                 f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기"); f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("M03"), false); f.CompleteReflection("", "", false);
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Completing M03 hid the other available recommendations.");
-                f.AssertMissionBadge("!");
+                f.AssertMissionBadge("·");
                 f.Capture("07-both-completed-home", capture);
                 f.Click("홈"); f.Navigation.home.RefreshMissionStatus();
-                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "!", "Garden hid remaining additional missions after completing only M03.");
+                Assert(f.Navigation.home.NavigationBar.MissionBadge.text == "·", "Optional recommendations should use a neutral garden badge.");
                 f.Capture("16-garden-all-done", capture); f.Navigation.ShowActivities();
                 f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1); f.Ui.RefreshCycle();
                 f.AssertMissionBadge("!");
@@ -321,7 +325,7 @@ namespace CapstoneDesign.EditorTools
                 f.Invoke("ShowFocusCourse");
                 f.Click("Focus.CourseRecords.2w"); f.Click("저장된 기록 보기");
                 f.Capture("08-history", capture);
-                f.Click("Focus.Record." + f.Latest.SessionId);
+                f.Click("Focus.Record." + f.Latest.SessionId); f.Click("Focus.RecordStepsToggle");
                 var copy = f.VisibleText;
                 Assert(copy.Contains("synthetic history detail") && copy.Contains("뿌듯함"), "Saved detail omitted reflection fields.");
                 Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(t => t.text.Contains("<size=99>synthetic history detail</size>") && !t.supportRichText),
@@ -459,7 +463,9 @@ namespace CapstoneDesign.EditorTools
                 f.CompletePractice(FocusMissionCatalog.Find("P04"),false);
                 f.CompleteReflection("synthetic completed record before settings reset","만족감",false);
                 var settings=f.OpenMissionSettings();
-                Assert(settings.MissionRefreshButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="새로고침")
+                Assert(!settings.MissionRefreshButton.gameObject.activeInHierarchy,"Test tools should start collapsed.");
+                f.ClickControl(settings.TestToolsToggleButton);
+                Assert(settings.MissionRefreshButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="미션 기록 초기화")
                     && settings.AdvanceMissionDayButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="다음 날로 넘기기"),
                     "Mission management actions do not have their requested settings labels.");
                 f.Capture("20-settings-mission-controls",capture);
@@ -483,20 +489,22 @@ namespace CapstoneDesign.EditorTools
                 f.AssertMissionBadge("!");
 
                 f.Click("추천 미션 보기");f.Click("추가 미션 시작하기");f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("고마움");f.Click("다음");
+                f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("Focus.MoreEmotions");f.Click("고마움");f.Click("다음");
                 const string draft="synthetic editable note preserved on failed settings save";f.SetInput(draft);
                 f.Navigation.ShowSettings();
                 string beforeReset=StateCodec.Encode(f.Service.Snapshot);var beforeResetClock=f.Service.CurrentUtc;
                 f.Store.FailNextSaves=1;f.ClickControl(settings.AdvanceMissionDayButton);
                 Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset&&f.Service.CurrentUtc==beforeResetClock,
                     "Failed day advance changed an editable mission draft.");
-                f.Store.FailNextSaves=1;f.ClickControl(settings.MissionRefreshButton);
+                f.ClickControl(settings.MissionRefreshButton);
+                Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset,"Opening reset confirmation erased data.");
+                f.Store.FailNextSaves=1;f.ClickControl(settings.MissionResetConfirmButton);
                 Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset,"Failed mission reset partially removed saved detail or progress.");
                 f.Navigation.ShowActivities();f.Invoke("ShowHome");f.Click("추가 미션 이어서 하기");
                 Assert(f.Input!=null&&f.Input.text==draft,"Failed settings actions destroyed the editable mission note.");
                 f.Navigation.ShowSettings();var preserved=f.Service.Snapshot;
                 string recipe=PlantCodec.Encode(preserved.PlantAppearance.Recipe);
-                f.ClickControl(settings.MissionRefreshButton);var cleared=f.Service.Snapshot;
+                f.ClickControl(settings.MissionRefreshButton);f.ClickControl(settings.MissionResetConfirmButton);var cleared=f.Service.Snapshot;
                 Assert(cleared.Sessions.Count==0&&FocusMissionPolicy.CompletedCount(cleared)==0
                     && cleared.PracticePreferences.Count==0&&cleared.Experiences.Count==0,
                     "Mission refresh left saved details, course completions or practice answers behind.");
@@ -707,7 +715,7 @@ namespace CapstoneDesign.EditorTools
             f.CompleteReflection("", "", false);
             Assert(f.Latest.Status == ParticipationState.RewardCommitted, "Catalog mission did not complete: " + mission.Code);
             if (representative) f.Capture("catalog-" + mission.Code + "-complete", capture);
-            f.Click("확인");
+            f.Click("Focus.ConfirmHome");
         }
 
         static void KeyboardGeometry()
@@ -756,7 +764,7 @@ namespace CapstoneDesign.EditorTools
             readonly Canvas canvas;
             readonly GraphicRaycaster raycaster;
             readonly EventSystem pointerContext;
-            readonly RenderTexture validationTarget;
+            RenderTexture validationTarget;
             readonly Camera camera, existingCamera;
             readonly Light existingLight;
             readonly float lightIntensity;
@@ -766,6 +774,11 @@ namespace CapstoneDesign.EditorTools
             public ActivitySession Latest => Service.Snapshot.Sessions.Last(s => FocusMissionPolicy.IsFocus(s));
             public InputField Input => Ui.GetComponentsInChildren<InputField>(false).FirstOrDefault(i => i.gameObject.activeInHierarchy);
             public string VisibleText => string.Join("\n", Ui.GetComponentsInChildren<Text>(false).Where(t => t.gameObject.activeInHierarchy).Select(t => t.text));
+            public void Resize(int width,int height)
+            {
+                camera.targetTexture=null;validationTarget.Release();UnityEngine.Object.DestroyImmediate(validationTarget);
+                validationTarget=new RenderTexture(width,height,24);camera.targetTexture=validationTarget;camera.aspect=width/(float)height;Layout();
+            }
 
             public Fixture(Report report, bool integratedShell = false, bool chooseCourse = true, MemoryStore seededStore = null)
             {
@@ -914,16 +927,17 @@ namespace CapstoneDesign.EditorTools
             void Reveal(Button button) => Reveal((RectTransform)button.transform);
             void Reveal(RectTransform rect)
             {
-                // Scroll controls or an explicitly requested chart into view. This
-                // is never used to repair the initial top-position assertions.
-                var scroll = rect.GetComponentInParent<ScrollRect>();
-                if (scroll == null || scroll.content == null || scroll.viewport == null) return;
-                Layout();
-                Vector3 center = scroll.content.InverseTransformPoint(rect.TransformPoint(rect.rect.center));
-                float y = Mathf.Clamp(-center.y - scroll.viewport.rect.height / 2, 0,
-                    Mathf.Max(0, scroll.content.rect.height - scroll.viewport.rect.height));
-                scroll.content.anchoredPosition = new Vector2(scroll.content.anchoredPosition.x, y);
-                scroll.velocity = Vector2.zero; Layout();
+                // Reveal requested controls/charts in every active scroll ancestor.
+                // Initial top-position assertions run before any reveal.
+                foreach(var scroll in rect.GetComponentsInParent<ScrollRect>(false))
+                {
+                    if(!scroll.isActiveAndEnabled||scroll.content==null||scroll.viewport==null)continue;
+                    Layout();
+                    Vector3 center=scroll.content.InverseTransformPoint(rect.TransformPoint(rect.rect.center));
+                    float y=Mathf.Clamp(-center.y-scroll.viewport.rect.height/2,0,Mathf.Max(0,scroll.content.rect.height-scroll.viewport.rect.height));
+                    scroll.content.anchoredPosition=new Vector2(scroll.content.anchoredPosition.x,y);
+                    scroll.velocity=Vector2.zero;Layout();
+                }
             }
             public void RevealGraphic(Graphic graphic)
             {
@@ -1044,7 +1058,7 @@ namespace CapstoneDesign.EditorTools
                         Assert(Latest.SessionId == before && Latest.InstructionStep == index, "Continue-later lost the saved practice position.");
                     }
                     Capture(definition.Code + "-step-" + (index + 1), capture);
-                    Click(step.OptionalInput && thinkOnly ? (Has("속으로 확인했어요") ? "속으로 확인했어요" : "건너뛰기") : step.ActionLabel);
+                    Click(step.OptionalInput && thinkOnly ? (Has("속으로 확인했어요") ? "속으로 확인했어요" : "건너뛰기") : "Focus.Action");
                     Assert(Latest.InstructionStep > index, "Practice action did not advance: " + definition.Code + " " + step.Key);
                 }
                 Assert(Has("다음"), "Practice did not lead to shared emotion.");
@@ -1087,7 +1101,7 @@ namespace CapstoneDesign.EditorTools
             }
             public void CompleteReflection(string value, string mood, bool capture)
             {
-                if (!string.IsNullOrEmpty(mood)) Click(mood);
+                if (!string.IsNullOrEmpty(mood)) {if(!Has(mood))Click("Focus.MoreEmotions");Click(mood);}
                 Capture("10-shared-emotion", capture); Click("다음");
                 SetInput(value); Capture("11-shared-note", capture); Click("미션 완료");
             }
@@ -1100,8 +1114,10 @@ namespace CapstoneDesign.EditorTools
             public void Capture(string name, bool enabled)
             {
                 if (!enabled) return;
+                // This fixture is also used independently by mobile/course runs.
+                Directory.CreateDirectory(OutputRoot);
                 string path = Path.Combine(OutputRoot, name + ".png");
-                const int width = 780, height = 1688;
+                int width=validationTarget.width,height=validationTarget.height;
                 var target = new RenderTexture(width, height, 24);
                 var texture = new Texture2D(width, height, TextureFormat.RGB24, false);
                 var previousTarget = RenderTexture.active;

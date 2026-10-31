@@ -1,7 +1,7 @@
 # CapstoneDesign2026 Unity Mockup
 
 The integrated app combines the garden theme with all 45 M/P missions and
-2/4/8-week courses. Start with the [2026-10-29 integration record](docs/BRANCH_INTEGRATION_2026-10-29.md)
+2/4/8-week courses. Start with the [2026-10-31 mobile integration record](docs/BRANCH_INTEGRATION_2026-10-31.md)
 for branch ancestry, conflict resolutions, validation, and teammate merge guidance.
 Current mission behavior and persistence: [all missions and courses](docs/ALL_MISSIONS_AND_COURSES_2026-10-29.md).
 The [earlier UI benchmarks](docs/MISSION_UI_BENCHMARK_AND_FIGMA_FLOW_2026-10-28.md)

@@ -109,7 +109,7 @@ namespace CapstoneDesign.Runtime
                 originalPivot = inputRect.pivot; originalPosition = inputRect.anchoredPosition; originalSize = inputRect.sizeDelta; originalInputScale = inputRect.localScale;
                 originalTextSize = Input.textComponent.rectTransform.sizeDelta;
                 if (Input.placeholder != null) originalPlaceholderSize = Input.placeholder.rectTransform.sizeDelta;
-                overlay = FigmaMissionUi.Box(design, "키보드 입력 화면", 0, 0, 390, 844, Background);
+                overlay = FigmaMissionUi.Box(design, "키보드 입력 화면", 0, 0, 390, design.rect.height, Background);
                 overlay.GetComponent<Image>().raycastTarget = true;
                 FigmaMissionUi.Label(overlay, Title ?? "내용 입력", 24, 16, 342, 32, 22, Accent, true);
                 done = FigmaMissionUi.Button(overlay, "입력 마치기", 24, 760, 342, 52, FinishEditing, Accent, Color.white);

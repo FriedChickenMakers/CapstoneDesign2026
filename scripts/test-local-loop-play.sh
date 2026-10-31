@@ -13,7 +13,8 @@ fi
 export DISPLAY="${DISPLAY:-:99}"
 for phase in "${phases[@]}"; do
  export CAPSTONE_SMOKE_PHASE="$phase"
- args=(-force-vulkan -projectPath "$project_dir" -executeMethod CapstoneDesign.EditorTools.LocalLoopPlaySmoke.Start -logFile -)
+ # A real Game view needs presentation; Xvfb supports GLX but not Vulkan DRI3.
+ args=(-force-glcore -projectPath "$project_dir" -executeMethod CapstoneDesign.EditorTools.LocalLoopPlaySmoke.Start -logFile -)
  if [[ "$phase" != chrome ]]; then args=(-batchmode "${args[@]}"); fi
  result="$CAPSTONE_SMOKE_SAVE_ROOT/play-$phase.json"
  rm -f -- "$result"

@@ -21,6 +21,10 @@ and do not clear app data or logcat unless explicitly requested.
 
 # Repository privacy and remote synchronization
 
+The active project branch is `misssion` (three s characters), as requested by the user.
+Continue implementation work there. Keep `main` at the integration merge unless
+the user explicitly requests another merge or branch change.
+
 Before each commit and push, inspect the changed files and run
 `python3 scripts/check-repo-privacy.py` for the publishable working tree, then
 `python3 scripts/check-repo-privacy.py --staged` for the exact staged contents

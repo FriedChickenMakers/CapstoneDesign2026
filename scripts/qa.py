@@ -47,6 +47,7 @@ def catalog(output):
         return Check(name, tier, command + ["-executeMethod", "CapstoneDesign.EditorTools." + method, "-logFile", "-"],
                      ("unity", "graphics") if graphics else ("unity",))
     checks += [editor("project-bindings", "BuildTools.ValidateProject"),
+               editor("android-release-scripts", "BuildTools.ValidateAndroidReleaseScripts"),
                editor("local-loop", "LocalLoopValidation.Run"),
                Check("editmode", "unity", unity + ["-runTests", "-testPlatform", "EditMode", "-testResults", str(output / "editmode.xml"), "-logFile", "-"], ("unity", "graphics")),
                Check("play-save-restore", "unity", ["bash", "scripts/test-local-loop-play.sh"], ("unity", "graphics")),
@@ -56,7 +57,8 @@ def catalog(output):
                          ("guided-ui", "TabConsistencyCapture.CaptureGuidance"), ("demo-polish", "DemoPolishValidation.Capture"),
                          ("sky", "GardenSkyValidation.Capture"), ("lighting", "GardenLightingValidation.Capture"),
                          ("procedural-scene", "GardenProceduralValidation.Capture"),
-                         ("focus-missions", "FocusMissionValidation.Run")):
+                         ("focus-missions", "FocusMissionValidation.Run"),
+                         ("mobile-ui", "MobileUiValidation.Run"), ("all-courses", "AllCourseValidation.Run")):
         checks.append(editor(name, method, "visual", graphics=True))
     settings = editor("measurement-settings", "MeasurementSettingsCapture.Start", "visual", graphics=True, quit=False)
     settings.environment["CAPSTONE_PERSONALIZATION_TEST_ROOT"] = str(output / "measurement-settings" / "synthetic-enrollment")
@@ -151,6 +153,11 @@ def execute(check, output, environ=None, timeout=900):
             xml = ET.parse(report).getroot()
             if int(xml.attrib.get("testcasecount", xml.attrib.get("total", "0"))) == 0 or xml.attrib.get("result") != "Passed":
                 raise RuntimeError("Unity test result did not report nonempty passed tests")
+        if check.name == "android-release-scripts" and result["status"] == "PASS":
+            release = json.loads((directory / "release-scripts-report.json").read_text())
+            if release.get("status") != "PASS" or not release.get("assemblies") or len(release.get("excludedMethods", [])) != 8:
+                raise RuntimeError("Android release scripts did not prove compilation and exclusion of development actions")
+            result["testCases"] = 9
         if check.name == "measurement-settings" and result["status"] == "PASS":
             capture = json.loads((directory / "result.json").read_text())
             images = capture.get("images", [])

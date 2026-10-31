@@ -1,8 +1,10 @@
 using System;
+using System.Collections;
 using System.Globalization;
 using System.Text;
 using CapstoneDesign.Prototype;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 namespace CapstoneDesign.Runtime
@@ -40,6 +42,18 @@ namespace CapstoneDesign.Runtime
         public Button MissionRefreshButton => refreshHealthButton;
         public Button AdvanceMissionDayButton { get; private set; }
         public Text MissionDateStatus { get; private set; }
+        public Button TestToolsToggleButton { get; private set; }
+        public Button MissionResetConfirmButton { get; private set; }
+        private GameObject missionResetConfirmation;
+        private Disclosure testToolsDisclosure, diagnosticsDisclosure;
+        private sealed class Disclosure
+        {
+            public RectTransform Frame, Content;
+            public LayoutElement Height;
+            public CanvasGroup Group;
+            public bool Expanded;
+            public Coroutine Animation;
+        }
         private Text permissionActionStatus;
         private Text collectorActionStatus;
         private GameObject diagnostics;
@@ -51,6 +65,7 @@ namespace CapstoneDesign.Runtime
         private ActivityNotificationSettings notificationSettings;
         private Text notificationActionStatus;
         private Button musicToggle;
+        private Button reducedMotionToggle;
         private sealed class SwitchVisual
         {
             public Image Track;
@@ -82,13 +97,13 @@ namespace CapstoneDesign.Runtime
                 brand.alignment = TextAnchor.MiddleLeft;
                 FixedHeight(brand.gameObject, 54);
             }
-            Spacer(heading, 40);
+            Spacer(heading, 24);
             var titlePlate=Stack(heading,"Settings title plaque",0,16);
             GardenThemeSurface.Apply(titlePlate.gameObject,GardenThemeSurface.Style.Header);
             var title = Copy(titlePlate, "설정", GardenUi.TitleSize);
             GardenTypography.SetWeight(title, true);
             title.alignment = TextAnchor.MiddleLeft;
-            FixedHeight(title.gameObject, 62);
+            FixedHeight(title.gameObject, 64);
 
             Transform reminders = Section(content, "Activity reminders", "알림");
             notificationToggle = SwitchRow(reminders, "활동 추천 알림", ToggleActivityNotifications);
@@ -120,15 +135,12 @@ namespace CapstoneDesign.Runtime
             });
             Divider(music);
             RowControl(music, "정원의 시간", OpenVisualDebug);
+            reducedMotionToggle = SwitchRow(music, "화면 움직임 줄이기", () =>
+            {
+                FigmaMissionUi.ReducedMotion = !FigmaMissionUi.ReducedMotion;
+                RefreshMusicSetting();
+            });
             RefreshMusicSetting();
-
-            Transform missions = Section(content, "Mission controls", "미션 관리");
-            Copy(missions, "미션 기록과 진행 상태를 처음으로 돌릴 수 있어요.", GardenUi.CaptionSize, GardenUi.Muted);
-            PlaceRow(refreshHealthButton, missions, "새로고침", false);
-            MissionDateStatus = Copy(missions, "", GardenUi.BodySize, GardenUi.Muted);
-            AdvanceMissionDayButton = RowControl(missions, "다음 날로 넘기기", AdvanceMissionDate);
-            missionActionStatus = ActionLine(missions);
-            RefreshMissionControls();
 
             Transform healthCard = Section(content, "Health records", "건강 기록");
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
@@ -142,8 +154,34 @@ namespace CapstoneDesign.Runtime
             PlaceRow(healthPermissionButton, permissions, "건강 데이터 권한");
             permissionActionStatus = ActionLine(permissions);
 
-            diagnosticsButton = Control(content, "상세 진단 보기  +", ToggleDiagnostics);
-            diagnostics = Section(content, "Detailed diagnostics", "상세 진단").gameObject;
+            // Destructive reset and simulation tools never enter a release build's UI.
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            TestToolsToggleButton = RowControl(content, "테스트 도구  +", ToggleTestTools);
+            TestToolsToggleButton.name = "Settings.TestTools";
+            testToolsDisclosure = CreateDisclosure(content, "Test tools disclosure");
+            Transform testTools = testToolsDisclosure.Content;
+            Copy(testTools, "개발·테스트용 · 출시 버전에는 표시되지 않아요.", GardenUi.CaptionSize, GardenUi.Muted);
+            Transform missions = Section(testTools, "Mission controls", "미션 테스트");
+            if (refreshHealthButton == null) refreshHealthButton = RowControl(missions, "미션 기록 초기화", null);
+            else PlaceRow(refreshHealthButton, missions, "미션 기록 초기화", false);
+            refreshHealthButton.name = "Settings.ResetMissionRecords";
+            refreshHealthButton.GetComponentInChildren<Text>(true).color = GardenUi.Warning;
+            missionResetConfirmation = Section(missions, "Reset confirmation", "미션 기록을 초기화할까요?", new Color(1f, .95f, .90f)).gameObject;
+            Copy(missionResetConfirmation.transform, "완료 기록·작성한 내용·진행 중인 미션을 지워요.\n식물·정원·보유 영양제는 그대로 남아요.", GardenUi.BodySize, GardenUi.Ink);
+            MissionResetConfirmButton = Control(missionResetConfirmation.transform, "기록 초기화하기", ResetMissionRecords, true);
+            MissionResetConfirmButton.name = "Settings.ConfirmMissionReset";
+            GardenUi.Round(MissionResetConfirmButton.GetComponent<Image>(), GardenUi.Warning);
+            Control(missionResetConfirmation.transform, "취소", CancelMissionReset);
+            missionResetConfirmation.SetActive(false);
+            Divider(missions);
+            MissionDateStatus = Copy(missions, "", GardenUi.BodySize, GardenUi.Muted);
+            AdvanceMissionDayButton = RowControl(missions, "다음 날로 넘기기", AdvanceMissionDate);
+            missionActionStatus = ActionLine(missions);
+            RefreshMissionControls();
+
+            diagnosticsButton = RowControl(testTools, "상세 진단  +", ToggleDiagnostics);
+            diagnosticsDisclosure = CreateDisclosure(testTools, "Detailed diagnostics disclosure");
+            diagnostics = diagnosticsDisclosure.Content.gameObject;
             Transform collector = Section(diagnostics.transform, "Acceleration collection", "가속도 수집 실험");
             collectorStatus = Copy(collector, "수집 상태 확인 중", GardenUi.HeadingSize, GardenUi.Green);
             GardenTypography.SetWeight(collectorStatus, true);
@@ -161,19 +199,27 @@ namespace CapstoneDesign.Runtime
             else output.transform.SetParent(diagnostics.transform, false);
             ConfigureCopy(output, GardenUi.CaptionSize, GardenUi.Ink);
             output.gameObject.SetActive(true);
-            diagnostics.SetActive(false);
+            SetDisclosure(diagnosticsDisclosure, false, false);
+            SetDisclosure(testToolsDisclosure, false, false);
 
             AddListener(startServiceButton, StartService);
             AddListener(stopServiceButton, StopService);
+            AddListener(refreshHealthButton, RequestMissionReset);
+#else
+            // Old scenes can still serialize these objects; hide them even when their
+            // development-only builders and callbacks have been removed by compilation.
+            foreach (var control in new Behaviour[] { startServiceButton, stopServiceButton, refreshHealthButton, output })
+                if (control != null) control.gameObject.SetActive(false);
+#endif
             AddListener(sensorPermissionButton, RequestSensorPermissions);
             AddListener(healthPermissionButton, RequestHealthPermissions);
-            AddListener(refreshHealthButton, ResetMissionRecords);
             RefreshText();
         }
 
         void RefreshMusicSetting()
         {
             if (musicToggle != null) UpdateSwitch(musicToggle, !GardenMusicPlayer.IsMuted);
+            if (reducedMotionToggle != null) UpdateSwitch(reducedMotionToggle, FigmaMissionUi.ReducedMotion);
         }
 
         void RefreshNotificationSettings()
@@ -332,7 +378,7 @@ namespace CapstoneDesign.Runtime
         {
             if(button==null)return;
             Place(button,parent,text);
-            FixedHeight(button.gameObject,88);
+            FixedHeight(button.gameObject,96);
             GardenUi.Round(button.GetComponent<Image>(),Color.white);
             GardenThemeSurface.Apply(button.gameObject,GardenThemeSurface.Style.Paper);
             var colors=button.colors;colors.disabledColor=Color.white;button.colors=colors;
@@ -418,7 +464,7 @@ namespace CapstoneDesign.Runtime
             if (button == null) return;
             button.transform.SetParent(parent, false);
             var layout = button.GetComponent<LayoutElement>() ?? button.gameObject.AddComponent<LayoutElement>();
-            layout.minHeight = layout.preferredHeight = 80;
+            layout.minHeight = layout.preferredHeight = 96;
             layout.flexibleHeight = 0;
             var label = button.GetComponentInChildren<Text>(true);
             label.text = text;
@@ -433,11 +479,98 @@ namespace CapstoneDesign.Runtime
 
         public void ToggleDiagnostics()
         {
-            bool expanded = !diagnostics.activeSelf;
-            diagnostics.SetActive(expanded);
-            diagnosticsButton.GetComponentInChildren<Text>(true).text = expanded ? "상세 진단 접기  −" : "상세 진단 보기  +";
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (diagnosticsDisclosure == null) return;
+            bool expanded = !diagnosticsDisclosure.Expanded;
+            SetDisclosure(diagnosticsDisclosure, expanded, true, diagnosticsButton);
+            diagnosticsButton.GetComponentInChildren<Text>(true).text = expanded ? "상세 진단  −" : "상세 진단  +";
             if (expanded) RefreshText();
+            RefreshDisclosureSize(testToolsDisclosure);
+#endif
+        }
+
+        public void ToggleTestTools()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (testToolsDisclosure == null) return;
+            bool expanded = !testToolsDisclosure.Expanded;
+            if (!expanded) CancelMissionReset();
+            SetDisclosure(testToolsDisclosure, expanded, true, TestToolsToggleButton);
+            TestToolsToggleButton.GetComponentInChildren<Text>(true).text = expanded ? "테스트 도구  −" : "테스트 도구  +";
+            if (expanded) RefreshText();
+#endif
+        }
+
+        private Disclosure CreateDisclosure(Transform parent, string name)
+        {
+            var frame = new GameObject(name, typeof(RectTransform), typeof(LayoutElement), typeof(RectMask2D), typeof(CanvasGroup));
+            frame.transform.SetParent(parent, false);
+            var content = (RectTransform)Stack(frame.transform, name + " content", 16, 0);
+            content.anchorMin = new Vector2(0, 1); content.anchorMax = Vector2.one;
+            content.pivot = new Vector2(.5f, 1); content.anchoredPosition = Vector2.zero; content.sizeDelta = Vector2.zero;
+            content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            return new Disclosure { Frame = (RectTransform)frame.transform, Content = content, Height = frame.GetComponent<LayoutElement>(), Group = frame.GetComponent<CanvasGroup>() };
+        }
+
+        private void SetDisclosure(Disclosure section, bool expanded, bool animate, Button trigger = null)
+        {
+            if (section == null) return;
+            if (section.Animation != null) { StopCoroutine(section.Animation); section.Animation = null; }
+            section.Expanded = expanded;
+            if (!expanded && EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null
+                && EventSystem.current.currentSelectedGameObject.transform.IsChildOf(section.Content))
+                EventSystem.current.SetSelectedGameObject(trigger == null ? null : trigger.gameObject);
+            float start = section.Frame.gameObject.activeSelf ? Mathf.Max(0, section.Height.preferredHeight) : 0;
+            section.Frame.gameObject.SetActive(true);
+            LayoutRebuilder.ForceRebuildLayoutImmediate(section.Content);
+            float target = expanded ? Mathf.Max(0, LayoutUtility.GetPreferredHeight(section.Content)) : 0;
+            section.Group.interactable = section.Group.blocksRaycasts = expanded;
+            if (animate && Application.isPlaying && !FigmaMissionUi.ReducedMotion && gameObject.activeInHierarchy)
+                section.Animation = StartCoroutine(AnimateDisclosure(section, start, target));
+            else FinishDisclosure(section, target);
+        }
+
+        private IEnumerator AnimateDisclosure(Disclosure section, float from, float to)
+        {
+            float elapsed = 0;
+            while (elapsed < .2f)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.SmoothStep(0, 1, elapsed / .2f);
+                section.Height.minHeight = section.Height.preferredHeight = Mathf.Lerp(from, to, t);
+                section.Group.alpha = section.Expanded ? t : 1 - t;
+                if (section != testToolsDisclosure) RefreshDisclosureSize(testToolsDisclosure);
+                LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+                yield return null;
+            }
+            section.Animation = null;
+            FinishDisclosure(section, to);
+        }
+
+        private void FinishDisclosure(Disclosure section, float height)
+        {
+            section.Height.minHeight = section.Height.preferredHeight = height;
+            section.Group.alpha = section.Expanded ? 1 : 0;
+            section.Frame.gameObject.SetActive(section.Expanded);
+            if (section != testToolsDisclosure) RefreshDisclosureSize(testToolsDisclosure);
             LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+        }
+
+        private static void RefreshDisclosureSize(Disclosure section)
+        {
+            if (section == null || !section.Expanded || section.Animation != null) return;
+            LayoutRebuilder.ForceRebuildLayoutImmediate(section.Content);
+            section.Height.minHeight = section.Height.preferredHeight = Mathf.Max(0, LayoutUtility.GetPreferredHeight(section.Content));
+        }
+
+        private void OnDisable()
+        {
+            foreach (var section in new[] { diagnosticsDisclosure, testToolsDisclosure })
+            {
+                if (section == null || section.Animation == null) continue;
+                StopCoroutine(section.Animation); section.Animation = null;
+                SetDisclosure(section, section.Expanded, false);
+            }
         }
 
         public void OpenVisualDebug()
@@ -497,7 +630,9 @@ namespace CapstoneDesign.Runtime
             Loop?.RequestStepSyncSoon();
             if (Application.platform != RuntimePlatform.Android ||
                 AndroidPlatformBridge.InputMode != PlatformInputMode.Live) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             lastAction = Describe(AndroidPlatformBridge.CaptureDebugSensors());
+#endif
             AndroidPlatformBridge.RefreshHealthData();
             nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
             if (!automaticPermissionFlowStarted)
@@ -517,13 +652,16 @@ namespace CapstoneDesign.Runtime
 
         private void OnDestroy()
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             RemoveListener(startServiceButton, StartService);
             RemoveListener(stopServiceButton, StopService);
+            RemoveListener(refreshHealthButton, RequestMissionReset);
+#endif
             RemoveListener(sensorPermissionButton, RequestSensorPermissions);
             RemoveListener(healthPermissionButton, RequestHealthPermissions);
-            RemoveListener(refreshHealthButton, ResetMissionRecords);
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         private void StartService()
         {
             ShowAction(AndroidPlatformBridge.StartBackgroundSensorService(), "가속도 수집 시작을 요청했어요.", collectorActionStatus);
@@ -535,6 +673,7 @@ namespace CapstoneDesign.Runtime
             ShowAction(AndroidPlatformBridge.StopBackgroundSensorService(), "가속도 수집 중지를 요청했어요.", collectorActionStatus);
             RefreshText();
         }
+#endif
 
         private void RequestSensorPermissions()
         {
@@ -559,14 +698,39 @@ namespace CapstoneDesign.Runtime
             RefreshText();
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        void RequestMissionReset()
+        {
+            missionResetConfirmation.SetActive(true);
+            missionActionStatus.gameObject.SetActive(false);
+            RefreshDisclosureSize(testToolsDisclosure);
+            LayoutRebuilder.ForceRebuildLayoutImmediate(PrimaryScroll.content);
+            // Keep the confirmation in view on a phone when the tool sits near
+            // the bottom of a long settings list.
+            var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(PrimaryScroll.content, missionResetConfirmation.transform);
+            float top = -bounds.max.y;
+            float maximum = Mathf.Max(0, PrimaryScroll.content.rect.height - PrimaryScroll.viewport.rect.height);
+            PrimaryScroll.content.anchoredPosition = new Vector2(PrimaryScroll.content.anchoredPosition.x, Mathf.Clamp(top - 16, 0, maximum));
+            PrimaryScroll.velocity = Vector2.zero;
+        }
+
+        void CancelMissionReset()
+        {
+            if (missionResetConfirmation != null) missionResetConfirmation.SetActive(false);
+            RefreshDisclosureSize(testToolsDisclosure);
+            if (PrimaryScroll != null) LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+        }
+
         void ResetMissionRecords()
         {
+            if (missionResetConfirmation == null || !missionResetConfirmation.activeInHierarchy) return;
             bool success=Loop!=null && Loop.ResetMissionProgress();
             if(missionActionStatus!=null)
             {
                 missionActionStatus.text=success?"미션 기록을 초기화했어요.":"초기화하지 못했어요. 다시 시도해 주세요.";
                 missionActionStatus.gameObject.SetActive(true);
             }
+            if (success) CancelMissionReset();
             RefreshMissionControls();
         }
 
@@ -580,13 +744,18 @@ namespace CapstoneDesign.Runtime
             }
             RefreshMissionControls();
         }
+#endif
 
         void RefreshMissionControls()
         {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
             var loop=Loop;bool ready=loop!=null && loop.HasOpenState;
             if(MissionDateStatus!=null)MissionDateStatus.text="미션 날짜 · "+(ready?loop.MissionDateLabel:"확인 중");
             if(refreshHealthButton!=null)refreshHealthButton.interactable=ready;
             if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready;
+            if(MissionResetConfirmButton!=null)MissionResetConfirmButton.interactable=ready;
+            RefreshDisclosureSize(testToolsDisclosure);
+#endif
         }
 
         private void OpenCharts()
@@ -595,6 +764,7 @@ namespace CapstoneDesign.Runtime
             RefreshText();
         }
 
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
         private void ToggleDebugWalk()
         {
             if(Loop?.ToggleDebugWalk()==true)lastAction="DEBUG 걸음 모드를 변경했어요";
@@ -606,6 +776,7 @@ namespace CapstoneDesign.Runtime
             if(Loop?.AddVirtualDebugStep()==true)lastAction="가상 걸음 +1 저장됨";
             RefreshText();
         }
+#endif
 
         private void RefreshText()
         {
@@ -613,12 +784,7 @@ namespace CapstoneDesign.Runtime
             RefreshMusicSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
-            if (output == null)
-            {
-                return;
-            }
-
-            AndroidPlatformSnapshot snapshot = diagnostics != null && diagnostics.activeSelf
+            AndroidPlatformSnapshot snapshot = diagnostics != null && diagnostics.activeInHierarchy
                 ? AndroidPlatformBridge.GetSnapshot() : AndroidPlatformBridge.GetSettingsSnapshot();
             HealthConnectSnapshot health = snapshot.healthConnect ?? new HealthConnectSnapshot();
             RuntimePermissionSnapshot permissions = snapshot.runtimePermissions ?? new RuntimePermissionSnapshot();
@@ -626,7 +792,7 @@ namespace CapstoneDesign.Runtime
             RefreshSummary(snapshot, health, permissions, daily);
             // Closed diagnostics need neither formatted raw data nor the saved
             // state clone used by DebugWalkSummary. Refresh immediately on expand.
-            if (diagnostics == null || !diagnostics.activeSelf) return;
+            if (diagnostics == null || !diagnostics.activeInHierarchy || output == null) return;
 
             if(debugModeButton!=null)
             {
@@ -699,6 +865,8 @@ namespace CapstoneDesign.Runtime
                 builder.Append("\nBRIDGE: ").Append(snapshot.status).Append(' ').Append(snapshot.message);
             }
             output.text = builder.ToString();
+            RefreshDisclosureSize(diagnosticsDisclosure);
+            RefreshDisclosureSize(testToolsDisclosure);
         }
 
         private void RefreshSummary(AndroidPlatformSnapshot snapshot, HealthConnectSnapshot health,
@@ -752,12 +920,18 @@ namespace CapstoneDesign.Runtime
             if (daily.lastWriteEpochMs > 0)
                 collectorSummary += " · " + CompactInstant(daily.lastWriteEpochMs) + " 저장";
             // Assign once so an unchanged summary does not dirty text/layout twice.
-            collectorStatus.text = collectorSummary;
-            collectorStatus.color = daily.status == "INTERRUPTED" ? GardenUi.Warning : GardenUi.Green;
+            if (collectorStatus != null)
+            {
+                collectorStatus.text = collectorSummary;
+                collectorStatus.color = daily.status == "INTERRUPTED" ? GardenUi.Warning : GardenUi.Green;
+            }
             bool explainStop = !string.IsNullOrEmpty(daily.reason) && daily.reason != "USER_START" &&
                 daily.reason != "USER_STOP" && daily.reason != "PROCESS_RESTART" && daily.reason != "NO_STATUS_RECORD";
-            collectorDetails.text = explainStop ? DailyReason(daily.reason) : string.Empty;
-            collectorDetails.gameObject.SetActive(explainStop);
+            if (collectorDetails != null)
+            {
+                collectorDetails.text = explainStop ? DailyReason(daily.reason) : string.Empty;
+                collectorDetails.gameObject.SetActive(explainStop);
+            }
         }
 
         private static Text ActionLine(Transform parent)
@@ -778,7 +952,7 @@ namespace CapstoneDesign.Runtime
             }
             string actionMessage;
             if (result == null || result.ParsedStatus == PlatformStatus.Error)
-                actionMessage = "요청을 완료하지 못했어요.\n상세 진단에서 오류를 확인해 주세요.";
+                actionMessage = "요청을 완료하지 못했어요.\n잠시 뒤 다시 시도해 주세요.";
             else if (result.ParsedStatus == PlatformStatus.Unsupported || result.ParsedStatus == PlatformStatus.ServiceUnavailable)
                 actionMessage = "현재 기기에서는 이 기능을 사용할 수 없어요.";
             else actionMessage = message;

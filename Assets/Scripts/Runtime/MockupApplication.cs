@@ -48,6 +48,7 @@ namespace CapstoneDesign.Runtime
             var layout=GetComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>()
                 ?? gameObject.AddComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>();
             layout.designFrame=(RectTransform)frame.transform;
+            layout.fitByWidth=true;
             var sensor=GetComponentInChildren<SensorRawDisplay>(true);
             foreach(var panel in new[]{islandPanel,activitiesPanel,settingsPanel,sensor==null?null:sensor.gameObject})
                 if(panel!=null)panel.transform.SetParent(frame.transform,false);

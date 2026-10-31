@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
+using Mono.Cecil;
+using UnityEditor.Build.Player;
 using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEngine;
@@ -82,6 +85,60 @@ namespace CapstoneDesign.EditorTools
             ValidateAndroidPlatformLayer();
 
             Debug.Log("Mockup validation passed: " + scene.path + " / package " + PackageName);
+        }
+
+        [Serializable]
+        private sealed class ReleaseScriptReport
+        {
+            public string status = "FAIL", target = "Android", options = "None", error;
+            public string[] assemblies = Array.Empty<string>(), excludedMethods = Array.Empty<string>();
+        }
+
+        [MenuItem("Capstone Mockup/Validate Android Release Scripts")]
+        public static void ValidateAndroidReleaseScripts()
+        {
+            string artifacts = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS");
+            if (string.IsNullOrWhiteSpace(artifacts))
+                throw new InvalidOperationException("Use a new explicit CAPSTONE_ARTIFACTS directory for release-script evidence.");
+            string output = Path.Combine(artifacts, "release-scripts");
+            if (Directory.Exists(output))
+                throw new InvalidOperationException("Release-script output already exists; choose a fresh evidence directory.");
+            Directory.CreateDirectory(output);
+            var evidence = new ReleaseScriptReport();
+            try
+            {
+                // Compile the actual Android player without UNITY_EDITOR or DEVELOPMENT_BUILD.
+                // This verifies conditional compilation; it does not claim an APK or device run.
+                var result = PlayerBuildInterface.CompilePlayerScripts(new ScriptCompilationSettings
+                {
+                    target = BuildTarget.Android,
+                    group = BuildTargetGroup.Android,
+                    options = ScriptCompilationOptions.None
+                }, output);
+                evidence.assemblies = result.assemblies?.ToArray() ?? Array.Empty<string>();
+                string runtime = Path.Combine(output, "Assembly-CSharp.dll");
+                if (!evidence.assemblies.Any(path => Path.GetFileName(path) == "Assembly-CSharp.dll") || !File.Exists(runtime))
+                    throw new InvalidOperationException("Android release compilation did not produce the runtime assembly.");
+                using (var assembly = AssemblyDefinition.ReadAssembly(runtime))
+                {
+                    var settings = assembly.MainModule.Types.FirstOrDefault(type => type.FullName == "CapstoneDesign.Runtime.SensorRawDisplay");
+                    if (settings == null) throw new InvalidOperationException("Release runtime omits SensorRawDisplay.");
+                    string[] developmentOnly = { "StartService", "StopService", "RequestMissionReset", "CancelMissionReset",
+                        "ResetMissionRecords", "AdvanceMissionDate", "ToggleDebugWalk", "AddVirtualStep" };
+                    foreach (string method in developmentOnly)
+                        if (settings.Methods.Any(item => item.Name == method))
+                            throw new InvalidOperationException("Development-only settings action remains in release: " + method);
+                    var opened = settings.Methods.Single(item => item.Name == "OnSettingsOpened");
+                    if (opened.Body.Instructions.Any(instruction => instruction.Operand is MethodReference call && call.Name == "CaptureDebugSensors"))
+                        throw new InvalidOperationException("Release settings still trigger debug sensor capture.");
+                    evidence.excludedMethods = developmentOnly;
+                }
+                evidence.status = "PASS";
+                Debug.Log("ANDROID_RELEASE_SCRIPTS_PASS assemblies=" + evidence.assemblies.Length
+                    + " developmentOnlyMethodsExcluded=" + evidence.excludedMethods.Length);
+            }
+            catch (Exception error) { evidence.error = error.ToString(); throw; }
+            finally { File.WriteAllText(Path.Combine(artifacts, "release-scripts-report.json"), JsonUtility.ToJson(evidence, true)); }
         }
 
         [MenuItem("Capstone Mockup/Build Android")]

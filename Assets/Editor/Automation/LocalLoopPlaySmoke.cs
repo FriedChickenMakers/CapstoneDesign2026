@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -21,6 +22,8 @@ namespace CapstoneDesign.EditorTools
         [Serializable] sealed class Result
         {
             public string status,phase,error;
+            public int screenWidth,screenHeight;
+            public bool gameViewRestored;
             public string mode="MOCK",environment="Unity Editor Play mode";
         }
         static int raycastFrame;
@@ -31,11 +34,72 @@ namespace CapstoneDesign.EditorTools
         public static void Start()
         {
             if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT")))throw new Exception("Explicit isolated smoke save directory required");
-            EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity");
-            SessionState.SetBool(Key,true);
-            SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+60);
-            EditorApplication.update-=WaitForPlay;EditorApplication.update+=WaitForPlay;
-            EditorApplication.EnterPlaymode();
+            try
+            {
+                SetPortraitGameView();
+                EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity");
+                SessionState.SetBool(Key,true);
+                SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+60);
+                EditorApplication.update-=WaitForPlay;EditorApplication.update+=WaitForPlay;
+                EditorApplication.EnterPlaymode();
+            }
+            catch(Exception error)
+            {
+                Finish(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"),
+                    Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_PHASE")??"fresh",error);
+            }
+        }
+        const BindingFlags ViewMembers=BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance;
+        static Type GameViewType => typeof(Editor).Assembly.GetType("UnityEditor.GameView",true);
+        static object GameViewSizes()
+        {
+            var type=typeof(Editor).Assembly.GetType("UnityEditor.GameViewSizes",true);
+            return typeof(ScriptableSingleton<>).MakeGenericType(type).GetProperty("instance").GetValue(null);
+        }
+        static void SetPortraitGameView()
+        {
+            // A portrait app needs a portrait player surface, independently of the
+            // batch Editor's usual 640x480 window. Do not persist a custom preset.
+            if(SessionState.GetBool(Key+".ViewPending",false))RestoreGameView();
+            var views=Resources.FindObjectsOfTypeAll(GameViewType);
+            var view=views.Length>0?(EditorWindow)views[0]:EditorWindow.GetWindow(GameViewType);
+            var sizes=GameViewSizes();
+            var group=sizes.GetType().GetProperty("currentGroup").GetValue(sizes);
+            string label="Smoke "+Guid.NewGuid().ToString("N");
+            SessionState.SetInt(Key+".ViewId",view.GetInstanceID());
+            SessionState.SetBool(Key+".ViewCreated",views.Length==0);
+            SessionState.SetInt(Key+".ViewSelection",(int)GameViewType.GetProperty("selectedSizeIndex",ViewMembers).GetValue(view));
+            SessionState.SetInt(Key+".ViewGroup",Convert.ToInt32(sizes.GetType().GetProperty("currentGroupType").GetValue(sizes)));
+            SessionState.SetString(Key+".ViewLabel",label);
+            SessionState.SetBool(Key+".ViewPending",true);
+            var editor=typeof(Editor).Assembly;
+            var fixedSize=Enum.Parse(editor.GetType("UnityEditor.GameViewSizeType",true),"FixedResolution");
+            var size=Activator.CreateInstance(editor.GetType("UnityEditor.GameViewSize",true),fixedSize,390,844,label);
+            int index=(int)group.GetType().GetMethod("GetTotalCount").Invoke(group,null);
+            group.GetType().GetMethod("AddCustomSize").Invoke(group,new[]{size});
+            GameViewType.GetMethod("SizeSelectionCallback",ViewMembers).Invoke(view,new object[]{index,null});
+            view.Repaint();
+        }
+        static void RestoreGameView()
+        {
+            if(!SessionState.GetBool(Key+".ViewPending",false))return;
+            // SessionState survives EnterPlaymode's domain reload. Identify our
+            // temporary preset by name so unrelated presets cannot be removed.
+            var sizes=GameViewSizes();
+            var groupType=typeof(Editor).Assembly.GetType("UnityEditor.GameViewSizeGroupType",true);
+            var group=sizes.GetType().GetMethod("GetGroup").Invoke(sizes,new[]{Enum.ToObject(groupType,SessionState.GetInt(Key+".ViewGroup",0))});
+            var view=EditorUtility.InstanceIDToObject(SessionState.GetInt(Key+".ViewId",0)) as EditorWindow;
+            if(view==null)throw new InvalidOperationException("Smoke Game view disappeared before restoration.");
+            GameViewType.GetMethod("SizeSelectionCallback",ViewMembers).Invoke(view,new object[]{SessionState.GetInt(Key+".ViewSelection",0),null});
+            int count=(int)group.GetType().GetMethod("GetTotalCount").Invoke(group,null);
+            for(int index=count-1;index>=0;index--)
+            {
+                var size=group.GetType().GetMethod("GetGameViewSize").Invoke(group,new object[]{index});
+                if((string)size.GetType().GetProperty("baseText").GetValue(size)!=SessionState.GetString(Key+".ViewLabel",""))continue;
+                group.GetType().GetMethod("RemoveCustomSize").Invoke(group,new object[]{index});
+            }
+            if(SessionState.GetBool(Key+".ViewCreated",false))view.Close();else view.Repaint();
+            SessionState.SetBool(Key+".ViewPending",false);
         }
         static void WaitForPlay()
         {
@@ -44,7 +108,7 @@ namespace CapstoneDesign.EditorTools
                 Finish(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"),
                     Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_PHASE")??"fresh",new Exception("Play smoke startup timed out"));return;
             }
-            if(!EditorApplication.isPlaying)return;
+            if(!EditorApplication.isPlaying || Screen.width!=390 || Screen.height!=844)return;
             var loop=UnityEngine.Object.FindFirstObjectByType<WeekOneQuestDemo>(FindObjectsInactive.Include);
             if(loop?.Service==null)return;
             Application.runInBackground=true;
@@ -272,9 +336,14 @@ namespace CapstoneDesign.EditorTools
         {
             EditorApplication.update-=WaitForPlay;EditorApplication.update-=WatchRun;
             SessionState.SetBool(Key,false);
+            int screenWidth=Screen.width,screenHeight=Screen.height;
+            bool restored=false;
+            try { RestoreGameView();restored=true; }
+            catch(Exception restoreError) { failure=failure==null?restoreError:new AggregateException(failure,restoreError); }
             Directory.CreateDirectory(root);
             File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),JsonUtility.ToJson(new Result
-                {status=failure==null?"PASS":"FAIL",phase=phase,error=failure?.ToString()},true));
+                {status=failure==null?"PASS":"FAIL",phase=phase,error=failure?.ToString(),
+                    screenWidth=screenWidth,screenHeight=screenHeight,gameViewRestored=restored},true));
             if(failure!=null)Debug.LogException(failure);else Debug.Log("LOCAL_LOOP_PLAY_SMOKE_PASS "+phase);
             EditorApplication.Exit(failure==null?0:1);
         }

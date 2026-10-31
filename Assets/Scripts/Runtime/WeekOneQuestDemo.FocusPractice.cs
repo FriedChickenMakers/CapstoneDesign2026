@@ -16,13 +16,13 @@ namespace CapstoneDesign.Runtime
         };
         string focusDraftSession, focusAnswer = "", focusMood = "", focusNote = "";
         int focusDraftStep = -1;
-        bool focusDirty;
+        bool focusDirty, focusAllEmotions;
         InputField focusAnswerInput, focusNoteInput;
         float focusNextAction;
         static Sprite focusCircleSprite;
 
         static Color FocusAlpha(Color color, float alpha) { color.a = alpha; return color; }
-        static Color FocusAccent(FocusMissionDefinition mission) => FigmaMissionUi.Hex(mission.AccentHex);
+        static Color FocusAccent(FocusMissionDefinition mission) => FigmaMissionUi.ActionColor(FigmaMissionUi.Hex(mission.AccentHex));
         static Color FocusInk(FocusMissionDefinition mission) => FigmaMissionUi.Hex(mission.TextHex);
         static Color FocusMuted(FocusMissionDefinition mission) => FigmaMissionUi.Hex(mission.Code == "P10" ? "587572" : mission.Code == "M03" ? "466A7A" : "466A75");
         static Color FocusCircleColor(FocusMissionDefinition mission) => FigmaMissionUi.Hex(mission.CircleHex ?? (mission.Code == "M03" ? "D9F1FA" : mission.Code == "P10" ? "DDF2EE" : mission.Code == "P23" ? "F4E2CB" : "EDDCE2"));
@@ -32,7 +32,7 @@ namespace CapstoneDesign.Runtime
             if (focusDraftSession != session.SessionId)
             {
                 focusDraftSession = session.SessionId; focusMood = session.Mood ?? ""; focusNote = session.Note ?? "";
-                focusDraftStep = -1; focusAnswer = ""; focusDirty = false;
+                focusDraftStep = -1; focusAnswer = ""; focusDirty = false; focusAllEmotions = false;
             }
             if (focusDraftStep == step) return;
             focusDraftStep = step;
@@ -173,21 +173,13 @@ namespace CapstoneDesign.Runtime
             var close = FigmaMissionUi.Button(root, "", 24, 24, 88, 48, CloseFocusPractice, Color.clear, ink);
             close.name = "Focus.Close"; FigmaMissionUi.Asset(close.transform, FocusArt + frame + "_imgIconClose", 10, 14, 20, 20);
             FigmaMissionUi.Label(close.transform, "닫기", 36, 0, 42, 48, 14, ink, false, TextAnchor.MiddleLeft);
-            int total = mission.Steps.Length + 2;
-            FigmaMissionUi.Label(root, (step + 2) + " / " + total, 314, 36, 52, 24, 14, ink, false, TextAnchor.MiddleRight);
-            FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 81, 342, 18, 13, FocusAlpha(accent, .82f));
+            FigmaMissionUi.Label(root, step < 0 ? "시작하기" : "지금 할 일", 260, 36, 106, 24, 14, accent, false, TextAnchor.MiddleRight);
+            FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 81, 342, 20, 14, accent);
             bool original = FocusMissionCatalog.HasOriginalLayout(mission.Code);
             string heading = step < 0 ? mission.Title : mission.Steps[step].Title;
             int headingSize = original ? (compact ? 26 : 32) : heading.Length > 13 ? 22 : 26;
             FigmaMissionUi.Label(root, heading, 24, 103, 342, original ? (compact ? 34 : 40) : 48, headingSize, ink, true);
             FigmaMissionUi.Label(root, step < 0 ? mission.Overview : mission.Steps[step].Body, 24, original ? (compact ? 140 : 147) : 153, 342, original ? 48 : 60, 18, FocusMuted(mission));
-            float width = (342 - 4 * (total - 1)) / (float)total;
-            for (int i = 0; i < total; i++)
-            {
-                float x = 24 + i * (width + 4), y = original ? (compact ? 190 : 197) : 222;
-                var tint = FocusAlpha(accent, i <= step + 1 ? 1 : .18f);
-                FigmaMissionUi.Box(root, "단계 " + (i + 1), x, y, width, 6, tint, 3);
-            }
         }
 
         static void FocusCircle(Transform root, float x, float y, float size, Color color, Color? border = null, float borderWidth = 1.5f)
@@ -221,10 +213,10 @@ namespace CapstoneDesign.Runtime
 
         static void FocusArtAt(Transform root, string asset, float x, float y, float w, float h) => FigmaMissionUi.Asset(root, FocusArt + asset, x, y, w, h);
 
-        static Button FocusTap(Transform root, string label, Action action, Color color, float y = 319, float h = 392)
+        static Button FocusTap(Transform root, string label, Action action, Color color, float y = 319, float h = 292)
         {
             var button = FigmaMissionUi.Button(root, "", 45, y, 300, h, action, Color.clear, color);
-            button.name = label;
+            button.name = "Focus.IconAction";
             button.transition = Selectable.Transition.None;
             var feedback = button.gameObject.AddComponent<FocusMissionTapFeedback>(); feedback.Button = button;
             return button;
@@ -236,10 +228,10 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(root, text, 53, y, 284, 48, 16, color, false, TextAnchor.MiddleCenter);
         }
 
-        static void FocusActionText(Transform root, string label, string hint, FocusMissionDefinition mission, float y = 631.2f)
+        static void FocusActionText(Transform root, string label, string hint, FocusMissionDefinition mission, Action action)
         {
-            FigmaMissionUi.Label(root, label, 45, y, 300, 32, 24, FocusAccent(mission), true, TextAnchor.MiddleCenter);
-            FigmaMissionUi.Label(root, hint, 45, y + 41, 300, 24, 14, FocusMuted(mission), false, TextAnchor.MiddleCenter);
+            FigmaMissionUi.Button(root, label, 45, 650, 300, 56, action, FocusAccent(mission), Color.white, 18).name = "Focus.Action";
+            FigmaMissionUi.Label(root, hint, 45, 714, 300, 24, 14, FocusMuted(mission), false, TextAnchor.MiddleCenter);
         }
 
         void BuildFocusWater(Transform root, FocusMissionDefinition mission, int step, Action next)
@@ -251,19 +243,40 @@ namespace CapstoneDesign.Runtime
                 FocusCircle(root, 85.8f, 340.8f, 218.4f, FocusCircleColor(mission), FigmaMissionUi.Hex("B2E0F0"));
                 if (step < 0) FocusArtAt(root, "86_770_imgIconWaterDropFriendly", 123.24f, 366.54f, 140.4f, 163.8f);
                 else FocusArtAt(root, "87_990_imgIconM03WaterCup", 123.44f, 378.44f, 140, 140);
-                FocusCaption(root, step < 0 ? "오늘의 한 모금" : "물을 가까이 두었나요?", FocusAccent(mission));
-                FocusActionText(root, step < 0 ? "시작" : "준비했어요", step < 0 ? "물방울을 눌러 시작" : "준비한 뒤 물방울을 눌러요", mission);
+                FocusActionText(root, step < 0 ? "시작" : "준비했어요", step < 0 ? "물방울을 눌러도 시작해요" : "준비한 뒤 가운데 그림을 눌러도 좋아요", mission, next);
             }
             else
             {
                 FocusArtAt(root, "87_770_img280280", 55, 340, 280, 280);
-                FocusActionText(root, "물 마셨어요", "마신 뒤 물방울을 눌러요", mission, 632);
+                FocusActionText(root, "물 마셨어요", "마신 뒤 물방울을 눌러도 좋아요", mission, next);
             }
             tap.transform.SetAsLastSibling();
         }
 
         void BuildFocusBreath(Transform root, FocusMissionDefinition mission, int step, Action next)
         {
+            if (step >= 0 && mission.Steps[step].RecommendedSeconds > 0)
+            {
+                var accentColor = FocusAccent(mission);
+                var illustration = FigmaMissionUi.Rect(root, "호흡에 머무르기", 69, 300, 252, 252);
+                FocusCircle(illustration, 0, 0, 252, FocusCircleColor(mission));
+                if (step == 1)
+                {
+                    FocusArtAt(illustration, "87_840_img182", 35, 35, 182, 182);
+                    FocusArtAt(illustration, "87_840_img128", 62, 62, 128, 128);
+                    FigmaMissionUi.Label(illustration, "숨", 86, 101, 80, 48, 30, accentColor, true, TextAnchor.MiddleCenter);
+                    illustration.gameObject.AddComponent<FocusBreathingPulse>();
+                }
+                else
+                {
+                    FocusArtAt(illustration, "87_1222_img218", 17, 17, 218, 218);
+                    FocusArtAt(illustration, "87_1222_img164", 44, 44, 164, 164);
+                    FigmaMissionUi.Label(illustration, "주변", 86, 106, 80, 40, 23, accentColor, true, TextAnchor.MiddleCenter);
+                }
+                FigmaMissionUi.Label(root, "충분히 느꼈다면 언제든 마쳐도 좋아요.", 45, 570, 300, 30, 14, FocusMuted(mission), false, TextAnchor.MiddleCenter);
+                FigmaMissionUi.Button(root, "실습 마치기", 45, 714, 300, 48, next, Color.clear, accentColor, 16).name = "Focus.Action";
+                return;
+            }
             var accent = FocusAccent(mission); var tap = FocusTap(root, step < 0 ? "시작" : mission.Steps[step].ActionLabel, next, accent);
             if (step < 1)
             {
@@ -274,8 +287,8 @@ namespace CapstoneDesign.Runtime
                     FocusArtAt(root, "87_1182_img", 108 + 70 * i, 421, 34, 34);
                     FigmaMissionUi.Label(root, new[] { "생각", "감정", "몸" }[i], 93 + 70 * i, 463, 64, 22, 13, accent, false, TextAnchor.MiddleCenter);
                 }
-                FocusCaption(root, step < 0 ? "3단계로 잠시 멈춰요" : "있는 그대로 살펴요", accent);
-                FocusActionText(root, step < 0 ? "시작" : "계속", step < 0 ? "아이콘을 눌러 시작" : "살펴본 뒤 아이콘을 눌러요", mission);
+                FocusCaption(root, step < 0 ? "잠시 멈추고 나를 살펴요" : "있는 그대로 살펴요", accent);
+                FocusActionText(root, step < 0 ? "시작" : "계속", step < 0 ? "아이콘을 눌러도 시작해요" : "살펴본 뒤 아이콘을 눌러도 좋아요", mission, next);
             }
             else if (step < 3)
             {
@@ -290,7 +303,7 @@ namespace CapstoneDesign.Runtime
                     FocusArtAt(root, "87_1222_img218", 86, 371, 218, 218); FocusArtAt(root, "87_1222_img164", 113, 398, 164, 164); FocusArtAt(root, "87_1222_img110", 140, 425, 110, 110);
                     FigmaMissionUi.Label(root, "주변", 155, 458, 80, 40, 23, accent, true, TextAnchor.MiddleCenter);
                 }
-                FocusActionText(root, "계속", step == 1 ? "숨을 느낀 뒤 아이콘을 눌러요" : "주의를 넓힌 뒤 아이콘을 눌러요", mission, 618);
+                FocusActionText(root, "계속", step == 1 ? "숨을 느낀 뒤 아이콘을 눌러요" : "주의를 넓힌 뒤 아이콘을 눌러요", mission, next);
             }
             else
             {
@@ -301,7 +314,7 @@ namespace CapstoneDesign.Runtime
                     FigmaMissionUi.Box(root, "완료한 실습", 45 + i * 102, 539.2f, 96, 56, FocusAlpha(accent, .12f), 16);
                     FigmaMissionUi.Label(root, new[] { "현재 ✓", "숨 ✓", "주변 ✓" }[i], 45 + i * 102, 539.2f, 96, 56, 13, accent, false, TextAnchor.MiddleCenter);
                 }
-                FocusActionText(root, "완료", "준비되면 아이콘을 눌러요", mission, 607.2f);
+                FocusActionText(root, "완료", "준비되면 아이콘을 눌러도 좋아요", mission, next);
             }
             tap.transform.SetAsLastSibling();
         }
@@ -317,10 +330,10 @@ namespace CapstoneDesign.Runtime
                 for (int i = 0; i < mission.Steps[step].Options.Length; i++)
                 {
                     string option = mission.Steps[step].Options[i]; bool selected = focusAnswer == option;
-                    var choice = FigmaMissionUi.Button(root, option, 45 + (i % 2) * 154, 534.2f + (i / 2) * 48, 146, 40, () =>
+                    var choice = FigmaMissionUi.Button(root, option, 45 + (i % 2) * 154, 526 + (i / 2) * 56, 146, 48, () =>
                     {
-                        focusAnswer = focusAnswer == option ? "" : option; focusDirty = true; SaveFocusDraft(); ShowFocusPractice();
-                    }, selected ? accent : FocusAlpha(Color.white, .65f), selected ? Color.white : accent, 13);
+                        focusAnswer = focusAnswer == option ? "" : option; focusDirty = true; if (SaveFocusDraft()) ShowFocusPractice();
+                    }, selected ? accent : FocusAlpha(Color.white, .65f), selected ? Color.white : accent, 14);
                     choice.name = "Focus.Sensation." + option;
                 }
             }
@@ -339,7 +352,7 @@ namespace CapstoneDesign.Runtime
                     FigmaMissionUi.Label(root, "온도  ·  질감", 113, 563, 160, 32, 14, accent, false, TextAnchor.MiddleCenter);
                 }
             }
-            FigmaMissionUi.Button(root, step < 0 ? "시작" : mission.Steps[step].ActionLabel, 45, step == 3 ? 638.2f : 631, 300, 64, next, accent, Color.white, 18).name = "Focus.Action";
+            FigmaMissionUi.Button(root, step < 0 ? "시작" : mission.Steps[step].ActionLabel, 45, 650, 300, 56, next, accent, Color.white, 18).name = "Focus.Action";
         }
 
         void BuildFocusSpeaking(Transform root, FocusMissionDefinition mission, int step, Action next)
@@ -348,15 +361,16 @@ namespace CapstoneDesign.Runtime
             if (step == 0) FocusArtAt(root, "87_942_img", 55, 335, 280, 280);
             else if (step == 1)
             {
-                FocusCircle(root, 99.8f, 331.8f, 190.4f, FocusCircleColor(mission), FigmaMissionUi.Hex("E0C8D1"));
-                FocusArtAt(root, "87_1314_imgIconP25", 132.44f, 364.44f, 122.4f, 122.4f);
-                FigmaMissionUi.Label(root, "전할 말 · 선택", 61, 534, 268, 20, 13, accent);
-                focusAnswerInput = FigmaMissionUi.Input(root, mission.Steps[step].InputHint, 45, 558, 300, 60, 500);
+                FocusCircle(root, 119, 280, 152, FocusCircleColor(mission), FigmaMissionUi.Hex("E0C8D1"));
+                FocusArtAt(root, "87_1314_imgIconP25", 145, 306, 100, 100);
+                FigmaMissionUi.Label(root, "전할 말 · 선택", 45, 478, 300, 24, 14, accent, true);
+                focusAnswerInput = FigmaMissionUi.Input(root, mission.Steps[step].InputHint, 45, 510, 300, 80, 500);
                 focusAnswerInput.name = "Focus.MessageInput"; focusAnswerInput.SetTextWithoutNotify(focusAnswer);
                 focusAnswerInput.onValueChanged.AddListener(value => { focusAnswer = value; focusDirty = true; });
                 focusAnswerInput.onEndEdit.AddListener(value => SaveFocusDraft());
                 AttachFocusKeyboard(root, focusAnswerInput, "전할 말 확인", FigmaMissionUi.Hex(mission.BackgroundHex), accent);
-                FigmaMissionUi.Button(root, "속으로 확인했어요", 75, 704, 240, 44, () =>
+                FigmaMissionUi.Label(root, "적지 않고 속으로만 정리해도 좋아요.", 45, 598, 300, 36, 14, FocusMuted(mission));
+                FigmaMissionUi.Button(root, "속으로 확인했어요", 75, 714, 240, 48, () =>
                 { focusAnswer = ""; focusAnswerInput.SetTextWithoutNotify(""); focusDirty = true; next(); }, Color.clear, accent, 14).name = "Focus.ThinkOnly";
             }
             else
@@ -372,7 +386,7 @@ namespace CapstoneDesign.Runtime
                     FigmaMissionUi.Label(root, new[] { "멈춤", "핵심 확인", "전달" }[i], 127, 381 + i * 58, 164, 48, 16, accent, false, TextAnchor.MiddleLeft);
                 }
             }
-            FigmaMissionUi.Button(root, step < 0 ? "시작" : mission.Steps[step].ActionLabel, 45, step == 1 ? 634.2f : 631, 300, 64, next, accent, Color.white, 18).name = "Focus.Action";
+            FigmaMissionUi.Button(root, step < 0 ? "시작" : mission.Steps[step].ActionLabel, 45, 650, 300, 56, next, accent, Color.white, 18).name = "Focus.Action";
         }
 
         bool FocusReflectionReady(out ActivitySession session)
@@ -397,25 +411,31 @@ namespace CapstoneDesign.Runtime
         {
             if (!FocusReflectionReady(out var session)) return;
             var root = BeginFigmaPage("focus-emotion", ShowFocusEmotion, FigmaMissionUi.Background);
-            FigmaHeader(root, "지금 느낌은 어떤가요?", "감정 기록 1 / 2 · 선택"); FocusRoleBadge(root, session);
-            FigmaMissionUi.Label(root, "가장 가까운 감정 하나를 골라요.\n다시 누르면 선택이 해제돼요.", 24, 193, 342, 50, 16, FigmaMissionUi.Muted);
-            for (int i = 0; i < FocusEmotions.Length; i++)
+            FigmaHeader(root, "지금 느낌은 어떤가요?", "감정 기록 · 선택"); FocusRoleBadge(root, session);
+            FigmaMissionUi.Label(root, "원하면 가까운 감정 하나를 골라요.", 24, 190, 342, 24, 16, FigmaMissionUi.Muted);
+            FigmaMissionUi.Label(root, string.IsNullOrEmpty(focusMood) ? "고르지 않아도 괜찮아요." : "선택한 감정 · " + focusMood, 24, 218, 342, 24, 14, FigmaMissionUi.Green, true);
+            var emotions = focusAllEmotions ? FocusEmotions : new[] { "기쁨", "편안함", "뿌듯함", "무덤덤함", "슬픔", "불안함", "답답함", "화남" };
+            var body = FigmaScroll(root, 250, focusAllEmotions ? 328 : 112, focusAllEmotions ? 336 : 112);
+            for (int i = 0; i < emotions.Length; i++)
             {
-                string emotion = FocusEmotions[i]; bool selected = focusMood == emotion;
-                FigmaMissionUi.Button(root, emotion, 24 + (i % 4) * 87.5f, 259 + (i / 4) * 60, 79.5f, 52, () =>
+                string emotion = emotions[i]; bool selected = focusMood == emotion;
+                FigmaMissionUi.Button(body, emotion, 24 + (i % 4) * 88, (i / 4) * 56, 78, 48, () =>
                 {
-                    focusMood = focusMood == emotion ? "" : emotion; focusDirty = true; SaveFocusDraft(); ShowFocusEmotion();
+                    focusMood = focusMood == emotion ? "" : emotion; focusDirty = true; if (SaveFocusDraft()) ShowFocusEmotion();
                 }, selected ? FigmaMissionUi.Green : Color.white, selected ? Color.white : FigmaMissionUi.Ink, 14).name = "Focus.Emotion." + emotion;
             }
-            FigmaMissionUi.Label(root, "선택한 감정", 24, 632, 104, 24, 14, FigmaMissionUi.Muted);
-            FigmaMissionUi.Label(root, string.IsNullOrEmpty(focusMood) ? "선택하지 않았어요" : focusMood, 130, 632, 236, 24, 16, FigmaMissionUi.Green, true);
-            FigmaMissionUi.Label(root, "고르지 않아도 다음으로 갈 수 있어요.", 24, 670, 342, 24, 14, FigmaMissionUi.Muted);
+            FigmaMissionUi.Button(root, focusAllEmotions ? "감정 접기" : "감정 더 보기", 24, focusAllEmotions ? 586 : 378, 342, 48, () =>
+            {
+                if (!SaveFocusDraft()) return;
+                focusAllEmotions = !focusAllEmotions; ShowFocusEmotion();
+            }, Color.clear, FigmaMissionUi.Green, 14).name = "Focus.MoreEmotions";
             FocusBackControl(root, "23_192_imgIconBack");
-            FigmaMissionUi.Button(root, "다음", 84, 768, 282, 52, () =>
+            FigmaMissionUi.Button(root, "다음", 24, 650, 342, 56, () =>
             {
                 if (!FocusSaved(Service.SaveFocusReflection(session.SessionId, focusMood, focusNote, 1))) return;
                 focusDirty = false; ShowFocusNote();
             }).name = "Focus.ReflectionNext";
+            FigmaMissionUi.Button(root, "기록 없이 완료", 84, 714, 282, 48, () => CompleteFocusPractice(session.SessionId, true), Color.clear, FigmaMissionUi.Green, 16).name = "Focus.SkipReflection";
         }
 
         void FocusBackControl(Transform root, string asset)
@@ -431,7 +451,7 @@ namespace CapstoneDesign.Runtime
             if (!FocusReflectionReady(out var session)) return;
             var root = BeginFigmaPage(saveError ? "focus-save-error" : "focus-note", () => RenderFocusNote(saveError), FigmaMissionUi.Background);
             if (notice != null && saveError) notice.gameObject.SetActive(false);
-            FigmaHeader(root, "한 줄 남기기", "감정 기록 2 / 2 · 선택"); FocusRoleBadge(root, session);
+            FigmaHeader(root, "한 줄 남기기", "나의 메모 · 선택"); FocusRoleBadge(root, session);
             float shift = saveError ? 124 : 0;
             if (saveError)
             {
@@ -441,7 +461,7 @@ namespace CapstoneDesign.Runtime
             }
             FigmaMissionUi.Label(root, "고른 감정", 24, 193 + shift, 342, 21, 14, FigmaMissionUi.Muted);
             FigmaMissionUi.Label(root, string.IsNullOrEmpty(focusMood) ? "선택하지 않았어요" : focusMood, 24, 222 + shift, 342, 26, 18, FigmaMissionUi.Green, true);
-            FigmaMissionUi.Label(root, "어떤 순간이 떠오르나요?", 24, 264 + shift, 342, 26, 18, null, true);
+            FigmaMissionUi.Label(root, "어떤 순간이 떠오르나요? · 선택", 24, 264 + shift, 342, 26, 18, null, true);
             focusNoteInput = FigmaMissionUi.Input(root, "감정이나 생각을 편하게 적어보세요.", 24, 306 + shift, 342, 164, 500);
             focusNoteInput.name = "Focus.NoteInput"; focusNoteInput.SetTextWithoutNotify(focusNote);
             focusNoteInput.onValueChanged.AddListener(value => { focusNote = value; focusDirty = true; });
@@ -457,14 +477,19 @@ namespace CapstoneDesign.Runtime
             }
         }
 
-        void CompleteFocusPractice(string id)
+        void CompleteFocusPractice(string id, bool withoutReflection = false)
         {
-            if ((Application.isPlaying && Time.unscaledTime < focusNextAction) || sessionId != id || screen != "focus-note") return;
+            if ((Application.isPlaying && Time.unscaledTime < focusNextAction) || sessionId != id || (screen != "focus-note" && !(withoutReflection && screen == "focus-emotion"))) return;
             focusNextAction = Time.unscaledTime + .2f;
             if (focusNoteInput != null) focusNote = focusNoteInput.text;
             // Keep the editable draft until the session and reward commit succeeds atomically.
             focusDirty = true;
-            if (!FocusSaved(Service.CompleteFocusSession(id, focusMood, focusNote))) { RenderFocusNote(true); return; }
+            if (!FocusSaved(Service.CompleteFocusSession(id, withoutReflection ? "" : focusMood, withoutReflection ? "" : focusNote)))
+            {
+                if (!withoutReflection) RenderFocusNote(true);
+                return;
+            }
+            if (withoutReflection) { focusMood = ""; focusNote = ""; }
             focusDirty = false; focusAnswerInput = null; focusNoteInput = null;
             ResetCompletedNavigation(); UpdateGarden(); ShowFocusCompletion(id);
         }
@@ -476,8 +501,8 @@ namespace CapstoneDesign.Runtime
             if (!FocusMissionPolicy.IsFocus(session) || mission == null || session.Status != ParticipationState.RewardCommitted) { ShowHome(); return; }
             focusDirty = false; focusAnswerInput = null; focusNoteInput = null;
             var root = BeginFigmaPage("focus-complete", () => ShowFocusCompletion(completedSessionId), FigmaMissionUi.Hex(mission.BackgroundHex));
-            var accent = FocusAccent(mission); int total = mission.Steps.Length + 2;
-            FigmaMissionUi.Label(root, total + " / " + total + " · 미션 완료", 24, 24, 342, 24, 14, FocusMuted(mission));
+            var accent = FocusAccent(mission);
+            FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 24, 342, 24, 14, FocusMuted(mission));
             FigmaMissionUi.Label(root, "미션 완료!", 24, 90, 342, 40, 32, FocusInk(mission), true);
             FigmaMissionUi.Label(root, session.RewardAmount > 0 ? "영양제 +" + session.RewardAmount : "기록을 저장했어요", 24, 138, 342, 28, 18, FocusMuted(mission));
             FocusCircle(root, 55, 319.5f, 280, FocusCircleColor(mission));
@@ -495,14 +520,15 @@ namespace CapstoneDesign.Runtime
             }
             string message = mission.Code == "M03" ? "물 마시기 완료" : mission.Code == "P10" ? "잠시 숨을 골랐어요" : mission.Code == "P23" ? "한입을 느꼈어요" : mission.Code == "P25" ? "전할 말을 확인했어요" : "오늘의 실천을 남겼어요";
             FigmaMissionUi.Label(root, message, 45, 613.5f, 300, 36, 24, accent, true, TextAnchor.MiddleCenter);
-            FigmaMissionUi.Button(root, "확인", 125, 698, 140, 48, ShowHome, Color.clear, accent, 16).name = "Focus.ConfirmHome";
+            FigmaMissionUi.Button(root, "미션 목록으로", 24, 698, 166, 48, ShowHome, Color.clear, accent, 16).name = "Focus.ConfirmHome";
+            FigmaMissionUi.Button(root, "저장한 기록 보기", 200, 698, 166, 48, () => ShowFocusRecord(completedSessionId), Color.clear, accent, 16).name = "Focus.ViewRecord";
             FigmaMissionUi.Button(root, "정원으로", 24, 756, 342, 58, GoGarden, accent, Color.white, 18).name = "Focus.GoGarden";
             FocusEnter(root);
         }
 
         static void FocusEnter(RectTransform root)
         {
-            if (Application.isPlaying) root.gameObject.AddComponent<FocusMissionEntrance>();
+            root.GetComponent<FocusMobilePageLayout>()?.Refresh();
         }
 
         void AttachFocusKeyboard(Transform root, InputField input, string title, Color background, Color accent)

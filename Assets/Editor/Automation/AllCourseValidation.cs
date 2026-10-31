@@ -19,7 +19,15 @@ namespace CapstoneDesign.EditorTools
         [Serializable] public sealed class Request { public string runId, mode; public bool capture = true; }
         static bool running;
         static double nextPoll;
-        static string Root => Path.Combine(Directory.GetCurrentDirectory(), "artifacts", "all-course-validation");
+        static string Root
+        {
+            get
+            {
+                string requested = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS");
+                return Path.Combine(string.IsNullOrWhiteSpace(requested)
+                    ? Path.Combine(Directory.GetCurrentDirectory(), "artifacts") : Path.GetFullPath(requested), "all-course-validation");
+            }
+        }
         static string RequestPath => Path.Combine(Root, "request.json");
         static AllCourseValidation() { EditorApplication.update += Poll; }
         static void Poll()
@@ -53,6 +61,7 @@ namespace CapstoneDesign.EditorTools
             }
             finally { File.WriteAllText(Path.Combine(Root, "report.json"), JsonUtility.ToJson(report, true)); running = false; }
             Debug.Log("ALL_COURSE_VALIDATION passed=" + report.passed + " failed=" + report.failed + " clicks=" + report.buttonClicks + " raycasts=" + report.raycastChecks);
+            if (report.failed > 0) throw new InvalidOperationException("AllCourseValidation: " + report.failed + " checks failed; inspect report.json.");
         }
         static void Check(Report report, string name, Action action)
         {
@@ -107,6 +116,7 @@ namespace CapstoneDesign.EditorTools
                     int total = FocusMissionPolicy.TotalPracticesFor(program);
                     Assert(f.VisibleText.Contains("완료한 실습 0 / " + total), "Course total is wrong.");
                     Assert(!f.VisibleText.Contains("1주차 미션"), "History retained weekly groups.");
+                    f.Click("Focus.CurriculumToggle");
                     Assert(f.Ui.GetComponentsInChildren<Button>(false).Count(b => b.name.StartsWith("Focus.Occurrence." + program + ".", StringComparison.Ordinal)) == total, "Not all course occurrences are listed.");
                     f.Click("Focus.Occurrence." + program + "." + total);
                     Assert(f.VisibleText.Contains(FocusMissionPolicy.MissionAt(total, program).Title) && f.VisibleText.Contains("아직 저장된 수행 기록이 없어요"), "Future occurrence information is inaccessible.");
@@ -127,7 +137,7 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("allcourse-05-course-grouped-history", capture);
                 f.Click("Focus.CourseRecords.2w"); f.Click("저장된 기록 보기");
                 Assert(f.Has("Focus.Record." + two) && !f.Has("Focus.Record." + four) && !f.Has("Focus.Record." + additional), "Course history contains another course or independent recommendation.");
-                f.Click("Focus.Record." + two);
+                f.Click("Focus.Record." + two);f.Click("Focus.RecordStepsToggle");
                 Assert(f.VisibleText.Contains("synthetic two-week note") && f.VisibleText.Contains("2주 코스") && f.VisibleText.Contains("확인 ·"), "Detailed course response or timestamp was lost.");
                 f.Capture("allcourse-06-deep-record", capture);
                 f.Click("다시 연습하기 · 추가 보상 없음");
@@ -187,7 +197,7 @@ namespace CapstoneDesign.EditorTools
                     f.CompleteReflection("synthetic " + code + " record", "", false);
                     Assert(f.Latest.Status == ParticipationState.RewardCommitted, code + " did not complete through its visible controls.");
                     f.AssertVisibleAssets();
-                    f.Click("확인"); f.Clock.UtcNow = f.Clock.UtcNow.AddDays(2); Assert(f.Ui.RefreshCycle(), f.Service.LastError);
+                    f.Click("Focus.ConfirmHome"); f.Clock.UtcNow = f.Clock.UtcNow.AddDays(2); Assert(f.Ui.RefreshCycle(), f.Service.LastError);
                 }
                 foreach (var mission in FocusMissionCatalog.Additional)
                 {
