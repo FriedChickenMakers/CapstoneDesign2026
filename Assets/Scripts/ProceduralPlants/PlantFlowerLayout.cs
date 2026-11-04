@@ -28,7 +28,7 @@ namespace CapstoneDesign.Plants
         internal static void ClearCache(){lock(Cache){Cache.Clear();CacheOrder.Clear();}}
         static string Key(PlantRecipe p)
         {
-            var key=new StringBuilder(p.SpeciesId).Append('|').Append(p.BaseSeed).Append('|').Append(p.TargetHeads).Append('|').Append(p.Heading.ToString("R",CultureInfo.InvariantCulture));
+            var key=new StringBuilder(p.SpeciesId).Append('|').Append(p.MeshVersion).Append('|').Append(p.BaseSeed).Append('|').Append(p.TargetHeads).Append('|').Append(p.Heading.ToString("R",CultureInfo.InvariantCulture));
             foreach(var h in p.Heads)
             {
                 key.Append('|').Append(h.Florets).Append('/').Append(h.Petals);
@@ -105,7 +105,7 @@ namespace CapstoneDesign.Plants
                 double radiusBudget=recipe.TargetHeads==1?.36:recipe.TargetHeads==2?.26:.22;
                 double budgetScale=Math.Min(1,radiusBudget/Math.Max(.001,Measure(template).Radius));
                 double baseAngle=recipe.Heading+index*137.507764;
-                double tilt=(species.Flower==FlowerShape.Rays||species.Flower==FlowerShape.Rose?22:8)
+                double tilt=(species.Flower==FlowerShape.Rays||species.Flower==FlowerShape.Rose?(recipe.MeshVersion>=6?34:22):8)
                     +8*PlantMath.U(recipe.BaseSeed,"head/"+index,"outward-tilt");
                 FlowerPose chosen=null;Bounds chosenBounds=null;double best=double.PositiveInfinity;
                 // Scale is a last resort after considering spacing and direction.
@@ -135,7 +135,7 @@ namespace CapstoneDesign.Plants
                                 {double amount=local.Views[view].Shift(Dot(compactCenter,ViewRight[view]),Dot(compactCenter,ViewUp[view])).Overlap(old.Views[view]);overlap+=amount*amount;worst=Math.Max(worst,amount);}
                             }
                             if(intersects)continue;
-                            double score=overlap/ViewCount+.15*worst+.08*(center-h.Anchor).Length+.015*(center-h.Tip).Length;
+                            double score=overlap/ViewCount+(recipe.MeshVersion>=6?.60:.15)*worst+.08*(center-h.Anchor).Length+.015*(center-h.Tip).Length;
                             if(score>=best)continue;
                             best=score;chosen=new FlowerPose{Center=center,Right=pose.Right,Up=pose.Up,Forward=pose.Forward,Scale=scale};chosenBounds=Shift(local,center);
                         }

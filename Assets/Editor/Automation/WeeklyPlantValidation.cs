@@ -22,6 +22,21 @@ namespace CapstoneDesign.EditorTools
     public static class WeeklyPlantValidation
     {
         static readonly string Output=Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS")??"artifacts/weekly-plants-20261104/validation";
+        public static void PlantVolume()
+        {
+            Directory.CreateDirectory(Output);
+            if(SystemInfo.graphicsDeviceType==GraphicsDeviceType.Null)throw new InvalidOperationException("Graphics required.");
+            var report=new List<string>{"Synthetic volume comparison: same seed, recipe, lighting and camera; left mesh5 / right mesh6."};
+            var species=new[]{PlantCatalog.Get("species:sunflower"),PlantCatalog.Get("species:cosmos"),PlantCatalog.Get("species:chamomile")};
+            Gallery("volume-before-after",2,3,(col,row)=>Recipe(species[row],21,col+5),(_,__)=>0,report,cellWidth:400);
+            Gallery("volume-multiview",4,3,(col,row)=>Recipe(species[row],21,6),(_,__)=>0,report,(col,row)=>-25+90*col,400);
+            Gallery("volume-all-species",4,3,(col,row)=>Recipe(PlantCatalog.All[row*4+col],21,6),(_,__)=>21,report,cellWidth:400);
+            int[] steps={0,1,3,6,7,11,15,18,21};
+            Gallery("volume-growth",steps.Length,1,(col,row)=>Recipe(species[0],steps[col],6),(_,__)=>0,report,cellWidth:400);
+            ValidateHome(report);
+            File.WriteAllLines(Path.Combine(Output,"unity-report.txt"),report);
+            Debug.Log("PLANT_VOLUME_VALIDATION_PASS "+report.Count+" entries");
+        }
         public static void FlowerSpacing()
         {
             Directory.CreateDirectory(Output);

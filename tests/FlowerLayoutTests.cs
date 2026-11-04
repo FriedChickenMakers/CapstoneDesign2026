@@ -57,7 +57,7 @@ class FlowerLayoutTests
         foreach(var species in PlantCatalog.All)for(int seed=0;seed<seeds;seed++)
         {
             var p=PlantGenerator.Create("synthetic-flower-layout-v1",species.Id+"/"+seed,21,PlantGrowthMode.MissionCompletions);
-            p.Counts=species.ExampleCounts();p.MeshVersion=5;FlowerPose[] prior=null;
+            p.Counts=species.ExampleCounts();p.MeshVersion=PlantGeometry.CurrentMeshVersion;FlowerPose[] prior=null;
             for(int step=1;step<=21;step++)
             {
                 p=PlantGenerator.Advance(p);
@@ -86,7 +86,7 @@ class FlowerLayoutTests
         WeeklyPlants.Active(state).Recipe.MeshVersion=4;var store=new Store{State=state};string oldLegacy=PlantCodec.Encode(state.PlantCollection.Plants[0].Recipe);
         using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
         {
-            Check(service.Open(),"Style migration failed");Check(WeeklyPlants.Active(service.Snapshot).Recipe.MeshVersion==5&&PlantCodec.Encode(service.Snapshot.PlantCollection.Plants[0].Recipe)==oldLegacy,"Style migration changed legacy plant");
+            Check(service.Open(),"Style migration failed");Check(WeeklyPlants.Active(service.Snapshot).Recipe.MeshVersion==PlantGeometry.CurrentMeshVersion&&PlantCodec.Encode(service.Snapshot.PlantCollection.Plants[0].Recipe)==oldLegacy,"Style migration changed legacy plant");
             Check(service.RefreshCycle(null)&&service.BeginSession("synthetic-migration-memory","free-mission:M17",0)&&service.StartSession("synthetic-migration-memory")&&service.CompleteSession("synthetic-migration-memory","중립","synthetic migration note"),"Memory fixture failed");
         }
         WeeklyPlants.Active(store.State).Recipe.MeshVersion=4;
@@ -94,7 +94,7 @@ class FlowerLayoutTests
         using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
         {
             Check(service.Open(),"Populated style migration failed");
-            Check(StateCodec.Encode(service.Snapshot)==beforeUpgrade.Replace("<MeshVersion>4</MeshVersion>","<MeshVersion>5</MeshVersion>"),"Style upgrade changed memory IDs, records, growth, wallet or other saved data");
+            Check(StateCodec.Encode(service.Snapshot)==beforeUpgrade.Replace("<MeshVersion>4</MeshVersion>","<MeshVersion>"+PlantGeometry.CurrentMeshVersion+"</MeshVersion>"),"Style upgrade changed memory IDs, records, growth, wallet or other saved data");
         }
         store=new Store{State=state,Fail=true};using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
         {Check(!service.Open()&&WeeklyPlants.Active(store.State).Recipe.MeshVersion==4,"Failed style migration overwrote original");}

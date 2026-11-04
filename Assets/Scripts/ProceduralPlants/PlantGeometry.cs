@@ -20,6 +20,7 @@ namespace CapstoneDesign.Plants
         public readonly List<PlantOrganGeometry> Organs=new List<PlantOrganGeometry>();
         public readonly List<PlantFlowerGeometry> Flowers=new List<PlantFlowerGeometry>();
         public bool BroadFacets;
+        public bool Volumetric;
         public int TriangleCount { get { return Vertices.Count/3; } }
         public void Triangle(PlantVector a,PlantVector b,PlantVector c,PlantColor color)
         {
@@ -64,6 +65,7 @@ namespace CapstoneDesign.Plants
         }
         public void Blade(PlantVector at,PlantVector direction,double length,double width,double edge,PlantColor color,double exponent=.8,int segments=4,PlantVector? planeNormal=null,bool petal=false)
         {
+            if(Volumetric) { FoldedBlade(at,direction,length,width,edge,color,planeNormal??PlantVector.Up,petal);return; }
             if(Refined) { SolidBlade(at,direction,length,width,edge,color,exponent,planeNormal??PlantVector.Up,petal);return; }
             var forward=direction.Normalized;var normal=planeNormal??PlantVector.Up;
             var cross=PlantVector.Cross(forward,normal);var side=cross.Normalized;
@@ -77,6 +79,36 @@ namespace CapstoneDesign.Plants
                 var b=at+forward*(length*t1)+normal*(length*.08*Math.Sin(Math.PI*t1));
                 Triangle(a-side*w0,b-side*w1,a+side*w0,color);Triangle(a+side*w0,b-side*w1,b+side*w1,color);
             }
+        }
+        // A closed, tapered volume with two raised ridge points. The broad
+        // triangular faces catch light even when the organ is seen edge-on.
+        // This is geometry, not a baked highlight or a camera-facing billboard.
+        void FoldedBlade(PlantVector at,PlantVector direction,double length,double width,double edge,PlantColor color,PlantVector planeNormal,bool petal)
+        {
+            if(length<=0||width<=0)return;
+            var forward=direction.Normalized;var cross=PlantVector.Cross(forward,planeNormal);var side=cross.Normalized;
+            if(cross.Length<1e-8){PlantVector unused;Basis(forward,out side,out unused);}
+            var normal=PlantVector.Cross(side,forward).Normalized;
+            double relief=Math.Min(length*.23,width*.52),bend=length*(petal?.18:.10);
+            double[] along={0,.22,.48,.76,1,.76,.48,.22};
+            double[] across={0,-.29,-.50,-.31,0,.31,.50,.29};
+            var outline=new PlantVector[8];
+            for(int i=0;i<8;i++)
+            {
+                double t=along[i],w=across[i]*width*(1+edge*.3*Math.Sin(6*Math.PI*t));
+                outline[i]=at+forward*(length*t)+side*w+normal*(bend*t*t+across[i]*relief*.16);
+            }
+            var low=at+forward*(length*.30)+normal*(relief*.82+bend*.09);
+            var high=at+forward*(length*.68)+normal*(relief+bend*.4624);
+            var bottom=at+forward*(length*.49)+normal*(bend*.2401-relief*.48);
+            for(int i=0;i<8;i++)
+            {
+                int next=(i+1)%8;var ridge=i<2||i>=6?low:high;
+                Triangle(ridge,outline[next],outline[i],color.Brightness(i<4?1.04:.94));
+                Triangle(bottom,outline[i],outline[next],color.Brightness(.82));
+            }
+            Triangle(low,high,outline[2],color.Brightness(1.10));
+            Triangle(low,outline[6],high,color.Brightness(.90));
         }
         // RefinedMeshes/Chamomile uses an eight-point outline with separate raised
         // front and back centers. Keep that closed, faceted form at any organ size.
@@ -112,12 +144,14 @@ namespace CapstoneDesign.Plants
     }
     public static class PlantGeometry
     {
+        public const int CurrentMeshVersion=6;
         static readonly PlantColor Stem=PlantColor.Hex("526F4D"),Leaf=PlantColor.Hex("739764"),LightLeaf=PlantColor.Hex("A0B787");
         public static PlantMeshData Build(PlantRecipe p)
         {
             PlantGenerator.Validate(p);
             var m=new PlantMeshData(p.MeshVersion>=2);
             m.BroadFacets=p.MeshVersion>=3;
+            m.Volumetric=p.MeshVersion>=6;
             if(p.GrowthStep==0) m.Orb(new PlantVector(0,.035,0),new PlantVector(.035,.033,.052),PlantColor.Hex("AD8158"),10,4);
             else
             {
@@ -222,7 +256,7 @@ namespace CapstoneDesign.Plants
         }
         internal static PlantVector[] FlowerLayoutTemplate(PlantRecipe p,SpeciesDefinition s,HeadRecipe h,int index)
         {
-            var mesh=new PlantMeshData(true);
+            var mesh=new PlantMeshData(true){Volumetric=p.MeshVersion>=6};
             double diameter=h.Diameter*h.Scale*PlantFlowerLayout.Amplification(s);
             for(int k=0;k<h.Florets;k++)
             {
@@ -352,13 +386,25 @@ namespace CapstoneDesign.Plants
             {
                 double a=2*Math.PI*k/h.Petals+.03*(2*PlantMath.U(p.BaseSeed,"head/"+PlantMath.Number(head)+"/petal/"+PlantMath.Number(k),"angle")-1);
                 var radial=u*Math.Cos(a)+v*Math.Sin(a);
-                var dir=(radial*open+normal*(1-open+.08)).Normalized;
+                double lift=m.Volumetric?.18+.12*(k%2):.08;
+                var dir=(radial*open+normal*(1-open+lift)).Normalized;
                 double width=d*(h.Petals>=10?.18:.48);
                 double length=d*.47;
+                if(m.Volumetric&&s.Id=="species:sunflower")width=d*.31;
                 if(s.Flower==FlowerShape.Lavender) { length*=k<2?.80:1.15;width*=.8; }
-                m.Blade(at+radial*(d*.06),dir,length,width,0,color,.65,4,normal,true);
+                var baseAt=at+radial*(d*.06);
+                if(m.Volumetric)baseAt+=normal*(d*.018*(k%2)*open);
+                m.Blade(baseAt,dir,length,width,0,color,.65,4,normal,true);
             }
             double center=s.Id=="species:sunflower"?.25:s.Flower==FlowerShape.Rays?.17:.075;
+            if(m.Volumetric)
+            {
+                // Orient the raised disk with the bloom, rather than world Y.
+                // A sunflower's deep seed head is the reference's main volume.
+                double depth=s.Id=="species:sunflower"?.20:s.Id=="species:chamomile"?.13:center*.85;
+                OrientedOrb(m,at+normal*(d*depth*.48),normal,u,v,new PlantVector(d*center,d*depth,d*center),PlantColor.Hex(s.Center),10,5);
+                return;
+            }
             if(m.Refined&&s.Id=="species:chamomile")
             {
                 // A raised golden disk with small pollen facets, as in the reference.
@@ -381,7 +427,10 @@ namespace CapstoneDesign.Plants
             {
                 var a=local.Vertices[i];var b=local.Vertices[i+1];var c=local.Vertices[i+2];
                 // (u, normal, -v) is a right-handed frame.
-                m.Triangle(at+u*a.X+normal*a.Y-v*a.Z,at+u*b.X+normal*b.Y-v*b.Z,at+u*c.X+normal*c.Y-v*c.Z,color);
+                // Small seed/pollen color differences distinguish broad facets;
+                // all faces still use their real normals and scene lighting.
+                var facet=m.Volumetric?color.Brightness(.88+.045*((i/3*5)%7)):color;
+                m.Triangle(at+u*a.X+normal*a.Y-v*a.Z,at+u*b.X+normal*b.Y-v*b.Z,at+u*c.X+normal*c.Y-v*c.Z,facet);
             }
         }
         static void Cup(PlantMeshData m,PlantVector at,PlantVector n,PlantVector u,PlantVector v,double d,int lobes,double open,PlantColor color)

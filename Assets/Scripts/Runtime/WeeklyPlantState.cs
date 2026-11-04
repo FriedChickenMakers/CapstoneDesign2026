@@ -71,16 +71,16 @@ namespace CapstoneDesign.Runtime.LocalState
             int ordinal=state.PlantCollection.Plants.Where(p=>!p.Legacy).Select(p=>p.Ordinal).DefaultIfEmpty(0).Max()+1;
             string id="weekly-"+ordinal.ToString(CultureInfo.InvariantCulture);
             var recipe=PlantGenerator.Create(state.InstallationId,id,Target,PlantGrowthMode.MissionCompletions);
-            recipe.MeshVersion=PlantFlowerLayout.Version;
+            recipe.MeshVersion=PlantGeometry.CurrentMeshVersion;
             var plant=new PlantInstanceState{Id=id,Ordinal=ordinal,CreatedUtc=now,Recipe=recipe};
             state.PlantCollection.Plants.Add(plant);state.PlantCollection.ActiveId=id;return plant;
         }
         public static bool UpgradeFlowerLayout(GardenState state)
         {
             bool changed=false;
-            foreach(var plant in state.PlantCollection.Plants.Where(p=>!p.Legacy && p.Recipe.MeshVersion==4))
+            foreach(var plant in state.PlantCollection.Plants.Where(p=>!p.Legacy && p.Recipe.MeshVersion>=4 && p.Recipe.MeshVersion<PlantGeometry.CurrentMeshVersion))
             {
-                plant.Recipe.MeshVersion=PlantFlowerLayout.Version;
+                plant.Recipe.MeshVersion=PlantGeometry.CurrentMeshVersion;
                 PlantGeometry.Build(plant.Recipe); // A failed layout aborts the migration save.
                 changed=true;
             }

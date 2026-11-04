@@ -41,6 +41,7 @@ def catalog(output):
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
     checks.append(Check("weekly-plants", "unit", [python, "scripts/test-weekly-plants.py"], ("plant-compiler",)))
     checks.append(Check("flower-layout", "unit", [python, "scripts/test-weekly-plants.py", "FlowerLayoutTests"], ("plant-compiler",)))
+    checks.append(Check("plant-volume", "unit", [python, "scripts/test-weekly-plants.py", "PlantVolumeTests"], ("plant-compiler",)))
     for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit", "measurement-buffer"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("kotlin",)))
     unity = ["bash", "scripts/unity-run.sh", "-batchmode", "-projectPath", str(ROOT)]
@@ -61,6 +62,7 @@ def catalog(output):
                          ("procedural-scene", "GardenProceduralValidation.Capture"),
                          ("weekly-plants-ui", "WeeklyPlantValidation.Run"),
                          ("flower-spacing", "WeeklyPlantValidation.FlowerSpacing"),
+                         ("plant-volume-ui", "WeeklyPlantValidation.PlantVolume"),
                          ("focus-missions", "FocusMissionValidation.Run"),
                          ("mobile-ui", "MobileUiValidation.Run"), ("all-courses", "AllCourseValidation.Run")):
         checks.append(editor(name, method, "visual", graphics=True))
