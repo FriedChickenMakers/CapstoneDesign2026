@@ -269,9 +269,6 @@ namespace CapstoneDesign.Runtime
             rect.anchoredPosition=new Vector2(right?-x:x,-y);rect.sizeDelta=new Vector2(width,height);
             label.fontSize=size;label.enableAutoSizing=false;label.textWrappingMode=TextWrappingModes.NoWrap;
             label.overflowMode=TextOverflowModes.Ellipsis;label.alignment=right?TextAlignmentOptions.MidlineRight:TextAlignmentOptions.MidlineLeft;
-            // A thin opposite-color edge keeps the camera scene visible while
-            // separating the day/night text from leaves, clouds and bright sky.
-            label.outlineWidth = .12f;
             label.raycastTarget=false;
         }
 
@@ -291,6 +288,12 @@ namespace CapstoneDesign.Runtime
         {
             if(label==null)return;
             if(label.color!=ink)label.color=ink;
+            // Home can refresh from another component's Awake before TMP's Awake.
+            // The public getter initializes TMP's CanvasRenderer cache. Defer
+            // material styling until ready; the visible home refresh retries it.
+            if(label.fontSharedMaterial==null || (label is TextMeshProUGUI ugui && ugui.canvasRenderer==null))return;
+            // Keep a thin opposite-color edge over leaves, clouds and bright sky.
+            label.outlineWidth=.12f;
             if(!label.outlineColor.Equals(edge))label.outlineColor=edge;
         }
 

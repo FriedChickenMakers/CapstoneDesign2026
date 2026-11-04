@@ -89,9 +89,7 @@ namespace CapstoneDesign.EditorTools
             loop.ShowPersonalPlan(); CaptureView("plan-empty", "empty", "no personal plan");
             loop.ShowDiscoveries(); CaptureView("discoveries-empty", "empty", "no animal discovery");
             loop.ShowShop(); CaptureView("shop-empty", "shop", "insufficient nutrients");
-            loop.PreviewGrowth(); CaptureView("growth-insufficient", "shop", "growth preview no nutrients");
-            bool growthClicked = InvokeButton(loop, "확정");
-            CaptureView("growth-purchase-error", "error", growthClicked ? "growth insufficient nutrients" : "purchase disabled; click has no effect");
+            loop.ShowPlantCollection(); CaptureView("plants-new", "plants", "activity-grown seed; nutrients are not a growth cost");
             loop.ShowShop(); loop.PreviewEnvironment("environment:E01"); CaptureView("placement-flower-insufficient", "shop", "flower preview no nutrients");
             bool flowerClicked = InvokeButton(loop, "확정");
             CaptureView("placement-flower-error", "error", flowerClicked ? "flower insufficient nutrients" : "purchase disabled; click has no effect");
@@ -115,7 +113,9 @@ namespace CapstoneDesign.EditorTools
 
         static void CaptureAllCoursePages(WeekOneQuestDemo loop)
         {
-            loop.ShowCourse();
+            // This baseline exercises the saved 48-practice MBCT compatibility UI.
+            // The public route now opens Focus, which has no weekly paging button.
+            LocalLoopValidation.ShowLegacy(loop, "Course");
             for (int week = 1; week <= 8; week++)
             {
                 CaptureView("course-week-" + week.ToString("00"), "course", "locked and current activity");
@@ -171,9 +171,9 @@ namespace CapstoneDesign.EditorTools
             loop.ShowShop(); CaptureView("shop-with-nutrients", "shop", "earned nutrients");
 
             // Supplemental states added after the original baseline capture.
-            loop.PreviewGrowth(); CaptureView("growth-affordable", "after-only supplemental", "growth affordable; balance unchanged in preview");
-            if (!InvokeButton(loop, "확정")) throw new InvalidOperationException("Affordable growth should be enabled.");
-            CaptureView("garden-after-growth", "after-only supplemental", "growth committed");
+            loop.ShowPlantCollection(); CaptureView("plants-after-course", "plants", "activity-grown plant collection after course completion");
+            loop.ShowPlantMemories(WeeklyPlants.Active(service.Snapshot).Id, 0);
+            CaptureView("plant-memories-after-course", "plants", "optional records linked to the active plant");
             nav.ShowActivities(); loop.ShowShop(); loop.PreviewEnvironment("environment:E01");
             CaptureView("placement-affordable", "after-only supplemental", "flower affordable; balance unchanged in preview");
             if (!InvokeButton(loop, "확정")) throw new InvalidOperationException("Affordable placement should be enabled.");

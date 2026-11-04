@@ -321,12 +321,13 @@ namespace CapstoneDesign.EditorTools
                 GardenProceduralValidation.CaptureGardenContext(home);
                 // A step sync may commit rewards while the activity page is hidden.
                 // Reopening that existing page must agree with the main garden.
+                int expectedNutrients=ui.Service.Snapshot.Nutrient+1;
                 ui.ShowHome();nav.ShowIsland();
                 if(!ui.ToggleDebugWalk())throw new Exception("Could not enable synthetic debug walk");
                 for(int i=0;i<10;i++)if(!ui.AddVirtualDebugStep())throw new Exception("Synthetic step failed");
                 nav.ShowActivities();LocalLoopValidation.ShowLegacy(ui,"Home");
-                if(ui.Service.Snapshot.Nutrient!=1 || !home.guide.text.Contains("영양제 1개")
-                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  8주 코스")))
+                if(ui.Service.Snapshot.Nutrient!=expectedNutrients || !home.guide.text.Contains("영양제 "+expectedNutrients+"개")
+                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 "+expectedNutrients+"  ·  8주 코스")))
                     throw new Exception("Activity header retained stale nutrients after a hidden reward update");
             }
             Finish(root,phase,null);

@@ -37,7 +37,7 @@ namespace CapstoneDesign.EditorTools
         {
             "home-day", "home-night", "activities", "activities-pressed", "activities-disabled",
             "programs", "course", "practice", "reflection", "reflection-selected", "complete",
-            "growth-current", "growth-after", "records", "record-detail", "record-health",
+            "plant-collection", "plant-memories", "records", "record-detail", "record-health",
             "journal-long", "preferences", "settings-top", "settings-bottom"
         };
 
@@ -180,10 +180,16 @@ namespace CapstoneDesign.EditorTools
                 Require(MbctPolicy.CompletedCount(service.Snapshot) == 3, "Synthetic course progress is missing.");
                 ui.ShowShop(); return;
             }
-            if (name.StartsWith("growth-", StringComparison.Ordinal))
+            if (name == "plant-collection" || name == "plant-memories")
             {
-                ui.PreviewGrowth();
-                if (name == "growth-current") Click(ui.transform, "현재");
+                if (name == "plant-collection") ui.ShowPlantCollection();
+                else
+                {
+                    Require(service.SaveExperience("theme-memory", "즐거움", "합성 UI 검토용 기억입니다.", "", "편안함", ""), service.LastError);
+                    var plant = WeeklyPlants.Active(service.Snapshot);
+                    Require(plant.Memories.Count == 1, "Synthetic memory leaf is missing.");
+                    ui.ShowPlantMemories(plant.Id, 0);
+                }
                 return;
             }
             if (name.StartsWith("settings", StringComparison.Ordinal))
