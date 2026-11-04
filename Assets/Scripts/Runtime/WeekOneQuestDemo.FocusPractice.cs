@@ -79,6 +79,7 @@ namespace CapstoneDesign.Runtime
 
         public bool TryFocusBack()
         {
+            if(screen=="focus-photo"){var photoSession=ActiveSession();if(photoSession!=null)SkipMissionPhoto(photoSession.SessionId);return true;}
             if (screen == "focus-story") { ShowFocusPractice(); return true; }
             if (screen != "focus-practice" && screen != "focus-emotion" && screen != "focus-note" && screen != "focus-save-error" && screen != "focus-complete") return false;
             if (screen == "focus-complete") { ShowHome(); return true; }
@@ -410,6 +411,7 @@ namespace CapstoneDesign.Runtime
         public void ShowFocusEmotion()
         {
             if (!FocusReflectionReady(out var session)) return;
+            if(NeedsPhotoChoice(session)){ShowMissionPhoto();return;}
             var root = BeginFigmaPage("focus-emotion", ShowFocusEmotion, FigmaMissionUi.Background);
             FigmaHeader(root, "지금 느낌은 어떤가요?", "감정 기록 · 선택"); FocusRoleBadge(root, session);
             FigmaMissionUi.Label(root, "원하면 가까운 감정 하나를 골라요.", 24, 190, 342, 24, 16, FigmaMissionUi.Muted);
@@ -429,6 +431,8 @@ namespace CapstoneDesign.Runtime
                 if (!SaveFocusDraft()) return;
                 focusAllEmotions = !focusAllEmotions; ShowFocusEmotion();
             }, Color.clear, FigmaMissionUi.Green, 14).name = "Focus.MoreEmotions";
+            if(!focusAllEmotions&&CameraMissionPolicy.Target(session)!=null)
+                FigmaMissionUi.Button(root,session.Photo==null?"사진 남기기 · 선택":"함께한 사진 확인",24,450,342,48,()=>{if(SaveFocusDraft())ShowMissionPhoto();},Color.white,FigmaMissionUi.Green,14).name="Photo.Edit";
             FocusBackControl(root, "23_192_imgIconBack");
             FigmaMissionUi.Button(root, "다음", 24, 650, 342, 56, () =>
             {
@@ -505,6 +509,7 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 24, 342, 24, 14, FocusMuted(mission));
             FigmaMissionUi.Label(root, "미션 완료!", 24, 90, 342, 40, 32, FocusInk(mission), true);
             FigmaMissionUi.Label(root, session.RewardAmount > 0 ? "영양제 +" + session.RewardAmount : "기록을 저장했어요", 24, 138, 342, 28, 18, FocusMuted(mission));
+            if(session.PhotoBonusAmount>0)FigmaMissionUi.Label(root,"사진 확인 보너스 · 영양제 +"+session.PhotoBonusAmount,24,178,342,28,16,accent,true).name="Photo.Bonus";
             FocusCircle(root, 55, 319.5f, 280, FocusCircleColor(mission));
             if (FocusMissionCatalog.HasOriginalLayout(mission.Code))
             {

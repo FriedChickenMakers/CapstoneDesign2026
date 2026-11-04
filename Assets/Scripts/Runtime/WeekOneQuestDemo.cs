@@ -79,7 +79,7 @@ namespace CapstoneDesign.Runtime
             }
             catch (Exception ex) { error=ex.Message; }
             SetupIsland(); ShowHome();
-            if(opened)ReconcileMissionReminder();
+            if(opened){ReconcileMissionReminder();Photos.Prune(Service.Snapshot);}
         }
         static string EditorSaveOverride
         {
@@ -106,6 +106,7 @@ namespace CapstoneDesign.Runtime
             TickRecordHeartRefresh();
             TickWalkingPersonalization();
             TickMissionNotifications();
+            TickMissionPhoto();
             if(opened && Time.unscaledTime >= nextCycleCheck) { nextCycleCheck=Time.unscaledTime+30; RefreshCycle(); }
         }
         void OnApplicationFocus(bool focus) { if(!opened)return; if(focus)OnAppReturned();else SaveActivePracticeDraft(); }

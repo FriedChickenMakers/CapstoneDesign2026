@@ -14,6 +14,11 @@ import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 object AndroidPlatformBridge {
+    @JvmStatic fun startMissionPhoto(activity: Activity, id: String, target: String) = MissionPhotoController.start(activity, id, target)
+    @JvmStatic fun pollMissionPhoto(activity: Activity, id: String) = MissionPhotoController.poll(activity, id)
+    @JvmStatic fun missionPhotoDirectory(activity: Activity) = MissionPhotoController.root(activity).absolutePath
+    @JvmStatic fun cancelMissionPhoto(activity: Activity, id: String) = MissionPhotoController.cancel(activity, id)
+    @JvmStatic fun pruneMissionPhotos(activity: Activity, keep: String) = MissionPhotoController.prune(activity, keep)
     private const val RUNTIME_PERMISSION_REQUEST_CODE = 2602
 
     private var activityReference = WeakReference<Activity>(null)

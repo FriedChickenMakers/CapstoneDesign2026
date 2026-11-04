@@ -1,0 +1,20 @@
+Camera mission object detection
+
+EfficientDet-Lite0 int8 v1: Google / TensorFlow, trained on COCO 2017.
+Model weights are unchanged from the official MediaPipe model distribution.
+Model card: https://www.kaggle.com/models/tensorflow/efficientdet/tfLite/lite0-int8/1
+Source project: https://github.com/google/automl/tree/master/efficientdet
+Copyright 2020 Google Research. All rights reserved.
+Apache License 2.0; see EFFICIENTDET_LICENSE.txt.
+
+MediaPipe Tasks Vision 0.10.35: Google / MediaPipe Authors.
+https://github.com/google-ai-edge/mediapipe/tree/v0.10.35
+Apache License 2.0 and bundled notices; see MEDIAPIPE_LICENSE.txt.
+
+AndroidX ExifInterface 1.4.1: The Android Open Source Project.
+https://android.googlesource.com/platform/frameworks/support/+/refs/heads/androidx-main/exifinterface/
+Apache License 2.0 (the license text is included above).
+
+camera-model.json pins the download, checksum, runtime and allowed labels.
+The initial 0.60 score threshold is a pilot setting, not a probability that
+a person completed an activity. No participation or health inference is made.

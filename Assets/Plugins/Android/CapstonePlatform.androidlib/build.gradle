@@ -1,6 +1,8 @@
 apply plugin: 'com.android.library'
 
 dependencies {
+    implementation 'com.google.mediapipe:tasks-vision:0.10.35'
+    implementation 'androidx.exifinterface:exifinterface:1.4.1'
     implementation 'androidx.health.connect:connect-client:1.1.0'
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2'
     implementation 'androidx.work:work-runtime-ktx:2.11.2'
@@ -10,6 +12,7 @@ dependencies {
 }
 
 android {
+    androidResources { noCompress += ['tflite'] }
     namespace 'com.capstonedesign2026.platform'
     compileSdk 36
 

@@ -19,6 +19,7 @@ namespace CapstoneDesign.Runtime.LocalState
     {
         public int ResetHourLocal = 4;
         public int CompletionNutrient = 5;
+        public int PhotoVerificationNutrient = 1, PhotoVerificationDailyLimit = 1;
         public int EnvironmentCost = 10;
         public int GrowthCost = 10;
         public float GrowthAmount = 0.1f;
@@ -168,7 +169,11 @@ namespace CapstoneDesign.Runtime.LocalState
     }
     public sealed class ActivitySession
     {
-        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); return copy; }
+        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); copy.Photo=Photo?.Copy(); return copy; }
+        public MissionPhoto Photo;
+        public bool PhotoPromptHandled;
+        public string PendingPhotoId, PendingPhotoTarget;
+        public int PhotoBonusAmount;
         public RecommendationContext Recommendation;
         public string SessionId, MissionId, InstanceId, SelectedUtc, StartedUtc, EndedUtc;
         public string Mood, Note;
@@ -242,6 +247,7 @@ namespace CapstoneDesign.Runtime.LocalState
     public sealed class PlantProgress { public string PlantId; public float Growth; internal PlantProgress Copy() => (PlantProgress)MemberwiseClone(); }
     public sealed class GardenState
     {
+        public List<PhotoRewardReceipt> PhotoRewards=new List<PhotoRewardReceipt>();
         internal GardenState Copy() => (GardenState)MemberwiseClone();
         public int SchemaVersion = 1;
         public bool MigrationCompleted;
@@ -367,6 +373,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(a.RealStepHighWater<0 || a.VirtualSteps<0 || a.RealStepHighWater>long.MaxValue-a.VirtualSteps)throw new InvalidDataException("Invalid session steps.");
             }
             ValidateFocus(s);
+            CameraMissionPolicy.Validate(s);
             if (s.Environments.Any(e=>!Typed(e.EnvironmentId,"environment") || e.Slot != e.Slot.Trim().ToLowerInvariant()) || s.Plants.Any(p=>!Typed(p.PlantId,"plant") || !Finite(p.Growth) || p.Growth < 0) || s.CompletedCourseIds.Any(id=>!Typed(id,"course")) || s.DiscoveredAnimalIds.Any(id=>!Typed(id,"animal"))) throw new InvalidDataException("Invalid permanent garden records.");
             if (s.PurchaseCommands.Any(c=>string.IsNullOrWhiteSpace(c.Command) || !s.PurchaseReceipts.Contains(c.RequestId))) throw new InvalidDataException("Purchase identity mismatch.");
             if(s.GrowthHistory==null)throw new InvalidDataException("Growth history missing.");
@@ -467,6 +474,7 @@ namespace CapstoneDesign.Runtime.LocalState
             copy.GrowthHistory=value.GrowthHistory.Select(record=>record.Copy()).ToList();
             copy.DailyDecisions=value.DailyDecisions.Select(d=>d.Copy()).ToList();
             copy.Sessions=value.Sessions.Select(a=>a.Copy()).ToList();
+            copy.PhotoRewards=value.PhotoRewards.Select(r=>r.Copy()).ToList();
             copy.DebugWalkPeriods=value.DebugWalkPeriods.Select(d=>d.Copy()).ToList();
             copy.Environments=value.Environments.Select(e=>e.Copy()).ToList();
             copy.Plants=value.Plants.Select(p=>p.Copy()).ToList();
@@ -527,7 +535,7 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         public void Dispose() { if(!disposed) { disposed=true; writerLock.Dispose(); } }
     }
-    public sealed class GardenStateService : IDisposable
+    public sealed partial class GardenStateService : IDisposable
     {
         readonly IStateStore store;
         readonly IClock clock;
@@ -550,6 +558,8 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             this.store = store; this.clock = clock; this.legacy = legacy ?? new LegacySnapshot();
             this.config = new DemoBalanceConfig { ResetHourLocal = config.ResetHourLocal, CompletionNutrient = config.CompletionNutrient, EnvironmentCost = config.EnvironmentCost, GrowthCost = config.GrowthCost, GrowthAmount = config.GrowthAmount, VisitorChancePercent = config.VisitorChancePercent };
+            this.config.PhotoVerificationNutrient=config.PhotoVerificationNutrient;this.config.PhotoVerificationDailyLimit=config.PhotoVerificationDailyLimit;
+            if(config.PhotoVerificationNutrient<0||config.PhotoVerificationNutrient>100||config.PhotoVerificationDailyLimit<0||config.PhotoVerificationDailyLimit>100)throw new ArgumentException("Invalid photo reward configuration.");
             if (config.ResetHourLocal < 0 || config.ResetHourLocal > 23 || config.CompletionNutrient < 0 || config.EnvironmentCost < 0 || config.GrowthCost < 0 || config.GrowthAmount <= 0 || (float.IsInfinity(config.GrowthAmount) || float.IsNaN(config.GrowthAmount)) || config.VisitorChancePercent < 0 || config.VisitorChancePercent > 100)
                 throw new ArgumentException("Invalid DEV_DEFAULT configuration.");
         }
@@ -597,7 +607,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 RequireOpen();
                 try
                 {
-                    var next = StateCodec.Clone(state); mutation(next); StateCodec.Validate(next); store.Save(next); state = next; LastError = null; return true;
+                    var next = StateCodec.Clone(state); mutation(next); CameraMissionPolicy.Reconcile(next); StateCodec.Validate(next); store.Save(next); state = next; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
             }
@@ -879,6 +889,8 @@ namespace CapstoneDesign.Runtime.LocalState
                         next.RewardReceipts.Add(receipt);session.RewardAmount=legacyAdditionalPaid?0:config.CompletionNutrient;next.Nutrient=checked(next.Nutrient+session.RewardAmount);
                     }
                     session.Mood=mood;session.Note=note;session.Status=ParticipationState.RewardCommitted;session.InstructionStep=session.FocusStepRecords.Count+1;
+                    session.PendingPhotoId=null;session.PendingPhotoTarget=null;
+                    CameraMissionPolicy.Award(next,session,config.PhotoVerificationNutrient,config.PhotoVerificationDailyLimit);
                     var last=DateTimeOffset.Parse(session.FocusStepRecords.Last().ConfirmedUtc);var ended=CurrentUtc;
                     session.EndedUtc=(ended<last?last:ended).ToString("O");
                     GardenPlantVisuals.Sync(next);
