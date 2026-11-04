@@ -22,6 +22,21 @@ namespace CapstoneDesign.EditorTools
     public static class WeeklyPlantValidation
     {
         static readonly string Output=Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS")??"artifacts/weekly-plants-20261104/validation";
+        public static void FlowerSpacing()
+        {
+            Directory.CreateDirectory(Output);
+            if(SystemInfo.graphicsDeviceType==GraphicsDeviceType.Null)throw new InvalidOperationException("Graphics required.");
+            var report=new List<string>{"Synthetic flower-spacing comparison: same seed, recipe, lighting and camera; left mesh4 / right mesh5."};
+            var species=new[]{PlantCatalog.Get("species:chamomile"),PlantCatalog.Get("species:cosmos"),PlantCatalog.Get("species:campanula")};
+            Gallery("spacing-before-after",2,3,(col,row)=>Recipe(species[row],21,col+4),(_,__)=>0,report,cellWidth:400);
+            Gallery("spacing-multiview",4,3,(col,row)=>Recipe(species[row],21,5),(_,__)=>0,report,(col,row)=>-25+90*col,400);
+            Gallery("spacing-all-species",4,3,(col,row)=>Recipe(PlantCatalog.All[row*4+col],21,5),(_,__)=>21,report,cellWidth:400);
+            int[] steps={0,1,3,6,7,11,15,18,21};
+            Gallery("spacing-growth",steps.Length,1,(col,row)=>Recipe(species[0],steps[col],5),(_,__)=>0,report,cellWidth:400);
+            ValidateHome(report);
+            File.WriteAllLines(Path.Combine(Output,"unity-report.txt"),report);
+            Debug.Log("FLOWER_SPACING_VALIDATION_PASS "+report.Count+" entries");
+        }
         public static void Run()
         {
             Directory.CreateDirectory(Output);
@@ -46,9 +61,9 @@ namespace CapstoneDesign.EditorTools
             p.Counts=species.ExampleCounts();p.MeshVersion=style;
             while(p.GrowthStep<step)p=PlantGenerator.Advance(p);return p;
         }
-        static void Gallery(string name,int columns,int rows,Func<int,int,PlantRecipe> recipe,Func<int,int,int> memories,List<string> report)
+        static void Gallery(string name,int columns,int rows,Func<int,int,PlantRecipe> recipe,Func<int,int,int> memories,List<string> report,Func<int,int,float> yaw=null,int cellWidth=300)
         {
-            const int width=300,height=400;
+            int width=cellWidth;const int height=400;
             var sheet=new Texture2D(columns*width,rows*height,TextureFormat.RGB24,false);
             try
             {
@@ -62,7 +77,7 @@ namespace CapstoneDesign.EditorTools
                         preview.AddSingleGO(go);preview.ambientColor=new Color(.42f,.45f,.39f);
                         var camera=preview.camera;camera.orthographic=true;camera.orthographicSize=.66f;camera.nearClipPlane=.01f;camera.farClipPlane=10;
                         camera.clearFlags=CameraClearFlags.SolidColor;camera.backgroundColor=new Color(.95f,.93f,.87f);
-                        var rotation=Quaternion.Euler(27,-25,0);camera.transform.SetPositionAndRotation(new Vector3(0,.49f,0)+rotation*(Vector3.back*3),rotation);
+                        var rotation=Quaternion.Euler(27,yaw==null?-25:yaw(col,row),0);camera.transform.SetPositionAndRotation(new Vector3(0,.49f,0)+rotation*(Vector3.back*3),rotation);
                         preview.lights[0].intensity=1.15f;preview.lights[0].transform.rotation=Quaternion.Euler(45,-35,0);preview.lights[1].intensity=.4f;
                         preview.BeginStaticPreview(new Rect(0,0,width,height));preview.Render(true);var texture=preview.EndStaticPreview();
                         try

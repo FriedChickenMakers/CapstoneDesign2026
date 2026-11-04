@@ -597,7 +597,8 @@ namespace CapstoneDesign.Runtime.LocalState
                     bool courseMigrated=loaded.MbctProgramSelectionVersion==0;
                     if(courseMigrated) { loaded.MbctProgramSelectionVersion=1;loaded.MbctProgramChosen=true; }
                     bool plantMigrated=WeeklyPlants.Migrate(loaded,Now,true);
-                    if (GardenPlantVisuals.Sync(loaded) || courseMigrated || plantMigrated) { StateCodec.Validate(loaded); store.Save(loaded); }
+                    bool flowerLayoutUpgraded=WeeklyPlants.UpgradeFlowerLayout(loaded);
+                    if (GardenPlantVisuals.Sync(loaded) || courseMigrated || plantMigrated || flowerLayoutUpgraded) { StateCodec.Validate(loaded); store.Save(loaded); }
                     state = loaded; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
