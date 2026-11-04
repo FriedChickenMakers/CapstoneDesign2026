@@ -187,7 +187,7 @@ namespace CapstoneDesign.Runtime
         {
             if(skip)experienceValues[experienceStep]="";
             if(experienceStep<3){experienceStep++;ShowExperienceStep();return;}
-            if(Apply(Service.SaveExperience(experienceId,experienceType,experienceValues[0],experienceValues[1],experienceValues[2],experienceValues[3])))FinishExperienceNavigation();
+            ShowExperiencePlantConfirmation();
         }
         public void ShowExperienceHistory()
         {
@@ -216,6 +216,9 @@ namespace CapstoneDesign.Runtime
         {
             EnterPage("experience-record",()=>ShowExperienceRecord(id),id);var e=Service.Snapshot.Experiences.First(r=>r.Id==id);var p=FocusPage("경험 · "+e.Type,"나의 기록");
             GardenUi.FlowLabel(p,"사건\n"+e.Event+"\n\n몸 감각\n"+e.Body+"\n\n감정\n"+e.Emotion+"\n\n생각\n"+e.Thought);
+            DockAction("기록 수정",()=>EditPlantExperience(id));
+            var memory=WeeklyPlants.FindMemory(Service.Snapshot,MemoryRecordKind.Experience,id);
+            if(memory!=null)DockAction("기억 잎 보기",()=>{var plant=Service.Snapshot.PlantCollection.Plants.First(x=>x.Memories.Any(m=>m.OrganId==memory.OrganId));ShowMemory(plant.Id,memory.OrganId);});
             DockAction("경험 목록",ShowExperienceHistory);
         }
         public void ShowPersonalPlan()

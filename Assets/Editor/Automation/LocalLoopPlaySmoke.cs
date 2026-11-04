@@ -296,23 +296,23 @@ namespace CapstoneDesign.EditorTools
                 home.shopButton.onClick.Invoke();
                 if(ui.CurrentScreen!="shop")throw new Exception("Home shop button did not open the existing garden shop");
                 ui.PreviewGrowth();nav.ShowIsland();
-                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || ui.Service.Snapshot.Nutrient!=10)
+                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=2) || ui.Service.Snapshot.Nutrient!=10)
                     throw new Exception("Cancelled growth changed the saved home");
                 nav.ShowActivities();ui.PreviewGrowth();
-                ui.GetComponentsInChildren<Button>(true).Single(b=>b.gameObject.activeInHierarchy && b.gameObject.name=="확정").onClick.Invoke();
-                if(ui.Service.Snapshot.Nutrient!=0 || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))
-                    throw new Exception("Growth purchase did not update the saved home");
+                ui.GetComponentsInChildren<Button>(true).Single(b=>b.gameObject.activeInHierarchy && b.gameObject.name=="현재 식물 보기").onClick.Invoke();
+                if(ui.Service.Snapshot.Nutrient!=10 || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=2))
+                    throw new Exception("Plant collection did not restore the saved home");
                 yield return null;
                 AssertFullScreenGarden(home);
                 LocalLoopPreview.Render(new Vector2Int(900,1600),Path.Combine(root,"home-after-growth.png"));
             }
             else
             {
-                if(ui.Service.Snapshot.Nutrient!=0 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=2
-                    || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))throw new Exception("Process restart failed to restore committed progress and growth");
+                if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=2
+                    || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=2))throw new Exception("Process restart failed to restore committed progress and growth");
                 if(ui.Service.Snapshot.Experiences.Single().Emotion!="차분해요" || ui.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="support").Value!="치료진")throw new Exception("Restart lost journal or plan");
                 string id=ui.Service.Snapshot.Sessions.Single(s=>MbctPolicy.IsMbct(s.MissionId)).SessionId;
-                if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
+                if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=10)throw new Exception("Restart retry duplicated reward");
                 nav.ShowIsland();
                 if(!home.IsOverview || home.ViewControlsExpanded)throw new Exception("Process restart did not restore the complete garden with folded controls");
                 yield return null;

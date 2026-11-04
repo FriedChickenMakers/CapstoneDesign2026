@@ -6,6 +6,13 @@ scope, remaining manual gates, and the distinction between available tests and
 current run evidence. Required SKIP results fail a gate; optional skips remain
 PARTIAL. Scripts resolve their own repository root.
 
+Weekly plant growth and memory contracts can also run directly on Windows with
+`python3 scripts/test-weekly-plants.py` (.NET SDK, or Unity Mono on Unix). The unit
+catalog includes `weekly-plants`; the visual catalog includes `weekly-plants-ui`.
+Performance experiments are separate from the default test gate. See the
+[implementation and measurement report](../docs/WEEKLY_PLANT_IMPLEMENTATION_2026-11-04.md)
+for commands, scope and the deferred L-Py comparison.
+
 ```bash
 python3 scripts/qa.py --tier unit --list
 python3 scripts/qa.py --tier unit --output artifacts/qa-unit

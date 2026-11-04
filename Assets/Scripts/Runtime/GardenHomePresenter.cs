@@ -12,7 +12,7 @@ namespace CapstoneDesign.Runtime
     // The imported prototype is only a view. The existing activity component
     // remains the sole owner of GardenStateService and its persisted purchases.
     [DefaultExecutionOrder(-50)]
-    public sealed class GardenHomePresenter : MonoBehaviour
+    public sealed partial class GardenHomePresenter : MonoBehaviour
     {
         public Canvas homeCanvas;
         public GameObject gardenVisuals;
@@ -82,6 +82,7 @@ namespace CapstoneDesign.Runtime
 
         private void Update()
         {
+            TickGrowthPulse();
             if(IsGardenVisible)RefreshOverlayTextColor();
             if (growthConfirmation != null && Time.unscaledTime >= growthConfirmationUntil)
             {
@@ -94,6 +95,8 @@ namespace CapstoneDesign.Runtime
 
         public void Show(bool visible)
         {
+            if(!visible && backgroundPreview!=null && backgroundPreview.gameObject.activeInHierarchy)
+                rememberedAngles=backgroundPreview.orbit?.Angles;
             ConfigureNavigation();
             if(TemporarySettingsButton!=null)TemporarySettingsButton.gameObject.SetActive(visible);
             // Disable renderers before the drag target's OnDisable resets its view.
@@ -127,7 +130,11 @@ namespace CapstoneDesign.Runtime
             bool legacySceneVisible = homeCanvas == null && !visible;
             if (oldCamera != null) oldCamera.enabled = legacySceneVisible;
             if (oldLight != null) oldLight.enabled = legacySceneVisible;
-            if (visible) RefreshFromState();
+            if (visible)
+            {
+                RefreshFromState();
+                if(rememberedAngles.HasValue)backgroundPreview?.orbit?.RestoreAngles(rememberedAngles.Value);
+            }
         }
 
         public void ConfigureNavigation()
@@ -206,6 +213,8 @@ namespace CapstoneDesign.Runtime
             if(shopButton!=null)foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.color=Color.white;
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
+            var picker=backgroundPreview.GetComponent<GardenMemoryPicker>()??backgroundPreview.gameObject.AddComponent<GardenMemoryPicker>();
+            picker.Home=this;
             backgroundPreview.excludedBoundsRoot = plant != null ? plant.transform : null;
             backgroundPreview.UseFullScreenBackground(homeCanvas);
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
@@ -217,7 +226,9 @@ namespace CapstoneDesign.Runtime
             if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,GardenUi.Background).transform;
             growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),GardenUi.Background);
             GardenThemeSurface.Apply(growth.gameObject,GardenThemeSurface.Style.Paper);
-            growth.GetComponent<Image>().raycastTarget=false;
+            growth.GetComponent<Image>().raycastTarget=true;
+            var plantButton=growth.GetComponent<Button>()??growth.gameObject.AddComponent<Button>();
+            plantButton.onClick.RemoveAllListeners();plantButton.onClick.AddListener(()=>{navigation?.ShowActivities();activity?.ShowPlantCollection();});
             growth.anchorMin=growth.anchorMax=Vector2.zero;growth.pivot=new Vector2(0,1);
             growth.anchoredPosition=new Vector2(48,328);growth.sizeDelta=new Vector2(624,64);growth.SetAsFirstSibling();
             if(stage!=null)
@@ -392,13 +403,15 @@ namespace CapstoneDesign.Runtime
             // The service owns persistence. This detached snapshot also supports
             // unpaid previews without changing the saved recipe or wallet.
             GardenPlantVisuals.Sync(saved);
-            float growth = GardenPlantVisuals.TotalGrowth(saved);
-            int visualStage = StageForGrowth(growth);
-            RenderPlant(saved.PlantAppearance.Recipe, growth);
+            SelectSavedPlant(saved);
+            float growth = shownPlant==null?GardenPlantVisuals.TotalGrowth(saved):shownPlant.Legacy?shownPlant.LegacyGrowth:.3f;
+            var recipe=shownPlant?.Recipe??saved.PlantAppearance.Recipe;
+            int visualStage = shownPlant==null||shownPlant.Legacy?StageForGrowth(growth):recipe.GrowthStep==0?0:recipe.GrowthStep<7?1:recipe.GrowthStep<12?2:3;
+            RenderPlant(recipe, growth);
             if (date != null) date.text = CurrentDateText();
-            if (title != null) title.text = CurrentPlantName(RenderedRecipe);
+            if (title != null) title.text = recipe.SpeciesId==null && shownPlant!=null&&!shownPlant.Legacy?WeeklyPlants.Title(shownPlant):CurrentPlantName(RenderedRecipe);
             if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개";
-            if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
+            if (stage != null) stage.text = shownPlant!=null&&!shownPlant.Legacy?"성장 "+recipe.GrowthStep+" / 21 · 식물함 ›":new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
                     if (progressDots[i] != null)
@@ -448,17 +461,20 @@ namespace CapstoneDesign.Runtime
                 ProceduralPlant = model.AddComponent<ProceduralPlantView>();
                 GardenSceneModels.ConfigureRenderers(model);
             }
-            string signature = PlantCodec.Encode(recipe);
+            string signature = PlantCodec.Encode(recipe)+MemorySignature;
             bool meshChanged = signature != plantSignature;
             if (meshChanged)
             {
-                ProceduralPlant.Render(recipe);
+                ProceduralPlant.Render(recipe,VisibleMemoryInputs,MemoryPage);
                 plantSignature = signature;
             }
+            if(Application.isPlaying && RenderedRecipe!=null && RenderedRecipe.InstanceId==recipe.InstanceId && recipe.GrowthStep>RenderedRecipe.GrowthStep)
+                pendingGrowthPulse=true;
             RenderedRecipe = recipe;
             // The generated plant is the garden's main subject, while each
             // species keeps its own proportions and exact saved mesh.
             float scale = GardenPlantVisuals.ScaleForGrowth(growth);
+            renderedScale=scale;
             bool scaleChanged = ProceduralPlant.transform.localScale != Vector3.one * scale;
             ProceduralPlant.transform.localScale = Vector3.one * scale;
             // A growing branch changes the bounds, never the stem's soil point.

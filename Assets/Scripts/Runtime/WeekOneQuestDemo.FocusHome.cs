@@ -380,7 +380,7 @@ namespace CapstoneDesign.Runtime
             foreach (var entry in entries) { BuildFocusHistoryRow(body, entry, y); y += 112; }
             var active = entries.LastOrDefault(FocusMissionPolicy.IsActive);
             if (active != null) { FigmaMissionUi.Button(body, "저장한 단계 이어서 하기", 24, y, 342, 52, () => SelectFocusSession(active.SessionId)); y += 68; }
-            else if (order < FocusMissionPolicy.NextOrder(state, program)) { FigmaMissionUi.Button(body, "다시 연습하기 · 추가 보상 없음", 24, y, 342, 52, () => StartFocusReview(mission.Id, order, program), Color.white, FigmaMissionUi.Green, 14); y += 68; }
+            else if (order < FocusMissionPolicy.NextOrder(state, program)) { FigmaMissionUi.Button(body, "다시 연습하기 · 하루 3회까지 성장", 24, y, 342, 52, () => StartFocusReview(mission.Id, order, program), Color.white, FigmaMissionUi.Green, 14); y += 68; }
             else { FigmaMissionUi.Label(body, "기본 미션은 선택한 코스의 순서대로 열려요.", 24, y, 342, 48, 14, FigmaMissionUi.Muted); y += 64; }
             FigmaMissionUi.Button(body, "코스 기록으로 돌아가기", 24, y, 342, 52, () => ShowFocusProgram(program), Color.white, FigmaMissionUi.Green);
         }
@@ -465,7 +465,9 @@ namespace CapstoneDesign.Runtime
                 }
             }
             if (FocusMissionPolicy.IsActive(entry)) { FigmaMissionUi.Button(body, "저장한 단계 이어서 하기", 24, y, 342, 48, () => SelectFocusSession(id)); y += 64; }
-            if (focus && entry.Status == ParticipationState.RewardCommitted) { FigmaMissionUi.Button(body, "다시 연습하기 · 추가 보상 없음", 24, y, 342, 48, () => StartFocusReview(entry.MissionId, entry.FocusOrder, program), Color.white, FigmaMissionUi.Green, 14); y += 64; }
+            if (focus && entry.Status == ParticipationState.RewardCommitted) { FigmaMissionUi.Button(body, "다시 연습하기 · 하루 3회까지 성장", 24, y, 342, 48, () => StartFocusReview(entry.MissionId, entry.FocusOrder, program), Color.white, FigmaMissionUi.Green, 14); y += 64; }
+            if(entry.Status==ParticipationState.RewardCommitted) { FigmaMissionUi.Button(body,"감정 기록 수정",24,y,342,48,()=>EditPlantReflection(id),Color.white,FigmaMissionUi.Green);y+=64; }
+            FigmaMissionUi.Button(body,"식물로 돌아가기",24,y,342,48,GoGarden,Color.white,FigmaMissionUi.Green);y+=64;
             FigmaMissionUi.Button(body, "기록 목록", 24, y, 342, 48, () => ShowFocusHistory(null, 0, program), Color.clear, FigmaMissionUi.Green); y += 64;
             body.sizeDelta = new Vector2(390, Mathf.Max(628, y));
         }

@@ -35,11 +35,11 @@ namespace CapstoneDesign.EditorTools
             Check(report, "Integrated home restores growth, preserves cancellation and links navigation", IntegratedHome);
             Check(report, "Catalog typed IDs, order and candidate references", Catalog);
             Check(report, "Course duration choice confirms, retries failed saves and selects every program", ProgramSelection);
-            Check(report, "Every course connects completed activity, growth and original reflection without duplicate spending", GrowthRecordFlow);
-            Check(report, "Empty and unlinked growth records never invent an activity association", GrowthRecordOptional);
+            Check(report, "Every course connects activity growth and original reflection without spending", GrowthRecordFlow);
+            Check(report, "Empty memory lists and blank reflections never invent an association", GrowthRecordOptional);
             Check(report, "Weekly and cumulative summaries count actual participation without changing records", RecordSummaryFlow);
             Check(report, "UI completion without notes commits one reward and survives reopen", Completion);
-            Check(report, "M15 debug steps, direct completion and garden purchase form one demo flow", M15DemoFlow);
+            Check(report, "M15 virtual steps do not grow plants; actual completion grows once", M15DemoFlow);
             Check(report, "Walking auto-completion preserves reflection after leaving the panel and retries failed saves", WalkingReflectionAutoCompletion);
             Check(report, "Walking baseline refresh gates start, updates only its introduction and freezes started goals", WalkingBaselineUiRefresh);
             Check(report, "UI active session survives navigation and pause", Navigation);
@@ -154,50 +154,27 @@ namespace CapstoneDesign.EditorTools
                 home.RefreshFromState();
                 Assert(home.ProceduralPlant.GetComponent<MeshFilter>().sharedMesh == originalMesh,
                     "Refreshing unchanged state needlessly rebuilt the generated mesh.");
-                loop.ShowShop(); loop.PreviewGrowth();
-                Assert(home.RenderedRecipe.GrowthStep == 3
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) != beforeMesh
-                    && service.Snapshot.Nutrient == 50, "Seed preview did not generate the next stage without spending.");
-                Click(loop, "취소");
-                Assert(home.RenderedRecipe.GrowthStep == 0
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && service.Snapshot.Nutrient == 50, "Cancelling the seed preview did not restore the committed generated mesh.");
-                for (int i = 1; i <= 3; i++)
+                loop.ShowShop();loop.PreviewGrowth();
+                Assert(loop.CurrentScreen=="plants" && home.RenderedRecipe.GrowthStep==0 && service.Snapshot.Nutrient==50,"Collection changed seed or wallet");
+                Assert(loop.TryNavigateBack(),"Collection Back failed");
+                for(int i=1;i<=3;i++)
                 {
-                    Assert(service.GrowPlant("home-growth-" + i, "plant:P06"), "Growth purchase failed.");
+                    string id="synthetic-home-growth-"+i;
+                    Assert(service.BeginSession(id,"free-mission:M17",0)&&service.StartSession(id)&&service.CompleteSession(id),service.LastError);
                     loop.UpdateGarden();
-                    Assert(GardenHomePresenter.StageForGrowth(service.Snapshot.Plants.Single().Growth) == i,
-                        "Saved growth did not advance exactly one visible stage.");
-                    Assert(home.RenderedRecipe.GrowthStep == new[] { 0, 3, 4, 12 }[i]
-                        && home.RenderedRecipe.BaseSeed == seed, "Generated stage or stable seed disagrees with committed growth.");
-                    string afterMesh = GardenProceduralValidation.MeshSignature(home.ProceduralPlant);
-                    Assert(afterMesh != beforeMesh, "Growth purchase did not change the visible generated geometry.");
-                    beforeMesh = afterMesh;
+                    Assert(home.RenderedRecipe.GrowthStep==i && home.RenderedRecipe.BaseSeed==seed,"Activity did not advance saved plant");
+                    string afterMesh=GardenProceduralValidation.MeshSignature(home.ProceduralPlant);
+                    Assert(afterMesh!=beforeMesh,"Activity growth did not change geometry");beforeMesh=afterMesh;
                     GardenProceduralValidation.AssertGeneratedView(home);
                 }
-                Assert(home.RenderedRecipe.Mature && home.RenderedRecipe.SpeciesId == "species:chamomile"
-                    && home.guide.text.Contains("영양제 20개"),
-                    "Bloom or persisted nutrient disagrees with the garden state.");
-                float beforeScale = home.ProceduralPlant.transform.localScale.x;
-                loop.ShowShop(); loop.PreviewGrowth();
-                Assert(home.gardenVisuals.activeSelf && loop.GetComponentInChildren<RawImage>(true)?.texture==home.gardenCamera.targetTexture,
-                    "Purchase preview does not use the integrated garden texture.");
-                Assert(home.ProceduralPlant.transform.localScale.x>beforeScale && service.Snapshot.Nutrient==20,
-                    "Purchase preview either lacks the next growth or spends saved nutrient.");
-                Click(loop, "취소");
-                Assert(Mathf.Approximately(home.ProceduralPlant.transform.localScale.x, beforeScale)
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && service.Snapshot.Nutrient == 20, "Cancelled purchase changed the generated home plant.");
-                store.FailSave = true;
-                Assert(!service.GrowPlant("home-failed-save", "plant:P06"), "Injected save failure was not exercised.");
-                loop.UpdateGarden();
-                Assert(Mathf.Approximately(home.ProceduralPlant.transform.localScale.x, beforeScale)
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && service.Snapshot.Nutrient == 20, "Failed purchase changed the generated home plant.");
-                store.FailSave = false;
-                Assert(service.GrowPlant("home-growth-4", "plant:P06"), "Later growth purchase failed.");
-                loop.UpdateGarden();
-                Assert(home.ProceduralPlant.transform.localScale.x > beforeScale, "Growth after bloom had no visible change.");
+                clock.UtcNow=clock.UtcNow.AddDays(1);
+                Assert(service.BeginSession("synthetic-home-fourth","free-mission:M17",0)&&service.StartSession("synthetic-home-fourth"),service.LastError);
+                string before=StateCodec.Encode(service.Snapshot);store.FailSave=true;
+                Assert(!service.CompleteSession("synthetic-home-fourth")&&StateCodec.Encode(service.Snapshot)==before,"Failed completion changed saved state");
+                loop.UpdateGarden();Assert(GardenProceduralValidation.MeshSignature(home.ProceduralPlant)==beforeMesh,"Failed completion changed mesh");
+                store.FailSave=false;Assert(service.CompleteSession("synthetic-home-fourth"),service.LastError);loop.UpdateGarden();
+                beforeMesh=GardenProceduralValidation.MeshSignature(home.ProceduralPlant);
+                int savedNutrient=service.Snapshot.Nutrient;
 
                 home.SendMessage("Awake", SendMessageOptions.RequireReceiver);
                 nav.ShowIsland();
@@ -221,11 +198,9 @@ namespace CapstoneDesign.EditorTools
                 home = nav.home; loop = nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
                 service = new GardenStateService(store, clock, balance);
                 loop.Balance = balance; loop.Initialize(service, true); home.RefreshFromState();
-                Assert(home.RenderedRecipe.Mature && home.RenderedRecipe.BaseSeed == seed
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && home.guide.text.Contains("영양제 10개")
-                    && home.ProceduralPlant.transform.localScale.x > beforeScale,
-                    "Reopened saved growth did not restore the same generated home plant.");
+                Assert(home.RenderedRecipe.GrowthStep==4 && home.RenderedRecipe.BaseSeed==seed
+                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant)==beforeMesh
+                    && service.Snapshot.Nutrient==savedNutrient,"Reopened growth differs from committed state");
                 GardenProceduralValidation.AssertGeneratedView(home);
             }
             finally
@@ -428,43 +403,16 @@ namespace CapstoneDesign.EditorTools
                     Assert(f.Ui.CurrentScreen=="complete" && f.Service.Snapshot.Nutrient==(index+1)*5,
                         program+" completion did not commit the ordinary five nutrient reward.");
                 }
-                ShowLegacy(f.Ui, "Home");f.Ui.ShowShop();f.Ui.PreviewGrowth();
-                string before=StateCodec.Encode(f.Service.Snapshot);
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
-                Assert(f.Ui.CurrentScreen=="growth" && StateCodec.Encode(f.Service.Snapshot)==before,
-                    "Selecting a remembered activity prematurely saved growth or changed activity history.");
-                Click(f.Ui,"취소");f.Ui.PreviewGrowth();
-                Assert(Button(f.Ui,"함께 기억할 활동").GetComponentsInChildren<Text>(true).Any(text=>text.text=="선택하지 않아도 괜찮아요"),
-                    "Cancelling a purchase leaked its remembered activity into the next purchase.");
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
-                Click(f.Ui,"함께 기억할 활동");
-                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth"
-                    && Button(f.Ui,"함께 기억할 활동").GetComponentsInChildren<Text>(true).Any(text=>text.text==course[0].title),
-                    "Back from the activity picker lost the current preview's explicit selection.");
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,"연결하지 않고 계속");
-                Assert(Button(f.Ui,"함께 기억할 활동").GetComponentsInChildren<Text>(true).Any(text=>text.text=="선택하지 않아도 괜찮아요"),
-                    "Choosing no link retained the previous association.");
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
-                f.Store.FailNextSaves=1;Click(f.Ui,"확정");
-                Assert(f.Ui.CurrentScreen=="growth" && StateCodec.Encode(f.Service.Snapshot)==before,
-                    "A failed linked growth save changed nutrient, recipe, or history.");
-                Click(f.Ui,"확정");
-                var state=f.Service.Snapshot;
-                Assert(state.Nutrient==0 && state.GrowthHistory.Count==1 && state.GrowthHistory[0].LinkedSessionId==remembered
-                    && state.PurchaseReceipts.Count==1 && MbctPolicy.NextOrder(state)==3,
-                    "Retry did not atomically commit one growth purchase linked to the chosen original activity.");
-                string committed=StateCodec.Encode(state);
-                ShowLegacy(f.Ui, "Records");Click(f.Ui,"식물 성장 기록");Click(f.Ui,"씨앗 → 새싹");
-                Assert(f.Ui.CurrentScreen=="growth-record","Growth list did not open its detail.");
-                Click(f.Ui,"그때의 활동과 감정 보기");
-                string recordText=string.Join("\n",f.Ui.GetComponentsInChildren<Text>(true).Select(text=>text.text));
-                Assert(f.Ui.CurrentScreen=="record" && recordText.Contains(course[0].title)
-                    && recordText.Contains("차분해요") && recordText.Contains("합성 성장 연결 기록 0"),
-                    "Growth detail did not navigate to the exact selected activity and its stored reflection.");
-                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth-record"
-                    && f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth-history",
-                    "Back from a linked record lost the growth detail or history.");
-                Assert(StateCodec.Encode(f.Service.Snapshot)==committed,"Reading a linked record changed saved data.");
+                var state=f.Service.Snapshot;var plant=WeeklyPlants.Active(state);
+                Assert(plant.Recipe.GrowthStep==2 && plant.Memories.Count==2 && state.Nutrient==10,"Course activity growth or memory count mismatch");
+                var memory=plant.Memories.Single(m=>m.RecordId==remembered);
+                string before=StateCodec.Encode(state);
+                f.Ui.ShowMemoryChoices(plant.Id,new[]{memory.OrganId});
+                Click(f.Ui,"원래 활동 기록");
+                string text=string.Join("\n",f.Ui.GetComponentsInChildren<Text>(true).Select(t=>t.text));
+                Assert(f.Ui.CurrentScreen=="record" && text.Contains(course[0].title) && text.Contains("합성 성장 연결 기록 0"),"Memory opened wrong source record");
+                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="memory","Record Back lost memory detail");
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before,"Reading a memory changed saved state");
             }
         }
 
@@ -472,23 +420,14 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(30))
             {
-                ShowLegacy(f.Ui, "Records");Click(f.Ui,"식물 성장 기록");
-                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("다음에 식물을 키우면")),
-                    "Empty growth history did not explain how it is created.");
-                f.Ui.ShowShop();f.Ui.PreviewGrowth();Click(f.Ui,"함께 기억할 활동");
-                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("아직 연결할 활동 기록이 없어요")),
-                    "An empty activity picker did not offer a clear optional path.");
-                string before=StateCodec.Encode(f.Service.Snapshot);
-                Assert(f.Ui.LeaveActivityPanel() && f.Ui.CurrentScreen=="shop" && StateCodec.Encode(f.Service.Snapshot)==before,
-                    "Leaving the growth picker retained an unpaid purchase or changed persistent data.");
-                f.Ui.PreviewGrowth();Click(f.Ui,"함께 기억할 활동");
-                Click(f.Ui,"연결하지 않고 계속");Click(f.Ui,"확정");
-                Assert(f.Service.Snapshot.GrowthHistory.Single().LinkedSessionId=="", "Optional growth invented an activity association.");
-                f.Ui.ShowGrowthHistory();Click(f.Ui,"씨앗 → 새싹");
-                Assert(f.Ui.CurrentScreen=="growth-record"
-                    && f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("연결한 활동 기록이 없어요"))
-                    && !f.Ui.GetComponentsInChildren<Button>(true).Any(button=>button.name=="그때의 활동과 감정 보기"),
-                    "An unlinked growth showed a fabricated source record or broken navigation.");
+                var plant=WeeklyPlants.Active(f.Service.Snapshot);
+                f.Ui.ShowPlantMemories(plant.Id,0);
+                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(t=>t.text.Contains("기록 없이도")),"Empty memory list lacks optional-record guidance");
+                Assert(f.Service.BeginSession("synthetic-no-reflection","free-mission:M17",0)&&f.Service.StartSession("synthetic-no-reflection")&&f.Service.CompleteSession("synthetic-no-reflection"),f.Service.LastError);
+                plant=WeeklyPlants.Active(f.Service.Snapshot);
+                Assert(plant.Recipe.GrowthStep==1 && plant.Memories.Count==0,"Blank reflection invented an association");
+                f.Ui.ShowPlantCollection();string before=StateCodec.Encode(f.Service.Snapshot);
+                Assert(f.Ui.LeaveActivityPanel() && StateCodec.Encode(f.Service.Snapshot)==before,"Leaving collection changed saved state");
             }
         }
 
@@ -658,6 +597,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Ui.TryNavigateBack() && f.Ui.GetComponentInChildren<InputField>(true).text=="synthetic experience draft",
                     "Experience step Back lost the previous answer.");
                 for(int step=0;step<4;step++)Click(f.Ui,step==3?"기록 저장":"다음");
+                Click(f.Ui,"이 식물에 저장");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="records", "Saved experience Back reopened its submitted form.");
             }
         }
@@ -819,6 +759,7 @@ namespace CapstoneDesign.EditorTools
                 var walking = f.Service.Snapshot;
                 Assert(walking.Nutrient == 1 && walking.DebugWalkPeriods.Single().RewardedUnits == 1,
                     "Ten debug steps did not grant exactly one nutrient.");
+                Assert(WeeklyPlants.Active(walking).Recipe.GrowthStep==0,"Virtual settlement incorrectly grew a plant");
                 Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains("10걸음")) &&
                     f.Ui.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains("연습 10걸음")),
                     "M15 screen did not show debug goal and virtual progress.");
@@ -826,10 +767,10 @@ namespace CapstoneDesign.EditorTools
                 Click(f.Ui, "기록 건너뛰고 완료");
                 Assert(f.Service.Snapshot.Nutrient == 11 && f.Service.Snapshot.RewardReceipts.Count == 1,
                     "M15 direct completion did not add its separate reward once.");
-                f.Ui.ShowShop(); Click(f.Ui, "식물 성장"); Click(f.Ui, "확정");
+                f.Ui.ShowShop(); Click(f.Ui, "식물함 · 성장과 기억");
                 var garden = f.Service.Snapshot;
-                Assert(garden.Nutrient == 1 && garden.Plants.Any(p => p.PlantId == "plant:P06"),
-                    "M15 reward could not be spent on garden growth.");
+                Assert(garden.Nutrient == 11 && WeeklyPlants.Active(garden).Recipe.GrowthStep==1 && f.Ui.CurrentScreen=="plants",
+                    "M15 completion must grow once without spending nutrients.");
             }
         }
 
@@ -873,7 +814,7 @@ namespace CapstoneDesign.EditorTools
                 var state = f.Service.Snapshot;
                 Assert(state.Nutrient == 30 - f.Balance.EnvironmentCost && state.Environments.Count == 1 && state.PurchaseReceipts.Count == 1, "Placement not committed atomically.");
                 Assert(f.Service.PurchaseEnvironment(state.PurchaseReceipts.Single(), "environment:E01", "left") && f.Service.Snapshot.Nutrient == state.Nutrient, "Purchase replay spent twice.");
-                f.Ui.ShowShop(); f.Ui.PreviewGrowth(); Click(f.Ui, "취소");
+                f.Ui.ShowShop(); f.Ui.PreviewGrowth(); Assert(f.Ui.TryNavigateBack(),"Collection Back failed");
                 Assert(f.Service.Snapshot.Nutrient == state.Nutrient && f.Service.Snapshot.Plants.Count == 0, "Growth cancellation modified state.");
             }
         }
@@ -1093,7 +1034,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(GameObject.Find("PREVIEW environment:E01") == null && !f.Ui.gameObject.activeSelf, "External settings navigation left an environment ghost visible.");
                 Assert(StateCodec.Encode(f.Service.Snapshot) == before, "Leaving an environment preview changed permanent progress.");
                 nav.ShowActivities(); f.Ui.PreviewGrowth();
-                Assert(plant.transform.localScale != committedScale, "Growth preview did not change the temporary visual.");
+                Assert(plant.transform.localScale == committedScale && f.Ui.CurrentScreen=="plants", "Collection changed the saved plant visual.");
                 nav.ShowIsland();
                 Assert(plant.transform.localScale == committedScale && StateCodec.Encode(f.Service.Snapshot) == before, "External island navigation did not cancel temporary growth without spending.");
             }
@@ -1184,9 +1125,9 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.GetComponentInChildren<InputField>(true).text="가슴이 답답했어요";Click(f.Ui,"다음");
                 Click(f.Ui,"울적해요");Click(f.Ui,"다음");
                 f.Ui.GetComponentInChildren<InputField>(true).text="나를 싫어하나 봐";
-                f.Store.FailNextSaves=1;Click(f.Ui,"기록 저장");
-                Assert(f.Ui.CurrentScreen=="experience" && f.Service.Snapshot.Experiences.Count==0,"Journal failed save partially committed.");
-                Click(f.Ui,"기록 저장");var entry=f.Service.Snapshot.Experiences.Single();
+                Click(f.Ui,"기록 저장");f.Store.FailNextSaves=1;Click(f.Ui,"이 식물에 저장");
+                Assert(f.Ui.CurrentScreen=="experience-plant" && f.Service.Snapshot.Experiences.Count==0,"Journal failed save partially committed.");
+                Click(f.Ui,"이 식물에 저장");var entry=f.Service.Snapshot.Experiences.Single();
                 Assert(entry.Type=="불편함" && entry.Emotion=="울적해요" && entry.Thought=="나를 싫어하나 봐" && f.Service.Snapshot.Nutrient==0,"Journal content/reward mismatch.");
                 f.Ui.ShowPlanField("support");f.Ui.GetComponentInChildren<InputField>(true).text="치료진";Click(f.Ui,"저장");
                 f.Ui.ShowPlanField("support");Assert(f.Ui.GetComponentInChildren<InputField>(true).text=="치료진","Saved plan could not be reviewed.");
@@ -1263,9 +1204,8 @@ namespace CapstoneDesign.EditorTools
             {
                 string before=StateCodec.Encode(f.Service.Snapshot);
                 f.Ui.PreviewGrowth();
-                Assert(!Button(f.Ui,"확정").interactable,"Growth can be confirmed without nutrient");
-                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제가 10개 더 필요해요")),"Missing visible growth availability explanation");
-                Click(f.Ui,"취소");f.Ui.PreviewEnvironment("environment:E01");
+                Assert(f.Ui.CurrentScreen=="plants" && Button(f.Ui,"현재 식물 보기").interactable,"Collection unavailable without nutrients");
+                f.Ui.ShowShop();f.Ui.PreviewEnvironment("environment:E01");
                 Assert(!Button(f.Ui,"확정").interactable,"Placement can be confirmed without nutrient");
                 Click(f.Ui,"취소");
                 Assert(StateCodec.Encode(f.Service.Snapshot)==before,"Unavailable previews changed saved state");
@@ -1277,10 +1217,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(!Button(f.Ui,"확정").interactable,"Owned environment remains purchasable");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("이미 배치한 환경")),"Missing owned environment explanation");
                 Click(f.Ui,"취소");f.Ui.PreviewGrowth();
-                Assert(Button(f.Ui,"확정").interactable,"Affordable growth was disabled");
-                Assert(Button(f.Ui,"확정").transform.parent==Button(f.Ui,"취소").transform.parent
-                    && Button(f.Ui,"확정").transform.GetSiblingIndex()<Button(f.Ui,"취소").transform.GetSiblingIndex(),
-                    "Growth confirmation must be the first full-width action in the shared dock");
+                Assert(f.Ui.CurrentScreen=="plants" && !f.Ui.GetComponentsInChildren<Button>(true).Any(b=>b.name=="확정"),"Collection retained a growth purchase");
             }
         }
         static void PracticeInputFeedback()

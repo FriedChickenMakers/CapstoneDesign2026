@@ -69,14 +69,14 @@ class MbctTests
                 Check(service.CompleteSession(session),program+" complete practice");
                 int before=service.Snapshot.Nutrient;
                 Check(service.CompleteSession(session) && service.Snapshot.Nutrient==before,program+" repeated completion cannot repay");
-                if(order<=6 && order%2==0)Check(service.GrowPlant(program+"-grow-"+order,GardenPlantVisuals.GrowthPlantId),program+" growth purchase from earned nutrients");
-                if(order==6)Check(GardenPlantVisuals.StageForGrowth(GardenPlantVisuals.TotalGrowth(service.Snapshot))==3,program+" can see blossom by sixth completion before course ending");
+                if(order<=6)Check(WeeklyPlants.Active(service.Snapshot).Recipe.GrowthStep==order,program+" activity completion grows automatically");
+                if(order==6)Check(WeeklyPlants.Active(service.Snapshot).Recipe.GrowthStep==6 && WeeklyPlants.Active(service.Snapshot).Recipe.SpeciesId==null,program+" remains juvenile until seventh credited activity");
                 service.Dispose();service=Open(store,clock);
                 Check(MbctPolicy.NextOrder(service.Snapshot)==order+1 && MbctPolicy.ActiveProgram(service.Snapshot)==program,program+" exact progression survives restart");
             }
             Check(MbctPolicy.CompletedCount(service.Snapshot)==catalog.Count && MbctPolicy.Availability(service.Snapshot).Contains("활동을 마쳤어요"),program+" explicit completed state");
             Check(service.Snapshot.MbctCompletedIds.Count==0 && service.Snapshot.MbctNextOrder==1,program+" original 48 IDs and progression preserved");
-            Check(service.Snapshot.Nutrient==catalog.Count*5-30,program+" reward budget and growth cost unchanged");
+            Check(service.Snapshot.Nutrient==catalog.Count*5,program+" activity growth does not consume earned nutrients");
             string finalId=MbctPolicy.MissionId(program,catalog.Count);
             Check(service.BeginSession(program+"-review",finalId,catalog.Count) && service.StartSession(program+"-review"),program+" review allowed after completion");
             int savedNutrients=service.Snapshot.Nutrient;
@@ -119,18 +119,16 @@ class MbctTests
         var clock=new Clock();var store=new Store {Data=StateCodec.Encode(new GardenState {MigrationCompleted=true,Nutrient=100})};var service=Open(store,clock);
         Begin(service,1,"remembered");Check(service.CompleteSession("remembered","차분해요","합성 검증 기록"),"Create explicitly linkable completed activity");
         var before=StateCodec.Encode(service.Snapshot);store.Fail=true;
-        Check(!service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId,"remembered") && StateCodec.Encode(service.Snapshot)==before,"Growth record, nutrient spend and recipe fail atomically");store.Fail=false;
-        Check(!service.GrowPlant("invalid-link",GardenPlantVisuals.GrowthPlantId,"missing") && StateCodec.Encode(service.Snapshot)==before,"Missing source record cannot consume nutrients or invent a link");
-        Check(service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId,"remembered"),"Explicit activity link and growth commit together");
-        var history=service.Snapshot.GrowthHistory.Single();int nutrient=service.Snapshot.Nutrient;
-        Check(history.LinkedSessionId=="remembered" && history.BeforeGrowth==0 && history.AfterGrowth>history.BeforeGrowth && history.CreatedUtc==clock.UtcNow.ToString("O"),"Growth history preserves explicit association, actual time and before/after values");
-        Check(service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId,"remembered") && service.Snapshot.GrowthHistory.Count==1 && service.Snapshot.Nutrient==nutrient,"Growth retry creates no duplicate or extra charge");
-        Check(!service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId) && service.Snapshot.GrowthHistory.Single().LinkedSessionId=="remembered","Retry cannot silently relink a saved growth event");
-        Check(service.GrowPlant("unlinked-growth",GardenPlantVisuals.GrowthPlantId) && service.Snapshot.GrowthHistory.Last().LinkedSessionId=="","Optional omission remains explicitly unlinked despite recent completion");
+        Check(!service.UpdateReflection("remembered","synthetic edited","synthetic note") && StateCodec.Encode(service.Snapshot)==before,"Reflection and organ edits fail atomically");store.Fail=false;
+        var memory=WeeklyPlants.FindMemory(service.Snapshot,MemoryRecordKind.SessionReflection,"remembered");
+        Check(memory!=null && WeeklyPlants.Active(service.Snapshot).Recipe.GrowthStep==1,"Activity growth and optional leaf saved together");
+        string organ=memory.OrganId;int nutrient=service.Snapshot.Nutrient;
+        Check(service.CompleteSession("remembered") && service.Snapshot.Nutrient==nutrient && WeeklyPlants.Active(service.Snapshot).Memories.Count==1,"Completion retry creates no duplicate memory or growth");
+        Check(!service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId,"remembered"),"Purchases cannot bypass activity growth");
         service.Dispose();service=Open(store,clock);
-        Check(service.Snapshot.GrowthHistory.First().LinkedSessionId=="remembered" && service.Snapshot.Sessions.Single().Note=="합성 검증 기록","Growth link and original reflection survive restart");
-        var detached=service.Snapshot;detached.GrowthHistory[0].LinkedSessionId="external edit";
-        Check(service.Snapshot.GrowthHistory.First().LinkedSessionId=="remembered","History snapshot cannot edit live state");
+        Check(WeeklyPlants.FindMemory(service.Snapshot,MemoryRecordKind.SessionReflection,"remembered").OrganId==organ && service.Snapshot.Sessions.Single().Note=="합성 검증 기록","Memory identity and original reflection survive restart");
+        var detached=service.Snapshot;WeeklyPlants.Active(detached).Memories[0].RecordId="external edit";
+        Check(WeeklyPlants.Active(service.Snapshot).Memories[0].RecordId=="remembered","Memory snapshot cannot edit live state");
         Check(service.BeginSession("ended","free-mission:M01") && service.EndParticipation("ended"),"Create explicitly ended participation");
         Check(service.SaveExperience("experience-one","즐거움","합성 사건","","",""),"Create summary experience");
         var firstDate=clock.Time;
@@ -147,7 +145,7 @@ class MbctTests
         // A legacy save with growth purchases has no historical timestamp or source to infer.
         var legacyXml=new XmlDocument();legacyXml.LoadXml(StateCodec.Encode(service.Snapshot));legacyXml.DocumentElement.RemoveChild(legacyXml.DocumentElement["GrowthHistory"]);
         var legacy=StateCodec.Decode(legacyXml.OuterXml);
-        Check(legacy.GrowthHistory.Count==0 && legacy.PurchaseReceipts.Count==2 && legacy.Nutrient==service.Snapshot.Nutrient,"Legacy growth migrates without invented timestamps or associations");
+        Check(legacy.GrowthHistory.Count==0 && legacy.PurchaseReceipts.Count==0 && legacy.Nutrient==service.Snapshot.Nutrient,"Legacy growth migrates without invented timestamps or associations");
         service.Dispose();
     }
     static void CompletionBoundaryChecks()

@@ -244,6 +244,7 @@ namespace CapstoneDesign.Runtime.LocalState
     {
         internal GardenState Copy() => (GardenState)MemberwiseClone();
         public int SchemaVersion = 1;
+        public long PrivacyRevision;
         public bool MigrationCompleted;
         public string InstallationId = Guid.NewGuid().ToString("N");
         public int Nutrient, GardenXp;
@@ -277,6 +278,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<PlantProgress> Plants = new List<PlantProgress>();
         // Optional appearance data; old schema-1 saves are migrated without changing rewards.
         public GardenPlantAppearance PlantAppearance;
+        public PlantCollectionState PlantCollection;
         public List<string> DiscoveredAnimalIds = new List<string>();
     }
     public interface IStateStore { GardenState Load(); void Save(GardenState candidate); }
@@ -303,7 +305,7 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         public static void Validate(GardenState s)
         {
-            if (s == null || s.SchemaVersion != 1 || !s.MigrationCompleted || s.Nutrient < 0 || s.NextCourseOrder < 1 || s.NextCourseOrder > 29 || string.IsNullOrWhiteSpace(s.InstallationId) || !Finite(s.LegacyGrowth) || s.PreviewDayOffset < 0 || s.PreviewDayOffset > 36500)
+            if (s == null || (s.SchemaVersion != 1 && s.SchemaVersion != 2) || !s.MigrationCompleted || s.PrivacyRevision < 0 || s.Nutrient < 0 || s.NextCourseOrder < 1 || s.NextCourseOrder > 29 || string.IsNullOrWhiteSpace(s.InstallationId) || !Finite(s.LegacyGrowth) || s.PreviewDayOffset < 0 || s.PreviewDayOffset > 36500)
                 throw new InvalidDataException("Unsupported or invalid garden state; preserved for recovery.");
             Unique(s.LegacyCompletedUnknownDate); Unique(s.UnlockIds); Unique(s.CompletedCourseIds); Unique(s.RewardReceipts); Unique(s.PurchaseReceipts); Unique(s.DiscoveredAnimalIds);
             if(s.CompletedCourseIds.Count != s.NextCourseOrder-1) throw new InvalidDataException("Course progress inconsistent.");
@@ -382,6 +384,7 @@ namespace CapstoneDesign.Runtime.LocalState
                     throw new InvalidDataException("Growth record references an unavailable activity.");
             }
             GardenPlantVisuals.Validate(s);
+            WeeklyPlants.Validate(s);
         }
         static void ValidateFocus(GardenState state)
         {
@@ -470,7 +473,7 @@ namespace CapstoneDesign.Runtime.LocalState
             copy.DebugWalkPeriods=value.DebugWalkPeriods.Select(d=>d.Copy()).ToList();
             copy.Environments=value.Environments.Select(e=>e.Copy()).ToList();
             copy.Plants=value.Plants.Select(p=>p.Copy()).ToList();
-            copy.PlantAppearance=value.PlantAppearance?.Copy();return copy;
+            copy.PlantAppearance=value.PlantAppearance?.Copy();copy.PlantCollection=value.PlantCollection?.Copy();return copy;
         }
         public static string Hash(string value)
         { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", ""); }
@@ -492,6 +495,7 @@ namespace CapstoneDesign.Runtime.LocalState
     {
         readonly string path;
         readonly FileStream writerLock;
+        long savedPrivacyRevision;
         bool disposed;
         void RequireWriter() { if(disposed) throw new ObjectDisposedException("FileStateStore"); }
         public FileStateStore(string path)
@@ -512,7 +516,7 @@ namespace CapstoneDesign.Runtime.LocalState
             int newline = envelope.IndexOf('\n');
             if (newline < 0 || StateCodec.Hash(envelope.Substring(newline + 1)) != envelope.Substring(0, newline))
                 throw new InvalidDataException("State checksum failed; no automatic rollback or new grant. Backup retained.");
-            return StateCodec.Decode(envelope.Substring(newline + 1));
+            var loaded=StateCodec.Decode(envelope.Substring(newline + 1));savedPrivacyRevision=loaded.PrivacyRevision;return loaded;
         }
         public void Save(GardenState candidate)
         {
@@ -522,12 +526,20 @@ namespace CapstoneDesign.Runtime.LocalState
             string temp = path + ".tmp";
             using (var stream = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
             { stream.Write(bytes, 0, bytes.Length); stream.Flush(true); }
-            if (File.Exists(path)) File.Replace(temp, path, path + ".bak");
+            if (File.Exists(path))
+            {
+                // Remove the previous automatic backup before committing a redaction.
+                // If this fails the live file is untouched; the user can retry safely.
+                bool redacted=candidate.PrivacyRevision>savedPrivacyRevision;
+                if(redacted)File.Delete(path+".bak");
+                File.Replace(temp,path,redacted?null:path+".bak");
+            }
             else File.Move(temp, path);
+            savedPrivacyRevision=candidate.PrivacyRevision;
         }
         public void Dispose() { if(!disposed) { disposed=true; writerLock.Dispose(); } }
     }
-    public sealed class GardenStateService : IDisposable
+    public sealed partial class GardenStateService : IDisposable
     {
         readonly IStateStore store;
         readonly IClock clock;
@@ -578,12 +590,14 @@ namespace CapstoneDesign.Runtime.LocalState
                         loaded.LegacyCompletedUnknownDate.AddRange(legacy.CompletedMissionIds.Distinct());
                         loaded.UnlockIds.AddRange(legacy.UnlockIds.Distinct());
                         GardenPlantVisuals.Sync(loaded);
+                        WeeklyPlants.Migrate(loaded,Now,legacy.Growth>0);
                         store.Save(loaded);
                     }
                     StateCodec.Validate(loaded);
                     bool courseMigrated=loaded.MbctProgramSelectionVersion==0;
                     if(courseMigrated) { loaded.MbctProgramSelectionVersion=1;loaded.MbctProgramChosen=true; }
-                    if (GardenPlantVisuals.Sync(loaded) || courseMigrated) { StateCodec.Validate(loaded); store.Save(loaded); }
+                    bool plantMigrated=WeeklyPlants.Migrate(loaded,Now,true);
+                    if (GardenPlantVisuals.Sync(loaded) || courseMigrated || plantMigrated) { StateCodec.Validate(loaded); store.Save(loaded); }
                     state = loaded; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
@@ -666,6 +680,9 @@ namespace CapstoneDesign.Runtime.LocalState
                 next.PlantAppearance.ArchivedCredits.AddRange(next.PlantAppearance.Credits);
                 next.PlantAppearance.Credits.Clear();
             }
+            if(next.Sessions.Count>0 || next.PracticePreferences.Count>0 || next.Experiences.Count>0)next.PrivacyRevision=checked(next.PrivacyRevision+1);
+            next.PlantCollection.DeletedExperienceTokens.AddRange(next.Experiences.Select(e=>WeeklyPlants.Token(e.Id)));
+            foreach(var memory in next.PlantCollection.Plants.SelectMany(p=>p.Memories))WeeklyPlants.Unlink(memory);
             next.Sessions.Clear();next.PracticePreferences.Clear();next.Experiences.Clear();
             next.CompletedCourseIds.Clear();next.NextCourseOrder=1;
             next.MbctCompletedIds.Clear();next.MbctNextOrder=1;next.MbctPrograms.Clear();
@@ -881,6 +898,7 @@ namespace CapstoneDesign.Runtime.LocalState
                     session.Mood=mood;session.Note=note;session.Status=ParticipationState.RewardCommitted;session.InstructionStep=session.FocusStepRecords.Count+1;
                     var last=DateTimeOffset.Parse(session.FocusStepRecords.Last().ConfirmedUtc);var ended=CurrentUtc;
                     session.EndedUtc=(ended<last?last:ended).ToString("O");
+                    WeeklyPlants.Complete(next,session,Now,RecordOffset);
                     GardenPlantVisuals.Sync(next);
                 });
                 if(saved && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
@@ -976,6 +994,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 {
                     var s = Session(next, id); if (s.Status == ParticipationState.RewardCommitted) return;
                     if (s.Status != ParticipationState.InProgress && s.Status != ParticipationState.Paused) throw new InvalidOperationException("Start activity before completing.");
+                    AdvanceCycle(next,eligibleAnimalIds==null?cycleCandidates:NormalizeCycleCandidates(eligibleAnimalIds));
                     bool mbct=MbctPolicy.IsMbct(s.MissionId);
                     string program=MbctPolicy.ProgramForMission(s.MissionId);
                     bool advancing=mbct && s.CourseOrder==MbctPolicy.NextOrder(next,program);
@@ -998,6 +1017,7 @@ namespace CapstoneDesign.Runtime.LocalState
                     if(mbct) foreach(var answer in s.Answers) SetAnswer(next.PracticePreferences,answer.Key,answer.Value);
                     if (!mbct && s.CourseOrder == next.NextCourseOrder && s.CourseOrder > 0 && !next.CompletedCourseIds.Contains(s.MissionId))
                     { next.CompletedCourseIds.Add(s.MissionId); next.NextCourseOrder = Math.Min(29, next.NextCourseOrder + 1); }
+                    WeeklyPlants.Complete(next,s,Now,RecordOffset);
                     GardenPlantVisuals.Sync(next);
                 });
                 if(completed && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
@@ -1036,14 +1056,16 @@ namespace CapstoneDesign.Runtime.LocalState
             });
         }
         public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??""));
-        public bool SaveExperience(string id,string type,string eventText,string body,string emotion,string thought)
+        public bool SaveExperience(string id,string type,string eventText,string body,string emotion,string thought,string plantId=null)
         {
             return Change(next=>
             {
                 if(next.Experiences.Any(e=>e.Id==id))return;
+                if(next.PlantCollection.DeletedExperienceTokens.Contains(WeeklyPlants.Token(id)))return;
                 if(string.IsNullOrWhiteSpace(id) || id.Contains("|"))throw new ArgumentException("Invalid record id.");
                 if(new[]{eventText,body,emotion,thought}.Any(v=>v!=null && v.Length>500))throw new ArgumentException("Record too long.");
                 next.Experiences.Add(new ExperienceRecord{Id=id,CreatedUtc=Now,Type=type,Event=eventText??"",Body=body??"",Emotion=emotion??"",Thought=thought??""});
+                WeeklyPlants.AddMemory(next,plantId??next.PlantCollection.ActiveId,MemoryRecordKind.Experience,id,Now,RecordOffset);
             });
         }
         public bool EnableDebugWalk()
@@ -1170,6 +1192,7 @@ namespace CapstoneDesign.Runtime.LocalState
                     if(previous!=null && previous.LinkedSessionId!=link)throw new InvalidOperationException("Purchase record cannot be relinked by retry.");
                     return;
                 }
+                if(next.SchemaVersion==2)throw new InvalidOperationException("식물은 활동을 완료하면 자라요. 하루 최대 3회, 총 21회예요.");
                 if(link.Length>0 && !next.Sessions.Any(session=>session.SessionId==link &&
                     (session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended)))
                     throw new InvalidOperationException("Choose a completed or ended activity record.");

@@ -254,7 +254,7 @@ namespace CapstoneDesign.Plants
         }
         public static void Validate(PlantRecipe p)
         {
-            if(p==null||(p.GeneratorVersion!=1&&p.GeneratorVersion!=2)||(p.MeshVersion!=1&&p.MeshVersion!=2)||p.CatalogVersion!=1||p.ProfileVersion!=1) throw new ArgumentException("Unsupported recipe version.");
+            if(p==null||(p.GeneratorVersion!=1&&p.GeneratorVersion!=2)||(p.MeshVersion<1||p.MeshVersion>4)||p.CatalogVersion!=1||p.ProfileVersion!=1) throw new ArgumentException("Unsupported recipe version.");
             ValidateSettings(p.MaxGrowthSteps,p.GrowthMode);
             if(p.GeneratorVersion==1&&(p.MaxGrowthSteps!=12||p.GrowthMode!=PlantGrowthMode.NutrientPurchases)) throw new ArgumentException("Legacy recipes retain their original growth settings.");
             if(string.IsNullOrWhiteSpace(p.InstanceId)||p.BaseSeed==null||p.BaseSeed.Length!=64||p.BaseSeed.Any(c=>!"0123456789abcdef".Contains(c))) throw new ArgumentException("Invalid recipe identity.");

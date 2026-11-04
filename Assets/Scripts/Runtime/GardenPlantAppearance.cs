@@ -112,7 +112,7 @@ namespace CapstoneDesign.Runtime.LocalState
             return BaseScale * (1 + extra);
         }
         public static bool CanGrow(GardenState state) => state != null
-            && ScaleForGrowth(TotalGrowth(state)) < ScaleForGrowth(MaxVisualGrowth);
+            && state.SchemaVersion==1 && ScaleForGrowth(TotalGrowth(state)) < ScaleForGrowth(MaxVisualGrowth);
         public static int StageForGrowth(float growth) => growth < .099f ? 0 : growth < .199f ? 1 : growth < .299f ? 2 : 3;
         public static int StepForGrowth(float growth)
         {
@@ -124,6 +124,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public static bool Sync(GardenState state)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
+            if(state.SchemaVersion==2)return false; // The preserved purchase plant is immutable.
             bool changed = false;
             if (state.PlantAppearance == null)
             {

@@ -505,6 +505,9 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 24, 342, 24, 14, FocusMuted(mission));
             FigmaMissionUi.Label(root, "미션 완료!", 24, 90, 342, 40, 32, FocusInk(mission), true);
             FigmaMissionUi.Label(root, session.RewardAmount > 0 ? "영양제 +" + session.RewardAmount : "기록을 저장했어요", 24, 138, 342, 28, 18, FocusMuted(mission));
+            var growth=Service.Snapshot.PlantCollection.Decisions.FirstOrDefault(d=>d.SessionToken==WeeklyPlants.Token(completedSessionId));
+            string growthText=growth==null?"":growth.Granted?(growth.Step==21?"식물을 완성했어요!":"식물이 자랐어요 · "+growth.Step+" / 21회"):"오늘의 성장을 마쳤어요 · 기록은 남길 수 있어요";
+            FigmaMissionUi.Label(root,growthText,24,182,342,48,16,FocusMuted(mission));
             FocusCircle(root, 55, 319.5f, 280, FocusCircleColor(mission));
             if (FocusMissionCatalog.HasOriginalLayout(mission.Code))
             {
@@ -522,7 +525,7 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(root, message, 45, 613.5f, 300, 36, 24, accent, true, TextAnchor.MiddleCenter);
             FigmaMissionUi.Button(root, "미션 목록으로", 24, 698, 166, 48, ShowHome, Color.clear, accent, 16).name = "Focus.ConfirmHome";
             FigmaMissionUi.Button(root, "저장한 기록 보기", 200, 698, 166, 48, () => ShowFocusRecord(completedSessionId), Color.clear, accent, 16).name = "Focus.ViewRecord";
-            FigmaMissionUi.Button(root, "정원으로", 24, 756, 342, 58, GoGarden, accent, Color.white, 18).name = "Focus.GoGarden";
+            FigmaMissionUi.Button(root, "정원으로", 24, 756, 342, 58, ()=>{PlantHome?.SelectPlant(null);GoGarden();}, accent, Color.white, 18).name = "Focus.GoGarden";
             FocusEnter(root);
         }
 

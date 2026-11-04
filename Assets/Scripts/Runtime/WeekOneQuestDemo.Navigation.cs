@@ -89,7 +89,7 @@ namespace CapstoneDesign.Runtime
         void FinishExperienceNavigation()
         {
             // A saved form must not reappear as an editable duplicate on Back.
-            pageHistory.RemoveAll(page => page.Key == "experience" || page.Key == "experience-type");
+            pageHistory.RemoveAll(page => page.Key.StartsWith("experience",StringComparison.Ordinal));
             ShowExperienceHistory();
         }
 

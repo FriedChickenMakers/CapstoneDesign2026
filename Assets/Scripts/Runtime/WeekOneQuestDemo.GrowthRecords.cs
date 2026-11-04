@@ -9,52 +9,14 @@ namespace CapstoneDesign.Runtime
 {
     public sealed partial class WeekOneQuestDemo
     {
-        string pendingGrowthRecordSession;
-        int growthHistoryPage, growthLinkPage;
-
-        void AddGrowthRecordChoice(Transform parent,GardenState state)
-        {
-            var linked=state.Sessions.FirstOrDefault(session=>session.SessionId==pendingGrowthRecordSession);
-            var button=GardenUi.MenuButton(parent,"함께 기억할 활동",linked==null?"선택하지 않아도 괜찮아요":
-                FocusSessionTitle(linked),0,0,1,0,ShowGrowthLinkPicker,PrototypeUiIcon.Symbol.Journal);
-            button.gameObject.AddComponent<LayoutElement>().preferredHeight=120;
-        }
-
-        void ShowGrowthLinkPicker()
-        {
-            EnterPage("growth-link",ShowGrowthLinkPicker);
-            var p=FocusPage("함께 기억할 활동","선택 기록");
-            Guidance(p,"이번 성장과 함께 기억할 활동을 골라주세요. 선택하지 않아도 괜찮아요.");
-            var sessions=Service.Snapshot.Sessions.Where(session=>session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended).Reverse().ToArray();
-            int pages=Math.Max(1,(sessions.Length+3)/4);growthLinkPage=Mathf.Clamp(growthLinkPage,0,pages-1);
-            if(sessions.Length==0)GardenUi.FlowLabel(p,"아직 연결할 활동 기록이 없어요. 기록 없이도 식물을 키울 수 있어요.");
-            if(sessions.Length>0)
-            {
-                var list=ActivityList(p,"Growth activity choices");
-                foreach(var entry in sessions.Skip(growthLinkPage*4).Take(4))
-                {
-                    string id=entry.SessionId;
-                    ActivityListItem(list,FocusSessionTitle(entry),LocalTime(entry.EndedUtc),()=>
-                    {pendingGrowthRecordSession=id;RenderGrowthPreview();},PrototypeUiIcon.Symbol.Journal);
-                }
-            }
-            if(pages>1)
-            {
-                DockPair("이전 기록",()=>{growthLinkPage--;ShowGrowthLinkPicker();},"다음 기록",()=>{growthLinkPage++;ShowGrowthLinkPicker();});
-                var buttons=activityActions.GetComponentsInChildren<Button>();
-                buttons.First(button=>button.name=="이전 기록").interactable=growthLinkPage>0;
-                buttons.First(button=>button.name=="다음 기록").interactable=growthLinkPage<pages-1;
-            }
-            DockAction("연결하지 않고 계속",()=>{pendingGrowthRecordSession=null;RenderGrowthPreview();});
-            DockAction("미리보기로",RenderGrowthPreview);
-        }
+        int growthHistoryPage;
 
         public void ShowGrowthHistory()
         {
-            EnterPage("growth-history",ShowGrowthHistory);var p=FocusPage("식물 성장 기록","나의 정원");
+            EnterPage("growth-history",ShowGrowthHistory);var p=FocusPage("이전 성장 구매 기록","나의 정원");
             var state=Service.Snapshot;var records=state.GrowthHistory.AsEnumerable().Reverse().ToArray();
             int pages=Math.Max(1,(records.Length+3)/4);growthHistoryPage=Mathf.Clamp(growthHistoryPage,0,pages-1);
-            if(records.Length==0)Guidance(p,"다음에 식물을 키우면 이곳에 성장 기록이 남아요.");
+            if(records.Length==0)Guidance(p,"이전에 영양제로 키운 기록이 없어요. 활동으로 자라는 식물과 기억은 식물함에서 볼 수 있어요.");
             if(state.PurchaseCommands.Any(command=>command.Command.StartsWith("growth|",StringComparison.Ordinal) && !records.Any(record=>record.RequestId==command.RequestId)))
                 GardenUi.FlowLabel(p,"이전 버전의 성장은 정원에 그대로 남아 있어요. 당시의 상세 연결 기록은 없어요.",GardenUi.BodySize,GardenUi.Muted);
             if(records.Length>0)
@@ -73,6 +35,7 @@ namespace CapstoneDesign.Runtime
                 buttons.First(button=>button.name=="이전 성장").interactable=growthHistoryPage>0;
                 buttons.First(button=>button.name=="다음 성장").interactable=growthHistoryPage<pages-1;
             }
+            DockAction("식물함",ShowPlantCollection,true);
             DockAction("참여 기록",ShowGardenJournal);
         }
         static string GrowthRecordTitle(GardenGrowthRecord record)

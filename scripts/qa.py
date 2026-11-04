@@ -39,6 +39,7 @@ def catalog(output):
                  "walking-personalization", "activity-notifications", "personalization", "mission-recommendation", "focus-state", "all-missions"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("mono",)))
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
+    checks.append(Check("weekly-plants", "unit", [python, "scripts/test-weekly-plants.py"], ("plant-compiler",)))
     for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit", "measurement-buffer"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("kotlin",)))
     unity = ["bash", "scripts/unity-run.sh", "-batchmode", "-projectPath", str(ROOT)]
@@ -57,6 +58,7 @@ def catalog(output):
                          ("guided-ui", "TabConsistencyCapture.CaptureGuidance"), ("demo-polish", "DemoPolishValidation.Capture"),
                          ("sky", "GardenSkyValidation.Capture"), ("lighting", "GardenLightingValidation.Capture"),
                          ("procedural-scene", "GardenProceduralValidation.Capture"),
+                         ("weekly-plants-ui", "WeeklyPlantValidation.Run"),
                          ("focus-missions", "FocusMissionValidation.Run"),
                          ("mobile-ui", "MobileUiValidation.Run"), ("all-courses", "AllCourseValidation.Run")):
         checks.append(editor(name, method, "visual", graphics=True))

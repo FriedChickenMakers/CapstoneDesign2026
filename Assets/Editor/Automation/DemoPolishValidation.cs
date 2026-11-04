@@ -328,92 +328,29 @@ namespace CapstoneDesign.EditorTools
 
         static void GrowthComparison(Fixture f, Vector2Int size, string output, List<string> report)
         {
-            GardenVisualClock.SetOverrideMinutes(12 * 60);
-            f.Home.navigation.ShowActivities();
-            string saved = f.Store.Saved, snapshot = StateCodec.Encode(f.Service.Snapshot);
-            string recipe = PlantCodec.Encode(f.Service.Snapshot.PlantAppearance.Recipe);
-            string seed = f.Service.Snapshot.PlantAppearance.Recipe.BaseSeed;
-            f.Ui.PreviewGrowth();
-            Require(f.Ui.CurrentScreen == "growth", "Growth preview did not open");
-            var frame = new CameraFrame(f.Home.gardenCamera);
-            Require(f.Home.RenderedRecipe.BaseSeed == seed && PlantCodec.Encode(f.Home.RenderedRecipe) != recipe,
-                "Growth preview must initially show this plant after growth");
-            Click(f.Ui.transform, "현재");
-            Require(frame.Matches(f.Home.gardenCamera) && PlantCodec.Encode(f.Home.RenderedRecipe) == recipe,
-                "Current button must show the saved plant at the same camera");
-            UiImage(size, output, "growth-current");
-            for (int i = 0; i < 2; i++)
-            {
-                Click(f.Ui.transform, "성장 후");
-                Require(frame.Matches(f.Home.gardenCamera), "Future view changed camera framing");
-                Require(f.Home.RenderedRecipe.BaseSeed == seed && PlantCodec.Encode(f.Home.RenderedRecipe) != recipe,
-                    "Future view must advance this plant, preserving its seed");
-                if (i == 0) UiImage(size, output, "growth-future");
-                Click(f.Ui.transform, "현재");
-                Require(frame.Matches(f.Home.gardenCamera) && PlantCodec.Encode(f.Home.RenderedRecipe) == recipe,
-                    "Current view did not restore the original plant at the same camera");
-            }
-            Require(f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot,
-                "Toggling growth preview mutated the save, balance, or recipe");
-            Click(f.Ui.transform, "취소");
-            Require(f.Ui.CurrentScreen == "shop" && f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot,
-                "Cancelling growth changed state or failed to return to the shop");
-            Require(PlantCodec.Encode(f.Home.RenderedRecipe) == recipe, "Cancel left the future plant rendered");
-
-            f.Ui.PreviewGrowth();
-            f.Store.FailNextSave = true;
-            var confirm = Button(f.Ui.transform, "영양제 10개로 성장");
-            confirm.onClick.Invoke();
-            Require(f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot && !f.Home.IsGardenVisible,
-                "Failed purchase changed state or navigated as success");
-            Require(f.Ui.GetComponentsInChildren<Text>().Any(t => t.text.Contains("영양제는 그대로예요")),
-                "Storage failure lacks the unchanged-balance explanation");
-            UiImage(size, output, "growth-save-failure");
-            // Retain the same actual UI event/request to simulate duplicate delivery.
-            var confirmEvent = confirm.onClick;
-            confirmEvent.Invoke();
-            var purchased = f.Service.Snapshot;
-            Require(f.Home.IsGardenVisible && purchased.Nutrient == 90 && purchased.PurchaseReceipts.Count == 1,
-                "Confirmed growth must spend exactly once and return to the garden");
-            Require(f.Home.guide.text == "성장 완료 · 영양제 10개 사용", "Growth confirmation is missing");
-            string committed = StateCodec.Encode(purchased), committedSave = f.Store.Saved;
-            confirmEvent.Invoke();
-            Require(StateCodec.Encode(f.Service.Snapshot) == committed && f.Store.Saved == committedSave,
-                "Duplicate confirmation charged twice");
-            Require(f.Service.Snapshot.PlantAppearance.Recipe.BaseSeed == seed, "Purchase replaced the plant seed");
-            using var capture = new GardenLightingValidation.HomeCapture(f.Home, f.Sky, size);
-            HomeImage(f, capture, output, "growth-confirmed", size, report);
-            report.Add(size + " current/future camera lock, unchanged preview/cancel, failed-save rollback, single purchase PASS");
+            f.Home.navigation.ShowActivities();string saved=f.Store.Saved;
+            f.Ui.PreviewGrowth();Require(f.Ui.CurrentScreen=="plants","Plant collection did not replace purchase preview");
+            UiImage(size,output,"weekly-plant-collection");
+            Require(f.Store.Saved==saved,"Inspecting plants changed saved state");
+            Require(f.Service.BeginSession("synthetic-polish-growth","free-mission:M17",0)&&f.Service.StartSession("synthetic-polish-growth"),f.Service.LastError);
+            string before=StateCodec.Encode(f.Service.Snapshot);f.Store.FailNextSave=true;
+            Require(!f.Service.CompleteSession("synthetic-polish-growth","중립","synthetic memory")&&StateCodec.Encode(f.Service.Snapshot)==before,"Failed completion changed plant or wallet");
+            Require(f.Service.CompleteSession("synthetic-polish-growth","중립","synthetic memory"),f.Service.LastError);
+            var committed=f.Service.Snapshot;
+            Require(WeeklyPlants.Active(committed).Recipe.GrowthStep==1&&WeeklyPlants.Active(committed).Memories.Count==1,"Activity did not grow one plant and one memory");
+            f.Home.SelectPlant(null);f.Home.navigation.ShowIsland();
+            using var capture=new GardenLightingValidation.HomeCapture(f.Home,f.Sky,size);
+            HomeImage(f,capture,output,"weekly-growth-committed",size,report);
+            report.Add(size+" activity growth, memory link, failed-save rollback PASS");
         }
-
-        static void GrowthUnavailable(string output, List<string> report)
+        static void GrowthUnavailable(string output,List<string> report)
         {
-            foreach (var size in new[] { new Vector2Int(900, 1600), new Vector2Int(1200, 800) })
-            {
-                using (var f = new Fixture(GardenPlantVisuals.MaxVisualGrowth))
-                {
-                    f.Home.navigation.ShowActivities();
-                    string saved = f.Store.Saved;
-                    f.Ui.PreviewGrowth();
-                    Require(!Button(f.Ui.transform, "성장을 마쳤어요").interactable
-                        && !Button(f.Ui.transform, "성장 후").interactable, "Mature garden must disable unavailable growth");
-                    UiImage(size, output, "growth-limit");
-                    Click(f.Ui.transform, "취소");
-                    Require(f.Store.Saved == saved, "Viewing a mature garden changed its save");
-                }
-                using (var f = new Fixture(.1f, 0))
-                {
-                    f.Home.navigation.ShowActivities();
-                    string saved = f.Store.Saved;
-                    f.Ui.PreviewGrowth();
-                    Require(!Button(f.Ui.transform, "영양제 10개로 성장").interactable,
-                        "Insufficient balance must disable confirmation");
-                    Click(f.Ui.transform, "성장 후");
-                    Require(f.Store.Saved == saved, "Free preview with insufficient balance mutated state");
-                    UiImage(size, output, "growth-insufficient");
-                }
-                report.Add(size + " growth limit and insufficient balance: disabled purchase, preview without charge PASS");
-            }
+            using var f=new Fixture(.3f,0);
+            f.Home.navigation.ShowActivities();f.Ui.PreviewGrowth();
+            Require(f.Ui.CurrentScreen=="plants"&&f.Service.Snapshot.PlantCollection.Plants.Any(p=>p.Legacy),"Old plant archive is missing");
+            string before=f.Store.Saved;
+            Require(!f.Service.GrowPlant("synthetic-retired-purchase","plant:P06")&&f.Store.Saved==before,"Retired growth purchase changed state");
+            report.Add("Plant archive and retired purchase rejection PASS");
         }
 
         static void HomeImage(Fixture f, GardenLightingValidation.HomeCapture capture, string output,

@@ -140,7 +140,7 @@ namespace CapstoneDesign.EditorTools
                 f.Click("Focus.Record." + two);f.Click("Focus.RecordStepsToggle");
                 Assert(f.VisibleText.Contains("synthetic two-week note") && f.VisibleText.Contains("2주 코스") && f.VisibleText.Contains("확인 ·"), "Detailed course response or timestamp was lost.");
                 f.Capture("allcourse-06-deep-record", capture);
-                f.Click("다시 연습하기 · 추가 보상 없음");
+                f.Click("다시 연습하기 · 하루 3회까지 성장");
                 Assert(f.Latest.FocusReview && f.Latest.FocusProgramId == "2w" && f.Service.Snapshot.MbctProgramId == "4w", "Archived-course review changed selected course or membership.");
                 Assert(f.Service.EndParticipation(f.Latest.SessionId), f.Service.LastError);
                 f.Ui.ShowFocusCourse(); f.Click("추천·자유 미션 기록");

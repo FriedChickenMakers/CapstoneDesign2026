@@ -217,6 +217,10 @@ namespace CapstoneDesign.Prototype
             Angles = defaultAngles;
             Apply(defaultAngles);
         }
+        public void RestoreAngles(Vector2 value)
+        {
+            initialized=true;CancelInteraction();Angles=value;Apply(value);
+        }
         public static Vector2 DragAngles(Vector2 angles, Vector2 delta, Vector2 size)
         {
             if (size.x <= 0 || size.y <= 0) return angles;

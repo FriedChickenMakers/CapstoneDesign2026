@@ -73,7 +73,7 @@ class Tests
         retryStore.Fail=true; Assert(!retry.RefreshCycle(new[]{"animal:A01","animal:A02"}) && retry.Snapshot.DailyDecisions.Count==0,"failed cycle not published");
         retryStore.Fail=false; Assert(retry.RefreshCycle(new[]{"animal:A01","animal:A02"}),"cycle retry");
         var expectedVisitor=retry.Snapshot.DailyDecisions[0].VisitorId; retry=Service(retryStore,clock); retry.RefreshCycle(new[]{"animal:A03"}); Assert(retry.Snapshot.DailyDecisions[0].VisitorId==expectedVisitor,"saved cycle stable after restart");
-        var grow = Service(new Store(),clock,null,new LegacySnapshot{Nutrient=20}); Assert(grow.GrowPlant("grow","plant:P01") && grow.GrowPlant("grow","plant:P01") && grow.Snapshot.Nutrient==10 && grow.Snapshot.Plants[0].Growth==.1f,"growth one debit");
+        var grow = Service(new Store(),clock,null,new LegacySnapshot{Nutrient=20}); Assert(!grow.GrowPlant("grow","plant:P01") && grow.Snapshot.Nutrient==20 && grow.Snapshot.Plants.Count==0,"weekly growth never debits wallet");
         var fuzzStore=new Store(); var fuzz=Service(fuzzStore,clock); fuzz.RefreshCycle(new string[0]);
         for(int i=0;i<60;i++) { Session(fuzz,"repeat-"+i,"free-mission:M01",0); Assert(fuzz.CompleteSession("repeat-"+i),"repeat completion"); if(i%7==0) fuzz=Service(fuzzStore,clock); }
         Assert(fuzz.Snapshot.Nutrient==10 && fuzz.Snapshot.RewardReceipts.Count==1,"sixty completions/restarts one daily reward");
@@ -145,8 +145,8 @@ class Tests
             using(var file=new FileStateStore(path))
             {
                 var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(s.Open(),"real file init"); Assert(s.RefreshCycle(new string[0]),"real replace"); Session(s,"persisted"); Assert(s.CompleteSession("persisted"),"real complete");
-                Directory.CreateDirectory(path+".tmp"); Assert(!s.GrowPlant("blocked-write","plant:P01") && s.Snapshot.Nutrient==10 && s.Snapshot.Plants.Count==0,"real staging IO failure preserves transaction"); Directory.Delete(path+".tmp");
-                Assert(s.GrowPlant("blocked-write","plant:P01") && s.Snapshot.Nutrient==0,"real staging failure retry once");
+                Directory.CreateDirectory(path+".tmp"); Assert(!s.PurchaseEnvironment("blocked-write","environment:E01","left") && s.Snapshot.Nutrient==10 && s.Snapshot.Plants.Count==0,"real staging IO failure preserves transaction"); Directory.Delete(path+".tmp");
+                Assert(s.PurchaseEnvironment("blocked-write","environment:E01","left") && s.Snapshot.Nutrient==0,"real staging failure retry once");
                 bool locked=false; try { using(var duplicate=new FileStateStore(path)) {} } catch(IOException) {locked=true;} Assert(locked,"exclusive writer");
             }
             using(var file=new FileStateStore(path)) {var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 }); Assert(s.Open() && s.Snapshot.Nutrient==0,"real reload"); Assert(s.CompleteSession("persisted") && s.Snapshot.Nutrient==0,"real retry");}

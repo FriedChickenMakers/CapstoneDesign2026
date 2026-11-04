@@ -65,14 +65,14 @@ namespace CapstoneDesign.EditorTools
             "recommendation-preferences-time-1-top", "recommendation-preferences-time-1-bottom",
             "recommendation-preferences-time-3-top", "recommendation-preferences-time-3-bottom",
             "recommendation-preferences-time-5-top", "recommendation-preferences-time-5-bottom",
-            "shop-insufficient-top", "shop-insufficient-bottom", "growth-insufficient-top", "growth-insufficient-bottom",
+            "shop-insufficient-top", "shop-insufficient-bottom", "weekly-collection-empty-top", "weekly-collection-empty-bottom",
             "placement-flower-insufficient-top", "placement-shelter-insufficient-top",
-            "shop-affordable-top", "shop-affordable-bottom", "growth-affordable-top", "growth-affordable-bottom",
-            "growth-committed", "placement-flower-affordable-top", "placement-flower-affordable-bottom",
-            "growth-link-empty", "growth-link-populated-top", "growth-link-populated-bottom",
-            "growth-linked-preview-top", "growth-linked-preview-bottom", "growth-linked-save-error-top", "growth-linked-save-error-bottom",
-            "growth-history-empty", "growth-history-populated-top", "growth-history-populated-bottom",
-            "growth-record-linked", "growth-record-unlinked", "record-summary-empty", "record-summary-populated-top", "record-summary-populated-bottom",
+            "shop-affordable-top", "shop-affordable-bottom", "weekly-collection-populated-top", "weekly-collection-populated-bottom",
+            "weekly-growth-committed", "placement-flower-affordable-top", "placement-flower-affordable-bottom",
+            "weekly-memories-empty", "weekly-memories-populated-top", "weekly-memories-populated-bottom",
+            "weekly-memory-detail-top", "weekly-memory-detail-bottom", "weekly-memory-delete-top", "weekly-memory-delete-bottom",
+            "legacy-growth-history-empty", "weekly-memory-source", "weekly-no-reflection",
+            "record-summary-empty", "record-summary-populated-top", "record-summary-populated-bottom",
             "placement-flower-committed", "placement-flower-owned-top", "placement-save-error-top", "placement-save-error-bottom",
             "discoveries-empty-top", "discoveries-populated-top", "journal-history-empty-top",
             "journal-history-populated-top", "journal-history-populated-bottom", "journal-detail-top", "journal-detail-bottom",
@@ -490,42 +490,31 @@ namespace CapstoneDesign.EditorTools
                 return;
             }
             if (name.StartsWith("shop-", StringComparison.Ordinal)) { loop.ShowShop(); return; }
-            if (name.StartsWith("growth-link",StringComparison.Ordinal) || name.StartsWith("growth-history",StringComparison.Ordinal)
-                || name.StartsWith("growth-record",StringComparison.Ordinal) || name.StartsWith("record-summary",StringComparison.Ordinal))
+            if(name=="legacy-growth-history-empty"){loop.ShowGrowthHistory();return;}
+            if(name.StartsWith("record-summary",StringComparison.Ordinal))
             {
-                if (!name.EndsWith("empty",StringComparison.Ordinal)) SeedRememberedActivities(service,clock);
-                if (name.StartsWith("record-summary",StringComparison.Ordinal)) { loop.ShowRecordSummary();return; }
-                if (name.StartsWith("growth-history",StringComparison.Ordinal) || name.StartsWith("growth-record",StringComparison.Ordinal))
-                {
-                    if (!name.EndsWith("empty",StringComparison.Ordinal))
-                    {
-                        int count=name.StartsWith("growth-history-populated",StringComparison.Ordinal)?5:1;
-                        for(int index=0;index<count;index++)
-                            Require(service.GrowPlant("fixture-growth-"+index,GardenPlantVisuals.GrowthPlantId,
-                                name=="growth-record-unlinked"?null:"remembered-"+(index%5+1)),service);
-                    }
-                    loop.ShowGrowthHistory();
-                    if(name.StartsWith("growth-record",StringComparison.Ordinal))Click(loop.transform,"씨앗 → 새싹");
-                    return;
-                }
-                loop.ShowShop();loop.PreviewGrowth();Click(loop.transform,"함께 기억할 활동");
-                if(name.StartsWith("growth-linked",StringComparison.Ordinal))
-                {
-                    Click(loop.transform,MbctContent.Course[4].title);
-                    if(name.StartsWith("growth-linked-save-error",StringComparison.Ordinal))
-                    {
-                        store.Fail=true;
-                        try { Click(loop.transform,"확정"); }
-                        finally { store.Fail=false; }
-                    }
-                }
-                return;
+                if(!name.EndsWith("empty",StringComparison.Ordinal))SeedRememberedActivities(service,clock);
+                loop.ShowRecordSummary();return;
             }
-            if (name.StartsWith("growth-", StringComparison.Ordinal))
+            if(name.StartsWith("weekly-",StringComparison.Ordinal))
             {
-                loop.ShowShop();
-                loop.PreviewGrowth();
-                if (name == "growth-committed") Click(loop.transform, "확정");
+                bool empty=name.Contains("empty");
+                if(name=="weekly-growth-committed" || name=="weekly-no-reflection")
+                {
+                    Require(service.BeginSession("synthetic-capture-growth","free-mission:M17",0),service);
+                    Require(service.StartSession("synthetic-capture-growth"),service);
+                    Require(service.CompleteSession("synthetic-capture-growth"),service);
+                }
+                else if(!empty)SeedRememberedActivities(service,clock);
+                var plant=WeeklyPlants.Active(service.Snapshot);
+                if(name.StartsWith("weekly-collection",StringComparison.Ordinal)||name=="weekly-growth-committed")loop.ShowPlantCollection();
+                else if(name.StartsWith("weekly-memory-",StringComparison.Ordinal))
+                {
+                    loop.ShowMemoryChoices(plant.Id,new[]{plant.Memories.First().OrganId});
+                    if(name=="weekly-memory-source")Click(loop.transform,"원래 활동 기록");
+                    else if(name.StartsWith("weekly-memory-delete",StringComparison.Ordinal))Click(loop.transform,"이 기록 삭제");
+                }
+                else loop.ShowPlantMemories(plant.Id,0);
                 return;
             }
             if (name.StartsWith("placement-", StringComparison.Ordinal))

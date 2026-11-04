@@ -226,7 +226,7 @@ namespace CapstoneDesign.EditorTools
                 }
                 Assert(FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 3, "Three scheduled completions were not counted.");
                 Assert(f.Service.Snapshot.Nutrient == 15, "Basic reward total differs from 3 × 5.");
-                f.Invoke("ShowFocusRecord", f.Latest.SessionId); f.Click("다시 연습하기 · 추가 보상 없음"); f.Click("시작");
+                f.Invoke("ShowFocusRecord", f.Latest.SessionId); f.Click("다시 연습하기 · 하루 3회까지 성장"); f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("P03"), false);
                 f.CompleteReflection("", "", false);
                 Assert(f.Latest.FocusReview, "Review did not remain a separate practice.");
@@ -334,7 +334,7 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("09-record-detail", capture);
                 f.ScrollBottom(); f.Capture("09b-record-reflection", capture);
                 var before = f.Service.Snapshot.Nutrient;
-                f.Click("다시 연습하기 · 추가 보상 없음");
+                f.Click("다시 연습하기 · 하루 3회까지 성장");
                 f.Click("시작"); f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
                 f.CompleteReflection("synthetic review", "", false);
                 Assert(f.Latest.FocusReview && f.Latest.Status == ParticipationState.RewardCommitted, "Review was not saved separately.");
@@ -559,7 +559,7 @@ namespace CapstoneDesign.EditorTools
                 };
                 f.Invoke("ShowFocusCourse");
                 f.Click("정원·건강 기록");
-                Assert(f.Ui.CurrentScreen == "records" && f.Has("식물 성장 기록"), "New course navigation did not open the retained garden journal.");
+                Assert(f.Ui.CurrentScreen == "records" && f.Has("식물함 · 성장과 기억"), "New course navigation did not open the retained garden journal.");
                 f.Capture("legacy-garden-journal", capture);
                 f.Click(learned.title);
                 f.AssertScrollStartsAtTop("활동과 측정 기록", "Local garden flow");
@@ -633,15 +633,9 @@ namespace CapstoneDesign.EditorTools
                 f.Invoke("ShowShop");
                 Assert(f.VisibleText.Contains("2주 코스 1 / 12"), "Garden shop displayed legacy zero progress after a Focus completion.");
                 f.Capture("focus-progress-in-garden-shop", capture);
-                f.Click("식물 성장 · " + f.Ui.Balance.GrowthCost + " 영양제");
-                f.Click("함께 기억할 활동");
-                Assert(f.Has(savedFocusTitle) && f.Has(legacy.title) && !f.VisibleText.Contains(ignoredLegacyFocusTitle),
-                    "Growth activity picker renamed a saved Focus title or misinterpreted a legacy title.");
-                f.Capture("growth-link-versioned-titles", capture);
-                f.Click(savedFocusTitle);
-                Assert(f.VisibleText.Contains(savedFocusTitle), "Growth preview did not retain the selected session's saved title.");
-                f.Capture("growth-link-saved-focus-title", capture);
-                f.Click("취소");
+                f.Click("식물함 · 성장과 기억");
+                Assert(f.Ui.CurrentScreen=="plants" && f.VisibleText.Contains("21회"),"Weekly plant collection did not open.");
+                f.Capture("weekly-plant-collection-from-shop",capture);
                 f.Invoke("ShowGardenJournal");
                 Assert(f.Has(savedFocusTitle) && f.Has(legacy.title) && !f.VisibleText.Contains(ignoredLegacyFocusTitle),
                     "Garden journal renamed a saved Focus or legacy record.");

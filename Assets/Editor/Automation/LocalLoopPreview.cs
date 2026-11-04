@@ -41,9 +41,13 @@ namespace CapstoneDesign.EditorTools
                 }
                 else if(name.StartsWith("growth-") && name!="growth-preview")
                 {
-                    int count=name=="growth-sprout"?1:name=="growth-bud"?2:name=="growth-bloom"?3:4;
+                    int count=name=="growth-sprout"?3:name=="growth-bud"?7:name=="growth-bloom"?15:21;
                     for(int i=0;i<count;i++)
-                        if(!service.GrowPlant("preview-growth-"+i,"plant:P06"))throw new Exception("Growth preview purchase failed");
+                    {
+                        if(i>0&&i%3==0)clock.Now=clock.Now.AddDays(1);
+                        string id="synthetic-preview-growth-"+i;
+                        if(!service.BeginSession(id,"free-mission:M17",0)||!service.StartSession(id)||!service.CompleteSession(id))throw new Exception(service.LastError);
+                    }
                     loop.UpdateGarden();nav.ShowIsland();
                 }
                 else if(name=="course")loop.ShowCourse();
