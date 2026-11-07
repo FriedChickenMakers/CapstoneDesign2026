@@ -15,21 +15,31 @@ namespace CapstoneDesign.Runtime
             if (this == null || !opened || HasPendingFullReset || owner == null || !owner.gameObject.activeInHierarchy
                 || string.IsNullOrEmpty(plantInstanceId) || string.IsNullOrEmpty(memoId)) return false;
             var state = Service.Snapshot;
-            GardenPlantMemo memo;
+            GardenPlantMemo memo = PlantAlbumHistory.MemoryRecord(state, plantInstanceId, memoId);
             if (string.IsNullOrEmpty(photoId))
             {
-                if (!GardenPlantVisuals.HasCurrentPlant(state) || state.PlantAppearance.Recipe.InstanceId != plantInstanceId) return false;
-                memo = state.PlantAppearance.Memos.FirstOrDefault(value => value.Id == memoId && value.PlantInstanceId == plantInstanceId);
+                if (screen != "plant-memories:" + plantInstanceId
+                    && (!GardenPlantVisuals.HasCurrentPlant(state) || state.PlantAppearance.Recipe.InstanceId != plantInstanceId)) return false;
+                if (memo == null) memo = state.PlantAppearance.Memos.FirstOrDefault(value => value.Id == memoId && value.PlantInstanceId == plantInstanceId);
             }
             else
             {
-                if (screen != "plant-photo:" + photoId) return false;
+                if (screen != "plant-photo:" + photoId && screen != "plant-memories:" + plantInstanceId) return false;
                 var photo = state.PlantPhotos.FirstOrDefault(value => value.Id == photoId && value.SourcePlantInstanceId == plantInstanceId);
-                memo = PlantAlbumHistory.Records(state, photo).FirstOrDefault(value => value.Id == memoId && value.PlantInstanceId == plantInstanceId);
+                if (photo == null) return false;
+                if (memo == null) memo = PlantAlbumHistory.Records(state, photo).FirstOrDefault(value => value.Id == memoId && value.PlantInstanceId == plantInstanceId);
             }
             if (memo == null) return false;
-            // Use the immutable paper snapshot, not a potentially removed/reused daily record.
+            // The exact individual/organ identity owns this record; viewing another
+            // archived plant never changes the active growth target.
             plantMemoPopup = GardenMemoPopup.Show(owner, memo, PlantAlbumHistory.Date(memo, Service.CurrentTimeZone));
+            var memory = PlantAlbumHistory.Memory(state, plantInstanceId, memoId);
+            if (plantMemoPopup != null && memory != null)
+            {
+                string organId = memory.OrganId;
+                plantMemoPopup.ConfigureActions(() => ShowPlantMemoryEditor(plantInstanceId, organId, photoId),
+                    () => ShowPlantMemoryDeletion(plantInstanceId, organId, photoId));
+            }
             return plantMemoPopup != null;
         }
 

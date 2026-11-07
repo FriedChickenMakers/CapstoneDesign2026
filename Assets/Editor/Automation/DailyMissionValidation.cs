@@ -49,8 +49,8 @@ namespace CapstoneDesign.EditorTools
                 Run("One current course and compact course switching 390x844", () => CourseFlow(390,844));
                 Run("Third daily emotion mission 360x640", () => EmotionFlow(360,640));
                 Run("Third daily emotion mission 390x844", () => EmotionFlow(390,844));
-                Run("Empty planter requires a new seed 360x640", () => EmptyPlantFlow(360,640));
-                Run("Empty planter requires a new seed 390x844", () => EmptyPlantFlow(390,844));
+                Run("Automatic archive and next seed 360x640", () => EmptyPlantFlow(360,640));
+                Run("Automatic archive and next seed 390x844", () => EmptyPlantFlow(390,844));
                 Run("Old per-mission emotion draft survives direct completion and history", OldReflectionDraft);
                 Run("Legacy completion retry and background walking refresh", LegacyCompletionRoutes);
                 Run("All 45 isolated development missions", DebugFlow);
@@ -86,6 +86,8 @@ namespace CapstoneDesign.EditorTools
                 var step=definition.Steps[i]; string value=step.Kind=="draw"?"DRAW1|AA_B":step.RequiredAnswer?"synthetic response":null;
                 Assert(service.ConfirmFocusStep(id,i,value,value==null),service.LastError);
             }
+            if(CameraMissionPolicy.Ready(service.Snapshot.Sessions.Single(x=>x.SessionId==id)))
+                Assert(service.SkipPhoto(id),service.LastError);
         }
         static void StartGuidedPractice(Fixture f,string choice=null)
         {
@@ -301,6 +303,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(!f.Button("DailyEmotion.CardAction",false).IsInteractable(),"One finished role keeps third card locked");
                 f.Click("Focus.AdditionalAction");Assert(Screen(f.Ui)=="focus-practice","Additional starts directly while the completed P remains intact");
                 for(int attempt=0;Screen(f.Ui)=="focus-practice"&&attempt<6;attempt++)f.Click("Focus.Action");
+                if(Screen(f.Ui)=="focus-photo")f.Click("Photo.Skip");
                 Assert(Screen(f.Ui)=="focus-complete"&&f.Service.Snapshot.Sessions.Count(s=>s.Status==ParticipationState.RewardCommitted)==2,"Actual M actions complete the second role without emotion/note detour");f.Click("Focus.ConfirmHome");
                 f.RevealRect((RectTransform)f.Button("DailyEmotion.CardAction").transform);f.AssertFullyVisible((RectTransform)f.Button("DailyEmotion.CardAction").transform,"Unlocked third action remains reachable");f.Capture("emotion-unlocked");
                 int step=f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep;f.Click("DailyEmotion.CardAction");
@@ -350,9 +353,9 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.SetPlantCompleted(completedSource,true)&&f.Service.SavePlantPhoto("daily-readonly-archive",completedSource),"Archive completed memo-bearing individual");
                 f.Ui.ShowDailyEmotion();f.Layout();
                 Assert(Screen(f.Ui)=="daily-emotion"&&f.Button("DailyEmotion.Save",false)==null&&f.Text("DailyEmotion.Status").text.Contains("100"),
-                    "Parameterless completed daily entry stays readable while the planter is empty and identifies its earned coins");
+                    "Parameterless completed daily entry stays readable after automatic archive and identifies its earned coins");
                 f.RevealAndRead(f.Text("DailyEmotion.Status"));f.Capture("emotion-archived-current-readonly");
-                Assert(f.Service.StartNewPlant("daily-next-individual",completedSource),"Start required plant before next day's missions");
+                Assert(f.Service.Snapshot.PlantPhotos.Count==1,"Completed plant already appears in the album before the next mission");
                 f.Ui.ShowHome();f.Clock.Time=f.Clock.Time.AddDays(1);Assert(f.Service.RefreshCycle(Array.Empty<string>()),"Advance to second emotion day");
                 CompleteRoleFixture(f,"next-p","P02",2);CompleteRoleFixture(f,"next-m","M03");f.Ui.ShowHome();f.Layout();f.Click("DailyEmotion.CardAction");
                 string expired=DailyEmotionPolicy.RecordId(f.Service.CurrentCycleId);note=f.Ui.GetComponentsInChildren<InputField>(false).Single(i=>i.name=="DailyEmotion.Note");
@@ -371,43 +374,42 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(width,height))
             {
-                Assert(f.Service.SelectMbctProgram("8w")&&f.Service.BeginFocusSession("empty-pending","M03"),"Prepare selected mission before archive");
-                Ready(f.Service,"empty-pending");
-                string draft=CapstoneDesign.Plants.PlantCodec.Encode(f.Session("empty-pending"));
+                Assert(f.Service.SelectMbctProgram("8w")&&f.Service.BeginFocusSession("auto-pending","M03"),"Prepare selected mission before completion");
+                Ready(f.Service,"auto-pending");
                 string source=f.Service.Snapshot.PlantAppearance.Recipe.InstanceId;
-                Assert(f.Service.SetPlantCompleted(source,true)&&f.Service.SavePlantPhoto("empty-ui-archive",source),"Archive while practice completion is pending");
-                string photo=CapstoneDesign.Plants.PlantCodec.Encode(f.Service.Snapshot.PlantPhotos),empty=Snapshot(f.Service);
-                f.Ui.SelectFocusSession("empty-pending");f.Layout();
-                Assert(Screen(f.Ui)=="mission-plant-required"&&Snapshot(f.Service)==empty,"Empty garden gates resume without losing or completing the pending mission");
-                f.AssertFullyVisible((RectTransform)f.Button("Mission.StartNewPlant").transform,"Seed prerequisite CTA is readable");f.Capture("empty-pending-mission-seed-required");
-                var stale=f.Button("Mission.StartNewPlant").onClick;f.Store.Fail=true;f.Click("Mission.StartNewPlant");f.Store.Fail=false;
-                Assert(Snapshot(f.Service)==empty&&Screen(f.Ui)=="mission-plant-required","Failed seed creation keeps the empty garden, mission and photo exact");
-                f.Click("Mission.StartNewPlant");f.Ui.ShowHome();f.Layout();
-                Assert(GardenPlantVisuals.HasCurrentPlant(f.Service.Snapshot)&&f.Service.Snapshot.PlantAppearance.Recipe.InstanceId!=source
-                    &&CapstoneDesign.Plants.PlantCodec.Encode(f.Session("empty-pending"))==draft,"New seed allows the original pending mission to continue without replacing its identity or answers");
-                string started=Snapshot(f.Service);stale.Invoke();f.Layout();Assert(Snapshot(f.Service)==started,"Old seed CTA cannot create a second individual");
-                f.Ui.SelectFocusSession("empty-pending");f.Layout();
-                Assert(Screen(f.Ui)=="focus-complete"&&f.Service.CoinBalance==187&&f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==1
-                    &&CapstoneDesign.Plants.PlantCodec.Encode(f.Service.Snapshot.PlantPhotos)==photo,"Pending practice grows only the replacement and awards 50 coins once");
-                f.Capture("resumed-mission-new-seed-complete");
+                Assert(f.Service.SetPlantCompleted(source,true),"Complete the current individual");
+                Assert(f.Service.Snapshot.PlantPhotos.Count==1&&GardenPlantVisuals.HasCurrentPlant(f.Service.Snapshot),
+                    "Completion automatically archives and retains the visible current plant");
+                string photo=CapstoneDesign.Plants.PlantCodec.Encode(f.Service.Snapshot.PlantPhotos),before=Snapshot(f.Service);
+                f.Store.Fail=true;f.Ui.SelectFocusSession("auto-pending");f.Layout();f.Store.Fail=false;
+                Assert(Screen(f.Ui)=="practice-complete-error"&&Snapshot(f.Service)==before,
+                    "Failed automatic next-seed completion preserves archive, active plant and mission");
+                var stale=f.Button("PracticeCompletion.Retry").onClick;f.Click("PracticeCompletion.Retry");
+                Assert(Screen(f.Ui)=="focus-complete"&&f.Service.CoinBalance==187
+                    &&f.Service.Snapshot.PlantAppearance.Recipe.InstanceId!=source
+                    &&f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==1
+                    &&f.Service.Snapshot.PlantAppearance.Recipe.MaxGrowthSteps==21
+                    &&CapstoneDesign.Plants.PlantCodec.Encode(f.Service.Snapshot.PlantPhotos)==photo,
+                    "Pending practice automatically starts and grows only a new 21-step seed, preserving the archived plant");
+                string committed=Snapshot(f.Service);stale.Invoke();f.Layout();
+                Assert(Snapshot(f.Service)==committed,"Stale retry cannot create another seed or pay twice");
+                f.Capture("automatic-next-seed-complete");
             }
             using(var f=new Fixture(width,height))
             {
-                Assert(f.Service.SelectMbctProgram("8w"),"Prepare pending daily emotion course");CompleteRoleFixture(f,"empty-daily-p","P01",1);CompleteRoleFixture(f,"empty-daily-m","M03");
+                Assert(f.Service.SelectMbctProgram("8w"),"Prepare daily record on a completed plant");
+                CompleteRoleFixture(f,"auto-daily-p","P01",1);CompleteRoleFixture(f,"auto-daily-m","M03");
                 string id=DailyEmotionPolicy.RecordId(f.Service.CurrentCycleId);
-                Assert(f.Service.BeginDailyEmotion(f.Service.CurrentCycleId)&&f.Service.SaveDailyEmotionDraft(id,"평온함","synthetic retained pending memo",1),"Persist daily draft before archive");
+                Assert(f.Service.BeginDailyEmotion(f.Service.CurrentCycleId)&&f.Service.SaveDailyEmotionDraft(id,"평온함","synthetic retained memory",1),"Save daily draft");
                 string source=f.Service.Snapshot.PlantAppearance.Recipe.InstanceId;
-                Assert(f.Service.SetPlantCompleted(source,true)&&f.Service.SavePlantPhoto("empty-daily-archive",source),"Archive during daily writing");
-                string photos=CapstoneDesign.Plants.PlantCodec.Encode(f.Service.Snapshot.PlantPhotos),empty=Snapshot(f.Service);
-                f.Ui.ShowDailyEmotion(id);f.Layout();Assert(Screen(f.Ui)=="mission-plant-required"&&Snapshot(f.Service)==empty,"Unfinished daily form requires a seed and preserves original draft");f.Capture("empty-pending-daily-seed-required");
-                f.Click("Mission.StartNewPlant");f.Ui.ShowDailyEmotion(id);f.Layout();
-                Assert(f.Ui.GetComponentsInChildren<InputField>(false).Single(i=>i.name=="DailyEmotion.Note").text=="synthetic retained pending memo","Daily draft restores after replacement seed");
-                f.Click("DailyEmotion.Save");
-                var memo=f.Service.Snapshot.PlantAppearance.Memos.Single();
-                Assert(Screen(f.Ui)=="home"&&f.Service.CoinBalance==337&&f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==0
-                    &&memo.PlantInstanceId!=source&&memo.PlantInstanceId==f.Service.Snapshot.PlantAppearance.Recipe.InstanceId
-                    &&CapstoneDesign.Plants.PlantCodec.Encode(f.Service.Snapshot.PlantPhotos)==photos,"Resumed daily memo attaches only to replacement with 100 coins, no growth or old-photo change");
-                f.RevealRect((RectTransform)f.Button("DailyEmotion.CardAction").transform);f.Capture("resumed-daily-new-seed-memo-complete");
+                Assert(f.Service.SetPlantCompleted(source,true),"Automatically archive before finishing the daily record");
+                int step=f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep;
+                f.Ui.ShowDailyEmotion(id);f.Layout();f.Click("DailyEmotion.Save");
+                var state=f.Service.Snapshot;var memo=state.PlantAppearance.Memos.Single();
+                Assert(Screen(f.Ui)=="home"&&f.Service.CoinBalance==337&&state.PlantAppearance.Recipe.GrowthStep==step
+                    &&memo.PlantInstanceId==source&&state.PlantPhotos.Single().Memos.Single().Id==memo.Id,
+                    "Daily completion keeps its current completed plant and updates the album memory with 100 coins, no new seed or growth");
+                f.RevealRect((RectTransform)f.Button("DailyEmotion.CardAction").transform);f.Capture("completed-plant-daily-memory");
             }
         }
         static void LegacyCarry()
@@ -542,6 +544,8 @@ namespace CapstoneDesign.EditorTools
                 canvas.worldCamera = camera; raycaster = root.GetComponent<GraphicRaycaster>();
                 var eventObject = new GameObject("Synthetic pointer", typeof(EventSystem)); eventObject.transform.SetParent(root.transform, false); events = eventObject.GetComponent<EventSystem>(); events.enabled = false;
                 var panel = GardenUi.Box(root.transform, "Synthetic activity panel", 0, 0, 1, 1);
+                if(!Service.Snapshot.PracticePreferences.Any(item=>item.Key=="favorite"))
+                    Assert(Service.SavePreference("favorite","물 마시기"),"Synthetic deterministic additional recommendation");
                 Ui = panel.AddComponent<WeekOneQuestDemo>(); Ui.Initialize(Service, true);
                 root.SetActive(true); Layout();
                 Assert(ReferenceEquals(Ui.Service, Service), "Actual page presenter keeps injected synthetic service");

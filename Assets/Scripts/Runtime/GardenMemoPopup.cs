@@ -6,14 +6,14 @@ using UnityEngine.UI;
 
 namespace CapstoneDesign.Runtime
 {
-    // Read-only, view-owned memory. Opening this overlay never calls a save API.
+    // View-owned memory. Opening never saves; editing/deletion are explicit actions.
     [ExecuteAlways, DisallowMultipleComponent]
     public sealed class GardenMemoPopup : MonoBehaviour
     {
         static GardenMemoPopup active;
         Transform source;
         GameObject previousSelection;
-        RectTransform design, card, viewport, content, closeRect;
+        RectTransform design, card, viewport, content, closeRect, actionsRect;
         Text moodText, noteText, basicMissionText, additionalMissionText;
         float lastHeight = -1;
         public static bool IsOpen => active != null && active.isActiveAndEnabled;
@@ -38,6 +38,23 @@ namespace CapstoneDesign.Runtime
             return popup;
         }
 
+        public void ConfigureActions(Action edit, Action delete)
+        {
+            if (actionsRect != null || (edit == null && delete == null)) return;
+            actionsRect = FigmaMissionUi.Rect(card, "GardenMemoPopup.Actions", 24, 432, 294, 48);
+            if (edit != null)
+                FigmaMissionUi.Button(actionsRect, "수정", 0, 0, 143, 48, () => {
+                    if (active != this || !IsOpen) return;
+                    Close(); edit();
+                }, Color.white, FigmaMissionUi.Green).name = "GardenMemoPopup.Edit";
+            if (delete != null)
+                FigmaMissionUi.Button(actionsRect, "삭제", 151, 0, 143, 48, () => {
+                    if (active != this || !IsOpen) return;
+                    Close(); delete();
+                }, Color.white, FigmaMissionUi.Brown).name = "GardenMemoPopup.Delete";
+            Layout();
+        }
+
         void Build(GardenPlantMemo memo, string date)
         {
             var shade = new GameObject("GardenMemoPopup.Backdrop", typeof(RectTransform), typeof(Image), typeof(Button));
@@ -51,10 +68,13 @@ namespace CapstoneDesign.Runtime
             backdrop.onClick.AddListener(Close);
 
             design = FigmaMissionUi.Rect(transform, "GardenMemoPopup.Design", 0, 0, 390, 844);
+            design.gameObject.AddComponent<FigmaGardenThemeScope>();
             var fit = gameObject.AddComponent<FigmaMissionCanvasFit>(); fit.Design = design; fit.Fit();
             card = FigmaMissionUi.Box(design, "GardenMemoPopup.Card", 24, 100, 342, 560, new Color(1f, .98f, .89f), 20);
             card.GetComponent<Image>().raycastTarget = true;
-            FigmaMissionUi.Label(card, "감정 기록", 24, 22, 294, 34, 24, FigmaMissionUi.Ink, true).name = "GardenMemoPopup.Title";
+            var titlePlaque=FigmaMissionUi.Box(card,"GardenMemoPopup.TitlePlaque",12,14,318,50,FigmaMissionUi.Warm,10);
+            CapstoneDesign.Prototype.GardenThemeSurface.Apply(titlePlaque.gameObject,CapstoneDesign.Prototype.GardenThemeSurface.Style.Header);
+            FigmaMissionUi.Label(card, "감정 기록", 24, 22, 294, 34, 24, CapstoneDesign.Prototype.GardenThemeSurface.WoodInk, true).name = "GardenMemoPopup.Title";
             FigmaMissionUi.Label(card, date, 24, 62, 294, 24, 14, FigmaMissionUi.Muted).name = "GardenMemoPopup.Date";
             viewport = FigmaMissionUi.Box(card, "GardenMemoPopup.Viewport", 24, 108, 294, 360, Color.clear);
             viewport.GetComponent<Image>().raycastTarget = true;
@@ -113,9 +133,11 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.SetRect(additionalMissionText.rectTransform, 0, missionY + basicHeight + 6, 278, additionalHeight);
             float bodyHeight = missionY + basicHeight + 6 + additionalHeight;
             float maximum = Mathf.Min(560, Mathf.Max(240, design.rect.height - 48));
-            float height = Mathf.Min(maximum, Mathf.Max(320, bodyHeight + 204));
+            float actionHeight = actionsRect == null ? 0 : 56;
+            float height = Mathf.Min(maximum, Mathf.Max(320 + actionHeight, bodyHeight + 204 + actionHeight));
             FigmaMissionUi.SetRect(card, 24, Mathf.Max(24, (design.rect.height - height) * .5f), 342, height);
-            viewport.sizeDelta = new Vector2(294, height - 192);
+            viewport.sizeDelta = new Vector2(294, Mathf.Max(64, height - 192 - actionHeight));
+            if (actionsRect != null) FigmaMissionUi.SetRect(actionsRect, 24, height - 128, 294, 48);
             FigmaMissionUi.SetRect(closeRect, 24, height - 72, 294, 48);
             content.sizeDelta = new Vector2(278, Mathf.Max(viewport.rect.height, bodyHeight + 12));
             lastHeight = design.rect.height;

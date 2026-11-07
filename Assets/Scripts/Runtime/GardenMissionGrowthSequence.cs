@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CapstoneDesign.Prototype;
 using CapstoneDesign.Runtime.LocalState;
+using CapstoneDesign.Plants;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -40,8 +41,11 @@ namespace CapstoneDesign.Runtime
         {
             if (!Application.isPlaying || home == null || home.gardenCamera == null || home.gardenVisuals == null
                 || home.gardenCamera.targetTexture == null || !GardenPlantVisuals.HasCurrentPlant(before)
-                || !GardenPlantVisuals.HasCurrentPlant(after) || before.PlantAppearance.Recipe.InstanceId != after.PlantAppearance.Recipe.InstanceId
-                || before.PlantAppearance.Recipe.GrowthStep >= after.PlantAppearance.Recipe.GrowthStep) return false;
+                || !GardenPlantVisuals.HasCurrentPlant(after)) return false;
+            bool sameIndividual=before.PlantAppearance.Recipe.InstanceId==after.PlantAppearance.Recipe.InstanceId;
+            if(sameIndividual && before.PlantAppearance.Recipe.GrowthStep>=after.PlantAppearance.Recipe.GrowthStep)return false;
+            if(!sameIndividual && !after.PracticeGrowthRecords.Any(record=>record.PlantInstanceId==after.PlantAppearance.Recipe.InstanceId
+                && record.AfterStep>record.BeforeStep && !before.PracticeGrowthRecords.Any(prior=>prior.SessionId==record.SessionId)))return false;
             var owner = home.gameObject.GetComponent<GardenMissionGrowthSequence>();
             if (owner == null) owner = home.gameObject.AddComponent<GardenMissionGrowthSequence>();
             if (owner.IsPlaying) return false;
@@ -71,7 +75,9 @@ namespace CapstoneDesign.Runtime
                 if (layout.orbit != null && layout.orbit.previewCamera == camera) { Suspend(layout); Suspend(layout.orbit); }
             foreach (var raycaster in FindObjectsByType<GraphicRaycaster>(FindObjectsInactive.Include, FindObjectsSortMode.None)) Suspend(raycaster);
             home.gardenVisuals.SetActive(true);
-            home.RefreshFromState(before);
+            bool newIndividual=before.PlantAppearance.Recipe.InstanceId!=after.PlantAppearance.Recipe.InstanceId;
+            home.RefreshFromState(newIndividual?after:before);
+            if(newIndividual)home.RenderGrowthAppearance(NextPlantBeforeGrowth(after),1.9f);
             Suspend(home.gardenVisuals.GetComponent<GardenSkyEnvironment>());
             foreach (var canvas in FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
@@ -114,6 +120,27 @@ namespace CapstoneDesign.Runtime
             }
             catch (Exception exception) { Debug.LogException(exception); Restore(); }
         }
+        // Recreate only the committed new seed's presentation before this mission.
+        // Historical stored credits replay in their saved order; no domain state is changed.
+        internal static PlantRecipe NextPlantBeforeGrowth(GardenState state)
+        {
+            var current=state.PlantAppearance.Recipe;
+            var recipe=PlantGenerator.Create(state.InstallationId,current.InstanceId,current.MaxGrowthSteps,current.GrowthMode);
+            recipe.MeshVersion=current.MeshVersion;
+            var command=state.PlantStartCommands.FirstOrDefault(c=>c.PlantInstanceId==current.InstanceId);
+            if(command==null)return recipe;
+            int offset=state.PlantStartCommands.TakeWhile(c=>c!=command).Sum(c=>c.AppliedGrowthSteps);
+            foreach(var credit in state.PracticeGrowthRecords.Where(r=>r.Outcome==PracticeGrowthOutcome.Stored)
+                .Skip(offset).Take(command.AppliedGrowthSteps))
+            {
+                GrowthCategory category;
+                if(credit.MissionId==DailyEmotionPolicy.MissionId)category=GrowthCategory.Reflection;
+                else if(!GardenPlantVisuals.TryCategory(credit.MissionId,out category))throw new InvalidOperationException("Stored growth category is missing.");
+                recipe.Counts[(int)category]++; recipe=PlantGenerator.Advance(recipe);
+            }
+            return recipe;
+        }
+
         void RenderFrame(float progress)
         {
             Progress = progress;

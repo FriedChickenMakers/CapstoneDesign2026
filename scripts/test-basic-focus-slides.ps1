@@ -65,7 +65,10 @@ function Copy-Source([string]$Relative, [string]$Destination) {
 # Copy product scene dependencies, never Library, UserSettings, preferences, logs or saves.
 # Only this explicitly owned Editor fixture is included; no request is sent to the source Editor.
 if ($Baseline -and [string]::IsNullOrWhiteSpace($ReuseProject)) { throw 'Baseline requires an existing completed synthetic project.' }
-$cachedProductSources = @(Get-ChildItem -LiteralPath (Join-Path $isolated 'Assets/Scripts') -File -Recurse | ForEach-Object { [ordered]@{path=$_.FullName.Substring($isolated.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
+$cachedProductSources = @()
+if (Test-Path -LiteralPath (Join-Path $isolated 'Assets/Scripts')) {
+    $cachedProductSources = @(Get-ChildItem -LiteralPath (Join-Path $isolated 'Assets/Scripts') -File -Recurse | ForEach-Object { [ordered]@{path=$_.FullName.Substring($isolated.Length+1);sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash} })
+}
 if (-not $Baseline) { foreach ($item in Get-ChildItem -LiteralPath (Join-Path $projectRoot 'Assets')) {
     if ($item.Name -in @('Editor', 'Editor.meta', 'Tests', 'Tests.meta')) { continue }
     Copy-Source ('Assets/' + $item.Name) (Join-Path $isolated ('Assets/' + $item.Name))

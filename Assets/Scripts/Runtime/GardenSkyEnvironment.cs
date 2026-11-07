@@ -210,6 +210,7 @@ namespace CapstoneDesign.Runtime
         public void UpdateClouds(float seconds)
         {
             if (view == null || clouds == null) return;
+            if (clouds.gameObject.activeInHierarchy && !clouds.isPlaying) clouds.Play();
             var light = SunDirection.y >= 0 ? SunDirection : MoonDirection;
             cloudMaterial.SetVector("_LightDirection", light);
             cloudMaterial.SetVector("_IslandOrigin", transform.position);

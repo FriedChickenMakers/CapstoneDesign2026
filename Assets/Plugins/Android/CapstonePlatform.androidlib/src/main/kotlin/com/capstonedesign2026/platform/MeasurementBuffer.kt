@@ -7,7 +7,7 @@ internal data class MeasurementRecord(
     val offset: Int = 0, val scheduled: Long = 0, val policy: String = "none",
     val preferred: Int = -1, val effective: Int = -1, val samples: Int = 0,
     val reason: String = "none", val activity: String = "", val appVersion: String,
-    val dataset: String = "live"
+    val dataset: String = "live", val decisionId: String = "", val recommendedActivity: String = ""
 )
 internal data class MeasurementState(
     val binding: String = "", val collection: String = "", val since: Long = 0,

@@ -30,7 +30,7 @@ class PlantGenerationTests
     }
     static int Main()
     {
-        try { Console.WriteLine(PlantContractChecks.Run());CheckSpeciesPreview();Console.WriteLine(previewAssertions+" species preview assertions passed.");return 0; }
+        try { Console.WriteLine(PlantContractChecks.Run());CheckSpeciesPreview();Console.WriteLine(previewAssertions+" species preview assertions passed.");Console.WriteLine(PlantGeometryV6Tests.Run());return 0; }
         catch(Exception e) { Console.Error.WriteLine(e);return 1; }
     }
 }

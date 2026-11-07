@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -11,10 +12,12 @@ namespace CapstoneDesign.Plants
         Mesh ownedMesh;
         Material ownedMaterial;
         public int TriangleCount { get; private set; }
+        public PlantMeshData Geometry { get; private set; }
         // Call only after committing growth or restoring a save; no Update or per-frame RNG.
-        public void Render(PlantRecipe recipe)
+        public void Render(PlantRecipe recipe,IEnumerable<PlantMemoryLeaf> memories=null,int page=0)
         {
-            var data=PlantGeometry.Build(recipe);
+            var data=PlantMemoryGeometry.Build(recipe,memories,page);
+            Geometry=data;
             var vertices=new Vector3[data.Vertices.Count];var normals=new Vector3[vertices.Length];
             var colors=new Color[vertices.Length];var indices=new int[vertices.Length];
             for(int i=0;i<vertices.Length;i++)

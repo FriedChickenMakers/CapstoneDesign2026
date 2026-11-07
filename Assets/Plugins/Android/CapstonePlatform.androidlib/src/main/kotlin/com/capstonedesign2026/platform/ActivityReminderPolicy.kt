@@ -8,12 +8,22 @@ import kotlin.math.roundToInt
 
 /** Local-only reminder timing. No activity/sleep diagnosis or pressure for missed days. */
 internal object ActivityReminderPolicy {
-    const val DEFAULT_MINUTE = 20 * 60
+    const val DEFAULT_MINUTE = 12 * 60
+    const val LEGACY_DEFAULT_MINUTE = 20 * 60
     const val MAX_HISTORY = 28
     const val RESPONSIVE_MINUTES = 10
     private const val MIN_SAMPLES = 3
     private const val MODE_WIDTH = 120
     private const val MAX_SHIFT = 120
+
+    data class InitialSettings(val preferred: Int, val effective: Int, val timeChosen: Boolean, val source: String)
+
+    /** Existing installations keep the time that was actually visible before migration. */
+    fun initialSettings(existing: Boolean, adaptive: Boolean, preferred: Int?, learned: Int?): InitialSettings {
+        val manual = clampMinute(preferred ?: if (existing) LEGACY_DEFAULT_MINUTE else DEFAULT_MINUTE)
+        return InitialSettings(manual, if (adaptive) clampMinute(learned ?: manual) else manual,
+            existing, if (existing) "legacy" else "default")
+    }
 
     /** Only local clock minutes and the reaction interval are retained, never a timestamp. */
     data class Observation(val postedMinute: Int, val openedMinute: Int, val delayMinutes: Int)

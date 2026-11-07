@@ -53,11 +53,12 @@ internal object MeasurementTelemetry {
         .put("utc_offset_minutes", r.offset).put("scheduled_utc_ms", r.scheduled).put("policy_id", r.policy)
         .put("preferred_minute", r.preferred).put("effective_minute", r.effective).put("learned_samples", r.samples)
         .put("reason", r.reason).put("activity_id", r.activity).put("app_version", r.appVersion).put("dataset", r.dataset)
+        .apply { if (r.kind.startsWith("focus_recommendation_")) put("decision_id", r.decisionId).put("recommended_activity_id", r.recommendedActivity) }
     private fun readRecord(j: JSONObject) = MeasurementRecord(j.getString("event_id"), j.getString("notification_id"),
         j.getString("session_key"), j.getString("kind"), j.getLong("occurred_utc_ms"), j.getLong("elapsed_ms"),
         j.getInt("boot_count"), j.getInt("utc_offset_minutes"), j.getLong("scheduled_utc_ms"), j.getString("policy_id"),
         j.getInt("preferred_minute"), j.getInt("effective_minute"), j.getInt("learned_samples"), j.getString("reason"),
-        j.getString("activity_id"), j.getString("app_version"), j.getString("dataset"))
+        j.getString("activity_id"), j.getString("app_version"), j.getString("dataset"), j.optString("decision_id", ""), j.optString("recommended_activity_id", ""))
     private fun get(context: Context): MeasurementBuffer {
         val file = stateFile(context)
         if (buffer != null && location == file.path) return buffer!!
@@ -167,10 +168,33 @@ internal object MeasurementTelemetry {
         try {
             if (suspended) return "{\"ok\":false}"
             require(kind in setOf("activity_selected", "activity_started", "activity_completed", "activity_ended"))
-            require(sessionKey.matches(Regex("[a-f0-9]{32}")) && activity.matches(Regex("(?:course:MBCT(?:2W|4W)?[0-9]{2}|free-mission:M[0-9]{2})")))
+            require(sessionKey.matches(Regex("[a-f0-9]{32}")) && activity.matches(Regex("(?:course:MBCT(?:2W|4W)?[0-9]{2}|course:P(?:0[1-9]|1[0-9]|2[0-8])|free-mission:M(?:0[1-9]|1[0-7]))")))
             val b = get(context)
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + sessionKey + kind), sessionKey = sessionKey,
                 activity = activity, elapsed = -1, boot = -1, offset = offset) // recovered wall time, never fabricated monotonic time
+            JSONObject().put("ok", b.add(r, System.currentTimeMillis())).toString()
+        } catch (_: Exception) { latchError(context); "{\"ok\":false}" }
+    }
+    // Separate from the legacy four-feature model. Catalog IDs and fixed policy/reason
+    // codes only; the recommended activity can differ from the actual selection.
+    fun focusRecommendation(context: Context, kind: String, decision: String, session: String,
+                            recommended: String, actual: String, policy: String, reason: String,
+                            at: Long, offset: Int): String = synchronized(this) {
+        try {
+            if (suspended) return "{\"ok\":false}"
+            require(kind in setOf("focus_recommendation_shown", "focus_recommendation_selected", "focus_recommendation_started", "focus_recommendation_completed", "focus_recommendation_ended"))
+            require(decision.matches(Regex("[a-f0-9]{32}")))
+            val catalog = Regex("free-mission:M(?:0[1-9]|1[0-7])")
+            require(recommended.matches(catalog))
+            require(policy in setOf("focus-additional-history-v1", "focus-additional-history-preference-v2"))
+            require(reason in setOf("saved-preference", "participation-history", "catalog-default-no-history", "resume-active-activity", "focus-method-preference", "focus-frequency-more", "focus-frequency-less"))
+            val shown = kind == "focus_recommendation_shown"
+            require(if (shown) session.isEmpty() && actual == recommended else session.matches(Regex("[a-f0-9]{32}")) && actual.matches(catalog))
+            require(offset in -840..840)
+            val b = get(context)
+            val r = base(context, kind, at).copy(eventId = key(b.state.collection + decision + session + kind),
+                sessionKey = session, decisionId = decision, recommendedActivity = recommended, activity = actual,
+                policy = policy, reason = reason, elapsed = -1, boot = -1, offset = offset)
             JSONObject().put("ok", b.add(r, System.currentTimeMillis())).toString()
         } catch (_: Exception) { latchError(context); "{\"ok\":false}" }
     }

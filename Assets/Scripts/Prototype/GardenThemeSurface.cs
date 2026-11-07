@@ -5,20 +5,16 @@ using UnityEngine.UI;
 namespace CapstoneDesign.Prototype
 {
     /// <summary>
-    /// Original scalable garden UI art: calm surfaces and botanical edges.
-    /// Timber is reserved for the bottom navigation shelf and its tab buttons.
-    /// Meshes use only vertex colour; no textures, downloaded artwork or per-frame animation.
+    /// Scalable garden UI with attributed ambientCG timber and leaf textures.
+    /// Reading surfaces retain their calm paper treatment.
     /// The surface is decoration only and never changes gameplay, layout or hit testing.
     /// </summary>
     [AddComponentMenu("UI/Garden Theme Surface")]
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class GardenThemeSurface : MaskableGraphic
     {
-        // Keep existing values stable. Wood is the legacy general-button name;
-        // it now draws a plain surface. Only navigation explicitly opts into TabWood.
-        public enum Style { Paper, Wood, Primary, Selected, Backdrop, Header, Shelf, Input, ProgressTrack, ProgressFill, TabWood }
-        // Plain controls follow the surrounding panel, not their destination.
-        // Keep legacy category values stable; they now share the neutral tone.
+        // Preserve serialized styles from the integrated branch; append new texture variants.
+        public enum Style { Paper, Wood, Primary, Selected, Backdrop, Header, Shelf, Input, ProgressTrack, ProgressFill, TabWood, Home, NavigationLeaf }
         public enum Tone { Default, Growth, Additional, Reflection, Utility }
         public Style style = Style.Paper;
         public Tone tone = Tone.Default;
@@ -31,6 +27,61 @@ namespace CapstoneDesign.Prototype
         bool disabled;
         bool pressed;
         bool highlighted;
+        static Texture2D backdropTexture;
+        static Texture2D BackdropTexture => backdropTexture != null ? backdropTexture :
+            (backdropTexture = Resources.Load<Texture2D>("UI/Textures/Wood096Background"));
+        static Texture2D woodTexture;
+        static Texture2D denseLeafTexture;
+        static Texture2D DenseLeafTexture => denseLeafTexture != null ? denseLeafTexture :
+            (denseLeafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024DenseUI"));
+        static Texture2D homeTexture;
+        static Texture2D HomeTexture => homeTexture != null ? homeTexture :
+            (homeTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024UI"));
+        static Texture2D leafTexture;
+        static Texture2D LeafTexture => leafTexture != null ? leafTexture :
+            (leafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet017UI"));
+        static Texture2D shelfTexture;
+        static bool shelfTextureLoaded;
+        const string ButtonTexturePath = "UI/Textures/NavigationBackingUI"; // Wood026
+        static Texture2D headerTexture;
+        static Texture2D HeaderTexture => headerTexture != null ? headerTexture :
+            (headerTexture = Resources.Load<Texture2D>("UI/Textures/Wood062LitUI"));
+        static Texture2D groundTexture;
+        static Texture2D GroundTexture => groundTexture != null ? groundTexture :
+            (groundTexture = Resources.Load<Texture2D>("UI/Textures/Ground048UI"));
+        // Keep navigation backing independent from buttons and page headings.
+        const string ShelfTexturePath = "UI/Textures/Wood062LitUI";
+        static readonly Color TimberBorder = new Color32(75, 43, 29, 255);
+        bool texturedFace;
+        Rect textureFaceRect;
+        bool UsesWood => style == Style.Wood || style == Style.TabWood || style == Style.Header || style == Style.Shelf;
+        static Texture2D WoodTexture => woodTexture != null ? woodTexture :
+            (woodTexture = Resources.Load<Texture2D>(ButtonTexturePath));
+        static Texture2D ShelfTexture
+        {
+            get
+            {
+                if (!shelfTextureLoaded)
+                {
+                    shelfTexture = Resources.Load<Texture2D>(ShelfTexturePath);
+                    shelfTextureLoaded = true;
+                }
+                return shelfTexture != null ? shelfTexture : GroundTexture;
+            }
+        }
+        bool UsesTexture => style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
+        Texture2D SurfaceTexture => style == Style.NavigationLeaf ? DenseLeafTexture : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
+        public override Texture mainTexture => UsesTexture && SurfaceTexture != null ? SurfaceTexture : base.mainTexture;
+        public static readonly Color WoodInk = new Color32(255, 246, 226, 255);
+        public static Color Foreground(Transform parent, Color fallback)
+        {
+            for (var node = parent; node != null; node = node.parent)
+            {
+                var surface = node.Find(SurfaceName)?.GetComponent<GardenThemeSurface>();
+                if (surface != null) return surface.UsesWood ? WoodInk : fallback;
+            }
+            return fallback;
+        }
 
         public static GardenThemeSurface Apply(GameObject owner, Style style, Tone tone = Tone.Default)
         {
@@ -90,6 +141,7 @@ namespace CapstoneDesign.Prototype
             lastState = state;
             lastStyle = style;
             lastTone = tone;
+            SetMaterialDirty();
             SetVerticesDirty();
         }
 
@@ -115,10 +167,12 @@ namespace CapstoneDesign.Prototype
             switch (style)
             {
                 case Style.Backdrop: Backdrop(mesh, r); break;
+                case Style.NavigationLeaf:
+                case Style.Home: Primary(mesh, r, unit); break;
                 case Style.Primary: Primary(mesh, r, unit); break;
-                case Style.Wood: PlainSurface(mesh, r, unit, false); break;
-                case Style.Header: PlainSurface(mesh, r, unit, true); break;
-                case Style.TabWood: Timber(mesh, r, unit); break;
+                case Style.TabWood:
+                case Style.Wood: Timber(mesh, r, unit, false); break;
+                case Style.Header: Timber(mesh, r, unit, true); break;
                 case Style.Shelf: Shelf(mesh, r, unit); break;
                 case Style.Selected: Paper(mesh, r, unit, true, false); break;
                 case Style.Input: Paper(mesh, r, unit, false, true); break;
@@ -158,38 +212,42 @@ namespace CapstoneDesign.Prototype
             }
         }
 
-        void PlainSurface(VertexHelper mesh, Rect r, float u, bool header)
+        void Timber(VertexHelper mesh, Rect r, float u, bool header)
         {
-            Color tint = tone == Tone.Growth ? GardenThemePalette.GrowthSurface
-                : header ? GardenThemePalette.HeaderSurface : GardenThemePalette.SecondarySurface;
             float radius = Mathf.Min(header ? 11 : 14, r.height * .2f) * u;
-            Shadow(mesh, r, radius, (pressed ? 1 : 2) * u);
-            Rounded(mesh, r, radius, Color.Lerp(tint, GardenThemePalette.Ink, .28f));
-            Rect face = Inset(r, 1.5f * u);
-            if (pressed) face = Offset(face, 0, -u);
-            Gradient(mesh, face, Mathf.Max(1, radius - 1.5f * u), Color.Lerp(tint, Color.white, .12f), tint);
-        }
-
-        void Timber(VertexHelper mesh, Rect r, float u)
-        {
-            float radius = Mathf.Min(14, r.height * .2f) * u;
             Shadow(mesh, r, radius, (pressed ? 1 : 4) * u);
-            Rounded(mesh, r, radius, GardenThemePalette.WoodDark);
-            Rect face = Inset(r, 2 * u);
+            if (header) Rounded(mesh, r, radius, TimberBorder);
+            Rect face = header ? Inset(r, 2 * u) : r;
             if (pressed) face = Offset(face, 0, -1.5f * u);
-            Gradient(mesh, face, Mathf.Max(1, radius - 2 * u), GardenThemePalette.WoodLight, GardenThemePalette.Wood);
-            Border(mesh, Inset(face, 3f * u), Mathf.Max(1, radius - 5f * u), .8f * u,
-                Alpha(new Color32(255, 246, 206, 255), .8f));
-            WoodGrain(mesh, face, u);
+            TimberFace(mesh, face, header ? Mathf.Max(1, radius - 2 * u) : radius);
+            if (SurfaceTexture == null) WoodGrain(mesh, face, u);
+            if (header && r.width >= 170)
+            {
+                Circle(mesh, new Vector2(r.xMin + 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
+                Circle(mesh, new Vector2(r.xMax - 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
+            }
         }
 
         void Primary(VertexHelper mesh, Rect r, float u)
         {
             float radius = Mathf.Min(16 * u, r.height * .24f);
             Shadow(mesh, r, radius, (pressed ? 1 : 4) * u);
-            Rounded(mesh, r, radius, new Color32(41, 73, 53, 255));
-            Rect face = Inset(r, 2 * u);
+            bool navigationSelected = style == Style.Home || style == Style.NavigationLeaf;
+            if (!navigationSelected) Rounded(mesh, r, radius, new Color32(41, 73, 53, 255));
+            Rect face = navigationSelected ? r : Inset(r, 2 * u);
             if (pressed) face = Offset(face, 0, -1.5f * u);
+            if (SurfaceTexture != null)
+            {
+                textureFaceRect = face;
+                texturedFace = true;
+                Gradient(mesh, face, navigationSelected ? radius : Mathf.Max(1, radius - 2 * u),
+                    style == Style.NavigationLeaf ? new Color(.42f, .48f, .40f) :
+                    navigationSelected ? Color.white : new Color(.58f, .64f, .55f),
+                    style == Style.NavigationLeaf ? new Color(.34f, .40f, .32f) :
+                    navigationSelected ? new Color(.96f, .98f, .93f) : new Color(.49f, .56f, .47f));
+                texturedFace = false;
+                return;
+            }
             Gradient(mesh, face, Mathf.Max(1, radius - 2 * u),
                 new Color32(80, 130, 89, 255), GardenThemePalette.Forest);
             Border(mesh, Inset(face, 3 * u), Mathf.Max(1, radius - 5 * u), 1f * u,
@@ -213,17 +271,28 @@ namespace CapstoneDesign.Prototype
 
         void Shelf(VertexHelper mesh, Rect r, float u)
         {
-            // The navigation plank meets the screen edges. Both its outer rim
-            // and timber face are rectangular at every canvas scale.
+            // The navigation meets every screen edge. Keep its wood face rectangular
+            // at every canvas scale; the opaque owner also covers edge sampling.
             Shadow(mesh, r, 0, 4 * u);
-            Rounded(mesh, r, 0, GardenThemePalette.WoodDark);
-            Gradient(mesh, Inset(r, 2f * u), 0, GardenThemePalette.WoodLight, GardenThemePalette.Wood);
-            // Horizontal plank ledges remain legible behind the navigation icons.
-            Line(mesh, new Vector2(r.xMin + 12 * u, r.yMax - 6 * u),
-                new Vector2(r.xMax - 12 * u, r.yMax - 6 * u), 2f * u, Alpha(GardenThemePalette.Paper, .65f));
-            Line(mesh, new Vector2(r.xMin + 12 * u, r.yMin + 7 * u),
-                new Vector2(r.xMax - 12 * u, r.yMin + 7 * u), 1.5f * u, Alpha(GardenThemePalette.WoodDark, .35f));
-            WoodGrain(mesh, r, u);
+            TimberFace(mesh, r, 0);
+            if (SurfaceTexture == null) WoodGrain(mesh, r, u);
+        }
+
+        void TimberFace(VertexHelper mesh, Rect face, float radius)
+        {
+            if (SurfaceTexture == null)
+            {
+                Gradient(mesh, face, radius, GardenThemePalette.WoodLight, GardenThemePalette.Wood);
+                return;
+            }
+            textureFaceRect = face;
+            texturedFace = true;
+            Gradient(mesh, face, radius,
+                style == Style.Shelf ? new Color(.30f, .268f, .241f) :
+                (style == Style.Wood || style == Style.TabWood) ? Color.white : new Color(.90f, .87f, .82f),
+                (style == Style.Wood || style == Style.TabWood) ? new Color(.97f, .97f, .97f) :
+                style == Style.Shelf ? new Color(.236f, .211f, .193f) : new Color(.80f, .77f, .72f));
+            texturedFace = false;
         }
 
         void Progress(VertexHelper mesh, Rect r, bool fill)
@@ -238,6 +307,14 @@ namespace CapstoneDesign.Prototype
 
         void Backdrop(VertexHelper mesh, Rect r)
         {
+            if (BackdropTexture != null)
+            {
+                textureFaceRect = r;
+                texturedFace = true;
+                Gradient(mesh, r, 0, Color.white, Color.white);
+                texturedFace = false;
+                return;
+            }
             Gradient(mesh, r, 0, new Color32(250, 247, 231, 255), new Color32(233, 232, 204, 255));
             float scale = Mathf.Clamp(r.width / 720f, .5f, 1.5f);
             // Low-contrast border foliage leaves the entire middle available to content.
@@ -431,7 +508,21 @@ namespace CapstoneDesign.Prototype
             }
             else if (pressed) tint = Color.Lerp(tint, new Color(.20f, .29f, .19f, tint.a), .10f);
             else if (highlighted) tint = Color.Lerp(tint, new Color(1, .99f, .86f, tint.a), .06f);
-            mesh.AddVert(point, tint * color, Vector2.zero);
+            Vector2 uv = UsesTexture && SurfaceTexture != null ? new Vector2(.5f, 1040f / 1056f) : Vector2.zero;
+            if (texturedFace)
+            {
+                // Aspect-preserving central crop; never squeeze a square photo
+                // into a wide button. The top atlas strip is reserved for white.
+                // Keep wood grain at a consistent UI-space size: wide buttons reveal
+                // more of the source instead of enlarging the same small crop.
+                float coverage = style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
+                float scale = coverage / Mathf.Max(textureFaceRect.width, textureFaceRect.height);
+                if (style == Style.Wood || style == Style.TabWood || style == Style.Header)
+                    scale = Mathf.Min(1f / 480f, .94f / Mathf.Max(textureFaceRect.width, textureFaceRect.height));
+                uv = new Vector2(.5f + (point.x - textureFaceRect.center.x) * scale,
+                    (.5f + (point.y - textureFaceRect.center.y) * scale) * (style == Style.Backdrop ? 1f : 1024f / 1056f));
+            }
+            mesh.AddVert(point, tint * color, uv);
         }
 
         static Color Alpha(Color value, float alpha) { value.a = alpha; return value; }

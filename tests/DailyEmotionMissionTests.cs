@@ -169,36 +169,35 @@ static class DailyEmotionMissionTests
         {
             string source=service.Snapshot.PlantAppearance.Recipe.InstanceId;
             Check(service.SetPlantCompleted(source,true),"Explicitly complete synthetic plant");
-            string recipe=PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);string id=Unlock(service);
-            Check(service.Snapshot.StoredGrowthSteps==2&&service.BeginDailyEmotion(service.CurrentCycleId),"P/M on a present completed plant bank two stages");
-            Failed(store,service,()=>service.CompleteDailyEmotion(id,"평온함","synthetic mature memo"),"Mature-plant memo completion failure");
-            Check(service.CompleteDailyEmotion(id,"평온함","synthetic mature memo")&&service.Snapshot.StoredGrowthSteps==2&&service.GetPracticeGrowth(id)==null
-                &&service.CoinBalance==337,"Daily emotion adds 100 coins and no stored growth on a completed plant");
-            Check(PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,"Memo attachment preserves completed appearance");
+            string archived=PlantCodec.Encode(service.Snapshot.PlantPhotos.Single());string id=Unlock(service);
+            string active=service.Snapshot.PlantAppearance.Recipe.InstanceId;
+            Check(active!=source&&service.Snapshot.StoredGrowthSteps==0&&service.Snapshot.PlantAppearance.Recipe.GrowthStep==2
+                &&service.BeginDailyEmotion(service.CurrentCycleId),"P/M automatically start and grow one successor without banking new growth");
+            string recipe=PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
+            Failed(store,service,()=>service.CompleteDailyEmotion(id,"평온함","synthetic successor memo"),"Successor memo completion failure");
+            Check(service.CompleteDailyEmotion(id,"평온함","synthetic successor memo")&&service.Snapshot.StoredGrowthSteps==0&&service.GetPracticeGrowth(id)==null
+                &&service.CoinBalance==337,"Daily emotion adds 100 coins and no growth");
+            Check(PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&PlantCodec.Encode(service.Snapshot.PlantPhotos.Single())==archived,
+                "Emotion preserves the active recipe and the earlier archived plant");
+            Check(service.Snapshot.PlantAppearance.Memos.Single().PlantInstanceId==active,"Memo belongs to the actual current successor");
+            string stable=Encode(service);Check(service.CompleteDailyEmotion(id,"changed","changed")&&Encode(service)==stable,"Duplicate emotion remains read-only");
+            Check(service.SetPlantCompleted(active,true),"Complete successor for automatic archive");
             string memos=PlantCodec.Encode(service.Snapshot.PlantAppearance.Memos);
-            Check(service.SavePlantPhoto("synthetic-final-archive",source),"Archive completed plant with its memo");
-            Check(PlantCodec.Encode(service.Snapshot.PlantPhotos.Single().Memos)==memos,"Photo freezes each original memo and individual identity");
-            string empty=Encode(service);
-            Check(!service.BeginFocusSession("empty-review","M03",0,true)&&Encode(service)==empty,"Even a review requires a current plant before starting");
-            Check(service.CompleteDailyEmotion(id,"changed","changed")&&Encode(service)==empty,"Completed command remains a read-only acknowledgement while garden is empty");
-            Check(service.StartNewPlant("synthetic-new",source)&&service.Snapshot.StoredGrowthSteps==0&&service.Snapshot.PlantAppearance.Recipe.GrowthStep==2
-                &&service.Snapshot.PlantAppearance.Memos.Count==0,"New plant consumes only two P/M stages and does not inherit another individual's memo");
-            string after=Encode(service);Check(service.CompleteDailyEmotion(id,"changed","changed")&&Encode(service)==after,"Old emotion retry cannot reward or attach to a newly started individual");
+            Check(PlantCodec.Encode(service.Snapshot.PlantPhotos.Single(p=>p.SourcePlantInstanceId==active).Memos)==memos,
+                "Automatic archive includes the successor's own memo");
+            string after=Encode(service);Check(service.CompleteDailyEmotion(id,"changed","changed")&&Encode(service)==after,"Retry cannot duplicate coins or archived memo");
         }
         clock=new EmotionClock();store=new EmotionStore();using(var service=Open(store,clock))
         {
-            string id=Unlock(service);Check(service.BeginDailyEmotion(service.CurrentCycleId)&&service.SaveDailyEmotionDraft(id,"평온함","synthetic pending memo",1),"Prepare an unfinished daily draft");
-            string oldSource=service.Snapshot.PlantAppearance.Recipe.InstanceId;
-            Check(service.SetPlantCompleted(oldSource,true)&&service.SavePlantPhoto("archive-during-draft",oldSource),"Archive the individual while a daily draft is pending");
-            string photo=PlantCodec.Encode(service.Snapshot.PlantPhotos),empty=Encode(service);
-            Check(service.MissionPlantAvailability!=null&&!service.CompleteDailyEmotion(id,"평온함","synthetic pending memo")&&Encode(service)==empty,
-                "Empty planter blocks pending completion without losing draft, coins or memo");
-            Check(service.StartNewPlant("after-pending-draft",oldSource),"Start replacement before continuing draft");
-            string newSource=service.Snapshot.PlantAppearance.Recipe.InstanceId;
-            Failed(store,service,()=>service.CompleteDailyEmotion(id,"평온함","synthetic pending memo"),"Replacement memo save failure");
-            Check(service.CompleteDailyEmotion(id,"평온함","synthetic pending memo")&&service.Snapshot.PlantAppearance.Memos.Single().PlantInstanceId==newSource
-                &&newSource!=oldSource&&PlantCodec.Encode(service.Snapshot.PlantPhotos)==photo&&service.CoinBalance==337,
-                "Resumed draft belongs only to the current replacement, preserving the old photo exactly");
+            string id=Unlock(service);Check(service.BeginDailyEmotion(service.CurrentCycleId)&&service.SaveDailyEmotionDraft(id,"평온함","synthetic pending memo",1),"Prepare unfinished daily draft");
+            string source=service.Snapshot.PlantAppearance.Recipe.InstanceId;
+            Check(service.SetPlantCompleted(source,true),"Automatic archive while emotion draft is pending");
+            string recipe=PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
+            Check(service.MissionPlantAvailability==null&&GardenPlantVisuals.HasCurrentPlant(service.Snapshot),"Completed archived plant remains available for today's emotion");
+            Failed(store,service,()=>service.CompleteDailyEmotion(id,"평온함","synthetic pending memo"),"Mature current memo save failure");
+            Check(service.CompleteDailyEmotion(id,"평온함","synthetic pending memo")&&service.Snapshot.PlantAppearance.Memos.Single().PlantInstanceId==source
+                &&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&service.Snapshot.PlantPhotos.Single().Memos.Single().PlantInstanceId==source&&service.CoinBalance==337,
+                "Pending emotion stays with the visible mature individual, updates album memory and never creates a new seed");
         }
     }
     static void CompatibilityAndValidation()
@@ -226,8 +225,8 @@ static class DailyEmotionMissionTests
             var clock=new EmotionClock();var store=new EmotionStore();string id;
             using(var service=Open(store,clock))
             {
-                if(mature)Check(service.SetPlantCompleted(service.Snapshot.PlantAppearance.Recipe.InstanceId,true),"Prepare historical completed plant");
                 id=Unlock(service);Check(service.BeginDailyEmotion(service.CurrentCycleId)&&service.SaveDailyEmotionDraft(id,"평온함","synthetic historical v0 note",1),"Prepare explicit old-schema record fixture");
+                if(mature)Check(service.SetPlantCompleted(service.Snapshot.PlantAppearance.Recipe.InstanceId,true),"Prepare historical completed plant");
                 var old=service.Snapshot;old.Coins=137;foreach(var session in old.Sessions)session.RewardAmount=0;
                 var daily=old.DailyEmotionRecords.Single();daily.CompletedUtc=daily.UpdatedUtc;
                 var growth=new PracticeGrowthRecord {SessionId=id,EligibilityKey=DailyEmotionPolicy.GrowthReceipt(daily.CycleId),CycleId=daily.CycleId,
@@ -238,7 +237,9 @@ static class DailyEmotionMissionTests
                     growth.PlantInstanceId=old.PlantAppearance.Recipe.InstanceId;growth.BeforeStep=old.PlantAppearance.Recipe.GrowthStep;
                     growth.BeforeGrowth=GardenPlantVisuals.TotalGrowth(old);old.PracticeGrowthRecords.Add(growth);
                     GardenPlantVisuals.AdvanceMissionGrowth(old);growth.AfterStep=old.PlantAppearance.Recipe.GrowthStep;growth.AfterGrowth=GardenPlantVisuals.TotalGrowth(old);
+                    WeeklyPlants.Active(old).BaselineStep++; // Historical v0 award predates the new completion ledger.
                 }
+                CombinedPlants.CaptureCurrent(old,clock.Time.ToString("O"),old.LastCycleId);
                 StateCodec.Validate(old);
                 var xml=new XmlDocument();xml.LoadXml(StateCodec.Encode(old));
                 foreach(XmlNode record in xml.DocumentElement["DailyEmotionRecords"].ChildNodes)
@@ -268,22 +269,22 @@ static class DailyEmotionMissionTests
         {
             var clock=new EmotionClock();var store=new EmotionStore();using(var service=Open(store,clock))
             {
-                Check(service.SelectMbctProgram("8w")&&service.BeginFocusSession("pending-p","P01",1),"Select guided mission before archive");
+                Check(service.SelectMbctProgram("8w")&&service.BeginFocusSession("pending-p","P01",1),"Select guided mission before automatic archive");
                 string reflection=FocusMissionCatalog.FindForSession(Get(service,"pending-p")).Steps[1].Options.First();
                 Check(service.SaveGuidedFocusDraft("pending-p","배",reflection,17),"Preserve selected guided draft: "+service.LastError);
                 if(paused)Check(service.StartGuidedFocusSession("pending-p","배")&&service.PauseSession("pending-p"),"Pause active guided mission");
                 string source=service.Snapshot.PlantAppearance.Recipe.InstanceId;
-                Check(service.SetPlantCompleted(source,true)&&service.SavePlantPhoto("pending-archive",source),"Archive while selected or paused");
-                string before=Encode(service),session=PlantCodec.Encode(Get(service,"pending-p"));
-                Check(!service.StartGuidedFocusSession("pending-p","배")&&!service.StartSession("pending-p")&&!service.ResumeSession("pending-p")
-                    &&!service.MoveFocusStep("pending-p",0)&&!service.CompleteGuidedFocusPractice("pending-p","배","changed",30)
-                    &&!service.CompletePracticeSession("pending-p")&&Encode(service)==before,"Empty planter blocks start, resume, move and completion without any mutation");
-                Failed(store,service,()=>service.StartNewPlant("pending-new",source),"Required seed save failure");
-                Check(service.StartNewPlant("pending-new",source)&&PlantCodec.Encode(Get(service,"pending-p"))==session,"Creating a required seed preserves original selected/paused practice");
-                Check(paused?service.ResumeSession("pending-p"):service.StartGuidedFocusSession("pending-p","배"),"Resume original after new seed");
-                Check(service.CompleteGuidedFocusPractice("pending-p","배",reflection,17)&&service.CompletePracticeSession("pending-p")
-                    &&service.CoinBalance==187&&service.GetPracticeGrowth("pending-p").PlantInstanceId==service.Snapshot.PlantAppearance.Recipe.InstanceId,
-                    "Resumed practice rewards once and grows only the new current individual");
+                Check(service.SetPlantCompleted(source,true),"Automatically archive while selected or paused");
+                string session=PlantCodec.Encode(Get(service,"pending-p")),photo=PlantCodec.Encode(service.Snapshot.PlantPhotos.Single());
+                Check(service.MissionPlantAvailability==null&&PlantCodec.Encode(Get(service,"pending-p"))==session,"Automatic archive preserves resumable draft and visible plant");
+                Check(paused?service.ResumeSession("pending-p"):service.StartGuidedFocusSession("pending-p","배"),"Resume original draft without a manual seed action");
+                Check(service.CompleteGuidedFocusPractice("pending-p","배",reflection,17),"Confirm original practice");
+                Failed(store,service,()=>service.CompletePracticeSession("pending-p"),"Atomic successor creation and practice save failure");
+                Check(service.CompletePracticeSession("pending-p")&&service.CoinBalance==187
+                    &&service.GetPracticeGrowth("pending-p").PlantInstanceId==service.Snapshot.PlantAppearance.Recipe.InstanceId
+                    &&service.Snapshot.PlantAppearance.Recipe.InstanceId!=source&&service.Snapshot.PlantAppearance.Recipe.GrowthStep==1
+                    &&PlantCodec.Encode(service.Snapshot.PlantPhotos.Single())==photo,
+                    "Resumed practice creates one independent successor and rewards once while preserving the old photograph");
             }
         }
     }
@@ -331,7 +332,7 @@ static class DailyEmotionMissionTests
     }
     static void ClearMemoAssociations(GardenState state)
     {
-        foreach (var memo in state.PlantAppearance.Memos.Concat(state.PlantPhotos.SelectMany(photo => photo.Memos)))
+        foreach (var memo in state.PlantAppearance.Memos.Concat(state.PlantPhotos.SelectMany(photo => photo.Memos)).Concat(state.PlantCollection.Plants.SelectMany(plant=>plant.Memos)))
         { memo.BasicSessionId = memo.BasicMissionId = memo.BasicMissionTitle = ""; memo.AdditionalSessionId = memo.AdditionalMissionId = memo.AdditionalMissionTitle = ""; }
     }
     static void MemoMissionAssociations()

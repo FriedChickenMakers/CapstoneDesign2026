@@ -3,7 +3,8 @@ param(
     [string]$EvidenceGroup = 'mission-coins-memos-20261107',
     [string]$UnityExe = (Join-Path $env:ProgramFiles 'Unity/Hub/Editor/6000.3.24f1/Editor/Unity.exe'),
     [int]$TimeoutSeconds = 600,
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [string]$CacheProject
 )
 $ErrorActionPreference = 'Stop'
 if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or $EvidenceGroup -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw 'Use simple unique artifact directory names.' }
@@ -63,6 +64,19 @@ $before = @(Get-Process -Name Unity -ErrorAction SilentlyContinue | Select-Objec
     preexistingUnityPids = @($before.Id); copiedSources = $sourceFiles; sourceProjectUntouched = $true } |
     ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $runRoot 'manifest.json') -Encoding utf8
 if ($PrepareOnly) { Write-Output "Prepared isolated Play project: $isolated"; return }
+if (-not [string]::IsNullOrWhiteSpace($CacheProject)) {
+    $cacheRoot=[IO.Path]::GetFullPath($CacheProject)
+    $cacheBoundary=[IO.Path]::GetFullPath((Join-Path $projectRoot 'artifacts'))+[IO.Path]::DirectorySeparatorChar
+    if (-not $cacheRoot.StartsWith($cacheBoundary,[StringComparison]::OrdinalIgnoreCase) -or
+        -not (Test-Path -LiteralPath (Join-Path $cacheRoot 'Library')) -or
+        (Get-Content -LiteralPath (Join-Path $cacheRoot 'ProjectSettings/ProjectSettings.asset') -Raw) -notmatch 'companyName: CapstoneSyntheticValidation') {
+        throw 'Cache must belong to a synthetic project under this worktree artifacts.'
+    }
+    if (@(Get-CimInstance Win32_Process -Filter "Name='Unity.exe'" | Where-Object { $_.CommandLine -and $_.CommandLine.Contains($cacheRoot) }).Count) { throw 'Cache project is still running.' }
+    # Copy only disposable import cache. No saved state, preferences or source is copied.
+    robocopy (Join-Path $cacheRoot 'Library') (Join-Path $isolated 'Library') /E /R:1 /W:1 /NFL /NDL /NJH /NJS /NP
+    if ($LASTEXITCODE -gt 7) { throw 'Synthetic cache copy failed.' }
+}
 $arguments = @('-batchmode', '-force-d3d11', '-screen-width', '390', '-screen-height', '844',
     '-projectPath', ('"' + $isolated + '"'), '-executeMethod', 'CapstoneDesign.EditorTools.GardenMissionGrowthPlayValidation.RunBatch',
     '-missionPlayOutput', ('"' + $playOutput + '"'), '-logFile', ('"' + $logPath + '"'))

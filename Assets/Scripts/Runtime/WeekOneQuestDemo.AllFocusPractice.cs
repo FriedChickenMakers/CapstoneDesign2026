@@ -42,13 +42,17 @@ namespace CapstoneDesign.Runtime
                 finish.targetGraphic.color=Color.clear;
                 var text=finish.GetComponentInChildren<Text>();text.text="실습 마치기";text.color=FocusAccent(mission);text.fontSize=16;text.rectTransform.sizeDelta=new Vector2(284,48);
             }
-            focusPracticeClock.RecommendedSeconds=mission.Steps[step].RecommendedSeconds;focusPracticeClock.ElapsedSeconds=session.FocusStepRecords[step].ElapsedSeconds;
+            focusPracticeClock.RecommendedSeconds=session.FocusVersion==FocusMissionCatalog.TextureVersion && session.FocusStepRecords[step].RecommendedSeconds>0
+                ?session.FocusStepRecords[step].RecommendedSeconds:mission.Steps[step].RecommendedSeconds;
+            focusPracticeClock.ElapsedSeconds=session.FocusStepRecords[step].ElapsedSeconds;
             focusPracticeClock.Persist=elapsed=>FocusSaved(Service.SaveFocusElapsed(id,index,elapsed));
             focusPracticeClock.Initialize();
         }
         void BuildAllFocusPractice(Transform root,FocusMissionDefinition mission,int step,Action next)
         {
             focusDrawing=null;var accent=FocusAccent(mission);var instruction=step<0?null:mission.Steps[step];string kind=instruction?.Kind??"overview";bool walkingReady=true;
+            // Existing texture-branch M10 plans stay editable in the retained simple input UI.
+            if(kind=="plan")kind="input";
             var circle=FigmaMissionUi.Hex(mission.CircleHex??"E1EBE4");
             if(kind=="overview")
             {
@@ -68,7 +72,7 @@ namespace CapstoneDesign.Runtime
                     focusAnswerInput=FigmaMissionUi.Input(root,instruction.InputHint??"짧게 적어주세요",45,labelY+36,300,92,500);
                     focusAnswerInput.name="Focus.AnswerInput";focusAnswerInput.SetTextWithoutNotify(focusAnswer);
                     var helper=FigmaMissionUi.Label(root,instruction.RequiredAnswer?"한 단어 이상 적거나 위에서 골라주세요.":"적지 않아도 계속할 수 있어요.",45,labelY+136,300,42,14,FocusMuted(mission));helper.name="Focus.InputHelp";
-                    focusAnswerInput.onValueChanged.AddListener(value=>{focusAnswer=value;focusDirty=true;var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null&&instruction.RequiredAnswer)action.interactable=!string.IsNullOrWhiteSpace(value);if(instruction.RequiredAnswer)helper.text=string.IsNullOrWhiteSpace(value)?(instruction.Options.Length>0?"한 단어 이상 적거나 위에서 골라주세요.":"완료하려면 한 단어 이상 적어주세요."):"입력했어요. 계속할 수 있어요.";});
+                    focusAnswerInput.onValueChanged.AddListener(value=>{focusAnswer=value;focusDirty=true;RefreshAllFocusOptions(root,mission,instruction);var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null&&instruction.RequiredAnswer)action.interactable=!string.IsNullOrWhiteSpace(value);if(instruction.RequiredAnswer)helper.text=string.IsNullOrWhiteSpace(value)?(instruction.Options.Length>0?"한 단어 이상 적거나 위에서 골라주세요.":"완료하려면 한 단어 이상 적어주세요."):"입력했어요. 계속할 수 있어요.";});
                     if(instruction.RequiredAnswer&&instruction.Options.Length==0)helper.text=string.IsNullOrWhiteSpace(focusAnswer)?"완료하려면 한 단어 이상 적어주세요.":"입력했어요. 계속할 수 있어요.";
                     focusAnswerInput.onEndEdit.AddListener(value=>SaveFocusDraft());AttachFocusKeyboard(root,focusAnswerInput,instruction.Title,FigmaMissionUi.Hex(mission.BackgroundHex),accent);
                 }
@@ -118,6 +122,19 @@ namespace CapstoneDesign.Runtime
                     focusAnswer=focusAnswer==option?"":option;if(focusAnswerInput!=null)focusAnswerInput.SetTextWithoutNotify(focusAnswer);focusDirty=true;
                     if(SaveFocusDraft()){ShowFocusPractice();if(resumeClock&&focusPracticeClock!=null)focusPracticeClock.ToggleRunning();}
                 },selected?accent:FocusAlpha(Color.white,.82f),selected?Color.white:accent,14);button.name="Focus.Option."+option;
+            }
+        }
+        void RefreshAllFocusOptions(Transform root,FocusMissionDefinition mission,FocusMissionStep step)
+        {
+            var accent=FocusAccent(mission);
+            foreach(string option in step.Options)
+            {
+                var button=FigmaMissionUi.Find<Button>(root,"Focus.Option."+option);
+                if(button==null)continue;
+                bool selected=focusAnswer==option;
+                button.GetComponent<Image>().color=selected?accent:FocusAlpha(Color.white,.82f);
+                foreach(var label in button.GetComponentsInChildren<Text>(true))
+                    if(label.transform.parent==button.transform)label.color=selected?Color.white:accent;
             }
         }
         void BuildFocusDrawing(Transform root,FocusMissionDefinition mission)

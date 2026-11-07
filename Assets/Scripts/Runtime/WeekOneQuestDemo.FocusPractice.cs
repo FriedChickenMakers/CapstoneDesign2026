@@ -432,6 +432,7 @@ namespace CapstoneDesign.Runtime
         {
             if (!SaveFocusDraft() || !FocusReflectionReady(out var session)) return;
             if (focusPracticeClock != null) focusPracticeClock.Pause();
+            if (!IsMissionDebugActive && NeedsPhotoChoice(session)) { ShowMissionPhoto(); return; }
             HandlePracticeCompletion(session.SessionId, () =>
             {
                 focusDirty = false;
@@ -459,7 +460,7 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(root, result, 24, 138, 342, plantCompleted && storedGrowth != null ? 52 : 28,
                 plantCompleted && storedGrowth != null ? 16 : 18, FocusMuted(mission)).name = "Focus.GrowthResult";
             if (session.RewardAmount > 0)
-                FigmaMissionUi.Label(root, "코인 +" + session.RewardAmount, 24, 206, 342, 32, 22, accent, true)
+                FigmaMissionUi.Label(root, "코인 +" + (session.RewardAmount + session.PhotoBonusAmount), 24, 206, 342, 32, 22, accent, true)
                     .name = "Focus.CoinReward";
             FocusCircle(root, 55, 319.5f, 280, FocusCircleColor(mission));
             if (FocusMissionCatalog.HasOriginalLayout(mission.Code))

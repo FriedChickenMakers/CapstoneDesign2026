@@ -38,7 +38,7 @@ namespace CapstoneDesign.Runtime
             if(!opened || preview || !Application.isPlaying || (!force && Time.unscaledTime<nextOptionalObservation))return;
             nextOptionalObservation=Time.unscaledTime+3;
             var client=PersonalizationClient.Instance;
-            if(!client.Consented)return;
+            if(!client.Consented && !client.MeasurementConsented)return;
             foreach(var session in Service.Snapshot.Sessions)
             {
                 client.RecordSession(session);
@@ -67,7 +67,7 @@ namespace CapstoneDesign.Runtime
         public void ShowRecommendationPreferences()
         {
             EnterPage("recommendation-preferences",ShowRecommendationPreferences);
-            var p=FocusPage("추가 활동 추천","배운 활동에서 골라드려요");
+            var p=FocusPage("추가 활동 추천","선호를 참고해 추가 활동을 골라드려요");
             var state=Service.Snapshot;
             string preferred=state.PracticePreferences.FirstOrDefault(v=>v.Key=="favorite")?.Value??"";
             GardenUi.FlowLabel(p,"어떤 실습이 편했나요?",GardenUi.HeadingSize);
@@ -78,7 +78,7 @@ namespace CapstoneDesign.Runtime
                 ActivityListItem(choices,value,preferred==value?"선택함":null,()=>
                     {if(Apply(Service.SavePreference("favorite",value)))ShowRecommendationPreferences();},PrototypeUiIcon.Symbol.Leaf);
             }
-            GardenUi.FlowLabel(p,"얼마나 시간을 내볼까요?",GardenUi.HeadingSize);
+            GardenUi.FlowLabel(p,"이전 활동 복습에 쓸 시간",GardenUi.HeadingSize);
             string minutes=state.PracticePreferences.FirstOrDefault(v=>v.Key=="recommendation-minutes")?.Value??"3";
             var durations=ActivityList(p,"Available practice time");
             foreach(string option in new[]{"1","3","5"})

@@ -377,9 +377,10 @@ static class FocusMissionStateTests
         Check(reset.GrowthHistory.Single().LinkedSessionId==""&&reset.GrowthHistory.Single().AfterGrowth==before.GrowthHistory.Single().AfterGrowth&&reset.Plants.Single().Growth==before.Plants.Single().Growth,"reset detaches removed mission references but preserves paid growth");
         Check(reset.LastCycleId==before.LastCycleId&&reset.DailyDecisions.Count==before.DailyDecisions.Count&&reset.MbctProgramId=="2w"&&reset.MbctProgramChosen,"reset preserves app date, visitors and course selection");
         Check(reset.PlantAppearance.Credits.Count==0&&reset.PlantAppearance.ArchivedCredits.Count==before.PlantAppearance.Credits.Count&&CapstoneDesign.Plants.PlantCodec.Encode(reset.PlantAppearance.Recipe)==recipe,"appearance-only accounting preserves the exact plant recipe");
+        Check(CapstoneDesign.Plants.PlantCodec.Encode(reset.PlantCollection.Decisions)==CapstoneDesign.Plants.PlantCodec.Encode(before.PlantCollection.Decisions),"history reset preserves every canonical growth receipt");
         Check(FocusMissionPolicy.NextOrder(reset,"legacy")==1&&FocusMissionPolicy.Availability(reset,"legacy")==null&&FocusMissionPolicy.HasPendingToday(reset)&&!FocusMissionPolicy.AdditionalCompletedToday(reset),"reset makes both mission types unfinished and basic order one");
-        var detached=service.Snapshot;detached.PlantAppearance.ArchivedCredits[0].Category=99;
-        Check(service.Snapshot.PlantAppearance.ArchivedCredits[0].Category!=99,"appearance archive snapshots are detached");
+        var detached=service.Snapshot;detached.PlantCollection.Decisions[0].Category=99;
+        Check(service.Snapshot.PlantCollection.Decisions[0].Category!=99,"canonical growth archive snapshots are detached");
         string resetXml=StateCodec.Encode(reset);Check(service.ResetMissionHistory()&&StateCodec.Encode(service.Snapshot)==resetXml,"a repeated empty reset is stable");
         Complete(service,"replayed-basic","P23",1);Complete(service,"replayed-extra","M03",0);
         Check(CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,"same-day replay does not duplicate appearance credits");
@@ -396,7 +397,7 @@ static class FocusMissionStateTests
         Check(service.ResetMissionHistory()&&service.Snapshot.PreviewDayOffset==1&&service.CurrentUtc==physicalNow.AddDays(1),"reset preserves the advanced testing date");
         var invalid=service.Snapshot;invalid.PreviewDayOffset=-1;bool rejected=false;try{StateCodec.Validate(invalid);}catch(InvalidDataException){rejected=true;}Check(rejected,"negative app-date offsets are rejected");
         invalid=service.Snapshot;invalid.PreviewDayOffset=36501;rejected=false;try{StateCodec.Validate(invalid);}catch(InvalidDataException){rejected=true;}Check(rejected,"unsupported app-date offsets are rejected");
-        invalid=service.Snapshot;var archived=invalid.PlantAppearance.ArchivedCredits[0];invalid.PlantAppearance.Credits.Add(new GardenAppearanceCredit{CycleId=archived.CycleId,MissionId=archived.MissionId,Category=archived.Category});rejected=false;try{StateCodec.Validate(invalid);}catch(InvalidDataException){rejected=true;}Check(rejected,"appearance archives cannot duplicate current credits");
+        invalid=service.Snapshot;invalid.PlantCollection.Decisions.Add(invalid.PlantCollection.Decisions[0].Copy());rejected=false;try{StateCodec.Validate(invalid);}catch(InvalidDataException){rejected=true;}Check(rejected,"canonical growth archives cannot duplicate committed credits");
         var limitStore=new FocusStore{State=service.Snapshot};limitStore.State.PreviewDayOffset=36500;var limit=Open(limitStore,clock);string limitXml=StateCodec.Encode(limit.Snapshot);
         Check(!limit.AdvancePreviewDay()&&StateCodec.Encode(limit.Snapshot)==limitXml,"date limit failure preserves saved state");
     }

@@ -11,15 +11,26 @@ namespace CapstoneDesign.Runtime.LocalState
         public string[] Options = Array.Empty<string>(), ConditionValues = Array.Empty<string>();
         public bool OptionalInput, RequiredAnswer;
         public int RecommendedSeconds;
+        internal FocusMissionStep Copy()
+        {
+            var copy=(FocusMissionStep)MemberwiseClone();
+            copy.Options=(string[])Options.Clone(); copy.ConditionValues=(string[])ConditionValues.Clone(); return copy;
+        }
     }
     public sealed class FocusMissionDefinition
     {
         public string Id, Code, Title, Overview, Role, BackgroundHex, AccentHex, TextHex, CircleHex, IconAsset, CompleteAsset;
         public FocusMissionStep[] Steps;
+        public int ContentVersion=2;
+        public string PurposeId, Purpose, EvidenceBasis, ReviewStatus;
+        internal FocusMissionDefinition Copy()
+        {
+            var copy=(FocusMissionDefinition)MemberwiseClone(); copy.Steps=Steps.Select(step=>step.Copy()).ToArray(); return copy;
+        }
     }
-    public static class FocusMissionCatalog
+    public static partial class FocusMissionCatalog
     {
-        public const int Version = 3, Version2 = 2;
+        public const int Version = 4, TextureVersion = 3, Version2 = 2;
         public const string BasicRole = "basic", AdditionalRole = "additional";
         public const string StoryText = "아침에 창문을 열자 서늘한 바람이 방으로 들어왔습니다. 창가의 작은 화분에는 새 잎이 하나 나 있었습니다. 물을 조금 주고 잠시 바라보니, 잎 위에 남은 물방울이 빛을 받아 반짝였습니다. 밖에서는 자전거가 지나가는 소리가 들렸습니다. 나는 따뜻한 컵을 두 손으로 감싸고, 오늘 해야 할 일 중 한 가지만 천천히 시작하기로 했습니다.";
         static FocusMissionStep S(string key,string title,string body,string action="계속",string kind="observe",string[] options=null,bool input=false,string hint=null,int seconds=0,string condition=null,string[] when=null,bool required=false)
@@ -157,9 +168,16 @@ namespace CapstoneDesign.Runtime.LocalState
         public static FocusMissionDefinition[] Basic=>All.Where(m=>m.Role==BasicRole).ToArray();
         public static FocusMissionDefinition[] Additional=>All.Where(m=>m.Role==AdditionalRole).ToArray();
         public static FocusMissionDefinition Find(string idOrCode)=>Find(idOrCode,Version);
-        public static FocusMissionDefinition Find(string idOrCode,int version)=>(version==1?Legacy:version==Version2?AllV2:version==Version?All:Array.Empty<FocusMissionDefinition>()).FirstOrDefault(m=>m.Id==idOrCode||m.Code==idOrCode);
-        public static FocusMissionDefinition FindForSession(ActivitySession session)=>session==null?null:Find(session.MissionId,session.FocusVersion);
-        public static bool IsGuided(ActivitySession session)=>session!=null && session.FocusVersion>=3 && GuidedV3.Any(m=>m.Id==session.MissionId);
+        public static FocusMissionDefinition Find(string idOrCode,int version)=>(version==1?Legacy:version==Version2?AllV2:version==TextureVersion?TextureV3.Value:version==Version?All:Array.Empty<FocusMissionDefinition>()).FirstOrDefault(m=>m.Id==idOrCode||m.Code==idOrCode);
+        public static FocusMissionDefinition FindForSession(ActivitySession session)
+        {
+            if(session==null)return null;
+            var definition=Find(session.MissionId,session.FocusVersion);
+            if(definition==null || !session.FocusSupport)return definition;
+            if(session.FocusVersion!=TextureVersion || definition.Code!="P02")return null;
+            var support=definition.Copy(); support.Role=AdditionalRole; return support;
+        }
+        public static bool IsGuided(ActivitySession session)=>session!=null && session.FocusVersion==Version && GuidedV3.Any(m=>m.Id==session.MissionId);
         public static bool IsApplicable(FocusMissionDefinition mission,IReadOnlyList<FocusStepRecord> records,int index)
         {
             if(mission==null||index<0||index>=mission.Steps.Length)return false;

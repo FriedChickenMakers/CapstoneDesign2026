@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using CapstoneDesign.Plants;
 using CapstoneDesign.Runtime.LocalState;
 using CapstoneDesign.Prototype;
@@ -26,11 +27,14 @@ namespace CapstoneDesign.Runtime
         readonly Dictionary<int, Vector2> pointers = new Dictionary<int, Vector2>();
         readonly HashSet<int> draggingPointers = new HashSet<int>();
         readonly PrototypeTapGesture memoTap = new PrototypeTapGesture();
-        GardenPlantMemoView.PickingSnapshot memoPicking;
+        GardenMemoryPicker.Snapshot memoPicking;
         Vector3 pickOrigin, pickDirection, pickHorizontal, pickVertical;
         public event Action<string> MemoClicked;
         PlantRecipe recipe;
         GardenPlantMemo[] memos = Array.Empty<GardenPlantMemo>();
+        PlantMemoryLeaf[] memoryLeaves = Array.Empty<PlantMemoryLeaf>();
+        public int MemoryPage { get; private set; }
+        public int MemoryPageCount => Math.Max(1, memoryLeaves.Select(m => m.Slot / PlantMemoryGeometry.PageSize + 1).DefaultIfEmpty(1).Max());
         string signature;
         float scale, pitch = 8, nextRender;
         bool dirty, registered;
@@ -56,12 +60,13 @@ namespace CapstoneDesign.Runtime
         public static int ActiveViewCount => active.Count;
         public static int SharedCameraCount => studio == null ? 0 : 1;
         public static int OwnedTextureCount => ownedTextures;
-        public int MemoCount => memos.Length;
+        public int MemoCount => memoryLeaves.Count(m => m.Linked);
         public IReadOnlyList<string> RenderedMemoIds { get; private set; } = Array.Empty<string>();
         public Bounds RenderedMemoBounds { get; private set; }
-        public string MemoRepresentationKey => GardenPlantMemoView.PaperRepresentation;
+        public string MemoRepresentationKey => GardenMemoryPicker.RepresentationKey;
 
-        public void Initialize(PlantRecipe savedRecipe, float savedScale, bool interactive, IReadOnlyList<GardenPlantMemo> savedMemos = null)
+        public void Initialize(PlantRecipe savedRecipe, float savedScale, bool interactive, IReadOnlyList<GardenPlantMemo> savedMemos = null,
+            IReadOnlyList<PlantMemoryLeaf> savedLeaves = null, int memoryPage = 0)
         {
             if (savedRecipe == null) throw new ArgumentNullException(nameof(savedRecipe));
             if (float.IsNaN(savedScale) || float.IsInfinity(savedScale) || savedScale <= 0)
@@ -70,6 +75,10 @@ namespace CapstoneDesign.Runtime
             recipe = GardenPlantVisuals.CopyRecipe(savedRecipe);
             memos = new GardenPlantMemo[savedMemos?.Count ?? 0];
             for (int i = 0; i < memos.Length; i++) memos[i] = savedMemos[i].Copy();
+            memoryLeaves = savedLeaves == null ? memos.Select((m, index) => new PlantMemoryLeaf {
+                OrganId = m.Id, Slot = index, Linked = true }).ToArray() : savedLeaves.Select(m => new PlantMemoryLeaf {
+                OrganId = m.OrganId, Slot = m.Slot, Linked = m.Linked }).ToArray();
+            MemoryPage = Mathf.Clamp(memoryPage, 0, MemoryPageCount - 1);
             RenderedMemoIds = Array.Empty<string>(); RenderedMemoBounds = default;
             signature = PlantCodec.Encode(recipe);
             scale = savedScale;
@@ -157,7 +166,7 @@ namespace CapstoneDesign.Runtime
             if (studio == null) studio = new PhotoStudio();
             LastRenderedHour = GardenVisualClock.CurrentHour;
             var skyTime = GardenSkyEnvironment.EvaluateTime(LastRenderedHour);
-            studio.Render(recipe, signature, scale, memos, texture, Yaw, pitch, Zoom, skyTime, IsInteractive);
+            studio.Render(recipe, signature, scale, memoryLeaves, MemoryPage, texture, Yaw, pitch, Zoom, skyTime, IsInteractive);
             LastRenderedEnvironmentOpacity = EnvironmentOpacity(pitch);
             memoPicking=IsInteractive?studio.Picking:null;
             studio.GetPickingRays(out pickOrigin,out pickDirection,out pickHorizontal,out pickVertical);
@@ -170,6 +179,12 @@ namespace CapstoneDesign.Runtime
         }
 
         public void ResetView() { Yaw = -18; pitch = 8; Zoom = 1; dirty = true; }
+        public void SetMemoryPage(int page)
+        {
+            int next = Mathf.Clamp(page, 0, MemoryPageCount - 1);
+            if (next == MemoryPage) return;
+            MemoryPage = next; memoPicking = null; dirty = true;
+        }
         public void Rotate(float degrees)
         {
             if (!IsInteractive || float.IsNaN(degrees) || float.IsInfinity(degrees)) return;
@@ -277,24 +292,26 @@ namespace CapstoneDesign.Runtime
             readonly Camera camera;
             readonly Light light;
             readonly ProceduralPlantView plant;
-            readonly GardenPlantMemoView memos;
             readonly Dictionary<PlantAlbumEnvironmentKind, Mesh> environments = new Dictionary<PlantAlbumEnvironmentKind, Mesh>();
             readonly MeshFilter environmentFilter;
             readonly MeshRenderer environmentRenderer;
             readonly Material grassMaterial, skyMaterial;
             string renderedSignature;
+            string renderedMemories;
+            string[] memoIds = Array.Empty<string>();
+            Bounds memoBounds;
             float renderedScale;
             Bounds bounds;
             float radius;
-            public GardenPlantMemoView.PickingSnapshot Picking {get;private set;}
+            public GardenMemoryPicker.Snapshot Picking {get;private set;}
             Vector3 pickOrigin,pickDirection,pickHorizontal,pickVertical;
             public void GetPickingRays(out Vector3 origin,out Vector3 direction,out Vector3 horizontal,out Vector3 vertical)
             {origin=pickOrigin;direction=pickDirection;horizontal=pickHorizontal;vertical=pickVertical;}
             public bool HasGrassSurface => environmentFilter.sharedMesh != null && grassMaterial != null;
             public int EnvironmentMeshCount => environments.Count;
             public int EnvironmentBuildCount { get; private set; }
-            public IReadOnlyList<string> MemoIds => memos.MemoIds;
-            public Bounds MemoBounds => memos.LocalBounds;
+            public IReadOnlyList<string> MemoIds => memoIds;
+            public Bounds MemoBounds => memoBounds;
 
             public PhotoStudio()
             {
@@ -327,13 +344,11 @@ namespace CapstoneDesign.Runtime
                 var plantNode = new GameObject("Saved plant"); plantNode.transform.SetParent(root.transform, false);
                 plantNode.transform.localPosition = Vector3.up * .008f;
                 plant = plantNode.AddComponent<ProceduralPlantView>();
-                var memoNode = new GameObject("Saved plant 메모"); memoNode.transform.SetParent(root.transform, false);
-                memos = memoNode.AddComponent<GardenPlantMemoView>();
                 foreach (var child in root.GetComponentsInChildren<Transform>(true))
                 { child.gameObject.layer = Layer; child.gameObject.hideFlags = HideFlags.HideAndDontSave; }
             }
 
-            public void Render(PlantRecipe savedRecipe, string signature, float scale, IReadOnlyList<GardenPlantMemo> savedMemos,
+            public void Render(PlantRecipe savedRecipe, string signature, float scale, IReadOnlyList<PlantMemoryLeaf> savedLeaves, int memoryPage,
                 RenderTexture target, float yaw, float pitch, float zoom,
                 GardenSkyEnvironment.SkyTime skyTime, bool capturePicking)
             {
@@ -353,12 +368,15 @@ namespace CapstoneDesign.Runtime
                         environments.Add(environment, environmentMesh); EnvironmentBuildCount++;
                     }
                     environmentFilter.sharedMesh = environmentMesh;
-                    bool plantChanged = renderedSignature != signature || renderedScale != scale;
-                    bool memoChanged = memos.Render(savedMemos, PlantAlbumEnvironment.Height, Layer);
+                    string memorySignature = GardenMemoryPicker.Signature(savedLeaves, memoryPage);
+                    bool memoChanged = renderedMemories != memorySignature;
+                    bool plantChanged = renderedSignature != signature || renderedScale != scale || memoChanged;
                     if (plantChanged)
                     {
-                        plant.Render(savedRecipe); plant.transform.localScale = Vector3.one * scale;
+                        plant.Render(savedRecipe, savedLeaves, memoryPage); plant.transform.localScale = Vector3.one * scale;
                         renderedSignature = signature; renderedScale = scale;
+                        renderedMemories = memorySignature;
+                        memoIds = plant.Geometry.Organs.Where(o => o.Selectable).Select(o => o.OrganId).ToArray();
                     }
                     if (plantChanged || memoChanged)
                     {
@@ -367,15 +385,10 @@ namespace CapstoneDesign.Runtime
                         // its landscape. Frame only the plant and a small root area.
                         bounds = new Bounds(root.transform.position + Vector3.up * .18f, new Vector3(.75f, .36f, .75f));
                         foreach (var renderer in plant.GetComponentsInChildren<MeshRenderer>()) bounds.Encapsulate(renderer.bounds);
-                        if (memos.MemoCount > 0)
-                        {
-                            var memoBounds = memos.LocalBounds;
-                            memoBounds.center = memos.transform.TransformPoint(memoBounds.center);
-                            bounds.Encapsulate(memoBounds);
-                        }
+                        memoBounds = GardenMemoryPicker.Capture(plant).WorldBounds;
                         radius = bounds.extents.magnitude;
                     }
-                    if(capturePicking && Picking==null)Picking=memos.CapturePickingSnapshot(root.transform);
+                    if(capturePicking && Picking==null)Picking=GardenMemoryPicker.Capture(plant, root.transform);
                     camera.targetTexture = target; camera.aspect = target.width / (float)target.height;
                     float halfVertical = camera.fieldOfView * Mathf.Deg2Rad * .5f;
                     float halfHorizontal = Mathf.Atan(Mathf.Tan(halfVertical) * camera.aspect);
@@ -414,7 +427,6 @@ namespace CapstoneDesign.Runtime
             public void Dispose()
             {
                 root.SetActive(false);
-                memos.DisposeOwnedResources();
                 // Runtime-only plant/planter components do not receive all lifecycle
                 // callbacks in editor preview scenes. Explicitly release our studio's
                 // private graphics resources there as well as destroying its objects.

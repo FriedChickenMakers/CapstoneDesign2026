@@ -4,6 +4,11 @@ using System.Linq;
 
 namespace CapstoneDesign.Plants
 {
+    public sealed class PlantFlowerGeometry
+    {
+        public int Head,Floret,FirstTriangle,TriangleCount;
+        public PlantVector Center,Normal;
+    }
     // Engine-independent mesh buffers permit the exact geometry to be checked without Unity.
     public sealed class PlantMeshData
     {
@@ -12,6 +17,10 @@ namespace CapstoneDesign.Plants
         public readonly List<PlantVector> Vertices=new List<PlantVector>();
         public readonly List<PlantVector> Normals=new List<PlantVector>();
         public readonly List<PlantColor> Colors=new List<PlantColor>();
+        public readonly List<PlantOrganGeometry> Organs=new List<PlantOrganGeometry>();
+        public readonly List<PlantFlowerGeometry> Flowers=new List<PlantFlowerGeometry>();
+        public bool BroadFacets;
+        public bool Volumetric;
         public int TriangleCount { get { return Vertices.Count/3; } }
         public void Triangle(PlantVector a,PlantVector b,PlantVector c,PlantColor color)
         {
@@ -56,6 +65,7 @@ namespace CapstoneDesign.Plants
         }
         public void Blade(PlantVector at,PlantVector direction,double length,double width,double edge,PlantColor color,double exponent=.8,int segments=4,PlantVector? planeNormal=null,bool petal=false)
         {
+            if(Volumetric) { FoldedBlade(at,direction,length,width,edge,color,planeNormal??PlantVector.Up,petal);return; }
             if(Refined) { SolidBlade(at,direction,length,width,edge,color,exponent,planeNormal??PlantVector.Up,petal);return; }
             var forward=direction.Normalized;var normal=planeNormal??PlantVector.Up;
             var cross=PlantVector.Cross(forward,normal);var side=cross.Normalized;
@@ -69,6 +79,36 @@ namespace CapstoneDesign.Plants
                 var b=at+forward*(length*t1)+normal*(length*.08*Math.Sin(Math.PI*t1));
                 Triangle(a-side*w0,b-side*w1,a+side*w0,color);Triangle(a+side*w0,b-side*w1,b+side*w1,color);
             }
+        }
+        // A closed, tapered volume with two raised ridge points. The broad
+        // triangular faces catch light even when the organ is seen edge-on.
+        // This is geometry, not a baked highlight or a camera-facing billboard.
+        void FoldedBlade(PlantVector at,PlantVector direction,double length,double width,double edge,PlantColor color,PlantVector planeNormal,bool petal)
+        {
+            if(length<=0||width<=0)return;
+            var forward=direction.Normalized;var cross=PlantVector.Cross(forward,planeNormal);var side=cross.Normalized;
+            if(cross.Length<1e-8){PlantVector unused;Basis(forward,out side,out unused);}
+            var normal=PlantVector.Cross(side,forward).Normalized;
+            double relief=Math.Min(length*.23,width*.52),bend=length*(petal?.18:.10);
+            double[] along={0,.22,.48,.76,1,.76,.48,.22};
+            double[] across={0,-.29,-.50,-.31,0,.31,.50,.29};
+            var outline=new PlantVector[8];
+            for(int i=0;i<8;i++)
+            {
+                double t=along[i],w=across[i]*width*(1+edge*.3*Math.Sin(6*Math.PI*t));
+                outline[i]=at+forward*(length*t)+side*w+normal*(bend*t*t+across[i]*relief*.16);
+            }
+            var low=at+forward*(length*.30)+normal*(relief*.82+bend*.09);
+            var high=at+forward*(length*.68)+normal*(relief+bend*.4624);
+            var bottom=at+forward*(length*.49)+normal*(bend*.2401-relief*.48);
+            for(int i=0;i<8;i++)
+            {
+                int next=(i+1)%8;var ridge=i<2||i>=6?low:high;
+                Triangle(ridge,outline[next],outline[i],color.Brightness(i<4?1.04:.94));
+                Triangle(bottom,outline[i],outline[next],color.Brightness(.82));
+            }
+            Triangle(low,high,outline[2],color.Brightness(1.10));
+            Triangle(low,outline[6],high,color.Brightness(.90));
         }
         // RefinedMeshes/Chamomile uses an eight-point outline with separate raised
         // front and back centers. Keep that closed, faceted form at any organ size.
@@ -104,11 +144,14 @@ namespace CapstoneDesign.Plants
     }
     public static class PlantGeometry
     {
+        public const int CurrentMeshVersion=6;
         static readonly PlantColor Stem=PlantColor.Hex("526F4D"),Leaf=PlantColor.Hex("739764"),LightLeaf=PlantColor.Hex("A0B787");
         public static PlantMeshData Build(PlantRecipe p)
         {
             PlantGenerator.Validate(p);
             var m=new PlantMeshData(p.MeshVersion>=2);
+            m.BroadFacets=p.MeshVersion>=3;
+            m.Volumetric=p.MeshVersion>=6;
             if(p.GrowthStep==0) m.Orb(new PlantVector(0,.035,0),new PlantVector(.035,.033,.052),PlantColor.Hex("AD8158"),10,4);
             else
             {
@@ -118,6 +161,25 @@ namespace CapstoneDesign.Plants
                 m.Blade(new PlantVector(0,.045,0),new PlantVector(-1,.4,0),.075,.038,0,Leaf,.65);
                 m.Blade(new PlantVector(0,.049,0),new PlantVector(1,.4,0),.075,.038,0,LightLeaf,.65);
                 if(p.SpeciesId!=null) BuildDifferentiated(m,p);
+                else if(p.MeshVersion>=3)
+                {
+                    // Unfolding keeps the first six completed activities distinct.
+                    double length=.035+.015*p.GrowthStep;
+                    m.Blade(new PlantVector(0,juvenile,0),new PlantVector(-1,.5,1),length,length*.48,0,Leaf);
+                    m.Blade(new PlantVector(0,juvenile-.012,0),new PlantVector(1,.5,-1),length,length*.48,0,LightLeaf);
+                }
+            }
+            if(p.MeshVersion>=4 && p.SpeciesId!=null)
+            {
+                // Mesh-only compact style. The immutable botanical recipe and old
+                // versions retain their original coordinates and proportions.
+                for(int i=0;i<m.Vertices.Count;i++)
+                {
+                    var v=m.Vertices[i];m.Vertices[i]=new PlantVector(v.X,v.Y*.78,v.Z);
+                    var n=m.Normals[i];m.Normals[i]=new PlantVector(n.X,n.Y/.78,n.Z).Normalized;
+                }
+                foreach(var flower in m.Flowers)
+                {flower.Center=PlantFlowerLayout.Compact(flower.Center);var n=flower.Normal;flower.Normal=new PlantVector(n.X,n.Y/.78,n.Z).Normalized;}
             }
             if(m.TriangleCount>8000) throw new InvalidOperationException("Plant mesh exceeds 8,000 triangle budget.");
             if(m.Vertices.Any(v=>!PlantGenerator.InEnvelope(v)))
@@ -130,7 +192,9 @@ namespace CapstoneDesign.Plants
         static void BuildDifferentiated(PlantMeshData m,PlantRecipe p)
         {
             var s=PlantCatalog.Get(p.SpeciesId);
+            var layout=p.MeshVersion>=PlantFlowerLayout.Version?PlantFlowerLayout.Plan(p):null;
             double r=PlantMath.Lerp(.006,p.Radius,PlantMath.Smooth(p.Growth,.25,.80));
+            if(m.BroadFacets)r*=1.45;
             for(int i=0;i<PlantGenerator.AxisCount(p);i++)
             {
                 double visible=PlantGenerator.AxisVisible(p,i),radius=r*(i==0?1:.65);
@@ -139,7 +203,9 @@ namespace CapstoneDesign.Plants
             foreach(var l in p.Leaves)
             {
                 double len=l.Length*l.Scale*(.2+.8*PlantMath.Smooth(p.Growth,l.Birth,Math.Min(1,l.Birth+.10)));
+                int start=m.Vertices.Count;
                 DrawLeaf(m,s.Leaf,l.Anchor,l.Direction,len,len*l.Aspect,l.Edge);
+                if(m.BroadFacets)EnlargeOrgan(m,start,l.Anchor,1.65);
             }
             for(int i=0;i<p.Heads.Count;i++)
             {
@@ -147,27 +213,85 @@ namespace CapstoneDesign.Plants
                 // v2 terminal buds ride the growing apex, then stop before opening.
                 var anchor=PlantGenerator.HeadAnchor(p,h);var tip=PlantGenerator.HeadTip(p,h);
                 var offset=tip-h.Tip;
+                if(layout!=null)tip=layout[i].Center+offset;
                 var mid=(anchor+tip)*.5+PlantVector.Up*(p.Height*.025);
                 if(p.GeneratorVersion>=2) mid.Y=Math.Min(mid.Y,Math.Max(anchor.Y,tip.Y));
                 m.Tube(anchor,mid,r*.40,r*.30,Stem);m.Tube(mid,tip,r*.30,r*.20,Stem);
                 for(int k=0;k<PlantGenerator.VisibleFlorets(p,h);k++)
                 {
                     PlantVector at,normal;FloretPose(s,h,k,out at,out normal);
-                    at+=offset;
+                    var localAt=(at-h.Tip)*PlantFlowerLayout.FloretSpread(s);var localNormal=normal;
+                    if(layout!=null)
+                    {at=layout[i].Point(localAt)+offset;normal=layout[i].Rotate(normal);}
+                    else at+=offset;
                     if((at-tip).Length>.005) m.Tube(tip,at,.0025,.0015,Stem,5);
+                    int organStart=m.Vertices.Count;
                     var fruit=p.Fruits.FirstOrDefault(f=>f.Head==i&&f.Floret==k&&f.Present);
                     if(fruit!=null)
                     {
                         double size=fruit.Radius*(p.Mature?1:.2+.8*PlantMath.Clip((double)(p.GrowthStep-fruit.EvaluationStep+1)/(p.MaxGrowthSteps*.25)));
-                        m.Orb(at,new PlantVector(size,size*(s.Id=="species:pink-rose"?1.3:1),size),PlantColor.Hex(s.Id=="species:pink-rose"?"C46F54":"CB6E62"));
-                        if(s.Id=="species:pink-rose") m.Orb(at+PlantVector.Up*(size*1.2),new PlantVector(size*.35,size*.15,size*.35),Stem,5,2);
+                        var drawingAt=layout==null?at:localAt;
+                        m.Orb(drawingAt,new PlantVector(size,size*(s.Id=="species:pink-rose"?1.3:1),size),PlantColor.Hex(s.Id=="species:pink-rose"?"C46F54":"CB6E62"));
+                        if(s.Id=="species:pink-rose") m.Orb(drawingAt+PlantVector.Up*(size*1.2),new PlantVector(size*.35,size*.15,size*.35),Stem,5,2);
+                        if(layout!=null)ApplyFlowerPose(m,organStart,layout[i],offset);
                         continue;
                     }
                     double brightness=1+.04*(2*PlantMath.U(p.BaseSeed,"head/"+PlantMath.Number(i)+"/floret/"+PlantMath.Number(k),"light")-1);
                     double diameter=h.Diameter*h.Scale*(.25+.75*open);
-                    DrawFlower(m,p,s,h,i,at,normal,diameter,open,h.Color.Brightness(brightness));
+                    if(layout!=null)
+                    {
+                        DrawFlower(m,p,s,h,i,localAt,localNormal,diameter*PlantFlowerLayout.Amplification(s),open,h.Color.Brightness(brightness));
+                        ApplyFlowerPose(m,organStart,layout[i],offset);
+                    }
+                    else DrawFlower(m,p,s,h,i,at,normal,diameter,open,h.Color.Brightness(brightness));
+                    if(m.BroadFacets&&layout==null)EnlargeOrgan(m,organStart,at,PlantFlowerLayout.Amplification(s));
+                    m.Flowers.Add(new PlantFlowerGeometry{Head=i,Floret=k,FirstTriangle=organStart/3,TriangleCount=(m.Vertices.Count-organStart)/3,Center=at,Normal=normal});
                 }
             }
+        }
+        static void ApplyFlowerPose(PlantMeshData mesh,int start,FlowerPose pose,PlantVector offset)
+        {
+            for(int i=start;i<mesh.Vertices.Count;i++)
+            {mesh.Vertices[i]=pose.Point(mesh.Vertices[i])+offset;mesh.Normals[i]=pose.Rotate(mesh.Normals[i]);}
+        }
+        internal static PlantVector[] FlowerLayoutTemplate(PlantRecipe p,SpeciesDefinition s,HeadRecipe h,int index)
+        {
+            var mesh=new PlantMeshData(true){Volumetric=p.MeshVersion>=6};
+            double diameter=h.Diameter*h.Scale*PlantFlowerLayout.Amplification(s);
+            for(int k=0;k<h.Florets;k++)
+            {
+                PlantVector at,normal;FloretPose(s,h,k,out at,out normal);
+                at=(at-h.Tip)*PlantFlowerLayout.FloretSpread(s);
+                DrawFlower(mesh,p,s,h,index,at,normal,diameter,1,h.Color);
+                DrawFlower(mesh,p,s,h,index,at,normal,diameter*.25,0,h.Color);
+                if(s.FruitCap>0)
+                {
+                    double radius=s.Id=="species:pink-rose"?.042:.0216;
+                    mesh.Orb(at,new PlantVector(radius,radius*(s.Id=="species:pink-rose"?1.3:1),radius),h.Color);
+                    if(s.Id=="species:pink-rose")mesh.Orb(at+PlantVector.Up*(radius*1.2),new PlantVector(radius*.35,radius*.15,radius*.35),h.Color,5,2);
+                }
+            }
+            return mesh.Vertices.ToArray();
+        }
+        // A local, uniformly scaled organ keeps flat normals and attachment intact.
+        // The shared envelope caps amplification for large species at the boundary.
+        static void EnlargeOrgan(PlantMeshData m,int start,PlantVector anchor,double requested)
+        {
+            double factor=requested;
+            for(int i=start;i<m.Vertices.Count;i++)
+            {
+                var d=m.Vertices[i]-anchor;
+                if(d.Y>0)factor=Math.Min(factor,(1.28-anchor.Y)/d.Y);
+                else if(d.Y<0)factor=Math.Min(factor,(.001-anchor.Y)/d.Y);
+                double a=d.X*d.X+d.Z*d.Z;
+                if(a>1e-12)
+                {
+                    double b=2*(anchor.X*d.X+anchor.Z*d.Z),c=anchor.X*anchor.X+anchor.Z*anchor.Z-.58*.58;
+                    factor=Math.Min(factor,(-b+Math.Sqrt(Math.Max(0,b*b-4*a*c)))/(2*a));
+                }
+            }
+            factor=Math.Max(.05,Math.Min(requested,factor));
+            for(int i=start;i<m.Vertices.Count;i++)m.Vertices[i]=anchor+(m.Vertices[i]-anchor)*factor;
         }
         public sealed class FlowerEnvelope
         {
@@ -198,17 +322,18 @@ namespace CapstoneDesign.Plants
         }
         static void DrawLeaf(PlantMeshData m,LeafShape shape,PlantVector at,PlantVector dir,double length,double width,double edge)
         {
+            if(m.BroadFacets)width=Math.Max(width,length*(shape==LeafShape.Divided?.42:shape==LeafShape.Narrow?.22:.32));
             if(shape==LeafShape.Divided||shape==LeafShape.Compound)
             {
                 var side=PlantVector.Cross(dir,PlantVector.Up).Normalized;
                 m.Tube(at,at+dir*length,.0018,.0008,Stem,4);
-                int pairs=shape==LeafShape.Compound?2:4;
+                int pairs=shape==LeafShape.Compound?2:m.BroadFacets?2:4;
                 for(int j=0;j<pairs;j++) for(int sign=-1;sign<=1;sign+=2)
                 {
                     double t=.20+.60*j/pairs;
                     var start=at+dir*(length*t); var outward=(dir*.32+side*sign).Normalized;
                     double size=shape==LeafShape.Compound?length*.36:length*(.27-.10*t);
-                    m.Blade(start,outward,size,shape==LeafShape.Compound?width*.65:width*.35,edge,Leaf,.8,3);
+                    m.Blade(start,outward,size,shape==LeafShape.Compound?width*.65:width*(m.BroadFacets?.65:.35),edge,Leaf,.8,3);
                 }
                 if(shape==LeafShape.Compound) m.Blade(at+dir*(length*.65),dir,length*.35,width*.65,edge,LightLeaf,.8,3);
                 return;
@@ -261,13 +386,25 @@ namespace CapstoneDesign.Plants
             {
                 double a=2*Math.PI*k/h.Petals+.03*(2*PlantMath.U(p.BaseSeed,"head/"+PlantMath.Number(head)+"/petal/"+PlantMath.Number(k),"angle")-1);
                 var radial=u*Math.Cos(a)+v*Math.Sin(a);
-                var dir=(radial*open+normal*(1-open+.08)).Normalized;
+                double lift=m.Volumetric?.18+.12*(k%2):.08;
+                var dir=(radial*open+normal*(1-open+lift)).Normalized;
                 double width=d*(h.Petals>=10?.18:.48);
                 double length=d*.47;
+                if(m.Volumetric&&s.Id=="species:sunflower")width=d*.31;
                 if(s.Flower==FlowerShape.Lavender) { length*=k<2?.80:1.15;width*=.8; }
-                m.Blade(at+radial*(d*.06),dir,length,width,0,color,.65,4,normal,true);
+                var baseAt=at+radial*(d*.06);
+                if(m.Volumetric)baseAt+=normal*(d*.018*(k%2)*open);
+                m.Blade(baseAt,dir,length,width,0,color,.65,4,normal,true);
             }
             double center=s.Id=="species:sunflower"?.25:s.Flower==FlowerShape.Rays?.17:.075;
+            if(m.Volumetric)
+            {
+                // Orient the raised disk with the bloom, rather than world Y.
+                // A sunflower's deep seed head is the reference's main volume.
+                double depth=s.Id=="species:sunflower"?.20:s.Id=="species:chamomile"?.13:center*.85;
+                OrientedOrb(m,at+normal*(d*depth*.48),normal,u,v,new PlantVector(d*center,d*depth,d*center),PlantColor.Hex(s.Center),10,5);
+                return;
+            }
             if(m.Refined&&s.Id=="species:chamomile")
             {
                 // A raised golden disk with small pollen facets, as in the reference.
@@ -290,7 +427,10 @@ namespace CapstoneDesign.Plants
             {
                 var a=local.Vertices[i];var b=local.Vertices[i+1];var c=local.Vertices[i+2];
                 // (u, normal, -v) is a right-handed frame.
-                m.Triangle(at+u*a.X+normal*a.Y-v*a.Z,at+u*b.X+normal*b.Y-v*b.Z,at+u*c.X+normal*c.Y-v*c.Z,color);
+                // Small seed/pollen color differences distinguish broad facets;
+                // all faces still use their real normals and scene lighting.
+                var facet=m.Volumetric?color.Brightness(.88+.045*((i/3*5)%7)):color;
+                m.Triangle(at+u*a.X+normal*a.Y-v*a.Z,at+u*b.X+normal*b.Y-v*b.Z,at+u*c.X+normal*c.Y-v*c.Z,facet);
             }
         }
         static void Cup(PlantMeshData m,PlantVector at,PlantVector n,PlantVector u,PlantVector v,double d,int lobes,double open,PlantColor color)

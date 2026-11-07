@@ -49,7 +49,7 @@ namespace CapstoneDesign.EditorTools
             public List<string> checks = new List<string>();
             public List<string> captures = new List<string>();
             public List<float> editorFrameMs = new List<float>();
-            public string environment = "Actual Unity Editor Play / isolated synthetic MOCK store / practice growth plus fifty coins, emotion one hundred coins and memo without growth, restart and background cleanup; not Android performance";
+            public string environment = "Actual Unity Editor Play / isolated synthetic MOCK store / 21-stage automatic archive and next individual, practice fifty coins, emotion one hundred coins and memory leaf without growth, restart and background cleanup; not Android performance";
         }
 
         static GardenMissionGrowthPlayValidation()
@@ -255,15 +255,58 @@ namespace CapstoneDesign.EditorTools
 
         static GardenState SeedMission()
         {
+            var clock=new SystemClock();var created=clock.UtcNow.AddDays(-10);
+            string cycle=TimeZoneInfo.ConvertTime(created,clock.TimeZone).DateTime.AddHours(-4).ToString("yyyy-MM-dd");
             var state = new GardenState { MigrationCompleted = true, InstallationId = "synthetic-mission-growth-play-owner",
-                Coins = 137, LegacyGrowth = .1f, MbctProgramSelectionVersion = 1, MbctProgramChosen = true };
-            GardenPlantVisuals.Sync(state);
+                Coins = 137, MbctProgramSelectionVersion = 1, MbctProgramChosen = true };
+            CombinedPlants.InitializeFresh(state,"synthetic-play-plant-a",created.ToString("O"),cycle);
+            var recipe=state.PlantAppearance.Recipe;
+            for(int stage=0;stage<20;stage++){recipe.Counts[(int)GrowthCategory.Breath]++;recipe=PlantGenerator.Advance(recipe);}
+            // An explicit isolated import baseline tests the last 20 -> 21 stage
+            // without generating twenty unrelated UI sessions or modifying real data.
+            state.PlantAppearance.Recipe=recipe;state.PlantAppearance.MissionGrowthBaseStep=20;
+            state.PlantAppearance.MissionGrowthBaseGrowth=.3f*20/21;
+            state.PlantAppearance.BaselineProfileCounts=(int[])recipe.Counts.Clone();
+            var plant=WeeklyPlants.Active(state);plant.BaselineStep=20;plant.BaselineCounts=(int[])recipe.Counts.Clone();
+            CombinedPlants.CaptureCurrent(state,clock.UtcNow.ToString("O"),cycle);
             var store = new MemoryStore(); store.Save(state);
-            using (var service = new GardenStateService(store, new SystemClock(), new DemoBalanceConfig { VisitorChancePercent = 0 }))
+            using (var service = new GardenStateService(store, clock, new DemoBalanceConfig { VisitorChancePercent = 0 }))
             {
                 Assert(service.Open() && service.RefreshCycle(Array.Empty<string>()), service.LastError);
-                PrepareLastStep(service, "synthetic-play-full", "M03");
+                PrepareLastStep(service, "synthetic-play-full", "M17");
                 return service.Snapshot;
+            }
+        }
+        static void CheckStoredGrowthPresentation(Session report)
+        {
+            var clock=new SystemClock();var state=new GardenState{MigrationCompleted=true,InstallationId="synthetic-stored-presentation",LegacyGrowth=.3f};
+            GardenPlantVisuals.Sync(state);
+            var missions=new[]{"free-mission:M17",DailyEmotionPolicy.MissionId};
+            for(int i=0;i<missions.Length;i++)
+            {
+                var at=clock.UtcNow.AddDays(i-3);string cycle=TimeZoneInfo.ConvertTime(at,clock.TimeZone).DateTime.AddHours(-4).ToString("yyyy-MM-dd");
+                string id=i==1?DailyEmotionPolicy.RecordId(cycle):"synthetic-stored-presentation-"+i;
+                state.LastCycleId=cycle;state.DailyDecisions.Add(new DailyDecision{CycleId=cycle,AppliedUtc=at.ToString("O"),TimeZoneId=clock.TimeZone.Id,VisitorId=""});
+                state.PracticeGrowthRecords.Add(new PracticeGrowthRecord{SessionId=id,EligibilityKey=i==1?"daily-emotion|"+cycle:cycle+"|"+missions[i],
+                    CycleId=cycle,MissionId=missions[i],CommittedUtc=at.ToString("O"),Outcome=PracticeGrowthOutcome.Stored});
+                state.StoredGrowthSteps++;
+            }
+            var store=new MemoryStore();store.Save(state);
+            using(var service=new GardenStateService(store,clock,new DemoBalanceConfig{VisitorChancePercent=0}))
+            {
+                Assert(service.Open()&&service.RefreshCycle(Array.Empty<string>())&&service.BeginSession("synthetic-next-presentation","free-mission:M03",0)
+                    &&service.StartSession("synthetic-next-presentation")&&service.CompleteSession("synthetic-next-presentation"),service.LastError);
+                var after=service.Snapshot;string saved=StateCodec.Encode(after);
+                var method=typeof(GardenMissionGrowthSequence).GetMethod("NextPlantBeforeGrowth",BindingFlags.Static|BindingFlags.NonPublic);
+                Assert(method!=null,"New-individual presentation helper is missing.");
+                var presented=(PlantRecipe)method.Invoke(null,new object[]{after});
+                var expected=PlantGenerator.Create(after.InstallationId,after.PlantAppearance.Recipe.InstanceId,21,PlantGrowthMode.MissionCompletions);
+                expected.MeshVersion=PlantGeometry.CurrentMeshVersion;
+                foreach(var category in new[]{GrowthCategory.Breath,GrowthCategory.Reflection}){expected.Counts[(int)category]++;expected=PlantGenerator.Advance(expected);}
+                Check(report,PlantCodec.Encode(presented)==PlantCodec.Encode(expected)&&presented.GrowthStep==2&&after.PlantAppearance.Recipe.GrowthStep==3,
+                    "New-individual cinematic reconstructs historical stored categories in their saved order before only the newly earned stage");
+                Check(report,StateCodec.Encode(after)==saved&&StateCodec.Encode(service.Snapshot)==saved,
+                    "Preparing the new seed's appearance never changes its persisted recipe, receipts, bank or wallet");
             }
         }
         sealed class MemoryStore : IStateStore
@@ -314,11 +357,26 @@ namespace CapstoneDesign.EditorTools
                 "The real garden restores the exact committed coin balance and current plant");
             if (session.phase > 1)
                 Check(session, StateCodec.Encode(ui.Service.Snapshot) == session.expectedState, "Restart restores exact committed growth, wallet, session and records");
+            if (session.phase == 1 || session.phase == 3)
+                foreach (var frame in CheckSceneReentry(session, nav, ui)) yield return frame;
             nav.ShowActivities();
             if (session.phase == 1)
             {
+                CheckStoredGrowthPresentation(session);
                 ui.SelectFocusSession("synthetic-play-full");
+                // Exercise the real page factory in Play, including AddComponent
+                // and Unity's native-null semantics, rather than invoking Awake.
+                Canvas.ForceUpdateCanvases();
+                var entrance = ui.GetComponentsInChildren<FocusMissionEntrance>(false).SingleOrDefault();
+                Check(session, !FigmaMissionUi.ReducedMotion && entrance != null,
+                    "Actual practice page creates its entrance animation through the mobile layout");
+                var entranceGroup = entrance.GetComponent<CanvasGroup>();
+                Check(session, entranceGroup != null && entrance.GetComponents<CanvasGroup>().Length == 1
+                    && !float.IsNaN(entranceGroup.alpha) && entranceGroup.alpha >= .65f && entranceGroup.alpha <= 1,
+                    "RequireComponent and real Awake retain exactly one live CanvasGroup without fake-null errors");
                 yield return new WaitForSecondsRealtime(.25f); yield return RenderedFrame(session);
+                Check(session, entrance == null && entranceGroup != null && Mathf.Approximately(entranceGroup.alpha, 1),
+                    "Entrance finishes normally and leaves the live page fully visible");
                 var finalAction = Reveal(ui, "Focus.Action");
                 string before = StateCodec.Encode(ui.Service.Snapshot), path = Path.Combine(session.saveRoot, "garden-mock", "state.xml");
                 string disk = File.ReadAllText(path), staging = path + ".tmp";
@@ -349,6 +407,10 @@ namespace CapstoneDesign.EditorTools
                 Check(session, receipt != null && receipt.Outcome == PracticeGrowthOutcome.Grown
                     && receipt.AfterStep == previousRecipe.GrowthStep + 1 && ui.Service.CoinBalance == 187,
                     "Exactly one next stage and fifty earned coins are durable before cinematic playback");
+                Check(session,receipt.BeforeStep==20&&receipt.AfterStep==21&&ui.Service.Snapshot.PlantAppearance.IsCompleted
+                    &&ui.Service.Snapshot.PlantPhotos.Single().SourcePlantInstanceId==previousRecipe.InstanceId
+                    &&ui.Service.Snapshot.PlantPhotos.Single().Recipe.GrowthStep==21,
+                    "The 21st stage automatically archives plant A while it stays visible through the complete cinematic");
                 bool swirl = false, white = false, burst = false, orbit = false; float deadline = Time.realtimeSinceStartup + 12;
                 while (SequencePlaying() && Time.realtimeSinceStartup < deadline)
                 {
@@ -406,13 +468,22 @@ namespace CapstoneDesign.EditorTools
                     && ui.Service.StartGuidedFocusSession("synthetic-play-background", "코"),
                     "The same day allows the independent basic mission slot: " + ui.Service.LastError);
                 ui.SelectFocusSession("synthetic-play-background"); yield return new WaitForSecondsRealtime(.25f); yield return RenderedFrame(session);
-                var action = Reveal(ui, "Focus.Action");
+                var action = Reveal(ui, "Focus.IconAction");
+                var previous=ui.Service.Snapshot;string archivedA=PlantCodec.Encode(previous.PlantPhotos.Single());
+                string previousId=previous.PlantAppearance.Recipe.InstanceId;
                 var target = nav.home.gardenCamera.targetTexture; var position = nav.home.gardenCamera.transform.position;
                 var rotation = nav.home.gardenCamera.transform.rotation;
                 Click(session, action); yield return null; yield return RenderedFrame(session);
                 Check(session, SequencePlaying()
                     && ui.Service.Snapshot.Sessions.Single(item => item.SessionId == "synthetic-play-background").Status == ParticipationState.RewardCommitted,
                     "Guided basic practice completes before its distinct one-stage cinematic");
+                var nextState=ui.Service.Snapshot;var nextReceipt=ui.Service.GetPracticeGrowth("synthetic-play-background");
+                Check(session,nextState.PlantAppearance.Recipe.InstanceId!=previousId&&nextReceipt.BeforeStep==0&&nextReceipt.AfterStep==1
+                    &&nav.home.RenderedRecipe.InstanceId==nextState.PlantAppearance.Recipe.InstanceId&&nav.home.RenderedRecipe.GrowthStep==0
+                    &&PlantCodec.Encode(nextState.PlantPhotos.Single())==archivedA,
+                    "Completed plant A stays archived while the cinematic initially displays new plant B's own seed, never A's mature mesh");
+                Check(session,Sequence().OrdinaryUiHidden&&nav.home.gardenCamera.targetTexture==target,
+                    "The new-individual cinematic also hides ordinary UI and retains the shared garden RenderTexture");
                 yield return new WaitForSecondsRealtime(1.6f); yield return RenderedFrame(session);
                 var sequence = Sequence();
                 var pause = typeof(GardenMissionGrowthSequence).GetMethod("OnApplicationPause", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -424,6 +495,9 @@ namespace CapstoneDesign.EditorTools
                     && Quaternion.Angle(rotation, nav.home.gardenCamera.transform.rotation) < .01f
                     && nav.home.gardenCamera.targetTexture == target,
                     "Unity pause callback restores camera and immediately completed mission UI");
+                Check(session,nav.home.RenderedRecipe.InstanceId==nextState.PlantAppearance.Recipe.InstanceId&&nav.home.RenderedRecipe.GrowthStep==1
+                    &&PlantCodec.Encode(ui.Service.Snapshot.PlantPhotos.Single())==archivedA,
+                    "Interrupting new-individual growth restores the committed B stage and leaves archived A unchanged");
                 Check(session, !nav.home.ProceduralPlant.GetComponentsInChildren<Renderer>(true).SelectMany(renderer => renderer.sharedMaterials)
                     .Any(material => material.shader.name == "Capstone/Plant Growth White")
                     && !Resources.FindObjectsOfTypeAll<GameObject>().Any(item => item.name == "Mission growth effects (temporary)"),
@@ -458,10 +532,11 @@ namespace CapstoneDesign.EditorTools
                     && ui.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==beforeStep && ui.Service.CoinBalance == 337,
                     "Emotion completion atomically saves one hundred coins and one plant memo without growth or cinematic");
                 Check(session, memo.PlantInstanceId==ui.Service.Snapshot.PlantAppearance.Recipe.InstanceId
-                    && memo.Note=="synthetic daily emotion PlayMode note" && nav.home.MemoView!=null
-                    && nav.home.MemoView.MemoCount==1 && nav.home.MemoView.MemoIds.Single()==memo.Id
-                    && nav.home.MemoView.GetComponentsInChildren<MeshFilter>(true).Any(item=>item.sharedMesh!=null && item.sharedMesh.vertexCount>0),
-                    "The real garden renders the durable memo as a separate 3D mesh owned by the current plant");
+                    && memo.Note=="synthetic daily emotion PlayMode note"
+                    &&WeeklyPlants.Active(ui.Service.Snapshot).Memories.Single().RecordId==memo.Id
+                    &&nav.home.ProceduralPlant.Geometry.Organs.Single().OrganId==WeeklyPlants.Active(ui.Service.Snapshot).Memories.Single().OrganId
+                    &&nav.home.ProceduralPlant.Geometry.Organs.Single().Selectable,
+                    "The real garden renders the durable emotion as the current plant's selectable memory leaf");
                 string committedEmotion = StateCodec.Encode(ui.Service.Snapshot);
                 Check(session, ui.Service.CompleteDailyEmotion(emotion.Id, "ignored duplicate", "ignored duplicate")
                     && StateCodec.Encode(ui.Service.Snapshot) == committedEmotion,
@@ -483,8 +558,9 @@ namespace CapstoneDesign.EditorTools
                 string before = StateCodec.Encode(ui.Service.Snapshot);
                 var emotion = DailyEmotionPolicy.Current(ui.Service.Snapshot);
                 Check(session, emotion?.IsCompleted == true && ui.Service.GetPracticeGrowth(emotion.Id) == null
-                    && emotion.RewardAmount==100 && nav.home.MemoView!=null && nav.home.MemoView.MemoCount==1
-                    && nav.home.MemoView.MemoIds.Single()==emotion.MemoId,
+                    && emotion.RewardAmount==100 && nav.home.ProceduralPlant.Geometry.Organs.Count==1
+                    && WeeklyPlants.Active(ui.Service.Snapshot).Memories.Single().RecordId==emotion.MemoId
+                    && nav.home.ProceduralPlant.Geometry.Organs.Single().OrganId==WeeklyPlants.Active(ui.Service.Snapshot).Memories.Single().OrganId,
                     "Second restart restores the emotion coin award and the same rendered memo without a growth receipt");
                 ui.ShowDailyEmotion(emotion.Id); yield return null; yield return RenderedFrame(session);
                 Check(session, !SequencePlaying() && ui.CurrentScreen == "daily-emotion"
@@ -505,6 +581,100 @@ namespace CapstoneDesign.EditorTools
             session.stage = session.phase < 3 ? "between" : "finish";
             session.deadline = EditorApplication.timeSinceStartup + 120;
             Save(session); EditorApplication.ExitPlaymode();
+        }
+
+        static IEnumerable<object> CheckSceneReentry(Session session, MockupNavigation nav, WeekOneQuestDemo ui)
+        {
+            var home = nav.home;
+            Check(session, SceneManager.GetActiveScene().path == "Assets/Scenes/MockupMain.unity"
+                && home.IsGardenVisible && ui.HasOpenState, "Reentry starts in the real open-state MockupMain garden");
+            var service = ui.Service;
+            string saved = StateCodec.Encode(service.Snapshot);
+            var camera = home.gardenCamera;
+            var target = camera.targetTexture;
+            int cameraCount = Resources.FindObjectsOfTypeAll<Camera>().Length;
+            var sky = home.gardenVisuals.GetComponent<GardenSkyEnvironment>();
+            Check(session, sky != null && sky.Clouds != null && target != null && target.IsCreated(),
+                "Actual garden owns an existing render target and cloud particle system");
+            var clouds = sky.Clouds;
+            for (int round = 1; round <= 2; round++)
+            {
+                Click(session, home.NavigationBar.MissionButton);
+                yield return null; yield return new WaitForSecondsRealtime(.25f);
+                Check(session, nav.activitiesPanel.activeInHierarchy && !home.IsGardenVisible
+                    && ui.HasOpenState && ui.CurrentScreen == "home", "Home tab pointer opens the real mission page");
+                var bar = ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
+                Check(session, bar.ActiveTab == "미션", "Mission navigation visibly selects the mission tab");
+                Click(session, bar.CourseButton);
+                yield return null; yield return new WaitForSecondsRealtime(.25f);
+                bar = ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
+                Check(session, ui.HasOpenState && ui.CurrentScreen == "course" && bar.ActiveTab == "기록",
+                    "Records tab pointer opens records with the same loaded service");
+                Check(session, !home.gardenVisuals.activeInHierarchy,
+                    "The garden and its cloud system are actually disabled while viewing records");
+                if (round == 2)
+                {
+                    // Reproduce a stopped particle system after suspension. Only
+                    // normal product navigation may restart it on return.
+                    clouds.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                    Check(session, !clouds.isPlaying, "Stopped-cloud reentry precondition is established");
+                }
+                // A retained texture can look valid while containing a stale
+                // frame. Poison this synthetic target, then require the normal
+                // return/render lifecycle to replace it; never call Camera.Render.
+                var oldActive = RenderTexture.active;
+                try { RenderTexture.active = target; GL.Clear(true, true, Color.magenta); }
+                finally { RenderTexture.active = oldActive; }
+                Click(session, bar.HomeButton);
+                yield return null; yield return new WaitForSecondsRealtime(.25f); yield return RenderedFrame(session);
+                Check(session, home.IsGardenVisible && !nav.activitiesPanel.activeInHierarchy
+                    && home.gardenVisuals.activeInHierarchy && ui.HasOpenState && ReferenceEquals(service, ui.Service),
+                    "Home pointer restores the actual garden without reopening or losing its state service");
+                Check(session, home.gardenCamera == camera && camera.targetTexture == target && target.IsCreated()
+                    && Resources.FindObjectsOfTypeAll<Camera>().Length == cameraCount,
+                    "Tab reentry keeps the same camera and live RenderTexture without extra cameras");
+                var displays = home.homeCanvas.GetComponentsInChildren<RawImage>(false)
+                    .Where(image => image.texture == target && image.enabled).ToArray();
+                Check(session, displays.Length == 1 && displays[0].rectTransform.rect.width > 0
+                    && displays[0].rectTransform.rect.height > 0,
+                    "The visible garden RawImage still displays that exact RenderTexture");
+                CheckRenderTargetContent(session, target);
+                Check(session, clouds == sky.Clouds && clouds.gameObject.activeInHierarchy
+                    && clouds.isPlaying && clouds.particleCount > 0,
+                    "Cloud particles resume playing and remain populated after returning home");
+                var first = new ParticleSystem.Particle[clouds.particleCount]; int count = clouds.GetParticles(first);
+                yield return new WaitForSecondsRealtime(.25f);
+                var later = new ParticleSystem.Particle[clouds.particleCount]; int laterCount = clouds.GetParticles(later);
+                Check(session, count == laterCount && count > 0
+                    && Enumerable.Range(0, count).Any(index => (first[index].position - later[index].position).sqrMagnitude > .00000001f),
+                    "Returned clouds keep moving across actual Play frames");
+                Check(session, StateCodec.Encode(service.Snapshot) == saved,
+                    "Home, mission and records navigation preserves exact plant, wallet and record state");
+                Capture(session, "phase-" + session.phase + "-scene-reentry-" + round);
+            }
+            Check(session, SessionState.GetInt(ErrorCountKey, 0) == 0,
+                "Repeated actual-scene tab reentry logs no errors, destroyed-component or render-target exceptions");
+        }
+
+        static void CheckRenderTargetContent(Session session, RenderTexture target)
+        {
+            var previous = RenderTexture.active;
+            var image = new Texture2D(target.width, target.height, TextureFormat.RGB24, false);
+            try
+            {
+                RenderTexture.active = target;
+                image.ReadPixels(new Rect(0, 0, target.width, target.height), 0, 0); image.Apply();
+                var pixels = image.GetPixels32(); int min = 765, max = 0, samples = 0, refreshed = 0;
+                for (int index = 0; index < pixels.Length; index += 31)
+                {
+                    var pixel = pixels[index]; int value = pixel.r + pixel.g + pixel.b;
+                    min = Math.Min(min, value); max = Math.Max(max, value); samples++;
+                    if (pixel.r < 245 || pixel.g > 10 || pixel.b < 245) refreshed++;
+                }
+                Check(session, max - min >= 90 && refreshed > samples / 2,
+                    "Normal return redraws varied garden pixels over the sentinel instead of retaining a stale or blank target");
+            }
+            finally { RenderTexture.active = previous; UnityEngine.Object.Destroy(image); }
         }
 
         static int ProceduralMeshCount() => Resources.FindObjectsOfTypeAll<Mesh>().Count(mesh => mesh.name.StartsWith("ProceduralPlant_", StringComparison.Ordinal));
@@ -540,6 +710,8 @@ namespace CapstoneDesign.EditorTools
             Assert(hits.Count > 0 && hits[0].gameObject.GetComponentInParent<Button>() == button,
                 "Live input is blocked for " + button.name + "; first hit=" + (hits.Count == 0 ? "none" : hits[0].gameObject.name));
             pointer.pointerPressRaycast = hits[0]; session.raycasts++;
+            ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerDownHandler);
+            ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerUpHandler);
             ExecuteEvents.Execute(button.gameObject, pointer, ExecuteEvents.pointerClickHandler);
             session.clicks++; Save(session);
         }

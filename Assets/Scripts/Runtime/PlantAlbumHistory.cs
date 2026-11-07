@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Linq;
+using CapstoneDesign.Plants;
 using CapstoneDesign.Runtime.LocalState;
 
 namespace CapstoneDesign.Runtime
@@ -8,6 +9,45 @@ namespace CapstoneDesign.Runtime
     // Read-only album projection. Membership comes from individual identity, never a date-range guess.
     public static class PlantAlbumHistory
     {
+        public static PlantMemoryLeaf[] Leaves(GardenState state, string plantId) =>
+            state?.PlantCollection?.Plants.FirstOrDefault(p => p.Id == plantId)?.Memories
+                .Select(m => new PlantMemoryLeaf { OrganId = m.OrganId, Slot = m.SlotIndex,
+                    Linked = m.Kind != MemoryRecordKind.None }).ToArray() ?? Array.Empty<PlantMemoryLeaf>();
+
+        public static MemoryOrganState Memory(GardenState state, string plantId, string id) =>
+            state?.PlantCollection?.Plants.FirstOrDefault(p => p.Id == plantId)?.Memories
+                .FirstOrDefault(m => m.Kind != MemoryRecordKind.None && (m.OrganId == id || m.RecordId == id));
+
+        public static GardenPlantMemo MemoryRecord(GardenState state, string plantId, string id)
+        {
+            var plant = state?.PlantCollection?.Plants.FirstOrDefault(p => p.Id == plantId);
+            if (plant == null) return null;
+            var memory = Memory(state, plantId, id);
+            if (memory == null) return null;
+            if (memory.Kind == MemoryRecordKind.DailyEmotion)
+                return plant.Memos.FirstOrDefault(m => m.Id == memory.RecordId && m.PlantInstanceId == plantId)?.Copy();
+            var memo = new GardenPlantMemo { Id = memory.OrganId, PlantInstanceId = plantId,
+                CreatedUtc = memory.CreatedUtc, DailyEmotionRecordId = "", Mood = "", Note = "" };
+            if (memory.Kind == MemoryRecordKind.SessionReflection)
+            {
+                var session = state.Sessions.FirstOrDefault(s => s.SessionId == memory.RecordId);
+                if (session == null) return null;
+                memo.Mood = session.Mood ?? ""; memo.Note = session.Note ?? "";
+                if (FocusMissionPolicy.RoleFor(session) == FocusMissionCatalog.BasicRole)
+                { memo.BasicSessionId = session.SessionId; memo.BasicMissionId = session.MissionId; memo.BasicMissionTitle = session.MissionTitleSnapshot ?? ""; }
+                else { memo.AdditionalSessionId = session.SessionId; memo.AdditionalMissionId = session.MissionId; memo.AdditionalMissionTitle = session.MissionTitleSnapshot ?? ""; }
+            }
+            else if (memory.Kind == MemoryRecordKind.Experience)
+            {
+                var record = state.Experiences.FirstOrDefault(e => e.Id == memory.RecordId);
+                if (record == null) return null;
+                memo.Mood = string.Join(" · ", new[] { record.Type, record.Emotion }.Where(s => !string.IsNullOrWhiteSpace(s)));
+                memo.Note = string.Join("\n\n", new[] { record.Event,
+                    string.IsNullOrWhiteSpace(record.Body) ? null : "몸의 느낌 · " + record.Body,
+                    string.IsNullOrWhiteSpace(record.Thought) ? null : "떠오른 생각 · " + record.Thought }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            }
+            return memo;
+        }
         static string Day(string value)
         {
             return DateTime.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
@@ -48,13 +88,15 @@ namespace CapstoneDesign.Runtime
         public static GardenPlantMemo[] Records(GardenState state, GardenPlantPhoto photo)
         {
             if (state == null || photo == null) return Array.Empty<GardenPlantMemo>();
-            var records = photo.Memos.Where(memo => memo.PlantInstanceId == photo.SourcePlantInstanceId)
-                .Select(memo => memo.Copy()).ToList();
+            var plant = state.PlantCollection?.Plants.FirstOrDefault(p => p.Id == photo.SourcePlantInstanceId);
+            var records = plant == null ? photo.Memos.Where(memo => memo.PlantInstanceId == photo.SourcePlantInstanceId)
+                .Select(memo => memo.Copy()).ToList() : plant.Memories.Where(m => m.Kind != MemoryRecordKind.None)
+                .Select(m => MemoryRecord(state, plant.Id, m.OrganId)).Where(m => m != null).ToList();
             // Earlier daily rewards grew the plant and had no 3D paper. Show them
             // only while the original record and exact individual growth receipt exist.
             foreach (var daily in state.DailyEmotionRecords.Where(record => record.RewardVersion == 0 && record.IsCompleted))
             {
-                if (records.Any(memo => memo.DailyEmotionRecordId == daily.Id)
+                if (records.Any(entry => entry.DailyEmotionRecordId == daily.Id)
                     || !state.PracticeGrowthRecords.Any(growth => growth.SessionId == daily.Id
                         && growth.Outcome == PracticeGrowthOutcome.Grown && growth.PlantInstanceId == photo.SourcePlantInstanceId
                         && growth.CycleId == daily.CycleId && growth.CommittedUtc == daily.CompletedUtc)) continue;

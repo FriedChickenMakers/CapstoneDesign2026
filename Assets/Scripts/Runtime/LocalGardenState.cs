@@ -19,6 +19,7 @@ namespace CapstoneDesign.Runtime.LocalState
     {
         public int ResetHourLocal = 4;
         public int CompletionNutrient = 5;
+        public int PhotoVerificationNutrient = 1, PhotoVerificationDailyLimit = 1;
         public int EnvironmentCost = 10;
         public int GrowthCost = 10;
         public float GrowthAmount = 0.1f;
@@ -36,7 +37,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<string> CompletedMissionIds = new List<string>();
         public List<string> UnlockIds = new List<string>();
     }
-    public sealed class PracticeAnswer { public string Key, Value; internal PracticeAnswer Copy() => (PracticeAnswer)MemberwiseClone(); }
+    public sealed class PracticeAnswer { public string Key, Value, UpdatedUtc; internal PracticeAnswer Copy() => (PracticeAnswer)MemberwiseClone(); }
     public sealed class ExperienceRecord
     {
         internal ExperienceRecord Copy() => (ExperienceRecord)MemberwiseClone();
@@ -135,8 +136,11 @@ namespace CapstoneDesign.Runtime.LocalState
     public enum ParticipationState { Selected, InProgress, Paused, Ended, RewardCommitted }
     public sealed class FocusStepRecord
     {
+        public string PlanActivity, PlanTimePeriod, PlanNote;
         public int Step;
         public string Key, Title, Prompt, Value = "", ConfirmedUtc, UpdatedUtc;
+        public string PracticeStartedUtc, RecommendationPolicy, EndReason, ShortenedUtc;
+        public int RecommendedSeconds;
         public bool Skipped;
         public int ElapsedSeconds;
         internal FocusStepRecord Copy() => (FocusStepRecord)MemberwiseClone();
@@ -231,16 +235,28 @@ namespace CapstoneDesign.Runtime.LocalState
         public float[] Features;
         internal RecommendationContext Copy() => new RecommendationContext {DecisionId=DecisionId,PolicyId=PolicyId,AppVersion=AppVersion,UtcOffsetMinutes=UtcOffsetMinutes,Features=Features==null?null:(float[])Features.Clone()};
     }
+    public sealed class FocusRecommendationExposure
+    {
+        public string DecisionId, MissionId, PolicyId, Reason, ShownUtc;
+        internal FocusRecommendationExposure Copy() => (FocusRecommendationExposure)MemberwiseClone();
+    }
     public sealed class ActivitySession
     {
-        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); return copy; }
+        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); copy.FocusRecommendationExposure=FocusRecommendationExposure?.Copy();copy.Photo=Photo?.Copy();return copy; }
+        public MissionPhoto Photo;
+        public bool PhotoPromptHandled;
+        public string PendingPhotoId, PendingPhotoTarget;
+        public int PhotoBonusAmount;
         public RecommendationContext Recommendation;
+        public FocusRecommendationExposure FocusRecommendationExposure;
         public string SessionId, MissionId, InstanceId, SelectedUtc, StartedUtc, EndedUtc;
         public string Mood, Note;
         // Optional schema-1 additions: old sessions remain FocusVersion=0 and keep their meaning.
         public int FocusVersion, FocusOrder, RewardAmount;
         public string FocusRole, FocusProgramId, MissionTitleSnapshot, MissionDescriptionSnapshot;
-        public bool FocusReview;
+        public bool FocusReview, FocusSupport;
+        public string FocusSourceSessionId, FocusSourceMissionId, FocusEndReason;
+        public string FocusRecommendationId, FocusRecommendationPolicy, FocusRecommendationReason;
         public List<FocusStepRecord> FocusStepRecords = new List<FocusStepRecord>();
         public int CourseOrder;
         public int InstructionStep;
@@ -310,6 +326,8 @@ namespace CapstoneDesign.Runtime.LocalState
     public sealed class PlantProgress { public string PlantId; public float Growth; internal PlantProgress Copy() => (PlantProgress)MemberwiseClone(); }
     public sealed class GardenState
     {
+        public List<PhotoRewardReceipt> PhotoRewards=new List<PhotoRewardReceipt>();
+        public long PrivacyRevision;
         internal GardenState Copy() => (GardenState)MemberwiseClone();
         public int SchemaVersion = 1;
         public bool MigrationCompleted;
@@ -355,6 +373,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<PlantProgress> Plants = new List<PlantProgress>();
         // Optional appearance data; old schema-1 saves are migrated without changing rewards.
         public GardenPlantAppearance PlantAppearance;
+        public PlantCollectionState PlantCollection;
         // Optional for previous schema-1 saves. Albums never supply growth or rewards.
         public List<GardenPlantPhoto> PlantPhotos = new List<GardenPlantPhoto>();
         public List<GardenPlantPhotoCommand> PhotoSaveCommands = new List<GardenPlantPhotoCommand>();
@@ -386,13 +405,14 @@ namespace CapstoneDesign.Runtime.LocalState
                     if(document.DocumentElement==null || document.DocumentElement[required]==null) throw new InvalidDataException("State field missing: "+required);
                 GardenState state;
                 using(var nodes=new System.Xml.XmlNodeReader(document)) state=(GardenState)new XmlSerializer(typeof(GardenState)).Deserialize(nodes);
+                CombinedPlants.TranslateLegacyFocus(state);
                 Validate(state);
                 return state;
             }
         }
         public static void Validate(GardenState s)
         {
-            if (s == null || s.SchemaVersion != 1 || !s.MigrationCompleted || s.Nutrient < 0 || s.NextCourseOrder < 1 || s.NextCourseOrder > 29 || string.IsNullOrWhiteSpace(s.InstallationId) || !Finite(s.LegacyGrowth) || s.PreviewDayOffset < 0 || s.PreviewDayOffset > 36500)
+            if (s == null || s.SchemaVersion < 1 || s.SchemaVersion > 3 || !s.MigrationCompleted || s.Nutrient < 0 || s.PrivacyRevision<0 || s.NextCourseOrder < 1 || s.NextCourseOrder > 29 || string.IsNullOrWhiteSpace(s.InstallationId) || !Finite(s.LegacyGrowth) || s.PreviewDayOffset < 0 || s.PreviewDayOffset > 36500)
                 throw new InvalidDataException("Unsupported or invalid garden state; preserved for recovery.");
             Unique(s.LegacyCompletedUnknownDate); Unique(s.UnlockIds); Unique(s.CompletedCourseIds); Unique(s.RewardReceipts); Unique(s.PurchaseReceipts); Unique(s.DiscoveredAnimalIds);
             if(s.CompletedCourseIds.Count != s.NextCourseOrder-1) throw new InvalidDataException("Course progress inconsistent.");
@@ -440,6 +460,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(MbctPolicy.IsMbct(a.MissionId) && (a.CourseOrder<1 || a.MissionId!=MbctPolicy.MissionId(MbctPolicy.ProgramForMission(a.MissionId),a.CourseOrder)))throw new InvalidDataException("MBCT mission/order mismatch.");
                 Unique(a.Answers.Select(x=>x.Key));
                 ValidateRecommendation(a.Recommendation);
+                ValidateFocusExposure(a);
                 if (a.CourseOrder > 0 && !Typed(a.MissionId,"course")) throw new InvalidDataException("Invalid session course type.");
                 if ((a.Status == ParticipationState.InProgress || a.Status == ParticipationState.Paused || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.StartedUtc)) throw new InvalidDataException("Session start missing.");
                 if ((a.Status == ParticipationState.Ended || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.EndedUtc)) throw new InvalidDataException("Session end missing.");
@@ -479,6 +500,8 @@ namespace CapstoneDesign.Runtime.LocalState
             ValidatePracticeGrowth(s);
             GardenPlantVisuals.Validate(s);
             ValidatePlantPhotos(s);
+            WeeklyPlants.Validate(s);
+            CameraMissionPolicy.Validate(s);
             ValidateFullReset(s);
         }
         internal static string ResetInstallationId(string requestId,string sourceId) => Hash("full-reset|"+sourceId+"|"+requestId);
@@ -501,6 +524,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 throw new InvalidDataException("Full reset generation mismatch.");
             if(!state.FullResetPending)return;
             if(state.Coins!=0 || state.GardenXp!=0 || state.LegacyGrowth!=0 || state.PreviewDayOffset!=0
+                || state.PrivacyRevision!=0 || state.PhotoRewards.Count!=0
                 || state.LastUnlock!="" || state.LastCycleId!="" || state.NextCourseOrder!=1 || state.MbctNextOrder!=1
                 || state.MbctProgramId!="8w" || state.MbctProgramSelectionVersion!=1 || state.MbctProgramChosen
                 || state.StoredGrowthSteps!=0 || state.LegacyCompletedUnknownDate.Count!=0 || state.UnlockIds.Count!=0
@@ -516,6 +540,8 @@ namespace CapstoneDesign.Runtime.LocalState
                 || state.PlantAppearance.Memos.Count!=0 || state.PlantAppearance.Credits.Count!=0
                 || state.PlantAppearance.ArchivedCredits.Count!=0 || state.PlantAppearance.PreviousActivityKeys.Count!=0)
                 throw new InvalidDataException("A pending full reset must remain an untouched initial garden.");
+            if(state.SchemaVersion==3 && (state.PlantCollection.Plants.Count!=1||state.PlantCollection.Decisions.Count!=0||state.PlantCollection.ParticipationDecisions.Count!=0||state.PlantCollection.Plants[0].Memories.Count!=0))
+                throw new InvalidDataException("A pending full reset retains old plant records.");
         }
         static void ValidateDailyEmotions(GardenState state)
         {
@@ -686,7 +712,7 @@ namespace CapstoneDesign.Runtime.LocalState
         internal static void ValidatePlantPeriod(string startedUtc,string startedCycleId,string savedUtc=null,string savedCycleId=null)
         {
             if(startedUtc==null || startedCycleId==null
-                || (startedUtc.Length==0 ? startedCycleId.Length!=0 : !Timestamp(startedUtc) || !Cycle(startedCycleId)))
+                || (startedUtc.Length==0 ? startedCycleId.Length!=0 : !Timestamp(startedUtc) || (startedCycleId.Length>0 && !Cycle(startedCycleId))))
                 throw new InvalidDataException("Invalid plant start period.");
             if(savedUtc==null && savedCycleId==null)return;
             if(savedCycleId==null || (savedCycleId.Length>0 && !Cycle(savedCycleId))
@@ -745,7 +771,8 @@ namespace CapstoneDesign.Runtime.LocalState
             var sessions=state.Sessions.Where(FocusMissionPolicy.IsFocus).ToArray();
             foreach(var session in sessions)
             {
-                var definition=FocusMissionCatalog.FindForSession(session);
+                var definition=state.SchemaVersion==1 && session.FocusVersion==3
+                    ?FocusMissionCatalog.Find(session.MissionId,4):FocusMissionCatalog.FindForSession(session);
                 if(definition==null || session.FocusRole!=definition.Role || session.CourseOrder!=0 || string.IsNullOrWhiteSpace(session.MissionTitleSnapshot) || string.IsNullOrWhiteSpace(session.MissionDescriptionSnapshot)
                     || session.InstructionStep>definition.Steps.Length+1 || session.FocusStepRecords==null || session.FocusStepRecords.Count!=definition.Steps.Length || session.RewardAmount<0
                     || (session.Mood!=null && session.Mood.Length>80) || (session.Note!=null && session.Note.Length>500))throw new InvalidDataException("Invalid focus mission record.");
@@ -754,12 +781,26 @@ namespace CapstoneDesign.Runtime.LocalState
                     if((session.FocusVersion>1 && !MbctPolicy.IsProgram(session.FocusProgramId)) || FocusMissionPolicy.MissionAt(session.FocusOrder,FocusMissionPolicy.ProgramFor(session))?.Id!=session.MissionId)throw new InvalidDataException("Focus course occurrence mismatch.");
                 }
                 else if(session.FocusOrder!=0 || (session.FocusVersion>1 && !string.IsNullOrEmpty(session.FocusProgramId)))throw new InvalidDataException("Invalid additional mission occurrence.");
+                ValidateFocusExposure(session);
+                if(session.FocusSupport && (session.FocusVersion!=FocusMissionCatalog.TextureVersion || session.FocusRole!=FocusMissionCatalog.AdditionalRole
+                    || session.MissionId!="course:P02" || session.FocusReview || (session.FocusSourceMissionId!="course:P19"&&session.FocusSourceMissionId!="course:P26")
+                    || string.IsNullOrWhiteSpace(session.FocusSourceSessionId)))throw new InvalidDataException("Invalid support activity source.");
+                if(session.FocusSupport)
+                {
+                    var source=state.Sessions.FirstOrDefault(s=>s.SessionId==session.FocusSourceSessionId);
+                    if(source!=null&&(source.Status!=ParticipationState.Ended||source.FocusEndReason!="alternative"||source.MissionId!=session.FocusSourceMissionId))throw new InvalidDataException("Support source mismatch.");
+                }
+                if(!string.IsNullOrEmpty(session.FocusEndReason) && (!new[]{"skipped","stopped","alternative"}.Contains(session.FocusEndReason)||session.Status!=ParticipationState.Ended))throw new InvalidDataException("Invalid practice ending reason.");
                 bool gap=false;DateTimeOffset previous=DateTimeOffset.MinValue;
                 for(int i=0;i<session.FocusStepRecords.Count;i++)
                 {
                     var record=session.FocusStepRecords[i];
                     if(record==null || record.Step!=i || record.Key!=definition.Steps[i].Key || string.IsNullOrWhiteSpace(record.Title) || string.IsNullOrWhiteSpace(record.Prompt)
                         || record.Value==null || record.Value.Length>500 || (record.Skipped && record.Value.Length>0) || record.ElapsedSeconds<0 || record.ElapsedSeconds>86400
+                        || record.RecommendedSeconds<0 || record.RecommendedSeconds>86400 || (record.PlanNote?.Length??0)>450
+                        || (!string.IsNullOrEmpty(record.PracticeStartedUtc)&&(!Timestamp(record.PracticeStartedUtc)||!Timestamp(session.StartedUtc)||DateTimeOffset.Parse(record.PracticeStartedUtc)<DateTimeOffset.Parse(session.StartedUtc)))
+                        || (!string.IsNullOrEmpty(record.ShortenedUtc)&&(!Timestamp(record.ShortenedUtc)||string.IsNullOrEmpty(record.PracticeStartedUtc)||record.EndReason!="too_long"||DateTimeOffset.Parse(record.ShortenedUtc)<DateTimeOffset.Parse(record.PracticeStartedUtc)))
+                        || (!string.IsNullOrEmpty(record.EndReason)&&!new[]{"completed","too_long","not_applicable"}.Contains(record.EndReason))
                         || (!string.IsNullOrEmpty(record.UpdatedUtc) && !Timestamp(record.UpdatedUtc)))throw new InvalidDataException("Invalid focus step record.");
                     if(string.IsNullOrEmpty(record.ConfirmedUtc)){gap=true;continue;}
                     if(session.FocusVersion>1 && definition.Steps[i].Kind=="draw" && FocusDrawingData.Decode(record.Value).Count==0)throw new InvalidDataException("Confirmed drawing is missing.");
@@ -789,6 +830,18 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(sessions.Any(s=>s.FocusRole==FocusMissionCatalog.BasicRole && s.FocusReview && FocusMissionPolicy.ProgramFor(s)==program && s.FocusOrder>completed.Length))throw new InvalidDataException("Unlearned focus review.");
             }
             if(sessions.Where(s=>s.FocusRole==FocusMissionCatalog.AdditionalRole && s.RewardAmount>0).GroupBy(s=>s.InstanceId+"|"+s.MissionId).Any(g=>g.Count()>1))throw new InvalidDataException("Additional reward duplicated.");
+        }
+        internal static void ValidateFocusExposure(ActivitySession session)
+        {
+            var value=session.FocusRecommendationExposure;if(value==null)return;
+            Guid id;DateTimeOffset shown,selected;var definition=FocusMissionCatalog.Find(value.MissionId);
+            string[] reasons={"resume-active-activity","saved-preference","participation-history","catalog-default-no-history","focus-method-preference","focus-frequency-more","focus-frequency-less"};
+            if(!FocusMissionPolicy.IsFocus(session)||session.FocusRole!=FocusMissionCatalog.AdditionalRole||session.FocusReview||session.FocusSupport
+                ||!Guid.TryParseExact(value.DecisionId,"N",out id)||definition==null||definition.Role!=FocusMissionCatalog.AdditionalRole
+                ||(value.PolicyId!="focus-additional-history-v1"&&value.PolicyId!="focus-additional-history-preference-v2")||!reasons.Contains(value.Reason)
+                ||!DateTimeOffset.TryParse(value.ShownUtc,out shown)||!DateTimeOffset.TryParse(session.SelectedUtc,out selected)||shown>selected||selected-shown>TimeSpan.FromHours(24)
+                ||session.FocusRecommendationId!=value.DecisionId||session.FocusRecommendationPolicy!=value.PolicyId||session.FocusRecommendationReason!=value.Reason)
+                throw new InvalidDataException("Invalid observed focus recommendation.");
         }
         static bool Finite(float n) { return !float.IsNaN(n) && !float.IsInfinity(n); }
         internal static void ValidateRecommendation(RecommendationContext context)
@@ -824,6 +877,7 @@ namespace CapstoneDesign.Runtime.LocalState
             copy.GrowthHistory=value.GrowthHistory.Select(record=>record.Copy()).ToList();
             copy.DailyDecisions=value.DailyDecisions.Select(d=>d.Copy()).ToList();
             copy.Sessions=value.Sessions.Select(a=>a.Copy()).ToList();
+            copy.PhotoRewards=value.PhotoRewards.Select(r=>r.Copy()).ToList();
             copy.DebugWalkPeriods=value.DebugWalkPeriods.Select(d=>d.Copy()).ToList();
             copy.Environments=value.Environments.Select(e=>e.Copy()).ToList();
             copy.Plants=value.Plants.Select(p=>p.Copy()).ToList();
@@ -831,7 +885,7 @@ namespace CapstoneDesign.Runtime.LocalState
             copy.PhotoSaveCommands=value.PhotoSaveCommands.Select(command=>command.Copy()).ToList();
             copy.PlantStartCommands=value.PlantStartCommands.Select(command=>command.Copy()).ToList();
             copy.PracticeGrowthRecords=value.PracticeGrowthRecords.Select(record=>record.Copy()).ToList();
-            copy.PlantAppearance=value.PlantAppearance?.Copy();return copy;
+            copy.PlantAppearance=value.PlantAppearance?.Copy();copy.PlantCollection=value.PlantCollection?.Copy();return copy;
         }
         public static string Hash(string value)
         { using (var sha = SHA256.Create()) return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(value))).Replace("-", ""); }
@@ -977,7 +1031,7 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         public void Dispose() { if(!disposed) { disposed=true; writerLock.Dispose(); } }
     }
-    public sealed class GardenStateService : IDisposable
+    public sealed partial class GardenStateService : IDisposable
     {
         readonly IStateStore store;
         readonly IClock clock;
@@ -1012,6 +1066,8 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             this.store = store; this.clock = clock; this.legacy = legacy ?? new LegacySnapshot();
             this.config = new DemoBalanceConfig { ResetHourLocal = config.ResetHourLocal, CompletionNutrient = config.CompletionNutrient, EnvironmentCost = config.EnvironmentCost, GrowthCost = config.GrowthCost, GrowthAmount = config.GrowthAmount, VisitorChancePercent = config.VisitorChancePercent };
+            this.config.PhotoVerificationNutrient=config.PhotoVerificationNutrient;this.config.PhotoVerificationDailyLimit=config.PhotoVerificationDailyLimit;
+            if(config.PhotoVerificationNutrient<0||config.PhotoVerificationNutrient>100||config.PhotoVerificationDailyLimit<0||config.PhotoVerificationDailyLimit>100)throw new ArgumentException("Invalid photo reward configuration.");
             if (config.ResetHourLocal < 0 || config.ResetHourLocal > 23 || config.CompletionNutrient < 0 || config.EnvironmentCost < 0 || config.GrowthCost < 0 || config.GrowthAmount <= 0 || (float.IsInfinity(config.GrowthAmount) || float.IsNaN(config.GrowthAmount)) || config.VisitorChancePercent < 0 || config.VisitorChancePercent > 100)
                 throw new ArgumentException("Invalid DEV_DEFAULT configuration.");
         }
@@ -1040,16 +1096,24 @@ namespace CapstoneDesign.Runtime.LocalState
                         loaded.LegacyCompletedUnknownDate.AddRange(legacy.CompletedMissionIds.Distinct());
                         loaded.UnlockIds.AddRange(legacy.UnlockIds.Distinct());
                         GardenPlantVisuals.Sync(loaded);
-                        if (!HasLegacyState()) StampPlantStart(loaded);
+                        if (!HasLegacyState())
+                        {
+                            CapturePlantDate(loaded,null,null,out var created,out var createdCycle);
+                            CombinedPlants.InitializeFresh(loaded,GardenPlantVisuals.InstanceId,created,createdCycle);
+                        }
+                        else CombinedPlants.Migrate(loaded,EffectiveUtc(loaded).ToString("O"),false,CycleFor(loaded));
                         StateCodec.Validate(loaded);
                         store.Save(loaded);
                     }
+                    bool schemaMigrated=CombinedPlants.Migrate(loaded,EffectiveUtc(loaded).ToString("O"),false,CycleFor(loaded));
                     StateCodec.Validate(loaded);
                     if(loaded.FullResetPending) { state=loaded;LastError=null;return true; }
                     bool courseMigrated=loaded.MbctProgramSelectionVersion==0;
                     if(courseMigrated) { loaded.MbctProgramSelectionVersion=1;loaded.MbctProgramChosen=true; }
                     bool memoMetadataUpdated=BackfillPlantMemoMissions(loaded);
-                    if (GardenPlantVisuals.Sync(loaded) || courseMigrated || memoMetadataUpdated) { StateCodec.Validate(loaded); store.Save(loaded); }
+                    if(memoMetadataUpdated)CombinedPlants.CaptureHistoricalMemoMetadata(loaded);
+                    if (GardenPlantVisuals.Sync(loaded) || courseMigrated || memoMetadataUpdated || schemaMigrated)
+                    { CombinedPlants.CaptureCurrent(loaded,EffectiveUtc(loaded).ToString("O"),CycleFor(loaded));StateCodec.Validate(loaded); store.Save(loaded); }
                     state = loaded; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
@@ -1069,7 +1133,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 try
                 {
                     RequireReady();
-                    var next = StateCodec.Clone(state); mutation(next); StateCodec.Validate(next); store.Save(next); state = next; LastError = null; return true;
+                    var next = StateCodec.Clone(state); mutation(next); CameraMissionPolicy.Reconcile(next);CombinedPlants.CaptureCurrent(next,Now,CycleFor(next));StateCodec.Validate(next); store.Save(next); state = next; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
             }
@@ -1094,6 +1158,7 @@ namespace CapstoneDesign.Runtime.LocalState
         void StampPlantStart(GardenState source,string minimumUtc=null,string minimumCycle=null)
         {
             CapturePlantDate(source,minimumUtc,minimumCycle,out source.PlantAppearance.StartedUtc,out source.PlantAppearance.StartedCycleId);
+            var plant=WeeklyPlants.Active(source);if(plant!=null){plant.CreatedUtc=source.PlantAppearance.StartedUtc;plant.StartedCycleId=source.PlantAppearance.StartedCycleId;}
         }
         string CycleFor(GardenState source) => TimeZoneInfo.ConvertTime(EffectiveUtc(source), clock.TimeZone).DateTime.AddHours(-config.ResetHourLocal).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         public string CurrentCycleId
@@ -1157,11 +1222,7 @@ namespace CapstoneDesign.Runtime.LocalState
             var fresh=new GardenState { MigrationCompleted=true,MbctProgramSelectionVersion=1,MbctProgramChosen=false,
                 InstallationId=StateCodec.ResetInstallationId(requestId,sourceInstallationId),
                 FullResetRequestId=requestId,FullResetSourceInstallationId=sourceInstallationId,FullResetPending=true };
-            var appearance=new GardenPlantAppearance {UsesIndividualGrowth=true,MissionGrowthVersion=1,StartedUtc=startedUtc,StartedCycleId=startedCycleId};
-            appearance.Recipe=CapstoneDesign.Plants.PlantGenerator.Create(fresh.InstallationId,StateCodec.ResetPlantId(fresh.InstallationId),
-                12,CapstoneDesign.Plants.PlantGrowthMode.MissionCompletions);
-            appearance.Recipe.Counts=(int[])appearance.BaselineProfileCounts.Clone();
-            fresh.PlantAppearance=appearance;
+            CombinedPlants.InitializeFresh(fresh,StateCodec.ResetPlantId(fresh.InstallationId),startedUtc,startedCycleId);
             StateCodec.Validate(fresh);
             return fresh;
         }
@@ -1213,12 +1274,14 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             // Preserve demonstrably linked titles before removing their only source.
             BackfillPlantMemoMissions(next);
+            CombinedPlants.CaptureHistoricalMemoMetadata(next);
             if(next.PlantAppearance!=null)
             {
                 next.PlantAppearance.ArchivedCredits.AddRange(next.PlantAppearance.Credits);
                 next.PlantAppearance.Credits.Clear();
             }
             next.Sessions.Clear();next.PracticePreferences.Clear();next.Experiences.Clear();next.DailyEmotionRecords.Clear();
+            foreach(var memory in next.PlantCollection.Plants.SelectMany(p=>p.Memories).Where(m=>m.Kind==MemoryRecordKind.SessionReflection||m.Kind==MemoryRecordKind.Experience))WeeklyPlants.Unlink(memory);
             next.CompletedCourseIds.Clear();next.NextCourseOrder=1;
             next.MbctCompletedIds.Clear();next.MbctNextOrder=1;next.MbctPrograms.Clear();
             // Clear the visible course history, not durable award claims. Otherwise
@@ -1233,7 +1296,7 @@ namespace CapstoneDesign.Runtime.LocalState
             if (string.IsNullOrWhiteSpace(plantInstanceId) || !GardenPlantVisuals.HasCurrentPlant(next)
                 || next.PlantAppearance.Recipe.InstanceId != plantInstanceId)
                 throw new InvalidOperationException("The current plant instance is required.");
-            if (!completed && next.PlantAppearance.Recipe.Mature)
+            if (!completed && (next.PlantAppearance.Recipe.Mature||next.PlantPhotos.Any(p=>p.SourcePlantInstanceId==plantInstanceId)))
                 throw new InvalidOperationException("A plant at its final growth stage must remain completed.");
             next.PlantAppearance.IsCompleted = completed;
         });
@@ -1294,7 +1357,9 @@ namespace CapstoneDesign.Runtime.LocalState
                         next.PhotoSaveCommands.Add(new GardenPlantPhotoCommand {
                             RequestId = requestId, PlantInstanceId = plantInstanceId, PhotoId = photo.Id
                         });
-                        next.PlantAppearance.IsArchived = true;
+                        // Automatic album retention leaves this completed plant visible
+                        // until the next eligible practice starts a new individual.
+                        next.PlantAppearance.IsArchived = false;
                     });
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
@@ -1320,23 +1385,13 @@ namespace CapstoneDesign.Runtime.LocalState
                         LastError = null;
                         return true;
                     }
-                    if (state.PlantAppearance == null || !state.PlantAppearance.IsArchived
+                    if (state.PlantAppearance == null || !state.PlantAppearance.IsCompleted
                         || state.PlantAppearance.Recipe.InstanceId != archivedPlantInstanceId)
                         throw new InvalidOperationException("The expected archived plant and an empty garden are required.");
                     return Change(next =>
                     {
-                        string instanceId = "garden-plant:" + StateCodec.Hash(next.InstallationId + "|" + archivedPlantInstanceId + "|" + requestId);
-                        var previousPhoto=next.PlantPhotos.First(photo=>photo.SourcePlantInstanceId==archivedPlantInstanceId);
-                        next.PlantAppearance = GardenPlantVisuals.CreateNext(next, instanceId);
-                        StampPlantStart(next,previousPhoto.SavedUtc,previousPhoto.SavedCycleId);
-                        int applied = Math.Min(next.StoredGrowthSteps, next.PlantAppearance.Recipe.MaxGrowthSteps);
-                        for (int i = 0; i < applied; i++)
-                            next.PlantAppearance.Recipe = CapstoneDesign.Plants.PlantGenerator.Advance(next.PlantAppearance.Recipe);
-                        next.PlantAppearance.IsCompleted = next.PlantAppearance.Recipe.Mature;
-                        next.StoredGrowthSteps -= applied;
-                        next.PlantStartCommands.Add(new GardenPlantStartCommand {
-                            RequestId = requestId, ArchivedPlantInstanceId = archivedPlantInstanceId, PlantInstanceId = instanceId, AppliedGrowthSteps = applied
-                        });
+                        CombinedPlants.EnsureGrowing(next,Now,CycleFor(next),requestId,false);
+                        next.PlantStartCommands.Last().RequestId=requestId;
                     });
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
@@ -1397,7 +1452,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 next.Sessions.Add(new ActivitySession { SessionId = sessionId, MissionId = missionId, InstanceId = next.LastCycleId, SelectedUtc = Now, Status = ParticipationState.Selected, CourseOrder = courseOrder, Recommendation=recommendation?.Copy() });
             });
         }
-        public bool BeginFocusSession(string sessionId,string missionId,int order=0,bool review=false,string program=null)
+        public bool BeginFocusSession(string sessionId,string missionId,int order=0,bool review=false,string program=null,FocusAdditionalRecommendation recommendation=null,FocusRecommendationExposure exposure=null)
         {
             lock(gate)
             {
@@ -1447,6 +1502,9 @@ namespace CapstoneDesign.Runtime.LocalState
                     next.Sessions.Add(new ActivitySession {SessionId=sessionId,MissionId=definition.Id,InstanceId=next.LastCycleId,SelectedUtc=Now,Status=ParticipationState.Selected,
                         FocusVersion=version,FocusRole=definition.Role,FocusProgramId=basic && version>1?selected:"",FocusOrder=occurrence,FocusReview=review,
                         MissionTitleSnapshot=definition.Title,MissionDescriptionSnapshot=definition.Overview,
+                        FocusRecommendationId=exposure?.DecisionId??(recommendation!=null?Guid.NewGuid().ToString("N"):null),
+                        FocusRecommendationPolicy=exposure?.PolicyId??recommendation?.PolicyId,FocusRecommendationReason=exposure?.Reason??recommendation?.Reason,
+                        FocusRecommendationExposure=exposure?.Copy(),
                         FocusStepRecords=definition.Steps.Select((step,index)=>new FocusStepRecord {Step=index,Key=step.Key,Title=step.Title,Prompt=step.Body}).ToList()});
                 });
                 if(saved && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
@@ -1693,6 +1751,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 || next.Sessions.Any(item => item != session && FocusMissionPolicy.IsFocus(item) && item.MissionId == session.MissionId
                     && item.InstanceId == session.InstanceId && item.RewardAmount > 0));
             bool claimed = legacyAdditional || next.RewardReceipts.Contains(eligibility)
+                || next.PlantCollection.Decisions.Any(d=>d.SessionToken==WeeklyPlants.Token(session.SessionId))
                 || next.PracticeGrowthRecords.Any(record => record.EligibilityKey == eligibility && ClaimsPracticeOccurrence(record));
             var result = new PracticeGrowthRecord {
                 SessionId = session.SessionId, EligibilityKey = eligibility, CycleId = session.InstanceId, MissionId = session.MissionId,
@@ -1704,20 +1763,18 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             if (result.Outcome == PracticeGrowthOutcome.Grown)
             {
-                if (!GardenPlantVisuals.HasCurrentPlant(next) || GardenPlantVisuals.IsCompleted(next))
-                {
-                    result.Outcome = PracticeGrowthOutcome.Stored;
-                    next.StoredGrowthSteps = checked(next.StoredGrowthSteps + 1);
-                    next.PracticeGrowthRecords.Add(result);
-                    return;
-                }
+                CombinedPlants.EnsureGrowing(next,result.CommittedUtc,result.CycleId,result.SessionId);
                 result.PlantInstanceId = next.PlantAppearance.Recipe.InstanceId;
                 result.BeforeStep = next.PlantAppearance.Recipe.GrowthStep;
                 result.BeforeGrowth = GardenPlantVisuals.TotalGrowth(next);
                 next.PracticeGrowthRecords.Add(result);
+                CapstoneDesign.Plants.GrowthCategory category;
+                if(!GardenPlantVisuals.TryCategory(result.MissionId,out category))throw new InvalidOperationException("Unknown plant growth activity category.");
+                next.PlantAppearance.Recipe.Counts[(int)category]=checked(next.PlantAppearance.Recipe.Counts[(int)category]+1);
                 GardenPlantVisuals.AdvanceMissionGrowth(next);
                 result.AfterStep = next.PlantAppearance.Recipe.GrowthStep;
                 result.AfterGrowth = GardenPlantVisuals.TotalGrowth(next);
+                CombinedPlants.RecordGrowth(next,result,(int)category);
             }
             else next.PracticeGrowthRecords.Add(result);
         }
@@ -1764,6 +1821,8 @@ namespace CapstoneDesign.Runtime.LocalState
                     session.Mood=mood;session.Note=note;session.Status=ParticipationState.RewardCommitted;session.InstructionStep=session.FocusStepRecords.Count+1;
                     var last=DateTimeOffset.Parse(session.FocusStepRecords.Last().ConfirmedUtc);var ended=CurrentUtc;
                     session.EndedUtc=(ended<last?last:ended).ToString("O");
+                    session.PendingPhotoId=null;session.PendingPhotoTarget=null;
+                    CameraMissionPolicy.Award(next,session,config.PhotoVerificationNutrient,config.PhotoVerificationDailyLimit);
                     GardenPlantVisuals.Sync(next);
                 });
                 if(saved && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
@@ -1894,12 +1953,13 @@ namespace CapstoneDesign.Runtime.LocalState
                 return completed;
             }
         }
-        static void SetAnswer(List<PracticeAnswer> answers,string key,string value)
+        static void SetAnswer(List<PracticeAnswer> answers,string key,string value,string updatedUtc=null)
         {
             if(string.IsNullOrWhiteSpace(key) || key.Length>80 || key.Contains("|"))throw new ArgumentException("Invalid answer key.");
             if(value==null || value.Length>500)throw new ArgumentException("Answer too long.");
             var answer=answers.FirstOrDefault(a=>a.Key==key);
-            if(answer==null)answers.Add(new PracticeAnswer{Key=key,Value=value});else answer.Value=value;
+            if(answer==null){answer=new PracticeAnswer{Key=key};answers.Add(answer);}
+            answer.Value=value;if(updatedUtc!=null)answer.UpdatedUtc=updatedUtc;
         }
         public bool SavePracticeStep(string id,int step,string key=null,string value=null)
         {
@@ -1927,7 +1987,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 // Previous completed practices' preferences remain available for later use.
             });
         }
-        public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??""));
+        public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??"",Now));
         string EffectiveBusinessCycle()
         {
             string current=CycleFor(state);
@@ -2066,9 +2126,11 @@ namespace CapstoneDesign.Runtime.LocalState
             return Change(next=>
             {
                 if(next.Experiences.Any(e=>e.Id==id))return;
+                if(next.PlantCollection.DeletedExperienceTokens.Contains(WeeklyPlants.Token(id)))throw new InvalidOperationException("삭제한 기록을 다시 저장할 수 없어요.");
                 if(string.IsNullOrWhiteSpace(id) || id.Contains("|"))throw new ArgumentException("Invalid record id.");
                 if(new[]{eventText,body,emotion,thought}.Any(v=>v!=null && v.Length>500))throw new ArgumentException("Record too long.");
                 next.Experiences.Add(new ExperienceRecord{Id=id,CreatedUtc=Now,Type=type,Event=eventText??"",Body=body??"",Emotion=emotion??"",Thought=thought??""});
+                WeeklyPlants.AddMemory(next,next.PlantCollection.ActiveId,MemoryRecordKind.Experience,id,Now,RecordOffset);
             });
         }
 #if UNITY_EDITOR || DEVELOPMENT_BUILD

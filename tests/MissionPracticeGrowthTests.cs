@@ -221,8 +221,8 @@ static class MissionPracticeGrowthTests
     }
     static void FinalStage()
     {
-        var clock = new PracticeClock(); var seedStore = new PracticeStore(); GardenState seed;
-        using (var initial = Open(seedStore, clock, new LegacySnapshot { Nutrient = 23, Growth = .2f })) seed = initial.Snapshot;
+        var clock = new PracticeClock(); var seed=new GardenState{MigrationCompleted=true,Nutrient=23,LegacyGrowth=.2f};
+        GardenPlantVisuals.Sync(seed); // Explicit pre-collection save; migrate the complete fixture atomically.
         var appearance = seed.PlantAppearance;
         while (appearance.Recipe.GrowthStep < appearance.Recipe.MaxGrowthSteps - 1)
             appearance.Recipe = PlantGenerator.Advance(appearance.Recipe);
@@ -247,75 +247,60 @@ static class MissionPracticeGrowthTests
     }
     static void StoredGrowthLifecycle()
     {
-        var clock = new PracticeClock(); var store = new PracticeStore();
-        using (var service = Open(store, clock, new LegacySnapshot { Nutrient = 71, Growth = .2f }))
+        // Historical earned credits are still usable, but new completed-plant
+        // practices grow the next individual instead of creating further bank entries.
+        var clock=new PracticeClock();const int maximum=21;
+        var historical=new GardenState{MigrationCompleted=true,Nutrient=71+(maximum+2)*50,LegacyGrowth=.2f};
+        GardenPlantVisuals.Sync(historical);historical.PlantAppearance.IsCompleted=true;
+        for(int index=0;index<maximum+2;index++)
         {
-            string originalId = service.Snapshot.PlantAppearance.Recipe.InstanceId;
-            Assert(service.SetPlantCompleted(originalId, true), "Prepare explicitly completed low-stage individual");
-            string originalRecipe = PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
-            int maximum = service.Snapshot.PlantAppearance.Recipe.MaxGrowthSteps;
-            for (int index = 0; index < maximum + 2; index++)
-            {
-                if (index > 0) clock.Time = clock.Time.AddDays(1);
-                string id = "bank-completed-" + index;
-                ReadyPractice(service, id);
-                if (index == 0)
-                {
-                    string before = StateCodec.Encode(service.Snapshot); store.Fail = true;
-                    Assert(!service.CommitPracticeGrowth(id) && StateCodec.Encode(service.Snapshot) == before
-                        && service.Snapshot.StoredGrowthSteps == 0, "Failed bank credit creates neither stored growth nor a practice receipt");
-                    store.Fail = false;
-                }
-                Assert(service.CommitPracticeGrowth(id) && service.GetPracticeGrowth(id).Outcome == PracticeGrowthOutcome.Stored
-                    && service.Snapshot.StoredGrowthSteps == index + 1 && service.CoinBalance == 71 + index * 50
-                    && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == originalRecipe,
-                    "Completed current plant stores exactly one earned stage without changing its appearance or coins");
-                string credited = StateCodec.Encode(service.Snapshot);
-                Assert(service.CommitPracticeGrowth(id) && StateCodec.Encode(service.Snapshot) == credited
-                    && service.CompleteFocusSession(id), "Duplicate practice and final reflection do not credit the bank twice");
-            }
-            Assert(service.SavePlantPhoto("bank-photo-first", originalId) && !GardenPlantVisuals.HasCurrentPlant(service.Snapshot), "Archive completed individual while retaining all stored growth");
-            string photos = PlantCodec.Encode(service.Snapshot.PlantPhotos);
-            clock.Time = clock.Time.AddDays(1); Assert(service.RefreshCycle(Array.Empty<string>()), "Advance empty garden day");
-            string blocked = StateCodec.Encode(service.Snapshot);
-            Assert(!service.BeginFocusSession("bank-empty", "M03") && StateCodec.Encode(service.Snapshot) == blocked,
-                "Empty garden requires a new seed without consuming a mission slot or modifying stored growth");
-            string empty = StateCodec.Encode(service.Snapshot); store.Fail = true;
-            Assert(!service.StartNewPlant("bank-new-first", originalId) && StateCodec.Encode(service.Snapshot) == empty
-                && StateCodec.Encode(store.State) == empty, "Failed creation preserves all bank credits, empty garden and immutable photos");
-            store.Fail = false;
-            Assert(service.StartNewPlant("bank-new-first", originalId), "Retry creates a new individual and consumes only its available stages");
-            var first = service.Snapshot; string firstId = first.PlantAppearance.Recipe.InstanceId;
-            Assert(firstId != originalId && first.PlantAppearance.Recipe.GrowthStep == maximum && GardenPlantVisuals.IsCompleted(first)
-                && first.StoredGrowthSteps == 2 && first.PlantStartCommands.Single().AppliedGrowthSteps == maximum
-                && first.Coins == 71 + (maximum + 2) * 50 && PlantCodec.Encode(first.PlantPhotos) == photos,
-                "New plant applies at most its maximum stage, preserves overflow and records exactly how much it consumed");
-            string firstEncoded = StateCodec.Encode(first); store.Fail = true;
-            Assert(service.StartNewPlant("bank-new-first", originalId) && service.CommitPracticeGrowth("bank-completed-0")
-                && StateCodec.Encode(service.Snapshot) == firstEncoded,
-                "Old creation and practice acknowledgements cannot consume overflow or advance the replacement plant even during storage failure");
-            store.Fail = false;
-            using (var reopened = Open(store, clock))
-                Assert(StateCodec.Encode(reopened.Snapshot) == firstEncoded, "Restart restores applied and remaining growth without consuming again");
-            Assert(service.SavePlantPhoto("bank-photo-second", firstId) && service.StartNewPlant("bank-new-second", firstId),
-                "A second archived plant can pass the remaining earned growth to its successor");
-            var second = service.Snapshot;
-            Assert(second.PlantAppearance.Recipe.InstanceId != firstId && second.PlantAppearance.Recipe.GrowthStep == 2
-                && !GardenPlantVisuals.IsCompleted(second) && second.StoredGrowthSteps == 0
-                && second.PlantStartCommands.Last().AppliedGrowthSteps == 2 && second.PlantPhotos.Count == 2 && second.Coins == 71 + (maximum + 2) * 50,
-                "Overflow advances the next distinct plant exactly two stages and is consumed once");
-            string secondEncoded = StateCodec.Encode(second), frozenPhotos = PlantCodec.Encode(second.PlantPhotos);
-            Assert(service.CommitPracticeGrowth("bank-completed-0") && service.StartNewPlant("bank-new-first", originalId)
-                && StateCodec.Encode(service.Snapshot) == secondEncoded, "Old receipts remain harmless after the successor is growing again");
-            clock.Time = clock.Time.AddDays(1); ReadyPractice(service, "new-current-practice");
-            Assert(service.CommitPracticeGrowth("new-current-practice") && service.Snapshot.PlantAppearance.Recipe.GrowthStep == 3
-                && service.GetPracticeGrowth("new-current-practice").PlantInstanceId == second.PlantAppearance.Recipe.InstanceId
-                && service.Snapshot.StoredGrowthSteps == 0 && service.CoinBalance == 71 + (maximum + 2) * 50
-                && PlantCodec.Encode(service.Snapshot.PlantPhotos) == frozenPhotos,
-                "Fresh practice advances only the current successor while all archived appearances remain frozen");
-            var corrupt = second; corrupt.StoredGrowthSteps++;
-            bool rejected = false; try { StateCodec.Validate(corrupt); } catch (InvalidDataException) { rejected = true; }
-            Assert(rejected, "Persisted stored-growth balance must reconcile with its earned and consumed receipts");
+            var at=clock.Time.AddDays(index-maximum-3);string cycle=at.ToString("yyyy-MM-dd");
+            historical.LastCycleId=cycle;historical.DailyDecisions.Add(new DailyDecision{CycleId=cycle,AppliedUtc=at.ToString("O"),TimeZoneId="UTC",VisitorId=""});
+            historical.PracticeGrowthRecords.Add(new PracticeGrowthRecord{SessionId="bank-completed-"+index,
+                EligibilityKey=cycle+"|free-mission:M03",CycleId=cycle,MissionId="free-mission:M03",CommittedUtc=at.ToString("O"),Outcome=PracticeGrowthOutcome.Stored});
+            historical.Sessions.Add(new ActivitySession{SessionId="bank-completed-"+index,MissionId="free-mission:M03",InstanceId=cycle,
+                SelectedUtc=at.ToString("O"),StartedUtc=at.ToString("O"),EndedUtc=at.ToString("O"),Status=ParticipationState.RewardCommitted,RewardAmount=50});
+            historical.RewardReceipts.Add(cycle+"|free-mission:M03");
+        }
+        historical.StoredGrowthSteps=maximum+2;
+        var store=new PracticeStore{State=historical,Fail=true};
+        using(var failed=new GardenStateService(store,clock,new DemoBalanceConfig()))
+            Assert(!failed.Open()&&store.State.StoredGrowthSteps==maximum+2&&store.State.SchemaVersion==1,"Failed migration does not consume any historical earned growth");
+        store.Fail=false;
+        using(var service=Open(store,clock))
+        {
+            string originalId=service.Snapshot.PlantAppearance.Recipe.InstanceId;
+            string originalPhoto=PlantCodec.Encode(service.Snapshot.PlantPhotos.Single());
+            Assert(GardenPlantVisuals.HasCurrentPlant(service.Snapshot)&&service.Snapshot.PlantPhotos.Count==1,"Imported complete plant is automatically archived and stays visible");
+            string before=StateCodec.Encode(service.Snapshot);store.Fail=true;
+            Assert(!service.StartNewPlant("bank-new-first",originalId)&&StateCodec.Encode(service.Snapshot)==before,"Failed successor creation retains all historical credits and photos");
+            store.Fail=false;Assert(service.StartNewPlant("bank-new-first",originalId),"Compatibility start consumes historical credits");
+            var first=service.Snapshot;string firstId=first.PlantAppearance.Recipe.InstanceId;
+            Assert(firstId!=originalId&&first.PlantAppearance.Recipe.GrowthStep==maximum&&GardenPlantVisuals.IsCompleted(first)
+                &&first.StoredGrowthSteps==2&&first.PlantStartCommands.Single().AppliedGrowthSteps==maximum
+                &&first.Coins==71+(maximum+2)*50&&PlantCodec.Encode(first.PlantPhotos.First())==originalPhoto&&first.PlantPhotos.Count==2,
+                "Historical credit application stops at 21, preserves overflow, automatically archives and leaves the original picture unchanged");
+            string firstEncoded=StateCodec.Encode(first);store.Fail=true;
+            Assert(service.StartNewPlant("bank-new-first",originalId)&&service.CommitPracticeGrowth("bank-completed-0")&&StateCodec.Encode(service.Snapshot)==firstEncoded,
+                "Old creation and practice acknowledgements cannot consume overflow again during storage failure");
+            store.Fail=false;
+            using(var reopened=Open(store,clock))Assert(StateCodec.Encode(reopened.Snapshot)==firstEncoded,"Restart preserves applied and remaining credits");
+            Assert(service.StartNewPlant("bank-new-second",firstId),"Compatibility second creation applies overflow");
+            var second=service.Snapshot;string photos=PlantCodec.Encode(second.PlantPhotos);
+            Assert(second.PlantAppearance.Recipe.InstanceId!=firstId&&second.PlantAppearance.Recipe.GrowthStep==2&&!GardenPlantVisuals.IsCompleted(second)
+                &&second.StoredGrowthSteps==0&&second.PlantStartCommands.Last().AppliedGrowthSteps==2&&second.PlantPhotos.Count==2&&second.Coins==71+(maximum+2)*50,
+                "Overflow advances an independent successor exactly twice with unchanged coins");
+            string stable=StateCodec.Encode(second);
+            Assert(service.CommitPracticeGrowth("bank-completed-0")&&service.StartNewPlant("bank-new-first",originalId)&&StateCodec.Encode(service.Snapshot)==stable,
+                "Old receipts remain harmless after another successor becomes active");
+            ReadyPractice(service,"new-current-practice");
+            Assert(service.CommitPracticeGrowth("new-current-practice")&&service.Snapshot.PlantAppearance.Recipe.GrowthStep==3
+                &&service.GetPracticeGrowth("new-current-practice").PlantInstanceId==second.PlantAppearance.Recipe.InstanceId
+                &&service.Snapshot.StoredGrowthSteps==0&&service.CoinBalance==71+(maximum+2)*50&&PlantCodec.Encode(service.Snapshot.PlantPhotos)==photos,
+                "Fresh practice grows only the active successor and never replenishes the legacy bank");
+            var corrupt=second;corrupt.StoredGrowthSteps++;
+            bool rejected=false;try{StateCodec.Validate(corrupt);}catch(InvalidDataException){rejected=true;}
+            Assert(rejected,"Stored-growth balance still reconciles with historical earnings and consumption");
         }
     }
     static void ReadyBasic(GardenStateService service, string id, string program, int order)
@@ -338,11 +323,11 @@ static class MissionPracticeGrowthTests
         {
             Assert(service.RefreshCycle(Array.Empty<string>()) && service.SelectMbctProgram("2w"), "Choose short course for pending-reflection quota fixture");
             ReadyBasic(service, "quota-monday", "2w", 1);
-            Assert(service.CommitPracticeGrowth("quota-monday") && service.GetPracticeGrowth("quota-monday").Outcome == PracticeGrowthOutcome.Stored,
-                "A completed plant's basic practice reserves its occurrence while storing growth");
+            Assert(service.CommitPracticeGrowth("quota-monday") && service.GetPracticeGrowth("quota-monday").Outcome == PracticeGrowthOutcome.Grown
+                && service.Snapshot.PlantPhotos.Count==1,"A completed plant's basic practice reserves its occurrence while growing its automatic successor");
             var pending = new PracticeStore { State = service.Snapshot };
             using (var ownCompletion = Open(pending, clock))
-                Assert(ownCompletion.CompleteFocusSession("quota-monday") && ownCompletion.Snapshot.StoredGrowthSteps == 1
+                Assert(ownCompletion.CompleteFocusSession("quota-monday") && ownCompletion.Snapshot.StoredGrowthSteps == 0 && ownCompletion.Snapshot.PlantAppearance.Recipe.GrowthStep==1
                     && ownCompletion.CoinBalance == 133, "A practice can finalize its own reserved occurrence without being blocked or credited twice");
             Assert(service.EndParticipation("quota-monday") && service.SelectMbctProgram("4w"), "Abandon optional reflection and switch course");
             string before = StateCodec.Encode(service.Snapshot);
@@ -354,16 +339,16 @@ static class MissionPracticeGrowthTests
                 string id = "quota-four-week-" + order; ReadyBasic(service, id, "4w", order);
                 Assert(service.CommitPracticeGrowth(id) && service.CompleteFocusSession(id), "Next-day basic practice remains available: " + service.LastError);
             }
-            Assert(service.Snapshot.StoredGrowthSteps == 6 && service.CoinBalance == 333,
-                "Six actual practice milestones across courses reserve six weekly slots and store six stages");
+            Assert(service.Snapshot.StoredGrowthSteps == 0 && service.Snapshot.PlantAppearance.Recipe.GrowthStep==6 && service.CoinBalance == 333,
+                "Six actual practice milestones across courses reserve six weekly slots and grow six stages");
             clock.Time = clock.Time.AddDays(1); Assert(service.RefreshCycle(Array.Empty<string>()), "Advance to Sunday");
             Assert(!service.BeginFocusSession("quota-seventh", FocusMissionPolicy.MissionAt(6, "4w").Code, 6, program: "4w"),
                 "An ended first practice still counts toward the original six-per-week limit across courses");
             clock.Time = clock.Time.AddDays(1); Assert(service.RefreshCycle(Array.Empty<string>()), "Advance to following Monday");
             ReadyBasic(service, "quota-next-week", "4w", 6);
             Assert(service.CommitPracticeGrowth("quota-next-week") && service.CompleteFocusSession("quota-next-week")
-                && service.Snapshot.StoredGrowthSteps == 7 && service.CoinBalance == 383,
-                "The next calendar week reopens basic practice without losing earlier stored growth");
+                && service.Snapshot.StoredGrowthSteps == 0 && service.Snapshot.PlantAppearance.Recipe.GrowthStep==7 && service.CoinBalance == 383,
+                "The next calendar week reopens basic practice without losing earlier growth");
         }
     }
     static void Main()

@@ -75,8 +75,8 @@ namespace CapstoneDesign.Runtime.LocalState
         }
     }
 
-    // A saved picture is a frozen rendering recipe, not another growing garden plant.
-    // Keep its scale and name at capture time even when the current plant changes.
+    // Completed visual recipe/scale projection. Schema 3 keeps explicitly edited
+    // or deleted memories in sync with its canonical individual without regrowing it.
     [Serializable]
     public sealed class GardenPlantPhoto
     {
@@ -219,6 +219,12 @@ namespace CapstoneDesign.Runtime.LocalState
         public static bool Sync(GardenState state)
         {
             if (state == null) throw new ArgumentNullException(nameof(state));
+            if(state.SchemaVersion==3)
+            {
+                if(state.PlantAppearance?.Recipe==null)throw new InvalidDataException("Current individual is missing.");
+                if(state.PlantAppearance.Recipe.Mature&&!state.PlantAppearance.IsCompleted){state.PlantAppearance.IsCompleted=true;return true;}
+                return false; // New growth counts are committed with their exact individual receipt.
+            }
             bool changed = false;
             if (state.PlantAppearance == null)
             {
@@ -353,6 +359,15 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             var appearance = state.PlantAppearance;
             if (appearance == null) return; // Optional for pre-integration schema-1 saves.
+            if(state.SchemaVersion==3)
+            {
+                PlantGenerator.Validate(appearance.Recipe);
+                if(appearance.Memos==null || appearance.Credits==null || appearance.ArchivedCredits==null || appearance.PreviousActivityKeys==null
+                    || appearance.BaselineProfileCounts==null || appearance.BaselineProfileCounts.Length!=6
+                    || appearance.MissionGrowthBaseStep<0 || appearance.MissionGrowthBaseStep>appearance.Recipe.GrowthStep)
+                    throw new InvalidDataException("Invalid current individual projection.");
+                return;
+            }
             StateCodec.ValidatePlantPeriod(appearance.StartedUtc,appearance.StartedCycleId);
             if (appearance.Version != 1 || appearance.MappingVersion != 1 || appearance.BaselineProfileCounts == null
                 || !appearance.BaselineProfileCounts.SequenceEqual(CompatibilityPrior) || appearance.Credits == null || appearance.ArchivedCredits == null

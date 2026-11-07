@@ -167,6 +167,7 @@ namespace CapstoneDesign.Runtime
             {
                 var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
                 if(loop!=null && loop.HasPendingFullReset){loop.PollFullResetRecovery();return;}
+                ActivityNotificationBridge.OnAppEntry();
                 loop?.OnAppReturned();
                 home?.RefreshFromState();
             }

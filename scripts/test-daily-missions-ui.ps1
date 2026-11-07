@@ -63,7 +63,7 @@ function Copy-Source([string]$Relative, [string]$Destination) {
 }
 # Copy source/resources only. No scene, Library, user preferences, logs, save or device state.
 Copy-Source 'Assets/Scripts' (Join-Path $isolated 'Assets/Scripts')
-foreach ($resource in @('FocusMissions', 'Fonts', 'GardenAtmosphere')) { Copy-Source ('Assets/Resources/' + $resource) (Join-Path $isolated ('Assets/Resources/' + $resource)) }
+foreach ($resource in @('FocusMissions', 'Fonts', 'GardenAtmosphere', 'UI')) { Copy-Source ('Assets/Resources/' + $resource) (Join-Path $isolated ('Assets/Resources/' + $resource)) }
 foreach ($file in @('DailyMissionValidation.cs', 'DailyMissionValidation.cs.meta')) { Copy-Source ('Assets/Editor/Automation/' + $file) (Join-Path $isolated ('Assets/Editor/Automation/' + $file)) }
 foreach ($file in @('GardenThemeSurfaceTests.cs', 'GardenThemeSurfaceTests.cs.meta', 'Capstone.Prototype.Tests.asmdef', 'Capstone.Prototype.Tests.asmdef.meta')) {
     Copy-Source ('Assets/Tests/Prototype/Editor/' + $file) (Join-Path $isolated ('Assets/Tests/Prototype/Editor/' + $file))

@@ -18,7 +18,7 @@ namespace CapstoneDesign.Runtime
         static bool UsesBasicFocusSlides(ActivitySession session)
         {
             var mission = FocusMissionCatalog.FindForSession(session);
-            return session != null && session.FocusVersion >= 3 && mission != null
+            return session != null && session.FocusVersion == FocusMissionCatalog.Version && mission != null
                 && mission.Role == FocusMissionCatalog.BasicRole && int.TryParse(mission.Code.Substring(1), out int code)
                 && code >= 8 && code <= 28;
         }

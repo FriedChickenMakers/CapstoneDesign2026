@@ -1,0 +1,15 @@
+{
+  "policyVersion": "photo-v1",
+  "modelVersion": "efficientdet-lite0-int8-v1",
+  "file": "efficientdet_lite0_int8_v1.tflite",
+  "source": "https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite",
+  "modelCard": "https://www.kaggle.com/models/tensorflow/efficientdet/tfLite/lite0-int8/1",
+  "sha256": "0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb",
+  "bytes": 4602795,
+  "license": "Apache-2.0",
+  "mediapipeTasksVision": "0.10.35",
+  "labelsAsset": "labels.txt",
+  "targets": { "container": ["cup", "bottle"], "book": ["book"] },
+  "scoreThreshold": 0.60,
+  "thresholdStatus": "pilot, not yet calibrated on the target-device evaluation set"
+}

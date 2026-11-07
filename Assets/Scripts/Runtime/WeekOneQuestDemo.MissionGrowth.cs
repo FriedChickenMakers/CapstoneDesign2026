@@ -86,7 +86,7 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Button(root, "오늘의 미션으로", 24, 686, 342, 48, ShowHome, Color.clear, FigmaMissionUi.Green, 16);
             FigmaMissionUi.Button(root, "다시 시도", 24, 746, 342, 56, () =>
             {
-                if (view == root.gameObject && screen == "practice-complete-error" && sessionId == id)
+                if (root != null && view == root.gameObject && screen == "practice-complete-error" && sessionId == id)
                     HandlePracticeCompletion(id, continueAfterCompletion, commit);
             }).name = "PracticeCompletion.Retry";
             FocusEnter(root);
@@ -105,7 +105,7 @@ namespace CapstoneDesign.Runtime
         void AddCompletedPlantGuide(Transform parent, GardenState state)
         {
             if (!GardenPlantVisuals.HasCurrentPlant(state) || !GardenPlantVisuals.IsCompleted(state)) return;
-            GardenUi.FlowLabel(parent, "식물이 완성됐어요. 기록을 마친 뒤 사진첩에 남겨 보세요.", GardenUi.CaptionSize, GardenUi.Muted)
+            GardenUi.FlowLabel(parent, "완성한 모습은 사진첩에 남겼어요. 다음 성장 실습에서 새 씨앗이 시작돼요.", GardenUi.CaptionSize, GardenUi.Muted)
                 .name = "PlantGrowth.CompletedNotice";
         }
 

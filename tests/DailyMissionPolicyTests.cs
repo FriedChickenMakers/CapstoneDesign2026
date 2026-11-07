@@ -74,7 +74,9 @@ static class DailyMissionPolicyTests
                 Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot) == null, "Failed growth does not consume M slot");
                 Check(service.CommitPracticeGrowth("m"), "Retry commits M growth");
                 var receipt = service.GetPracticeGrowth("m");
-                Check(receipt.Outcome == (completedPlant ? PracticeGrowthOutcome.Stored : PracticeGrowthOutcome.Grown), "Grown and banked practice each consume one slot");
+                Check(receipt.Outcome == PracticeGrowthOutcome.Grown && service.Snapshot.StoredGrowthSteps==0
+                    && (!completedPlant || (service.Snapshot.PlantPhotos.Count==1 && receipt.PlantInstanceId!=service.Snapshot.PlantPhotos[0].SourcePlantInstanceId)),
+                    "Growing and automatically replaced plants each consume one daily slot without new bank credits");
                 Check(FocusMissionPolicy.PracticeClaimedToday(service.Snapshot, FocusMissionCatalog.AdditionalRole)
                     && FocusMissionPolicy.TodayPractice(service.Snapshot, FocusMissionCatalog.AdditionalRole).SessionId == "m"
                     && !FocusMissionPolicy.AdditionalCompletedToday(service.Snapshot), "Practice claim is visible before optional final completion");

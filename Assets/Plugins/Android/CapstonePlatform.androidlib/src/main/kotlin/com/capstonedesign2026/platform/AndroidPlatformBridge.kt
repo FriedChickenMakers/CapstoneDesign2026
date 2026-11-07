@@ -14,6 +14,11 @@ import org.json.JSONObject
 import java.lang.ref.WeakReference
 
 object AndroidPlatformBridge {
+    @JvmStatic fun startMissionPhoto(activity: Activity, id: String, target: String) = MissionPhotoController.start(activity, id, target)
+    @JvmStatic fun pollMissionPhoto(activity: Activity, id: String) = MissionPhotoController.poll(activity, id)
+    @JvmStatic fun missionPhotoDirectory(activity: Activity) = MissionPhotoController.root(activity).absolutePath
+    @JvmStatic fun cancelMissionPhoto(activity: Activity, id: String) = MissionPhotoController.cancel(activity, id)
+    @JvmStatic fun pruneMissionPhotos(activity: Activity, keep: String) = MissionPhotoController.prune(activity, keep)
     private const val RUNTIME_PERMISSION_REQUEST_CODE = 2602
 
     private var activityReference = WeakReference<Activity>(null)
@@ -24,11 +29,17 @@ object AndroidPlatformBridge {
     @JvmStatic
     fun resetLocalData(activity: Activity, resetId: String): String {
         appContext = activity.applicationContext
-        return NativeLocalReset.reset(activity.applicationContext, resetId)
+        val result=NativeLocalReset.reset(activity.applicationContext, resetId)
+        activity.runOnUiThread { notificationDialog?.dismiss(); notificationDialog=null; notificationDialogShowing=false; notificationNoticeShown="" }
+        return result
     }
 
     @JvmStatic
     fun initialize(activity: Activity, unityVersionValue: String, inputModeValue: String): String { return try {
+        if (activityReference.get() !== activity) {
+            notificationDialogShowing = false
+            notificationNoticeShown = ""
+        }
         activityReference = WeakReference(activity)
         appContext = activity.applicationContext
         unityVersion = unityVersionValue
@@ -38,6 +49,7 @@ object AndroidPlatformBridge {
         SensorRepository.initialize(activity.applicationContext)
         HealthRepository.initialize(activity.applicationContext)
         ActivityNotifications.initialize(activity.applicationContext, inputModeValue == "LIVE")
+        if (inputModeValue == "LIVE") showActivityNotificationEntryPrompt()
         resultJson(PlatformStatus.AVAILABLE, "Android platform bridge initialized")
     } catch (exception: Exception) {
         resultJson(PlatformStatus.ERROR, exception.safeMessage(), "BRIDGE_INITIALIZE_FAILED")
@@ -320,6 +332,10 @@ object AndroidPlatformBridge {
     fun configureMeasurements(binding: String, enabled: Boolean, since: Long): String =
         appContext?.let { MeasurementTelemetry.configure(it, binding, enabled && inputMode == "LIVE", since) } ?: "{}"
     @JvmStatic
+    fun recordMeasuredFocusRecommendation(kind: String, decision: String, session: String, recommended: String, actual: String,
+                                         policy: String, reason: String, occurred: Long, offset: Int): String =
+        if (inputMode == "LIVE") appContext?.let { MeasurementTelemetry.focusRecommendation(it, kind, decision, session, recommended, actual, policy, reason, occurred, offset) } ?: "{}" else "{}"
+    @JvmStatic
     fun getMeasurementBatch(binding: String): String = appContext?.let { MeasurementTelemetry.batch(it, binding) } ?: "{}"
     @JvmStatic
     fun acknowledgeMeasurements(binding: String, collection: String, accepted: String, sent: String): String =
@@ -332,9 +348,86 @@ object AndroidPlatformBridge {
     fun getActivityNotificationSettingsJson(): String = appContext?.let { ActivityNotifications.settings(it).toString() } ?: "{}"
 
     @JvmStatic
+    fun configureActivityNotificationOptions(enabled: Boolean, adaptive: Boolean): String =
+        appContext?.let { ActivityNotifications.configureOptions(it, enabled, adaptive) }
+            ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+
+    @JvmStatic
     fun configureActivityNotifications(enabled: Boolean, minute: Int, adaptive: Boolean): String =
         appContext?.let { ActivityNotifications.configure(it, enabled, minute, adaptive) }
             ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+
+    // These dialogs edit the existing daily reminder. There is no separate one-off mode.
+    private var notificationDialog: android.app.Dialog? = null
+    private var notificationDialogShowing = false
+    private var notificationNoticeShown = ""
+
+    @JvmStatic
+    fun showActivityNotificationEntryPrompt(): String {
+        val activity = activityReference.get() ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Activity unavailable")
+        if (inputMode != "LIVE") return resultJson(PlatformStatus.UNSUPPORTED, "Live Android mode required")
+        val epoch=NativeLocalReset.epoch(activity)
+        activity.runOnUiThread {
+            if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
+            if (activity.isFinishing || activity.isDestroyed || notificationDialogShowing) return@runOnUiThread
+            try {
+                val current = ActivityNotifications.settings(activity)
+                if (!current.optBoolean("timeChosen", false)) {
+                    showInitialNotificationTimePrompt(activity, epoch)
+                    return@runOnUiThread
+                }
+                val permission = current.optString("permissionStatus")
+                val blocked = permission == PlatformStatus.PERMISSION_REQUIRED || permission == PlatformStatus.PERMISSION_DENIED
+                val failed = current.optString("lastDeliveryStatus") == "failed"
+                val notice = if (blocked) permission else if (failed) "failed:" + current.optLong("lastDeliveryStatusEpochMs") else ""
+                if (!current.optBoolean("enabled", true) || notice.isEmpty()) { notificationNoticeShown = ""; return@runOnUiThread }
+                if (notice == notificationNoticeShown) return@runOnUiThread
+                notificationDialogShowing = true
+                notificationDialog = android.app.AlertDialog.Builder(activity)
+                    .setTitle("알림을 확인해 주세요")
+                    .setMessage(if (blocked) "기기에서 활동 알림이 허용되지 않았어요. 알림을 받으려면 권한을 확인해 주세요."
+                        else "최근 활동 알림의 게시를 확인하지 못했어요. 자동으로 다시 확인하며, 알림 설정도 확인할 수 있어요.")
+                    .setPositiveButton("알림 설정") { _, _ ->
+                        if(!NativeLocalReset.current(activity,epoch))return@setPositiveButton
+                        notificationNoticeShown = notice
+                        if (blocked) ActivityNotifications.requestPermission(activity)
+                        else activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, activity.packageName))
+                    }
+                    .setNegativeButton("확인") { _, _ -> notificationNoticeShown = notice }
+                    .setOnCancelListener { notificationNoticeShown = notice }
+                    .setOnDismissListener { notificationDialogShowing = false }
+                    .show()
+            } catch (_: Exception) { notificationDialogShowing = false }
+        }
+        return resultJson(PlatformStatus.AVAILABLE, "Notification entry state checked")
+    }
+
+    private fun showInitialNotificationTimePrompt(activity: Activity, epoch: String) {
+        if(!NativeLocalReset.current(activity,epoch))return
+        notificationDialogShowing = true
+        notificationDialog = android.app.AlertDialog.Builder(activity)
+            .setTitle("알림을 받을 시각을 정해 주세요")
+            .setMessage("하루 한 번, 편한 시간에 활동을 알려드려요. 정하지 않으면 낮 12시에 시작하며 설정에서 바꿀 수 있어요. 알림시간 자동 최적화는 기본으로 켜져 있어요.")
+            .setCancelable(false)
+            .setPositiveButton("시각 설정") { _, _ ->
+                if(!NativeLocalReset.current(activity,epoch))return@setPositiveButton
+                notificationDialogShowing = false
+                showNotificationTimePicker(activity, initial = true, epoch = epoch)
+            }
+            .setNegativeButton("아직 정하지 못했어요") { _, _ ->
+                if(!NativeLocalReset.current(activity,epoch))return@setNegativeButton
+                notificationDialogShowing = false
+                val current = ActivityNotifications.settings(activity)
+                val result = ActivityNotifications.configure(activity, current.optBoolean("enabled", true),
+                    ActivityReminderPolicy.DEFAULT_MINUTE, current.optBoolean("adaptive", true), timeSelected = true, adjustmentSource = "default", expectedEpoch = epoch)
+                if (JSONObject(result).optString("status") != PlatformStatus.AVAILABLE) notificationSaveError(activity)
+            }.show()
+    }
+
+    private fun notificationSaveError(activity: Activity) {
+        android.widget.Toast.makeText(activity, "알림 시간을 저장하지 못했어요. 다시 시도해 주세요.", android.widget.Toast.LENGTH_LONG).show()
+    }
 
     @JvmStatic
     fun showActivityNotificationTimePicker(): String {
@@ -342,35 +435,43 @@ object AndroidPlatformBridge {
         val epoch=NativeLocalReset.epoch(activity)
         activity.runOnUiThread {
             if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
-            val minute = ActivityNotifications.settings(activity).optInt("preferredMinute", 1200)
-            // Localize native clock and numeric-entry labels without changing the app/device locale.
-            val dialogContext = android.view.ContextThemeWrapper(activity, R.style.CapstoneTimePickerDialog).apply {
-                applyOverrideConfiguration(android.content.res.Configuration().apply {
-                    setLocale(java.util.Locale.KOREAN)
-                })
-            }
-            android.app.TimePickerDialog(dialogContext, R.style.CapstoneTimePickerDialog, { _, hour, selectedMinute ->
-                if(NativeLocalReset.current(activity,epoch)) {
-                    val current = ActivityNotifications.settings(activity)
-                    val result = ActivityNotifications.configure(activity, current.optBoolean("enabled", true),
-                        hour * 60 + selectedMinute, current.optBoolean("adaptive", true), resetLearning = true, expectedEpoch=epoch)
-                    if (JSONObject(result).optString("status") != PlatformStatus.AVAILABLE)
-                        android.widget.Toast.makeText(activity, "알림 시간을 저장하지 못했어요. 다시 시도해 주세요.", android.widget.Toast.LENGTH_LONG).show()
-                }
-            }, minute / 60, minute % 60, true).apply {
-                show()
-                // Change only the labels; keep TimePickerDialog's confirm/cancel listeners.
-                getButton(android.content.DialogInterface.BUTTON_NEGATIVE).apply {
-                    text = "취소"
-                    typeface = GardenTypography.face(activity, control = true)
-                }
-                getButton(android.content.DialogInterface.BUTTON_POSITIVE).apply {
-                    text = "선택"
-                    typeface = GardenTypography.face(activity, emphasized = true, control = true)
-                }
-            }
+            if (!notificationDialogShowing && !activity.isFinishing && !activity.isDestroyed) try {
+                showNotificationTimePicker(activity, initial = false, epoch = epoch)
+            } catch (_: Exception) { notificationDialogShowing = false; notificationSaveError(activity) }
         }
         return resultJson(PlatformStatus.AVAILABLE, "Notification time picker opened")
+    }
+
+    private fun showNotificationTimePicker(activity: Activity, initial: Boolean, epoch: String) {
+        if(!NativeLocalReset.current(activity,epoch))return
+        val minute = ActivityNotifications.settings(activity).optInt("minuteOfDay", ActivityReminderPolicy.DEFAULT_MINUTE)
+        // Localize only this clock. Its initial value matches the time shown in Settings.
+        val dialogContext = android.view.ContextThemeWrapper(activity, R.style.CapstoneTimePickerDialog).apply {
+            applyOverrideConfiguration(android.content.res.Configuration().apply { setLocale(java.util.Locale.KOREAN) })
+        }
+        notificationDialogShowing = true
+        var completed = false
+        notificationDialog = android.app.TimePickerDialog(dialogContext, R.style.CapstoneTimePickerDialog, { _, hour, selectedMinute ->
+            if(!NativeLocalReset.current(activity,epoch))return@TimePickerDialog
+            val current = ActivityNotifications.settings(activity)
+            val result = ActivityNotifications.configure(activity, current.optBoolean("enabled", true),
+                hour * 60 + selectedMinute, current.optBoolean("adaptive", true), timeSelected = true, expectedEpoch = epoch)
+            completed = JSONObject(result).optString("status") == PlatformStatus.AVAILABLE
+            if (!completed) notificationSaveError(activity)
+        }, minute / 60, minute % 60, true).apply {
+            setOnDismissListener {
+                notificationDialogShowing = false
+                if (initial && !completed && !activity.isFinishing && !activity.isDestroyed && NativeLocalReset.current(activity,epoch))
+                    showInitialNotificationTimePrompt(activity, epoch)
+            }
+            show()
+            getButton(android.content.DialogInterface.BUTTON_NEGATIVE).apply {
+                text = "취소"; typeface = GardenTypography.face(activity, control = true)
+            }
+            getButton(android.content.DialogInterface.BUTTON_POSITIVE).apply {
+                text = "선택"; typeface = GardenTypography.face(activity, emphasized = true, control = true)
+            }
+        }
     }
 
     @JvmStatic

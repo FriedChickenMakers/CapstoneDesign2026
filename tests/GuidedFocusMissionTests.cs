@@ -54,11 +54,11 @@ static class GuidedFocusMissionTests
     }
     static void CatalogCompatibility()
     {
-        Check(FocusMissionCatalog.Version == 3, "New catalog explicitly versions changed P01-P07 contracts");
+        Check(FocusMissionCatalog.Version == 4, "New catalog explicitly versions changed P01-P07 contracts");
         Check(FocusMissionCatalog.All.Length == 45, "All 28 basic and 17 additional identities retained");
         foreach (string code in Enumerable.Range(1, 7).Select(n => "P" + n.ToString("00")))
         {
-            var current = FocusMissionCatalog.Find(code, 3); var previous = FocusMissionCatalog.Find(code, 2);
+            var current = FocusMissionCatalog.Find(code, FocusMissionCatalog.Version); var previous = FocusMissionCatalog.Find(code, 2);
             Check(current != null && previous != null && current.Id == previous.Id, "Old and new stable mission identity " + code);
             Check(current.Steps.Length == 2 && current.Steps[0].Key == "practice" && current.Steps[1].Key == "notice",
                 "Two durable guided milestones " + code);
@@ -84,12 +84,12 @@ static class GuidedFocusMissionTests
             {
                 if (order > 1) NextDay(service, clock);
                 string id = "synthetic-guided-" + order, code = "P" + order.ToString("00");
-                var definition = FocusMissionCatalog.Find(code, 3);
+                var definition = FocusMissionCatalog.Find(code, FocusMissionCatalog.Version);
                 string choice = definition.Steps[0].Options.LastOrDefault() ?? "";
                 string reflection = order % 2 == 0 ? "" : definition.Steps[1].Options.LastOrDefault() ?? "synthetic observation " + order;
                 Check(service.BeginFocusSession(id, code, order, program: "8w"), "Begin " + code + ": " + service.LastError);
-                Check(Get(service, id).FocusVersion == 3 && Get(service, id).Status == ParticipationState.Selected
-                    && FocusMissionCatalog.IsGuided(Get(service, id)), "Version 3 begins as selected guided practice " + code);
+                Check(Get(service, id).FocusVersion == FocusMissionCatalog.Version && Get(service, id).Status == ParticipationState.Selected
+                    && FocusMissionCatalog.IsGuided(Get(service, id)), "Version 4 begins as selected guided practice " + code);
                 string beforeStart = Encode(service);
                 Check(!service.CompleteGuidedFocusPractice(id, choice, reflection, 3) && Encode(service) == beforeStart,
                     "Finish cannot bypass starting the practice " + code);

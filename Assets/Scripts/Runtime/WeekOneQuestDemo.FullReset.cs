@@ -141,6 +141,8 @@ namespace CapstoneDesign.Runtime
             guidedHelpIndex = 0; guidedViewRevision++;
             ResetBasicFocusSlides();
             focusExpandedCurricula.Clear(); focusExpandedRecordSteps.Clear();
+            focusVisibleRecommendation = null; focusRecommendationSignature = null;
+            photoService = null; photoRenderedStatus = null; nextPhotoPoll = 0;
             presentingPracticeGrowthSession = null;
             pendingEnvironment = pendingPurchase = null;
             plantAlbumPage = 0; pendingPlantPhotoRequest = pendingPlantPhotoSource = null;

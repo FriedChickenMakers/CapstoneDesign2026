@@ -32,6 +32,8 @@ namespace CapstoneDesign.Runtime
             for(int i=0;i<3;i++)
             {
                 var button=FigmaMissionUi.Button(transform,labels[i],12+122*i,8,122,64,actions[i],Color.white,FigmaMissionUi.Green,14);
+                // The themed face owns the corners; avoid a white sprite beneath it.
+                button.GetComponent<Image>().color=Color.clear;
                 button.GetComponentInChildren<Text>().gameObject.SetActive(false);buttons[i]=button;
                 icons[i]=FigmaMissionUi.Asset(button.transform,"FocusMissions/Main/"+new[]{"home","leaf-muted","book"}[i],50,7,22,22);
                 captions[i]=FigmaMissionUi.Label(button.transform,labels[i],8,33,106,24,14,FigmaMissionUi.Muted,true,TextAnchor.MiddleCenter);
@@ -45,13 +47,14 @@ namespace CapstoneDesign.Runtime
         public void Refresh(string active,bool? hasPending,bool hasOptional=false)
         {
             if(buttons==null)return;ActiveTab=active;
-            string[] paths={"home",active=="미션"?"leaf":"leaf-muted",active=="기록"?"book-active":"book"};
+            string[] paths={"home-white","leaf-muted-white","book-white"};
             for(int i=0;i<3;i++)
             {
                 bool selected=active==labels[i];
-                buttons[i].GetComponent<Image>().color=selected?FigmaMissionUi.Soft:Color.white;
-                GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.TabWood);
-                captions[i].color=selected?FigmaMissionUi.Green:FigmaMissionUi.Muted;
+                buttons[i].GetComponent<Image>().color=Color.clear;
+                GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf);
+                captions[i].color=selected?new Color32(35,76,54,255):Color.white;
+                icons[i].color=selected?new Color32(35,76,54,255):Color.white;
                 icons[i].texture=Resources.Load<Texture2D>("FocusMissions/Main/"+paths[i]);
             }
             badge.gameObject.SetActive(hasPending.HasValue);

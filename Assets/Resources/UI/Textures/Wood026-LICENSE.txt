@@ -1,0 +1,8 @@
+Wood026 by ambientCG
+Source: https://ambientcg.com/view?id=Wood026
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+Color map with 32px white strip for UI edges, aspect-preserving crop.
+Used for wooden buttons, saturation reduced to 35%, brightness raised to 165%.
+
+Mild sigmoidal contrast (3x50%) added to the button color map.

@@ -42,39 +42,18 @@ static class GardenPlantAppearanceTests
         if (MbctPolicy.IsMbct(mission)) Assert(service.SavePracticeStep(id, MbctContent.Find(mission).steps.Length), "finish MBCT practice");
         Assert(service.CompleteSession(id), "complete " + mission + ": " + service.LastError);
     }
-    static GardenStateService AppendHistoricalAdditional(AppearanceStore store, AppearanceClock clock, string id, string mission)
-    {
-        // The old app allowed different M missions on one day. Retain an explicit
-        // historical fixture to verify its profile cap and duplicate receipts.
-        var state=StateCodec.Clone(store.State);string receipt=state.LastCycleId+"|"+mission;
-        var session=new ActivitySession {SessionId=id,MissionId=mission,InstanceId=state.LastCycleId,
-            SelectedUtc=clock.Now.ToString("O"),StartedUtc=clock.Now.ToString("O"),EndedUtc=clock.Now.ToString("O"),Status=ParticipationState.RewardCommitted};
-        state.Sessions.Add(session);
-        var growth=new PracticeGrowthRecord {SessionId=id,MissionId=mission,EligibilityKey=receipt,CycleId=state.LastCycleId,
-            CommittedUtc=clock.Now.ToString("O"),Outcome=state.RewardReceipts.Contains(receipt)?PracticeGrowthOutcome.AlreadyClaimed:PracticeGrowthOutcome.Grown};
-        if(growth.Outcome==PracticeGrowthOutcome.Grown)
-        {
-            growth.PlantInstanceId=state.PlantAppearance.Recipe.InstanceId;
-            growth.BeforeStep=state.PlantAppearance.Recipe.GrowthStep;growth.BeforeGrowth=GardenPlantVisuals.TotalGrowth(state);
-            state.PracticeGrowthRecords.Add(growth);GardenPlantVisuals.AdvanceMissionGrowth(state);
-            growth.AfterStep=state.PlantAppearance.Recipe.GrowthStep;growth.AfterGrowth=GardenPlantVisuals.TotalGrowth(state);
-            state.RewardReceipts.Add(receipt);
-        }
-        else state.PracticeGrowthRecords.Add(growth);
-        GardenPlantVisuals.Sync(state);StateCodec.Validate(state);store.State=state;
-        return Open(store,clock,0);
-    }
     static string OldFields(GardenState state)
     {
         var document = new XmlDocument(); document.LoadXml(StateCodec.Encode(state));
         // Represent the original schema-1 writer, not today's optional additions.
         // The course-selection migration intentionally initializes its new fields.
         foreach (var key in new[] { "PlantAppearance", "MbctProgramId", "MbctProgramSelectionVersion",
-                                    "MbctProgramChosen", "MbctPrograms", "GrowthHistory" })
+                                    "MbctProgramChosen", "MbctPrograms", "GrowthHistory", "PlantCollection", "PlantPhotos", "PhotoSaveCommands", "PlantStartCommands" })
         {
             var optional = document.DocumentElement[key];
             if (optional != null) document.DocumentElement.RemoveChild(optional);
         }
+        document.DocumentElement["SchemaVersion"].InnerText="1";
         return document.OuterXml;
     }
     static void Reject(GardenState state, string message)
@@ -135,9 +114,10 @@ static class GardenPlantAppearanceTests
         {
             if(i>1)Assert(service.AdvancePreviewDay(), "each new practice uses another day");
             string session = "synthetic-step-" + i;
-            Assert(service.BeginSession(session, "free-mission:synthetic-step-" + i) && service.StartSession(session), "start one explicit practice");
+            Assert(service.BeginSession(session, "free-mission:M17") && service.StartSession(session), "start one explicit practice");
             string before = StateCodec.Encode(service.Snapshot);
-            string expected = PlantCodec.Encode(PlantGenerator.Advance(service.Snapshot.PlantAppearance.Recipe));
+            var expectedInput=GardenPlantVisuals.CopyRecipe(service.Snapshot.PlantAppearance.Recipe);expectedInput.Counts[(int)GrowthCategory.Breath]++;
+            string expected = PlantCodec.Encode(PlantGenerator.Advance(expectedInput));
             Assert(StateCodec.Encode(service.Snapshot) == before && StateCodec.Encode(store.State) == before, "detached expected next recipe leaves persistence unchanged");
             store.Fail = true;
             Assert(!service.CommitPracticeGrowth(session), "failed practice growth reported");
@@ -174,57 +154,64 @@ static class GardenPlantAppearanceTests
 
     static void ActivityCredits()
     {
-        var clock = new AppearanceClock(); var store = new AppearanceStore(); var service = Open(store, clock, 0);
-        Assert(service.RefreshCycle(new string[0]), "activity cycle");
-        Assert(service.BeginSession("synthetic-selected", "free-mission:M17") && service.StartSession("synthetic-selected"), "begin breath");
-        Assert(service.Snapshot.PlantAppearance.Credits.Count == 0, "selection and start never credit appearance");
-        string before = StateCodec.Encode(service.Snapshot); store.Fail = true;
-        Assert(!service.CompleteSession("synthetic-selected") && StateCodec.Encode(service.Snapshot) == before, "failed completion cannot credit profile or wallet");
-        store.Fail = false; Assert(service.CompleteSession("synthetic-selected"), "complete breath");
-        Assert(service.Snapshot.Coins == 50 && service.Snapshot.PlantAppearance.Credits.Count == 1, "new completion grants one appearance credit and fifty coins");
-        Assert(service.CompleteSession("synthetic-selected") && service.Snapshot.PlantAppearance.Credits.Count == 1, "completion retry deduplicated");
+        var clock=new AppearanceClock();var store=new AppearanceStore();var service=Open(store,clock,0);
+        Assert(service.RefreshCycle(new string[0]),"activity cycle");
+        Assert(service.BeginSession("synthetic-selected","free-mission:M17")&&service.StartSession("synthetic-selected"),"begin breath");
+        Assert(service.Snapshot.PlantCollection.Decisions.Count==0,"selection/start never credit appearance");
+        string before=StateCodec.Encode(service.Snapshot);store.Fail=true;
+        Assert(!service.CompleteSession("synthetic-selected")&&StateCodec.Encode(service.Snapshot)==before,"failed completion cannot credit profile or wallet");
+        store.Fail=false;Assert(service.CompleteSession("synthetic-selected"),"complete breath");
+        Assert(service.Snapshot.Coins==50&&service.Snapshot.PlantCollection.Decisions.Count==1
+            &&service.Snapshot.PlantAppearance.Recipe.Counts.SequenceEqual(new[]{1,0,0,0,0,0}),"new completion owns one canonical appearance credit and fifty coins");
+        Assert(service.CompleteSession("synthetic-selected")&&service.Snapshot.PlantCollection.Decisions.Count==1,"completion retry deduplicated");
         string claimed=StateCodec.Encode(service.Snapshot);
-        Assert(!service.BeginSession("synthetic-blocked-second", "free-mission:M04") && StateCodec.Encode(service.Snapshot)==claimed,
-            "today's app rejects a second additional mission without rewriting historical state");
-        service=AppendHistoricalAdditional(store,clock,"synthetic-breath-repeat","free-mission:M17");
-        service=AppendHistoricalAdditional(store,clock,"synthetic-body","free-mission:M04");
-        service=AppendHistoricalAdditional(store,clock,"synthetic-movement","free-mission:M15");
-        service=AppendHistoricalAdditional(store,clock,"synthetic-fourth","free-mission:M02");
-        service=AppendHistoricalAdditional(store,clock,"synthetic-unknown","free-mission:synthetic-unknown");
-        var saved = service.Snapshot;
-        Assert(saved.PlantAppearance.Credits.Count == 3 && saved.PlantAppearance.Recipe.Counts.SequenceEqual(new[] { 5, 1, 1, 0, 0, 2 }), "three recognized unique completions per cycle");
-        Assert(saved.Coins == 50 && saved.RewardReceipts.Count == 5 && saved.PlantAppearance.Recipe.GrowthStep == 5,
-            "appearance cap remains separate from growth and historical completions receive no retroactive coins");
-        var snapshot = service.Snapshot; snapshot.PlantAppearance.Credits[0].Category = 5;
-        Assert(service.Snapshot.PlantAppearance.Credits[0].Category == 0, "snapshot detaches activity receipt records");
-        clock.Now = clock.Now.AddDays(1); Assert(service.RefreshCycle(new string[0]), "next cycle");
-        CompleteOnNextDay(service, "synthetic-next-breath", "free-mission:M17");
-        CompleteOnNextDay(service, "synthetic-mbct", "course:MBCT01", 1);
-        Assert(service.Snapshot.PlantAppearance.Credits.Count == 5, "next business cycle and MBCT content are credited");
-        int credits = service.Snapshot.PlantAppearance.Credits.Count;
-        service = Open(store, clock);
-        Assert(service.Snapshot.PlantAppearance.Credits.Count == credits, "reopen does not double-count historical completions");
-        var bud = service.Snapshot.PlantAppearance.Recipe;
-        var axes = PlantCodec.Encode(bud.Axes); string species = bud.SpeciesId;
-        CompleteOnNextDay(service, "synthetic-reflection", "free-mission:M07");
-        var updated = service.Snapshot.PlantAppearance.Recipe;
-        Assert(updated.SpeciesId == species && PlantCodec.Encode(updated.Axes) == axes && updated.BaseSeed == bud.BaseSeed
-            && updated.Height == bud.Height && updated.Radius == bud.Radius,
-            "later activity cannot reroll locked species or old organs");
-        while (!service.Snapshot.PlantAppearance.Recipe.Mature)
-        {
-            string step = service.Snapshot.PlantAppearance.Recipe.GrowthStep.ToString();
-            CompleteOnNextDay(service, "synthetic-finish-" + step, "free-mission:synthetic-finish-" + step);
-        }
-        string mature = PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
-        clock.Now = clock.Now.AddDays(1); service.RefreshCycle(new string[0]);
-        CompleteOnNextDay(service, "synthetic-after-mature", "free-mission:M15");
-        Assert(PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == mature, "mature plant remains immutable after activities");
+        Assert(!service.BeginSession("synthetic-blocked-second","free-mission:M04")&&StateCodec.Encode(service.Snapshot)==claimed,"second additional mission is rejected without rewriting history");
 
-        var invalid = service.Snapshot; invalid.PlantAppearance.Credits.Add(invalid.PlantAppearance.Credits[0]); Reject(invalid, "duplicate credits rejected");
-        invalid = service.Snapshot; invalid.PlantAppearance.Recipe.Counts[0]++; Reject(invalid, "invented activity count rejected");
-        invalid = service.Snapshot; invalid.PlantAppearance.BaselineProfileCounts[0]++; Reject(invalid, "unversioned compatibility prior rejected");
-        invalid = service.Snapshot; invalid.PlantAppearance.Credits[0].MissionId = "free-mission:M01"; Reject(invalid, "receipt without real matching completion rejected");
+        // Explicit pre-collection fixture: the former app allowed multiple different
+        // M completions in one day, but credited at most three appearance categories.
+        var old=new GardenState{MigrationCompleted=true,Nutrient=50,LegacyGrowth=.2f,LastCycleId=clock.Now.ToString("yyyy-MM-dd")};
+        old.DailyDecisions.Add(new DailyDecision{CycleId=old.LastCycleId,AppliedUtc=clock.Now.ToString("O"),TimeZoneId="UTC",VisitorId=""});
+        var missions=new[]{"free-mission:M17","free-mission:M17","free-mission:M04","free-mission:M15","free-mission:M02","free-mission:synthetic-unknown"};
+        for(int i=0;i<missions.Length;i++)
+        {
+            old.Sessions.Add(new ActivitySession{SessionId="historical-"+i,MissionId=missions[i],InstanceId=old.LastCycleId,
+                SelectedUtc=clock.Now.ToString("O"),StartedUtc=clock.Now.ToString("O"),EndedUtc=clock.Now.ToString("O"),Status=ParticipationState.RewardCommitted});
+            string key=old.LastCycleId+"|"+missions[i];if(!old.RewardReceipts.Contains(key))old.RewardReceipts.Add(key);
+        }
+        GardenPlantVisuals.Sync(old);StateCodec.Validate(old);
+        string oldRecipe=PlantCodec.Encode(old.PlantAppearance.Recipe);store=new AppearanceStore{State=old};service=Open(store,clock,0);
+        var saved=service.Snapshot;
+        Assert(saved.PlantAppearance.Credits.Count==3&&saved.PlantAppearance.Recipe.Counts.SequenceEqual(new[]{5,1,1,0,0,2}),
+            "legacy migration preserves its three-category daily cap and ignores duplicate/unknown appearance sources");
+        Assert(saved.Coins==50&&saved.RewardReceipts.Count==5&&PlantCodec.Encode(saved.PlantAppearance.Recipe)==oldRecipe,
+            "historical completions do not invent retroactive growth or coins");
+        var snapshot=service.Snapshot;snapshot.PlantAppearance.Credits[0].Category=5;
+        Assert(service.Snapshot.PlantAppearance.Credits[0].Category==0,"legacy activity receipt snapshots remain detached");
+        CompleteOnNextDay(service,"synthetic-next-breath","free-mission:M17");
+        CompleteOnNextDay(service,"synthetic-mbct","course:MBCT01",1);
+        Assert(service.Snapshot.PlantCollection.Decisions.Count==2&&service.Snapshot.PlantAppearance.Credits.Count==3,
+            "new breath and MBCT credits use canonical receipts without rewriting old accounting");
+        int credits=service.Snapshot.PlantCollection.Decisions.Count;service=Open(store,clock);
+        Assert(service.Snapshot.PlantCollection.Decisions.Count==credits,"reopen does not double-count historical or new completions");
+        var bud=service.Snapshot.PlantAppearance.Recipe;var axes=PlantCodec.Encode(bud.Axes);string species=bud.SpeciesId;
+        CompleteOnNextDay(service,"synthetic-reflection","free-mission:M07");
+        var updated=service.Snapshot.PlantAppearance.Recipe;
+        Assert(updated.SpeciesId==species&&PlantCodec.Encode(updated.Axes)==axes&&updated.BaseSeed==bud.BaseSeed&&updated.Height==bud.Height&&updated.Radius==bud.Radius,
+            "later activity cannot reroll locked species or old organs");
+        while(!service.Snapshot.PlantAppearance.Recipe.Mature)
+        {
+            string step=service.Snapshot.PlantAppearance.Recipe.GrowthStep.ToString();
+            CompleteOnNextDay(service,"synthetic-finish-"+step,"free-mission:M17");
+        }
+        string mature=PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe),matureId=service.Snapshot.PlantAppearance.Recipe.InstanceId;
+        CompleteOnNextDay(service,"synthetic-after-mature","free-mission:M15");
+        Assert(PlantCodec.Encode(service.Snapshot.PlantPhotos.Single(p=>p.SourcePlantInstanceId==matureId).Recipe)==mature
+            &&service.Snapshot.PlantAppearance.Recipe.InstanceId!=matureId&&service.Snapshot.PlantAppearance.Recipe.GrowthStep==1,
+            "mature archived appearance remains exact while a later activity grows an independent successor");
+        var invalid=service.Snapshot;invalid.PlantCollection.Decisions.Add(invalid.PlantCollection.Decisions[0].Copy());Reject(invalid,"duplicate canonical credits rejected");
+        invalid=service.Snapshot;invalid.PlantAppearance.Recipe.Counts[0]++;Reject(invalid,"invented profile count rejected");
+        invalid=service.Snapshot;WeeklyPlants.Active(invalid).BaselineCounts[0]++;Reject(invalid,"invented canonical migration baseline rejected");
+        invalid=service.Snapshot;invalid.PlantCollection.Decisions.Last().Category=5;Reject(invalid,"growth category without matching saved profile rejected");
     }
 
     static void VisualGrowthLimit()
@@ -236,9 +223,9 @@ static class GardenPlantAppearanceTests
         var store = new AppearanceStore { State = state };
         var service = Open(store, clock);
         Assert(service.RefreshCycle(new string[0]), "prepare final procedural step");
-        for (int i = 0; i < 7; i++) CompleteOnNextDay(service, "synthetic-before-final-" + i, "free-mission:synthetic-before-final-" + i);
+        for (int i = 0; i < 7; i++) CompleteOnNextDay(service, "synthetic-before-final-" + i, "free-mission:M17");
         Assert(service.AdvancePreviewDay(), "final practice occurs on its own day");
-        Assert(service.BeginSession("synthetic-final-practice", "free-mission:synthetic-final-practice")
+        Assert(service.BeginSession("synthetic-final-practice", "free-mission:M17")
             && service.StartSession("synthetic-final-practice"), "last practice begins");
         var before = service.Snapshot;
         string original = StateCodec.Encode(before);
@@ -246,7 +233,8 @@ static class GardenPlantAppearanceTests
             "plant is eligible for its final procedural step");
         Assert(GardenPlantVisuals.ScaleForGrowth(.3f) == 1.9f
             && GardenPlantVisuals.ScaleForGrowth(.4f) > GardenPlantVisuals.ScaleForGrowth(.3f), "existing blossom scale and later size increase preserved");
-        var expectedRecipe = PlantGenerator.Advance(before.PlantAppearance.Recipe);
+        var expectedInput=GardenPlantVisuals.CopyRecipe(before.PlantAppearance.Recipe);expectedInput.Counts[(int)GrowthCategory.Breath]++;
+        var expectedRecipe = PlantGenerator.Advance(expectedInput);
         Assert(expectedRecipe.Mature && expectedRecipe.GrowthStep == before.PlantAppearance.Recipe.GrowthStep + 1,
             "last practice reaches the final recipe stage in one step");
         Assert(StateCodec.Encode(service.Snapshot) == original && StateCodec.Encode(store.State) == original,
@@ -298,8 +286,9 @@ static class GardenPlantAppearanceTests
                 "completion migration retries and atomically marks an old fully grown plant complete");
             var normalized = reopened.Snapshot;
             normalized.PlantAppearance.IsCompleted = false;
-            Assert(StateCodec.Encode(normalized) == oldXml && PlantCodec.Encode(reopened.Snapshot.PlantAppearance.Recipe) == originalRecipe,
-                "migration changes only completion and preserves historical growth, size, seed and every other field");
+            Assert(OldFields(normalized) == OldFields(old) && PlantCodec.Encode(reopened.Snapshot.PlantAppearance.Recipe) == originalRecipe
+                &&reopened.Snapshot.PlantPhotos.Count==1&&PlantCodec.Encode(reopened.Snapshot.PlantPhotos[0].Recipe)==originalRecipe,
+                "schema migration preserves historical nonplant fields, exact recipe and scale while automatically archiving the completed individual");
             string completedXml = StateCodec.Encode(reopened.Snapshot);
             reopened = Open(oldStore, clock);
             Assert(oldStore.Saves == 1 && StateCodec.Encode(reopened.Snapshot) == completedXml,
@@ -363,7 +352,8 @@ static class GardenPlantAppearanceTests
                 && migrated.PlantAppearance.MissionGrowthBaseGrowth == growth && PlantCodec.Encode(migrated.PlantAppearance.Recipe) == recipe,
                 "existing stage, recipe, seed and exact prior growth become the immutable migration baseline");
             migrated.PlantAppearance.MissionGrowthVersion = 0; migrated.PlantAppearance.MissionGrowthBaseStep = 0; migrated.PlantAppearance.MissionGrowthBaseGrowth = 0;
-            Assert(StateCodec.Encode(migrated) == original, "progression migration changes only its three compatibility baseline fields");
+            Assert(OldFields(migrated) == OldFields(old) && PlantCodec.Encode(migrated.PlantAppearance.Recipe)==recipe,
+                "collection migration preserves all pre-existing nonplant fields and exact baseline appearance");
             string committed = StateCodec.Encode(service.Snapshot);
             Assert(service.CommitPracticeGrowth("synthetic-old-completed") && service.Snapshot.PracticeGrowthRecords.Count == 0
                 && StateCodec.Encode(service.Snapshot) == committed, "historical completed practice is never replayed as growth or coins");
@@ -371,7 +361,7 @@ static class GardenPlantAppearanceTests
             Assert(store.Saves == 1 && StateCodec.Encode(service.Snapshot) == committed, "progression migration is idempotent across restart");
             if (growth < .3f)
             {
-                CompleteOnNextDay(service,"synthetic-after-migration","free-mission:synthetic-after-migration");
+                CompleteOnNextDay(service,"synthetic-after-migration","free-mission:M17");
                 Assert(service.Snapshot.PlantAppearance.Recipe.GrowthStep == old.PlantAppearance.Recipe.GrowthStep + 1
                     && service.Snapshot.LegacyGrowth == growth && service.Snapshot.Coins == 123,
                     "first new completion advances one real step and adds fifty coins while preserving historical growth");
@@ -390,7 +380,7 @@ static class GardenPlantAppearanceTests
         Assert(service.RefreshCycle(new string[0]), "future recipe practice cycle");
         for (int step = 1; step <= 21; step++)
         {
-            CompleteOnNextDay(service,"synthetic-21-step-" + step,"free-mission:synthetic-21-step-" + step);
+            CompleteOnNextDay(service,"synthetic-21-step-" + step,"free-mission:M17");
             Assert(service.Snapshot.PlantAppearance.Recipe.GrowthStep == step && service.Snapshot.PlantAppearance.Recipe.MaxGrowthSteps == 21
                 && service.Snapshot.PlantAppearance.IsCompleted == (step == 21), "practice progression honors the recipe limit without a fixed twelve-step assumption");
         }

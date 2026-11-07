@@ -58,6 +58,15 @@ namespace CapstoneDesign.Runtime
             }
         }
 
+        // Notification entry can happen on the garden before any health/settings read.
+        // Initialize the existing platform connection without querying health history.
+        internal static void EnsureNotificationConnection()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (provider.Mode == PlatformInputMode.Live) EnsureInitialized();
+#endif
+        }
+
         public static AndroidPlatformSnapshot GetSnapshot()
         {
             using var timing = UiPerformanceProbe.Measure("Platform.GetSnapshot");

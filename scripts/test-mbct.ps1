@@ -13,6 +13,7 @@ $sources += @('Assets/Scripts/Runtime/MindfulnessContent.cs', 'Assets/Scripts/Ru
 $sources += @('Catalog', 'Math', 'Recipe', 'Generator', 'Geometry') | ForEach-Object { 'Assets/Scripts/ProceduralPlants/Plant' + $_ + '.cs' }
 $sources += 'tests/MbctTests.cs'
 $sources = $sources | ForEach-Object { Join-Path $projectRoot $_ }
+$sources = @($sources + (& (Join-Path $PSScriptRoot 'garden-domain-sources.ps1') -ProjectRoot $projectRoot)) | Select-Object -Unique
 New-Item -ItemType Directory -Path $testDirectory | Out-Null
 try {
     & $mono $compiler -langversion:latest -r:System.Xml.dll -r:System.Core.dll "-out:$testBinary" @sources

@@ -66,44 +66,18 @@ namespace CapstoneDesign.Runtime
             if (hasCurrent && current?.Recipe != null)
             {
                 string source = current.Recipe.InstanceId;
-                bool saved = photos.Any(photo => photo.SourcePlantInstanceId == source);
-                bool completed = GardenPlantVisuals.IsCompleted(state);
-                bool compact = photos.Length > 0;
-                var card = FigmaMissionUi.Box(body, "PlantAlbum.Current", 24, y, 342, compact ? 144 : 310, Color.white, 20);
-                FigmaMissionUi.Label(card, "지금 정원의 식물", compact ? 12 : 20, compact ? 8 : 16,
-                    compact ? 318 : 302, compact ? 20 : 28, compact ? 13 : 18, null, true);
-                CreatePlantAlbumPreview(card, "PlantAlbum.CurrentPreview", compact ? 12 : 16, compact ? 36 : 56,
-                    compact ? 80 : 140, compact ? 96 : 152,
-                    current.Recipe, GardenPlantVisuals.ScaleForGrowth(GardenPlantVisuals.TotalGrowth(state)), false, current.Memos);
-                FigmaMissionUi.Label(card, GardenHomePresenter.CurrentPlantName(current.Recipe), compact ? 104 : 172,
-                    compact ? 30 : 64, compact ? 222 : 150, compact ? 26 : 52, compact ? 18 : 19, null, true);
-                FigmaMissionUi.Label(card, saved ? "사진첩에 보관했어요" : completed ? "사진으로 남겨 자연으로 보내요" : "아직 자라는 중이에요",
-                    compact ? 104 : 172, compact ? 60 : 124, compact ? 222 : 150, compact ? 20 : 48,
-                    compact ? 13 : 15, FigmaMissionUi.Green);
-                if (!compact)
-                {
-                    string description = saved ? "함께한 모습은 사진첩에 남아 있어요." : completed
-                        ? "사진을 남기고 자연으로 보내요." : "완성하면 사진첩에 남길 수 있어요.";
-                    FigmaMissionUi.Label(card, description, 20, 210, 302, 28, 14, FigmaMissionUi.Muted);
-                }
-                var save = FigmaMissionUi.Button(card, saved ? "사진첩에 저장됨" : "사진첩에 담아 보내기", compact ? 104 : 20,
-                    compact ? 88 : 246, compact ? 222 : 302, 48,
-                    () => { if (IsPlantPageCurrent(albumFrame, "plant-album")) SaveCurrentPlantPhoto(source); }, saved || !completed ? FigmaMissionUi.Soft : FigmaMissionUi.Green,
-                    saved || !completed ? FigmaMissionUi.Muted : Color.white);
-                save.name = "PlantAlbum.SaveCurrent";
-                save.interactable = completed && !saved;
-                y += compact ? 160 : 330;
-            }
-            else if (current?.Recipe != null)
-            {
-                string archivedSource = current.Recipe.InstanceId;
-                var card = FigmaMissionUi.Box(body, "PlantAlbum.EmptyGarden", 24, y, 342, 144, Color.white, 20);
-                FigmaMissionUi.Label(card, "자연으로 돌려보냈어요", 20, 12, 302, 28, 19, null, true);
-                FigmaMissionUi.Label(card, state.StoredGrowthSteps > 0 ? "보관한 성장 " + state.StoredGrowthSteps + "회 · 새 식물에 반영해요."
-                    : "함께한 모습은 사진첩에서 다시 만나요.", 20, 48, 302, 24, 14, FigmaMissionUi.Muted).name = "PlantAlbum.StoredGrowth";
-                FigmaMissionUi.Button(card, "새 식물 키우기", 20, 88, 302, 48,
-                    () => { if (IsPlantPageCurrent(albumFrame, "plant-album")) StartNewGardenPlant(archivedSource); },
-                    FigmaMissionUi.Green, Color.white).name = "PlantAlbum.StartNew";
+                var individual = WeeklyPlants.Active(state);
+                var card = FigmaMissionUi.Box(body, "PlantAlbum.Current", 24, y, 342, 144, Color.white, 20);
+                FigmaMissionUi.Label(card, "지금 정원의 식물", 12, 8, 318, 20, 13, null, true);
+                CreatePlantAlbumPreview(card, "PlantAlbum.CurrentPreview", 12, 36, 80, 96,
+                    current.Recipe, individual?.RenderScale ?? GardenPlantVisuals.ScaleForGrowth(GardenPlantVisuals.TotalGrowth(state)),
+                    false, current.Memos, PlantAlbumHistory.Leaves(state, source));
+                FigmaMissionUi.Label(card, GardenHomePresenter.CurrentPlantName(current.Recipe), 104, 30, 222, 26, 18, null, true);
+                FigmaMissionUi.Label(card, individual?.Completed == true ? "완성한 모습은 사진첩에 담았어요" : "실습을 마칠 때마다 함께 자라요",
+                    104, 60, 222, 22, 13, FigmaMissionUi.Green);
+                FigmaMissionUi.Button(card, "기억 잎 보기", 104, 88, 222, 48,
+                    () => { if (IsPlantPageCurrent(albumFrame, "plant-album")) ShowPlantMemories(source); },
+                    FigmaMissionUi.Green, Color.white).name = "PlantAlbum.CurrentMemories";
                 y += 160;
             }
             FigmaMissionUi.Label(body, "간직한 식물 · " + photos.Length + "개", 24, y, 342, 28, 18, null, true);
@@ -113,7 +87,7 @@ namespace CapstoneDesign.Runtime
             {
                 var empty = FigmaMissionUi.Box(body, "PlantAlbum.Empty", 24, y, 342, 128, FigmaMissionUi.Soft, 20);
                 FigmaMissionUi.Label(empty, "아직 저장한 사진이 없어요", 20, 24, 302, 28, 18, FigmaMissionUi.Green, true);
-                FigmaMissionUi.Label(empty, "완성한 식물을 저장하면\n이곳에서 다시 볼 수 있어요.", 20, 64, 302, 48, 15, FigmaMissionUi.Muted);
+                FigmaMissionUi.Label(empty, "식물을 완성하면 자동으로 담겨요.\n함께한 모습을 여기서 다시 만나요.", 20, 64, 302, 48, 15, FigmaMissionUi.Muted);
                 y += 148;
             }
             else
@@ -126,7 +100,7 @@ namespace CapstoneDesign.Runtime
                     var tile = FigmaMissionUi.Button(body, "", 24 + (i % 2) * 177, y + (i / 2) * 288, 165, 272,
                         () => { if (IsPlantPageCurrent(albumFrame, "plant-album")) ShowPlantPhoto(photoId); }, Color.white, FigmaMissionUi.Ink);
                     tile.name = "PlantAlbum.Photo." + photoId;
-                    CreatePlantAlbumPreview(tile.transform, "PlantAlbum.Thumbnail." + photoId, 12, 12, 141, 152, photo.Recipe, photo.Scale, false, photo.Memos);
+                    CreatePlantAlbumPreview(tile.transform, "PlantAlbum.Thumbnail." + photoId, 12, 12, 141, 152, photo.Recipe, photo.Scale, false, photo.Memos, PlantAlbumHistory.Leaves(state, photo.SourcePlantInstanceId));
                     FigmaMissionUi.Label(tile.transform, photo.DisplayName, 12, 174, 141, 42, 16, null, true);
                     FigmaMissionUi.Label(tile.transform, PlantAlbumHistory.Period(photo, Service.CurrentTimeZone), 12, 218, 141, 42, 12, FigmaMissionUi.Muted)
                         .name = "PlantAlbum.Period." + photoId;
@@ -148,73 +122,15 @@ namespace CapstoneDesign.Runtime
             body.sizeDelta = new Vector2(390, Mathf.Max(628, y + 72));
         }
 
-        void SaveCurrentPlantPhoto(string source)
-        {
-            if (!opened || screen != "plant-album") return;
-            var current = Service.Snapshot;
-            if (!GardenPlantVisuals.HasCurrentPlant(current) || current.PlantAppearance.Recipe.InstanceId != source) return;
-            // A failed write retains the same command, including after leaving
-            // and returning. The domain also guards duplicates by source identity.
-            if (pendingPlantPhotoSource != source || string.IsNullOrEmpty(pendingPlantPhotoRequest))
-            {
-                pendingPlantPhotoSource = source;
-                pendingPlantPhotoRequest = Guid.NewGuid().ToString("N");
-            }
-            if (!Service.SavePlantPhoto(pendingPlantPhotoRequest, source))
-            {
-                plantAlbumSaveFailed = true;
-                SetPlantAlbumNotice();
-                return;
-            }
-            error = null;
-            plantAlbumSaveFailed = false;
-            // Retain the successful request too; the archived/source guard above
-            // makes queued clicks harmless after this plant has left the garden.
-            plantAlbumPage = 0;
-            UpdateGarden();
-            ShowPlantAlbum();
-        }
-
-        public void StartNewGardenPlant(string archivedSource)
-        {
-            if (!opened) return;
-            var current = Service.Snapshot;
-            // Each button belongs to one empty planter. A delayed event from an
-            // earlier plant must never replace its successor or start a new cycle.
-            if (GardenPlantVisuals.HasCurrentPlant(current) || current.PlantAppearance?.Recipe?.InstanceId != archivedSource) return;
-            if (pendingNewPlantSource != archivedSource || string.IsNullOrEmpty(pendingNewPlantRequest))
-            {
-                pendingNewPlantSource = archivedSource;
-                pendingNewPlantRequest = Guid.NewGuid().ToString("N");
-            }
-            if (!Service.StartNewPlant(pendingNewPlantRequest, archivedSource))
-            {
-                error = Service.LastError;
-                newPlantStartFailed = true;
-                if (notice != null)
-                {
-                    notice.gameObject.SetActive(true);
-                    notice.text = "새 식물을 심지 못했어요.\n사진첩은 그대로예요. 다시 시도해 주세요.";
-                }
-                transform.root.GetComponent<GardenHomePresenter>()?.RefreshFromState();
-                return;
-            }
-            error = null;
-            newPlantStartFailed = false;
-            plantAlbumSaveFailed = false;
-            GoGarden();
-            if (transform.root.GetComponent<MockupNavigation>() == null) ShowPlantAlbum();
-        }
+        // Retained entry points for old serialized events. Collection transitions
+        // happen only in the atomic growth transaction, never in these view callbacks.
+        void SaveCurrentPlantPhoto(string source) { if (opened) ShowPlantAlbum(); }
+        public void StartNewGardenPlant(string archivedSource) { if (opened) ShowHome(); }
 
         void SetPlantAlbumNotice(bool showSaveFailure = true)
         {
             if (notice == null) return;
-            bool failed = showSaveFailure && (plantAlbumSaveFailed || newPlantStartFailed);
-            notice.gameObject.SetActive(failed);
-            notice.text = !failed ? "" : newPlantStartFailed
-                ? "새 식물을 심지 못했어요.\n사진첩은 그대로예요. 다시 시도해 주세요."
-                : "사진을 남기지 못했어요.\n식물은 정원에 있어요. 다시 시도해 주세요.";
-            notice.transform.SetAsLastSibling();
+            notice.gameObject.SetActive(false); notice.text = "";
         }
 
         public void ShowPlantPhoto(string photoId)
@@ -235,7 +151,7 @@ namespace CapstoneDesign.Runtime
             name.name = "PlantAlbum.DetailName";
             var period = FigmaMissionUi.Label(card, PlantAlbumHistory.Period(photo, Service.CurrentTimeZone), 16, 26, 310, 20, 14, FigmaMissionUi.Muted);
             period.name = "PlantAlbum.DetailPeriod";
-            var preview = CreatePlantAlbumPreview(card, "PlantAlbum.DetailPreview", 16, 48, 310, 288, photo.Recipe, photo.Scale, InteractivePlantPhotos, photo.Memos);
+            var preview = CreatePlantAlbumPreview(card, "PlantAlbum.DetailPreview", 16, 48, 310, 288, photo.Recipe, photo.Scale, InteractivePlantPhotos, photo.Memos, PlantAlbumHistory.Leaves(state, photo.SourcePlantInstanceId));
             preview.MemoClicked += memoId => OpenPlantMemo(photo.SourcePlantInstanceId, memoId, photo.Id, preview.transform);
             var records = PlantAlbumHistory.Records(state, photo);
             var heading = FigmaMissionUi.Label(root, "그날의 기록 · " + records.Length + "개", 24, 472, 342, 24, 16, FigmaMissionUi.Ink, true);
@@ -247,6 +163,21 @@ namespace CapstoneDesign.Runtime
             scroll.horizontal = false; scroll.movementType = ScrollRect.MovementType.Clamped; scroll.scrollSensitivity = 30;
             AddPlantRecordScrollbar(viewport, scroll);
             float y = 6;
+            if (preview.MemoryPageCount > 1)
+            {
+                var pageLabel = FigmaMissionUi.Label(content, "기억 잎 1 / " + preview.MemoryPageCount, 88, y, 166, 44,
+                    14, FigmaMissionUi.Muted, false, TextAnchor.MiddleCenter);
+                Action<int> selectPage = delta => {
+                    if (!current()) return;
+                    preview.SetMemoryPage(preview.MemoryPage + delta);
+                    pageLabel.text = "기억 잎 " + (preview.MemoryPage + 1) + " / " + preview.MemoryPageCount;
+                };
+                FigmaMissionUi.Button(content, "이전 잎", 6, y, 80, 44, () => selectPage(-1), Color.white, FigmaMissionUi.Green, 14)
+                    .name = "PlantAlbum.MemoryPrevious";
+                FigmaMissionUi.Button(content, "다음 잎", 256, y, 80, 44, () => selectPage(1), Color.white, FigmaMissionUi.Green, 14)
+                    .name = "PlantAlbum.MemoryNext";
+                y += 54;
+            }
             foreach (var record in records)
             {
                 string memoId = record.Id;
@@ -311,12 +242,13 @@ namespace CapstoneDesign.Runtime
         }
 
         static GardenPlantPhotoView CreatePlantAlbumPreview(Transform parent, string name, float x, float y, float width, float height,
-            PlantRecipe recipe, float scale, bool interactive, IReadOnlyList<GardenPlantMemo> memos = null)
+            PlantRecipe recipe, float scale, bool interactive, IReadOnlyList<GardenPlantMemo> memos = null,
+            IReadOnlyList<PlantMemoryLeaf> memories = null, int memoryPage = 0)
         {
             var surface = FigmaMissionUi.Rect(parent, name, x, y, width, height);
             surface.gameObject.AddComponent<RawImage>();
             var preview = surface.gameObject.AddComponent<GardenPlantPhotoView>();
-            preview.Initialize(recipe, scale, interactive, memos);
+            preview.Initialize(recipe, scale, interactive, memos, memories, memoryPage);
             return preview;
         }
 

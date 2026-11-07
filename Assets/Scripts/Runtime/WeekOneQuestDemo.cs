@@ -121,6 +121,7 @@ namespace CapstoneDesign.Runtime
             TickRecordHeartRefresh();
             TickWalkingPersonalization();
             TickMissionNotifications();
+            TickMissionPhoto();
             if(opened && Time.unscaledTime >= nextCycleCheck) { nextCycleCheck=Time.unscaledTime+30; RefreshCycle(); }
         }
         void OnApplicationFocus(bool focus) { if(!opened || HasPendingFullReset)return; if(focus) { if(!IsMissionDebugActive)OnAppReturned(); } else SaveActivePracticeDraft(); }
@@ -449,7 +450,7 @@ namespace CapstoneDesign.Runtime
             bool hasCurrent=GardenPlantVisuals.HasCurrentPlant(current);
             bool completed=GardenPlantVisuals.IsCompleted(current);
             string archivedSource=current.PlantAppearance?.Recipe?.InstanceId;
-            GardenUi.Label(p,!hasCurrent?"함께한 식물은 자연으로 돌아갔어요.\n빈 화분에서 새 식물을 키워 보세요.":completed?"완성한 식물이에요.\n사진으로 남겨 자연으로 보내 보세요.":
+            GardenUi.Label(p,!hasCurrent?"다음 실습에서 새 씨앗과 함께해요.":completed?"완성한 모습은 사진첩에 남겼어요.\n다음 실습에서 새 씨앗이 자라요.":
                 "미션을 완료하면 식물이 자라요.\n코인은 꽃밭과 쉼터를 꾸밀 때 사용해요.",.07f,.64f,.86f,.14f,28);
             GardenUi.Button(p,!hasCurrent?"새 식물 키우기":completed?"사진첩으로 이동":"미션으로 식물 키우기",.07f,.52f,.86f,.085f,
                 ()=>{if(!IsPlantPageCurrent(shopPage,"shop"))return;
@@ -515,10 +516,10 @@ namespace CapstoneDesign.Runtime
             // There is no pending growth purchase to retry after completion.
             error=null;
             var p=FocusPage("완성한 식물", "지금 정원의 식물",true);
-            var completedNotice=GardenUi.FlowLabel(p,"완성한 식물이에요.\n사진첩에 저장해 지금 모습을 간직해 보세요.");
+            var completedNotice=GardenUi.FlowLabel(p,"완성한 식물이에요.\n사진첩에 지금 모습을 간직했어요.");
             completedNotice.name="PlantGrowth.CompletedNotice";
             ShowIntegratedPurchasePreview(current);
-            GardenUi.FlowLabel(p,"사진첩에 담으면 식물은 자연으로 돌아가요.\n빈 화분에서 새 식물을 시작할 수 있어요.",GardenUi.CaptionSize,GardenUi.Muted);
+            GardenUi.FlowLabel(p,"다음 성장 실습에서 새 씨앗이 시작돼요.\n함께한 식물과 기록은 사진첩에 남아요.",GardenUi.CaptionSize,GardenUi.Muted);
             AddStoredGrowthGuide(p, current);
             DockAction("사진첩으로 이동",ShowPlantAlbum,true);
             DockAction("정원으로",GoGarden);
@@ -539,7 +540,7 @@ namespace CapstoneDesign.Runtime
         void SetPurchaseAvailability(Transform parent,Button confirm,string unavailable)
         {
             confirm.interactable=unavailable==null;
-            if(unavailable!=null)confirm.GetComponentInChildren<Text>().color=GardenUi.Muted;
+            if(unavailable!=null)confirm.GetComponentInChildren<Text>().color=GardenThemeSurface.Foreground(confirm.transform,GardenUi.Muted);
             var explanation=GardenUi.Label(parent,unavailable??"확정할 때만 코인이 차감돼요.",.07f,.10f,.86f,.10f,25);
             explanation.color=unavailable==null?GardenUi.Muted:GardenUi.Warning;
         }
