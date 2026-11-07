@@ -24,7 +24,7 @@ if host:
 sources = sorted((root / 'Assets/Scripts/ProceduralPlants').glob('*.cs'))
 sources = [p for p in sources if p.name != 'ProceduralPlantView.cs']
 sources += [root / ('Assets/Scripts/Runtime/' + name + '.cs') for name in (
-    'LocalGardenState', 'WeeklyPlantState', 'GardenPlantAppearance', 'FocusMissionCatalog',
+    'LocalGardenState', 'CameraMissionPolicy', 'WeeklyPlantState', 'GardenPlantAppearance', 'FocusMissionCatalog',
     'FocusDrawingData', 'MindfulnessContent', 'MbctContent')]
 tests = sys.argv[1:] or ['WeeklyPlantTests']
 with tempfile.TemporaryDirectory(prefix='synthetic-weekly-plants-') as temporary:

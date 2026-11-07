@@ -1008,7 +1008,7 @@ namespace CapstoneDesign.EditorTools
                 Layout();
                 Assert(scroll.content.anchoredPosition.y > 1, "Scrollbar did not move its page content.");
             }
-            public void CompletePractice(FocusMissionDefinition definition, bool capture, bool thinkOnly = false, string alternateRoute = null)
+            public void CompletePractice(FocusMissionDefinition definition, bool capture, bool thinkOnly = false, string alternateRoute = null, bool keepPhotoChoice = false)
             {
                 int limit = 0;
                 while (Latest.InstructionStep < definition.Steps.Length)
@@ -1055,7 +1055,8 @@ namespace CapstoneDesign.EditorTools
                     Click(step.OptionalInput && thinkOnly ? (Has("속으로 확인했어요") ? "속으로 확인했어요" : "건너뛰기") : "Focus.Action");
                     Assert(Latest.InstructionStep > index, "Practice action did not advance: " + definition.Code + " " + step.Key);
                 }
-                Assert(Has("다음"), "Practice did not lead to shared emotion.");
+                if(Has("Photo.Skip")&&!keepPhotoChoice)Click("Photo.Skip");
+                Assert(Has("다음")||(keepPhotoChoice&&Has("Photo.Skip")), "Practice did not lead to optional photo or shared emotion.");
             }
             public void AssertVisibleAssets()
             {

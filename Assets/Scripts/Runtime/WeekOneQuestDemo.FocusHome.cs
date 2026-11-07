@@ -469,6 +469,7 @@ namespace CapstoneDesign.Runtime
             if(entry.FocusEndReason=="skipped"||entry.FocusEndReason=="stopped")when+="\n미완료로 마침 · 실제 수행만 기록";
             if (elapsed > 0) when += "\n집중한 시간 · " + FocusRecordDuration(elapsed);
             y = BuildFocusRecordCard(body, group, when, y, FigmaMissionUi.Soft);
+            y = BuildMissionPhotoRecord(body,entry,y);
             if (!string.IsNullOrEmpty(entry.Mood)) y = BuildFocusRecordCard(body, "그때의 감정", entry.Mood, y);
             if (!string.IsNullOrEmpty(entry.Note)) y = BuildFocusRecordCard(body, "내가 남긴 한 줄", entry.Note, y);
             if (focus)
@@ -481,7 +482,7 @@ namespace CapstoneDesign.Runtime
                 y = BuildFocusRecordCard(body, "시작할 때 정한 걷기 목표", entry.WalkingGoalSteps.ToString("N0") + "걸음\n걸음 확인 구간\n" + LocalTime(entry.WalkingQueryStartUtc) + " ~ " + LocalTime(entry.WalkingQueryEndUtc) + "\n" + WalkingPersonalization.Explanation(entry), y);
             bool hasPersonalRecord = !string.IsNullOrEmpty(entry.Mood) || !string.IsNullOrEmpty(entry.Note) || (entry.FocusStepRecords != null && entry.FocusStepRecords.Any(r => !r.Skipped && !string.IsNullOrEmpty(r.Value))) || (entry.Answers != null && entry.Answers.Count > 0);
             if (!hasPersonalRecord) y = BuildFocusRecordCard(body, "실천을 남겼어요", "감정이나 글을 남기지 않아도 수행 내용은 저장돼요.", y);
-            if (focus && entry.Status == ParticipationState.RewardCommitted) y = BuildFocusRecordCard(body, "받은 영양제", "+" + entry.RewardAmount + (entry.FocusReview ? " · 복습" : ""), y);
+            if (focus && entry.Status == ParticipationState.RewardCommitted) y = BuildFocusRecordCard(body, "받은 영양제", "미션 완료 +" + entry.RewardAmount + (entry.FocusReview ? " · 복습" : "")+(entry.PhotoBonusAmount>0?"\n사진 확인 보너스 +"+entry.PhotoBonusAmount:""), y);
             if (focus)
             {
                 bool expanded = focusExpandedRecordSteps.Contains(id);

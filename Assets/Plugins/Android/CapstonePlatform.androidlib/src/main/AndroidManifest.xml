@@ -14,11 +14,20 @@
     <uses-permission android:name="android.permission.health.READ_EXERCISE" />
 
     <queries>
+        <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>
         <package android:name="com.google.android.apps.healthdata" />
         <package android:name="com.sec.android.app.shealth" />
     </queries>
 
     <application>
+        <activity android:name="com.capstonedesign2026.platform.MissionPhotoActivity"
+            android:exported="false" android:excludeFromRecents="true"
+            android:theme="@style/CapstoneTransparentActivity" />
+        <provider android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.missionphotos"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/mission_photo_paths" />
+        </provider>
         <activity android:name="com.capstonedesign2026.platform.NotificationEntryActivity"
             android:exported="false" android:excludeFromRecents="true"
             android:theme="@style/CapstoneTransparentActivity" />
