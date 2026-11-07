@@ -123,7 +123,7 @@ namespace CapstoneDesign.Runtime
             notificationTimeValue.color=GardenUi.Muted;
             notificationTimeValue.rectTransform.offsetMin=new Vector2(-184,0);
             notificationTimeValue.rectTransform.offsetMax=new Vector2(-44,0);
-            notificationAdaptive=SwitchRow(notificationOptions.transform,"확인한 시간에 맞추기",ToggleAdaptiveReminders);
+            notificationAdaptive=SwitchRow(notificationOptions.transform,"알림시간 자동 최적화",ToggleAdaptiveReminders);
             notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());
             notificationActionStatus=ActionLine(reminders);
 
@@ -229,7 +229,7 @@ namespace CapstoneDesign.Runtime
             notificationSettings=ActivityNotificationBridge.Settings();
             var n=notificationSettings;
             bool permission=n.permissionStatus=="AVAILABLE";
-            notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":n.enabled && !permission?"기기에서 알림을 허용해 주세요.":"";
+            notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":n.enabled && !permission?"기기에서 알림을 허용해 주세요.":n.enabled && n.lastDeliveryStatus=="failed"?"최근 알림의 게시를 확인하지 못했어요. 다시 확인 중이에요.":"";
             notificationStatus.gameObject.SetActive(notificationStatus.text.Length>0);
             UpdateSwitch(notificationToggle,n.enabled);
             notificationTimeValue.text=(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00")+"쯤";
@@ -240,8 +240,8 @@ namespace CapstoneDesign.Runtime
         }
         void ToggleActivityNotifications()
         {
-            var n=notificationSettings ?? ActivityNotificationBridge.Settings();
-            if(ApplyNotificationSettings(!n.enabled,n.preferredMinute,n.adaptive) && !n.enabled)ActivityNotificationBridge.Permission();
+            var n=ActivityNotificationBridge.Settings();
+            if(ApplyNotificationOptions(!n.enabled,n.adaptive) && !n.enabled)ActivityNotificationBridge.Permission();
             RefreshNotificationSettings();
         }
         void ChangeNotificationTime(int minute)
@@ -252,14 +252,19 @@ namespace CapstoneDesign.Runtime
         }
         void ToggleAdaptiveReminders()
         {
-            var n=notificationSettings ?? ActivityNotificationBridge.Settings();
-            ApplyNotificationSettings(n.enabled,n.preferredMinute,!n.adaptive);
+            var n=ActivityNotificationBridge.Settings();
+            ApplyNotificationOptions(n.enabled,!n.adaptive);
             RefreshNotificationSettings();
         }
 
-        bool ApplyNotificationSettings(bool enabled,int minute,bool adaptive)
+        bool ApplyNotificationSettings(bool enabled,int minute,bool adaptive) =>
+            ReportNotificationSave(ActivityNotificationBridge.Configure(enabled,minute,adaptive));
+
+        bool ApplyNotificationOptions(bool enabled,bool adaptive) =>
+            ReportNotificationSave(ActivityNotificationBridge.ConfigureOptions(enabled,adaptive));
+
+        bool ReportNotificationSave(PlatformActionResult result)
         {
-            var result=ActivityNotificationBridge.Configure(enabled,minute,adaptive);
             bool saved=result!=null && result.status=="AVAILABLE";
             notificationActionStatus.text=saved?"":"알림 설정을 저장하지 못했어요. 다시 시도해 주세요.";
             notificationActionStatus.gameObject.SetActive(!saved);

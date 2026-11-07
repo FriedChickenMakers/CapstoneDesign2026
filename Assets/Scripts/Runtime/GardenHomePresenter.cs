@@ -410,7 +410,7 @@ namespace CapstoneDesign.Runtime
             float growth = shownPlant==null?GardenPlantVisuals.TotalGrowth(saved):shownPlant.Legacy?shownPlant.LegacyGrowth:.3f;
             var recipe=shownPlant?.Recipe??saved.PlantAppearance.Recipe;
             int visualStage = shownPlant==null||shownPlant.Legacy?StageForGrowth(growth):recipe.GrowthStep==0?0:recipe.GrowthStep<7?1:recipe.GrowthStep<12?2:3;
-            RenderPlant(recipe, growth);
+            RenderPlant(recipe, growth,shownPlant!=null&&!shownPlant.Legacy?WeeklyPlants.VisualScale(saved,shownPlant.Id):1f);
             if (date != null) date.text = CurrentDateText();
             if (title != null) title.text = recipe.SpeciesId==null && shownPlant!=null&&!shownPlant.Legacy?WeeklyPlants.Title(shownPlant):CurrentPlantName(RenderedRecipe);
             if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개";
@@ -445,7 +445,7 @@ namespace CapstoneDesign.Runtime
             }
         }
 
-        void RenderPlant(PlantRecipe recipe, float growth)
+        void RenderPlant(PlantRecipe recipe, float growth,float participationScale)
         {
             if (gardenRoot == null) return;
             // Keep serialized prototype assets for the standalone scene and a
@@ -476,7 +476,7 @@ namespace CapstoneDesign.Runtime
             RenderedRecipe = recipe;
             // The generated plant is the garden's main subject, while each
             // species keeps its own proportions and exact saved mesh.
-            float scale = GardenPlantVisuals.ScaleForGrowth(growth);
+            float scale = GardenPlantVisuals.ScaleForGrowth(growth)*participationScale;
             renderedScale=scale;
             bool scaleChanged = ProceduralPlant.transform.localScale != Vector3.one * scale;
             ProceduralPlant.transform.localScale = Vector3.one * scale;

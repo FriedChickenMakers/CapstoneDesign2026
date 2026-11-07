@@ -36,7 +36,24 @@ namespace CapstoneDesign.Runtime.LocalState
         public string SessionToken, PlantId, CycleId, CreatedUtc;
         public bool Granted;
         public int Step, Category;
+        // Version 0 is an existing completion: its saved geometry/scale is unchanged.
+        public int AccountingVersion, AccountingSequence, AwardedUnits;
+        public string SettledParticipationToken, ParticipationEligibilityToken;
         internal PlantGrowthDecision Copy() => (PlantGrowthDecision)MemberwiseClone();
+    }
+    public sealed class ParticipationGrowthPolicy
+    {
+        // Reversible engineering defaults, not clinical dose or final reward tuning.
+        public const int NormalCompletionUnits = 100;
+        public int Version = 1, PartialUnits = 20, DailyPartialUnits = 60, OutstandingPlantUnits = 100;
+        internal ParticipationGrowthPolicy Copy() => (ParticipationGrowthPolicy)MemberwiseClone();
+    }
+    public sealed class ParticipationGrowthDecision
+    {
+        // These hashes deliberately outlive deletion of detailed mission history.
+        public string SessionToken, EligibilityToken, PlantId, CycleId, CreatedUtc, Reason;
+        public int Units, Category, AccountingSequence, ConfiguredPartialUnits, DailyLimitUnits, OutstandingLimitUnits, PolicyVersion = 1;
+        internal ParticipationGrowthDecision Copy() => (ParticipationGrowthDecision)MemberwiseClone();
     }
     public sealed class PlantCollectionState
     {
@@ -45,9 +62,12 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<PlantInstanceState> Plants = new List<PlantInstanceState>();
         public List<PlantGrowthDecision> Decisions = new List<PlantGrowthDecision>();
         public List<string> DeletedExperienceTokens = new List<string>();
+        public ParticipationGrowthPolicy ParticipationPolicy = new ParticipationGrowthPolicy();
+        public List<ParticipationGrowthDecision> ParticipationDecisions = new List<ParticipationGrowthDecision>();
         internal PlantCollectionState Copy() => new PlantCollectionState {
             PolicyVersion=PolicyVersion,ActiveId=ActiveId,Plants=Plants.Select(p=>p.Copy()).ToList(),
-            Decisions=Decisions.Select(d=>d.Copy()).ToList(),DeletedExperienceTokens=new List<string>(DeletedExperienceTokens) };
+            Decisions=Decisions.Select(d=>d.Copy()).ToList(),DeletedExperienceTokens=new List<string>(DeletedExperienceTokens),
+            ParticipationPolicy=ParticipationPolicy.Copy(),ParticipationDecisions=ParticipationDecisions.Select(d=>d.Copy()).ToList() };
     }
     public static class WeeklyPlants
     {
@@ -86,6 +106,51 @@ namespace CapstoneDesign.Runtime.LocalState
             }
             return changed;
         }
+        // An occurrence key never includes policy version: changing tuning cannot pay it twice.
+        public static string ParticipationKey(ActivitySession session,string cycle)
+        {
+            if(!FocusMissionPolicy.IsFocus(session))return null;
+            string identity=session.FocusRole==FocusMissionCatalog.BasicRole
+                ? "basic|"+FocusMissionPolicy.ProgramFor(session)+"|"+session.FocusOrder.ToString(CultureInfo.InvariantCulture)
+                : "additional|"+session.MissionId+"|"+cycle;
+            return StateCodec.Hash("participation-eligibility|"+identity);
+        }
+        public static int VisualCreditUnits(GardenState state,string plantId) =>
+            state.PlantCollection.Decisions.Where(d=>d.PlantId==plantId && d.AccountingVersion==1).Sum(d=>d.AwardedUnits)
+            +state.PlantCollection.ParticipationDecisions.Where(d=>d.PlantId==plantId).Sum(d=>d.Units);
+        // Geometry still advances at real completions only. Saved credits add persistent,
+        // monotonic physical size, including while the first plant is still a seed.
+        public static float VisualScale(GardenState state,string plantId) =>
+            1f+.06f*(float)Math.Sqrt((double)VisualCreditUnits(state,plantId)/ParticipationGrowthPolicy.NormalCompletionUnits);
+        static int NextAccountingSequence(PlantCollectionState c) => checked(1+Math.Max(
+            c.Decisions.Select(d=>d.AccountingSequence).DefaultIfEmpty(0).Max(),
+            c.ParticipationDecisions.Select(d=>d.AccountingSequence).DefaultIfEmpty(0).Max()));
+        public static void EndParticipation(GardenState state,ActivitySession session,string now)
+        {
+            if(state.SchemaVersion!=2 || !FocusMissionPolicy.IsFocus(session) || session.FocusReview
+                || session.Status!=ParticipationState.Ended || !new[]{"skipped","stopped","alternative"}.Contains(session.FocusEndReason)
+                || !session.FocusStepRecords.Any(r=>!string.IsNullOrEmpty(r.PracticeStartedUtc)))return;
+            GrowthCategory category;
+            if(!GardenPlantVisuals.TryCategory(session.MissionId,out category))return;
+            var c=state.PlantCollection;string token=Token(session.SessionId);
+            if(c.ParticipationDecisions.Any(d=>d.SessionToken==token))return;
+            string key=ParticipationKey(session,state.LastCycleId);
+            var plant=Active(state);var policy=c.ParticipationPolicy;int units=0;string reason;
+            if(c.ParticipationDecisions.Any(d=>d.EligibilityToken==key && d.Units>0))reason="already-credited";
+            else if(c.ParticipationDecisions.Where(d=>d.CycleId==state.LastCycleId).Sum(d=>d.Units)+policy.PartialUnits>policy.DailyPartialUnits)reason="daily-participation-limit";
+            else
+            {
+                if(plant.Recipe.Mature)plant=NewPlant(state,now);
+                var settled=new HashSet<string>(c.Decisions.Where(d=>d.SettledParticipationToken!=null).Select(d=>d.SettledParticipationToken));
+                int outstanding=c.ParticipationDecisions.Where(d=>d.PlantId==plant.Id && !settled.Contains(d.SessionToken)).Sum(d=>d.Units);
+                if(outstanding+policy.PartialUnits>policy.OutstandingPlantUnits)reason="outstanding-participation-limit";
+                else {units=policy.PartialUnits;reason="started-then-ended";}
+            }
+            c.ParticipationDecisions.Add(new ParticipationGrowthDecision {SessionToken=token,EligibilityToken=key,
+                PlantId=plant.Id,CycleId=state.LastCycleId,CreatedUtc=now,Units=units,Category=(int)category,Reason=reason,PolicyVersion=policy.Version,
+                AccountingSequence=NextAccountingSequence(c),ConfiguredPartialUnits=policy.PartialUnits,
+                DailyLimitUnits=policy.DailyPartialUnits,OutstandingLimitUnits=policy.OutstandingPlantUnits});
+        }
         public static void Complete(GardenState state,ActivitySession session,string now,int utcOffset)
         {
             if(state.SchemaVersion!=2)return;
@@ -94,6 +159,9 @@ namespace CapstoneDesign.Runtime.LocalState
             GrowthCategory category;
             if(!GardenPlantVisuals.TryCategory(session.MissionId,out category))return;
             var plant=Active(state);bool granted=Today(state)<DailyLimit;
+            var settled=new HashSet<string>(collection.Decisions.Where(d=>d.SettledParticipationToken!=null).Select(d=>d.SettledParticipationToken));
+            string key=ParticipationKey(session,state.LastCycleId);
+            var participation=key==null?null:collection.ParticipationDecisions.FirstOrDefault(d=>d.EligibilityToken==key && d.Units>0 && !settled.Contains(d.SessionToken));
             if(granted)
             {
                 if(plant.Recipe.Mature)plant=NewPlant(state,now);
@@ -102,7 +170,9 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(plant.Recipe.Mature)plant.CompletedUtc=now;
             }
             collection.Decisions.Add(new PlantGrowthDecision{SessionToken=token,PlantId=plant.Id,CycleId=state.LastCycleId,
-                CreatedUtc=now,Granted=granted,Step=plant.Recipe.GrowthStep,Category=(int)category});
+                CreatedUtc=now,Granted=granted,Step=plant.Recipe.GrowthStep,Category=(int)category,AccountingVersion=1,AccountingSequence=NextAccountingSequence(collection),
+                AwardedUnits=granted?ParticipationGrowthPolicy.NormalCompletionUnits-(participation?.Units??0):0,
+                ParticipationEligibilityToken=key,SettledParticipationToken=granted?participation?.SessionToken:null});
             Reflection(state,session,now,utcOffset);
         }
         public static void Reflection(GardenState state,ActivitySession session,string now,int utcOffset)
@@ -132,7 +202,7 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             var c=state.PlantCollection;
             if(state.SchemaVersion==1) { if(c!=null)throw new InvalidDataException("Plant collection requires schema 2.");return; }
-            if(c==null || c.PolicyVersion!=1 || c.Plants==null || c.Decisions==null || c.DeletedExperienceTokens==null || c.Plants.Any(p=>p==null) || c.Decisions.Any(d=>d==null))throw new InvalidDataException("Invalid plant collection.");
+            if(c==null || c.PolicyVersion!=1 || c.Plants==null || c.Decisions==null || c.DeletedExperienceTokens==null || c.ParticipationDecisions==null || c.ParticipationPolicy==null || c.Plants.Any(p=>p==null) || c.Decisions.Any(d=>d==null))throw new InvalidDataException("Invalid plant collection.");
             if(c.DeletedExperienceTokens.Any(t=>t==null||t.Length!=64) || c.DeletedExperienceTokens.Distinct().Count()!=c.DeletedExperienceTokens.Count
                 || state.Experiences.Any(e=>c.DeletedExperienceTokens.Contains(Token(e.Id))))throw new InvalidDataException("Deleted experience restored by retry.");
             if(c.Plants.Select(p=>p.Id).Distinct().Count()!=c.Plants.Count || c.Plants.Count(p=>p.Legacy)>1 || Active(state)==null || Active(state).Legacy)throw new InvalidDataException("Invalid active plant.");
@@ -164,6 +234,7 @@ namespace CapstoneDesign.Runtime.LocalState
                         && (!string.IsNullOrWhiteSpace(s.Mood)||!string.IsNullOrWhiteSpace(s.Note))))throw new InvalidDataException("Missing reflection.");
                 }
             }
+            ValidateParticipation(state);
             if(Active(state).Ordinal!=ordinal)throw new InvalidDataException("Active plant order mismatch.");
             var seen=new HashSet<string>();var steps=new Dictionary<string,int>();var counts=new Dictionary<string,int[]>();var daily=new Dictionary<string,int>();
             foreach(var d in c.Decisions)
@@ -179,6 +250,73 @@ namespace CapstoneDesign.Runtime.LocalState
             foreach(var p in c.Plants.Where(p=>!p.Legacy))
                 if(p.Recipe.GrowthStep!=(steps.TryGetValue(p.Id,out int step)?step:0) || (counts.ContainsKey(p.Id)&&!p.Recipe.Counts.SequenceEqual(counts[p.Id])))throw new InvalidDataException("Recipe differs from growth decisions.");
         }
+        static bool ValidPolicy(int partial,int daily,int outstanding) => partial>0 && partial<ParticipationGrowthPolicy.NormalCompletionUnits
+            && daily>=partial && daily<=ParticipationGrowthPolicy.NormalCompletionUnits
+            && outstanding>=partial && outstanding<=ParticipationGrowthPolicy.NormalCompletionUnits;
+        static void ValidateParticipation(GardenState state)
+        {
+            var c=state.PlantCollection;var policy=c.ParticipationPolicy;
+            if(policy.Version!=1 || !ValidPolicy(policy.PartialUnits,policy.DailyPartialUnits,policy.OutstandingPlantUnits))
+                throw new InvalidDataException("Invalid participation growth policy.");
+            // Detailed history may be deleted and an old command ID retried. Validate the
+            // durable ledger itself, not a new live session that happens to reuse that ID.
+            var seen=new HashSet<string>();var sequences=new HashSet<int>();
+            foreach(var d in c.ParticipationDecisions)
+            {
+                if(d==null || !Hash(d.SessionToken) || !seen.Add(d.SessionToken) || !Hash(d.EligibilityToken) || !Timestamp(d.CreatedUtc)
+                    || !state.DailyDecisions.Any(day=>day.CycleId==d.CycleId) || !c.Plants.Any(p=>p.Id==d.PlantId&&!p.Legacy)
+                    || d.Category<0 || d.Category>5 || d.PolicyVersion!=1 || d.AccountingSequence<1 || !sequences.Add(d.AccountingSequence)
+                    || !ValidPolicy(d.ConfiguredPartialUnits,d.DailyLimitUnits,d.OutstandingLimitUnits))
+                    throw new InvalidDataException("Invalid participation growth receipt.");
+            }
+            foreach(var d in c.Decisions)
+            {
+                if(d.AccountingVersion==0)
+                {
+                    if(d.AccountingSequence!=0 || d.AwardedUnits!=0 || d.SettledParticipationToken!=null || d.ParticipationEligibilityToken!=null)
+                        throw new InvalidDataException("Legacy growth accounting changed.");
+                    continue;
+                }
+                if(d.AccountingVersion!=1 || d.AccountingSequence<1 || !sequences.Add(d.AccountingSequence)
+                    || (d.ParticipationEligibilityToken!=null && !Hash(d.ParticipationEligibilityToken)))throw new InvalidDataException("Unknown growth accounting.");
+            }
+            if(sequences.Count>0 && (sequences.Max()!=sequences.Count || sequences.Min()!=1))throw new InvalidDataException("Growth accounting event missing.");
+            var events=new SortedDictionary<int,object>();
+            foreach(var d in c.ParticipationDecisions)events.Add(d.AccountingSequence,d);
+            foreach(var d in c.Decisions.Where(d=>d.AccountingVersion==1))events.Add(d.AccountingSequence,d);
+            var eligibility=new HashSet<string>();var paid=new Dictionary<string,ParticipationGrowthDecision>();
+            var settled=new HashSet<string>();var daily=new Dictionary<string,int>();var outstanding=new Dictionary<string,int>();
+            foreach(var entry in events)
+            {
+                var participation=entry.Value as ParticipationGrowthDecision;
+                if(participation!=null)
+                {
+                    var d=participation;
+                    if(!daily.ContainsKey(d.CycleId))daily[d.CycleId]=0;
+                    if(!outstanding.ContainsKey(d.PlantId))outstanding[d.PlantId]=0;
+                    string reason=eligibility.Contains(d.EligibilityToken)?"already-credited"
+                        : daily[d.CycleId]+d.ConfiguredPartialUnits>d.DailyLimitUnits?"daily-participation-limit"
+                        : outstanding[d.PlantId]+d.ConfiguredPartialUnits>d.OutstandingLimitUnits?"outstanding-participation-limit"
+                        : "started-then-ended";
+                    int expected=reason=="started-then-ended"?d.ConfiguredPartialUnits:0;
+                    if(d.Reason!=reason || d.Units!=expected)throw new InvalidDataException("Participation amount or limit reason differs from its ledger.");
+                    if(d.Units>0)
+                    {
+                        eligibility.Add(d.EligibilityToken);paid.Add(d.SessionToken,d);
+                        daily[d.CycleId]+=d.Units;outstanding[d.PlantId]+=d.Units;
+                    }
+                    continue;
+                }
+                var completion=(PlantGrowthDecision)entry.Value;
+                var previous=completion.Granted&&completion.ParticipationEligibilityToken!=null
+                    ? paid.Values.FirstOrDefault(p=>p.EligibilityToken==completion.ParticipationEligibilityToken&&!settled.Contains(p.SessionToken)):null;
+                if(completion.SettledParticipationToken!=previous?.SessionToken
+                    || completion.AwardedUnits!=(completion.Granted?ParticipationGrowthPolicy.NormalCompletionUnits-(previous?.Units??0):0))
+                    throw new InvalidDataException("Completion growth total differs from A settlement.");
+                if(previous!=null) {settled.Add(previous.SessionToken);outstanding[previous.PlantId]-=previous.Units;}
+            }
+        }
+        static bool Hash(string text) => text!=null && text.Length==64 && text.All(c=>"0123456789ABCDEF".Contains(c));
         static bool Timestamp(string text) => DateTimeOffset.TryParse(text,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out _);
     }
 

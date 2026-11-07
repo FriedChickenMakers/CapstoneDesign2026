@@ -1,0 +1,109 @@
+using System;
+using System.Linq;
+using CapstoneDesign.Runtime.LocalState;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace CapstoneDesign.Runtime
+{
+    public sealed partial class WeekOneQuestDemo
+    {
+        Action focusAdjustmentCancel;
+        Func<bool> focusPlanPersist;
+
+        void ShowFocusAdjustmentPrompt(Transform root, FocusMissionDefinition mission, string title, string detail, string confirm, Func<bool> apply)
+        {
+            if(focusAdjustmentCancel!=null)return;
+            var clock=focusPracticeClock;bool resume=clock!=null&&clock.Running;
+            var audio=root.GetComponentInChildren<FocusAudioPlayer>();bool resumeAudio=audio!=null&&audio.Playing;
+            if(audio!=null)audio.PausePlayback();
+            if(clock!=null)clock.Pause();
+            if(!SaveFocusDraft())return;
+            var overlay=FigmaMissionUi.Box(root,"Focus.AdjustmentModal",0,0,390,844,new Color(0,0,0,.38f),0);
+            overlay.GetComponent<Image>().raycastTarget=true;
+            var panel=FigmaMissionUi.Box(overlay,"선택 확인",24,260,342,284,FigmaMissionUi.Background,20);
+            FigmaMissionUi.Label(panel,title,24,24,294,60,22,FigmaMissionUi.Ink,true);
+            FigmaMissionUi.Label(panel,detail,24,96,294,80,16,FigmaMissionUi.Muted);
+            Action cancel=()=>{focusAdjustmentCancel=null;overlay.gameObject.SetActive(false);Destroy(overlay.gameObject);if(resume&&clock!=null&&!clock.Running)clock.ToggleRunning();if(resumeAudio&&audio!=null)audio.ResumePlayback();};
+            focusAdjustmentCancel=cancel;
+            FigmaMissionUi.Button(panel,"취소",24,204,140,56,cancel,Color.white,FigmaMissionUi.Brown).name="Focus.AdjustmentCancel";
+            FigmaMissionUi.Button(panel,confirm,178,204,140,56,()=>{focusAdjustmentCancel=null;if(!apply()){focusAdjustmentCancel=cancel;return;}if(overlay!=null){overlay.gameObject.SetActive(false);Destroy(overlay.gameObject);}},FocusAccent(mission)).name="Focus.AdjustmentConfirm";
+            overlay.SetAsLastSibling();
+        }
+
+        void ShowFocusShortenPrompt(Transform root,FocusMissionDefinition mission,string id,int step)
+        {
+            var clock=focusPracticeClock;if(clock==null||!clock.HasStarted)return;
+            ShowFocusAdjustmentPrompt(root,mission,"여기까지만 진행할까요?","현재 실습 구간을 마치고 다음 안내로 이어가요.","여기까지 하기",()=>
+            {
+                if(!FocusSaved(Service.ShortenFocusStep(id,step,clock.ElapsedSeconds,focusAnswer)))return false;
+                focusDirty=false;ShowFocusPractice();return true;
+            });
+        }
+
+        void ShowFocusEndPrompt(Transform root,FocusMissionDefinition mission,string id)
+        {
+            ShowFocusAdjustmentPrompt(root,mission,"이번 미션을 미뤄둘까요?","완료로 기록하지 않아요. 기본 코스의 현재 회차는 그대로 두고 다른 활동을 고를 수 있어요.","미뤄두기",()=>
+            {
+                if(!FocusSaved(Service.EndFocusParticipation(id)))return false;
+                focusDirty=false;focusPracticeClock=null;focusDrawing=null;ShowFocusHome();return true;
+            });
+        }
+
+        bool MarkFocusPracticeStarted()
+        {
+            var session=ActiveSession();var mission=FocusMissionCatalog.FindForSession(session);
+            if(session==null||mission==null||session.InstructionStep>=mission.Steps.Length)return true;
+            int step=session.InstructionStep;var record=session.FocusStepRecords[step];
+            if(!GardenStateService.IsActualFocusPractice(mission.Steps[step])||!string.IsNullOrEmpty(record.PracticeStartedUtc)||!string.IsNullOrEmpty(record.ConfirmedUtc))return true;
+            return FocusSaved(Service.StartFocusPracticeStep(session.SessionId,step));
+        }
+
+        void AttachFocusPracticeStart(Transform root,FocusMissionDefinition mission,int step)
+        {
+            if(step<0||focusPracticeClock!=null||!GardenStateService.IsActualFocusPractice(mission.Steps[step])||new[]{"draw","input","plan","choice"}.Contains(mission.Steps[step].Kind))return;
+            var record=ActiveSession().FocusStepRecords[step];
+            var start=FigmaMissionUi.Button(root,string.IsNullOrEmpty(record.PracticeStartedUtc)?"실습 시작":"실습 중",45,714,300,48,()=>
+            {
+                if(FocusSaved(Service.StartFocusPracticeStep(sessionId,step)))ShowFocusPractice();
+            },FigmaMissionUi.Warm,FigmaMissionUi.Brown,15);
+            start.name="Focus.PracticeStart";start.interactable=string.IsNullOrEmpty(record.PracticeStartedUtc)&&string.IsNullOrEmpty(record.ConfirmedUtc);
+        }
+
+        void BuildFocusPlan(Transform root,FocusMissionDefinition mission)
+        {
+            var session=ActiveSession();int step=session.InstructionStep;var record=session.FocusStepRecords[step];
+            string activity=record.PlanActivity??"",period=record.PlanTimePeriod??"",note=record.PlanNote??"";
+            // Retain pre-existing free text; only an explicit activity preset replaces it.
+            if(activity.Length==0&&period.Length==0&&note.Length==0&&!string.IsNullOrEmpty(record.Value))note=record.Value;
+            var accent=FocusAccent(mission);
+            Func<bool> save=()=>
+            {
+                focusAnswer=FocusMissionAdjustmentPolicy.ComposePlan(activity,period,note);focusDirty=true;
+                bool saved=FocusSaved(Service.SaveFocusPlan(session.SessionId,step,activity,period,note));if(saved)focusDirty=false;
+                var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null)action.interactable=!string.IsNullOrWhiteSpace(focusAnswer);
+                return saved;
+            };
+            focusPlanPersist=()=>!focusDirty||save();
+            FigmaMissionUi.Label(root,"어떤 일을 할까요?",45,238,300,24,15,FocusInk(mission),true);
+            var activities=FocusMissionAdjustmentPolicy.PlanActivityOptions;
+            for(int i=0;i<activities.Length;i++)
+            {
+                string option=activities[i];
+                FigmaMissionUi.Button(root,option,45+i%2*154,268+i/2*48,146,44,()=>{activity=option;note="";if(save())ShowFocusPractice();},activity==option?accent:Color.white,activity==option?Color.white:accent,14).name="Focus.PlanActivity."+i;
+            }
+            FigmaMissionUi.Label(root,"편한 시간대",45,370,300,24,15,FocusInk(mission),true);
+            var periods=FocusMissionAdjustmentPolicy.PlanTimePeriodOptions;
+            for(int i=0;i<periods.Length;i++)
+            {
+                string option=periods[i];
+                FigmaMissionUi.Button(root,option,45+i%2*154,400+i/2*46,146,42,()=>{period=option;if(save())ShowFocusPractice();},period==option?accent:Color.white,period==option?Color.white:accent,14).name="Focus.PlanPeriod."+i;
+            }
+            FigmaMissionUi.Label(root,"직접 적어도 좋아요 · 선택",45,540,300,24,14,FocusMuted(mission));
+            var input=FigmaMissionUi.Input(root,"예: 저녁에 차 마시기",45,572,300,64,450);
+            input.name="Focus.PlanNote";input.SetTextWithoutNotify(note);
+            input.onValueChanged.AddListener(value=>{note=value;focusAnswer=FocusMissionAdjustmentPolicy.ComposePlan(activity,period,note);focusDirty=true;var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null)action.interactable=!string.IsNullOrWhiteSpace(focusAnswer);});
+            input.onEndEdit.AddListener(value=>save());AttachFocusKeyboard(root,input,"작은 계획",FigmaMissionUi.Hex(mission.BackgroundHex),accent);
+        }
+    }
+}

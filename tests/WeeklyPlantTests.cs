@@ -27,6 +27,169 @@ class WeeklyPlantTests
         Check(s.BeginSession(id,"free-mission:M17",0),"begin: "+s.LastError);Check(s.StartSession(id),"start");
         Check(s.CompleteSession(id,mood),"complete: "+s.LastError);
     }
+    const string GrowthNow="2026-11-04T03:00:00Z";
+    static ActivitySession GrowthSession(string id,string mission="free-mission:M17",bool basic=false,int order=1)
+    {
+        return new ActivitySession {SessionId=id,MissionId=mission,FocusVersion=FocusMissionCatalog.Version,FocusProgramId="2w",
+            FocusRole=basic?FocusMissionCatalog.BasicRole:FocusMissionCatalog.AdditionalRole,FocusOrder=basic?order:0,
+            Status=ParticipationState.Ended,FocusEndReason="skipped",FocusStepRecords=new System.Collections.Generic.List<FocusStepRecord> {
+                new FocusStepRecord {PracticeStartedUtc=GrowthNow} }};
+    }
+    static void GrowthDay(GardenState state,int days)
+    {
+        var time=DateTimeOffset.Parse(GrowthNow).AddDays(days);state.LastCycleId=time.ToString("yyyy-MM-dd");
+        state.DailyDecisions.Add(new DailyDecision {CycleId=state.LastCycleId,AppliedUtc=time.ToString("O"),VisitorId="",TimeZoneId="Synthetic KST"});
+    }
+    static void ValidateRejected(GardenState state,string message)
+    {
+        bool rejected=false;try{StateCodec.Validate(state);}catch(InvalidDataException){rejected=true;}Check(rejected,message);
+    }
+    static void ParticipationGrowthChecks()
+    {
+        var state=Open(new Store(),new Clock()).Snapshot;var plant=WeeklyPlants.Active(state);
+        string recipe=PlantCodec.Encode(plant.Recipe);string seed=plant.Recipe.BaseSeed;
+        var intro=GrowthSession("synthetic-partial-intro");intro.FocusStepRecords[0].PracticeStartedUtc=null;
+        WeeklyPlants.EndParticipation(state,intro,GrowthNow);
+        var pause=GrowthSession("synthetic-partial-pause");pause.Status=ParticipationState.Paused;WeeklyPlants.EndParticipation(state,pause,GrowthNow);
+        var close=GrowthSession("synthetic-partial-close");close.FocusEndReason=null;WeeklyPlants.EndParticipation(state,close,GrowthNow);
+        var review=GrowthSession("synthetic-partial-review");review.FocusReview=true;WeeklyPlants.EndParticipation(state,review,GrowthNow);
+        Check(state.PlantCollection.ParticipationDecisions.Count==0,"intro, pause, close and review do not create participation rewards");
+        var first=GrowthSession("synthetic-partial-first");WeeklyPlants.EndParticipation(state,first,GrowthNow);
+        Check(state.PlantCollection.ParticipationDecisions.Single().Units==20,"actual start and explicit stop gives provisional 20 units");
+        Check(PlantCodec.Encode(plant.Recipe)==recipe&&plant.Recipe.BaseSeed==seed&&WeeklyPlants.Today(state)==0,"partial does not fake completed steps, quota, category or seed");
+        Check(state.Nutrient==0&&state.Sessions.Count==0,"pure growth receipt grants no nutrient or completion");
+        float before=WeeklyPlants.VisualScale(state,plant.Id);
+        Check(before>1.02f&&before<1.03f,"partial growth is persistent physical size, not pulse only");
+        state=StateCodec.Decode(StateCodec.Encode(state));
+        Check(WeeklyPlants.VisualScale(state,plant.Id)==before,"XML reload retains exact partial visual scale");
+        WeeklyPlants.EndParticipation(state,first,GrowthNow);
+        WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-partial-repeat"),GrowthNow);
+        Check(state.PlantCollection.ParticipationDecisions.Count==2&&state.PlantCollection.ParticipationDecisions.Last().Reason=="already-credited","same session and mission-day duplicate payout prevented");
+        var completion=GrowthSession("synthetic-partial-complete");WeeklyPlants.Complete(state,completion,GrowthNow,540);
+        Check(state.PlantCollection.Decisions.Last().AwardedUnits==80&&WeeklyPlants.VisualCreditUnits(state,plant.Id)==100,"A settlement partial 20 plus completion 80 equals 100");
+        Check(WeeklyPlants.VisualScale(state,plant.Id)>before&&WeeklyPlants.Active(state).Recipe.GrowthStep==1,"completion increases scale and real completion count without shrink");
+        WeeklyPlants.Complete(state,completion,GrowthNow,540);
+        Check(WeeklyPlants.VisualCreditUnits(state,plant.Id)==100,"completion retry cannot repeat top-up");
+        WeeklyPlants.Complete(state,GrowthSession("synthetic-partial-new-complete"),GrowthNow,540);
+        Check(state.PlantCollection.Decisions.Last().AwardedUnits==100,"new normal repeat retains full growth after first settlement");
+        StateCodec.Validate(state);
+        var bad=StateCodec.Clone(state);bad.PlantCollection.Decisions.Last().SettledParticipationToken=WeeklyPlants.Token(first.SessionId);
+        bad.PlantCollection.Decisions.Last().AwardedUnits=80;ValidateRejected(bad,"one participation credit cannot be settled by two completions");
+        bad=StateCodec.Clone(state);bad.PlantCollection.Decisions[0].AwardedUnits=100;ValidateRejected(bad,"invalid A total rejected");
+        bad=StateCodec.Clone(state);bad.PlantCollection.ParticipationPolicy.PartialUnits=100;ValidateRejected(bad,"full-sized partial policy rejected");
+        bad=StateCodec.Clone(state);bad.PlantCollection.ParticipationDecisions[0].Units=40;ValidateRejected(bad,"forged partial amount rejected by recorded policy");
+        bad=StateCodec.Clone(state);bad.PlantCollection.ParticipationDecisions[0].AccountingSequence=99;ValidateRejected(bad,"missing or duplicate event ordering rejected");
+        var retuned=StateCodec.Clone(state);retuned.PlantCollection.ParticipationPolicy.PartialUnits=10;
+        StateCodec.Validate(retuned);Check(WeeklyPlants.VisualCreditUnits(retuned,plant.Id)==200,"future tuning does not recalculate immutable previous grants");
+        // Deleting mission history leaves only opaque payout guards, and therefore cannot replay growth.
+        var deleted=StateCodec.Clone(state);deleted.Sessions.Clear();WeeklyPlants.EndParticipation(deleted,GrowthSession("synthetic-partial-after-delete"),GrowthNow);
+        Check(deleted.PlantCollection.ParticipationDecisions.Last().Units==0,"history deletion cannot reset participation entitlement");StateCodec.Validate(deleted);
+        GrowthDay(state,1);WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-partial-next-day"),"2026-11-05T03:00:00Z");
+        Check(state.PlantCollection.ParticipationDecisions.Last().Units==20,"additional mission gets next-day entitlement");StateCodec.Validate(state);
+        // Course occurrence is independent of day, mission-code reuse, and tuning version.
+        state=Open(new Store(),new Clock()).Snapshot;
+        WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-basic-stop","course:P04",true),GrowthNow);
+        GrowthDay(state,1);WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-basic-retry","course:P04",true),"2026-11-05T03:00:00Z");
+        Check(state.PlantCollection.ParticipationDecisions.Last().Units==0,"basic same occurrence is once across days");
+        WeeklyPlants.Complete(state,GrowthSession("synthetic-basic-done","course:P04",true),"2026-11-05T03:00:00Z",540);
+        Check(state.PlantCollection.Decisions.Last().AwardedUnits==80,"basic later day completion settles original occurrence");StateCodec.Validate(state);
+        state=Open(new Store(),new Clock()).Snapshot;
+        for(int i=1;i<=4;i++)WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-budget-"+i,"free-mission:M"+i.ToString("00")),GrowthNow);
+        Check(state.PlantCollection.ParticipationDecisions.Take(3).All(d=>d.Units==20)&&state.PlantCollection.ParticipationDecisions.Last().Reason=="daily-participation-limit","partial daily 60-unit limit has explicit denial reason");
+        GrowthDay(state,1);
+        for(int i=5;i<=7;i++)WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-budget-"+i,"free-mission:M"+i.ToString("00")),"2026-11-05T03:00:00Z");
+        Check(state.PlantCollection.ParticipationDecisions.Last().Reason=="outstanding-participation-limit"&&WeeklyPlants.VisualCreditUnits(state,state.PlantCollection.ActiveId)==100,"pending per-plant 100-unit cap prevents unlimited unfinished growth");StateCodec.Validate(state);
+        // Daily completion cap never consumes or retracts outstanding participation.
+        state=Open(new Store(),new Clock()).Snapshot;
+        var delayed=GrowthSession("synthetic-capped-basic","course:P04",true);WeeklyPlants.EndParticipation(state,delayed,GrowthNow);
+        for(int i=0;i<3;i++)WeeklyPlants.Complete(state,GrowthSession("synthetic-cap-completion-"+i),GrowthNow,540);
+        WeeklyPlants.Complete(state,GrowthSession("synthetic-cap-denied","course:P04",true),GrowthNow,540);
+        Check(state.PlantCollection.Decisions.Last().AwardedUnits==0&&state.PlantCollection.Decisions.Last().SettledParticipationToken==null,"capped completion does not consume partial credit");
+        GrowthDay(state,1);WeeklyPlants.Complete(state,GrowthSession("synthetic-cap-later","course:P04",true),"2026-11-05T03:00:00Z",540);
+        Check(state.PlantCollection.Decisions.Last().AwardedUnits==80,"later eligible completion settles exactly once");StateCodec.Validate(state);
+        // A receipt stays on its original plant when completion occurs after rollover.
+        state=Open(new Store(),new Clock()).Snapshot;
+        WeeklyPlants.EndParticipation(state,GrowthSession("synthetic-rollover-partial","course:P04",true),GrowthNow);
+        for(int i=0;i<21;i++)
+        {
+            if(i>0&&i%3==0)GrowthDay(state,i/3);
+            WeeklyPlants.Complete(state,GrowthSession("synthetic-rollover-completion-"+i),DateTimeOffset.Parse(GrowthNow).AddDays(i/3).ToString("O"),540);
+        }
+        string matureId=state.PlantCollection.ActiveId;float matureScale=WeeklyPlants.VisualScale(state,matureId);
+        var nextByPartial=StateCodec.Clone(state);GrowthDay(nextByPartial,7);
+        WeeklyPlants.EndParticipation(nextByPartial,GrowthSession("synthetic-next-seed-partial","free-mission:M01"),"2026-11-11T03:00:00Z");
+        Check(nextByPartial.PlantCollection.Plants.Count==2&&WeeklyPlants.Active(nextByPartial).Recipe.GrowthStep==0
+            &&WeeklyPlants.VisualCreditUnits(nextByPartial,nextByPartial.PlantCollection.ActiveId)==20
+            &&WeeklyPlants.VisualScale(nextByPartial,matureId)==matureScale,"partial after maturity starts a real next seed and leaves mature plant unchanged");StateCodec.Validate(nextByPartial);
+        string matureRecipe=PlantCodec.Encode(WeeklyPlants.Active(state).Recipe);
+        GrowthDay(state,7);
+        WeeklyPlants.Complete(state,GrowthSession("synthetic-rollover-settlement","course:P04",true),"2026-11-11T03:00:00Z",540);
+        Check(state.PlantCollection.Plants.Count==2&&WeeklyPlants.Active(state).Recipe.GrowthStep==1,"21 real completions still mature then next completion starts next plant");
+        Check(state.PlantCollection.Decisions.Last().AwardedUnits==80&&WeeklyPlants.VisualScale(state,matureId)==matureScale
+            &&PlantCodec.Encode(state.PlantCollection.Plants[0].Recipe)==matureRecipe,"rollover settlement leaves old plant recipe and scale unchanged");StateCodec.Validate(state);
+        // Pre-extension XML carries no retroactive scale change.
+        foreach(var d in state.PlantCollection.Decisions){d.AccountingVersion=0;d.AccountingSequence=0;d.AwardedUnits=0;d.SettledParticipationToken=null;d.ParticipationEligibilityToken=null;}
+        state.PlantCollection.ParticipationDecisions.Clear();
+        string oldXml=StateCodec.Encode(state);
+        var xml=new System.Xml.XmlDocument();xml.LoadXml(oldXml);
+        var collection=xml.DocumentElement["PlantCollection"];collection.RemoveChild(collection["ParticipationPolicy"]);collection.RemoveChild(collection["ParticipationDecisions"]);
+        var oldState=StateCodec.Decode(xml.OuterXml);
+        Check(WeeklyPlants.VisualScale(oldState,matureId)==1&&oldState.PlantCollection.ParticipationDecisions.Count==0,"legacy XML defaults retain existing size without fabricated credit");
+    }
+    static void StartTimedActivity(GardenStateService service,string id)
+    {
+        Check(service.BeginFocusSession(id,"free-mission:M17"),"begin real focus: "+service.LastError);
+        Check(service.StartSession(id),"start introduction");
+        Check(service.ConfirmFocusStep(id,0),"confirm preparation");
+        Check(service.StartFocusPracticeStep(id,1),"start real timed practice: "+service.LastError);
+    }
+    static void ParticipationServiceChecks()
+    {
+        var clock=new Clock();var store=new Store();var service=Open(store,clock);
+        Check(service.BeginFocusSession("synthetic-service-intro","free-mission:M17")&&service.StartSession("synthetic-service-intro"),"intro service setup");
+        Check(service.EndFocusParticipation("synthetic-service-intro"),"intro skip saves pending outcome");
+        Check(service.Snapshot.PlantCollection.ParticipationDecisions.Count==0,"intro ending cannot gain growth through real service");
+        StartTimedActivity(service,"synthetic-service-partial");
+        string before=StateCodec.Encode(service.Snapshot);store.Fail=true;
+        Check(!service.EndFocusParticipation("synthetic-service-partial"),"participation save failure reported");
+        Check(StateCodec.Encode(service.Snapshot)==before,"end outcome and partial receipt rollback atomically");store.Fail=false;
+        Check(service.EndFocusParticipation("synthetic-service-partial","stopped"),"explicit stop retry succeeds: "+service.LastError);
+        var saved=service.Snapshot;
+        Check(saved.Sessions.Last().Status==ParticipationState.Ended&&saved.Sessions.Last().FocusEndReason=="stopped"
+            &&saved.Nutrient==0&&WeeklyPlants.VisualCreditUnits(saved,saved.PlantCollection.ActiveId)==20,"service stop records actual incomplete participation with no nutrient");
+        service=Open(store,clock);
+        Check(service.EndFocusParticipation("synthetic-service-partial","stopped")&&service.Snapshot.PlantCollection.ParticipationDecisions.Count==1,"reload repeated ending idempotent");
+        StartTimedActivity(service,"synthetic-service-complete");
+        Check(service.ConfirmFocusStep("synthetic-service-complete",1),"normal practice step completion");
+        before=StateCodec.Encode(service.Snapshot);store.Fail=true;
+        Check(!service.CompleteFocusSession("synthetic-service-complete"),"A completion save failure reported");
+        Check(StateCodec.Encode(service.Snapshot)==before,"A top-up completion wallet and history rollback together");store.Fail=false;
+        Check(service.CompleteFocusSession("synthetic-service-complete"),"A completion retry succeeds: "+service.LastError);
+        saved=service.Snapshot;
+        Check(saved.Sessions.Last().Status==ParticipationState.RewardCommitted&&saved.Nutrient==5
+            &&WeeklyPlants.VisualCreditUnits(saved,saved.PlantCollection.ActiveId)==100,"normal service completion retains nutrient and A total100");
+        Check(service.ResetMissionHistory(),"history reset after A settlement");
+        StartTimedActivity(service,"synthetic-service-after-reset");Check(service.EndFocusParticipation("synthetic-service-after-reset"),"end after reset");
+        Check(service.Snapshot.PlantCollection.ParticipationDecisions.Last().Reason=="already-credited","real history reset cannot repeat same-day grant");
+        var basic=Open(new Store(),new Clock());Check(basic.SelectMbctProgram("2w"),"basic course chosen");
+        Check(basic.BeginFocusSession("synthetic-basic-service","course:P04",1)&&basic.StartSession("synthetic-basic-service"),"basic real setup");
+        Check(basic.ConfirmFocusStep("synthetic-basic-service",0)&&basic.ConfirmFocusStep("synthetic-basic-service",1)
+            &&basic.StartFocusPracticeStep("synthetic-basic-service",2),"basic reaches real sensory practice");
+        Check(basic.EndFocusParticipation("synthetic-basic-service"),"basic explicit skip");
+        Check(FocusMissionPolicy.NextOrder(basic.Snapshot,"2w")==1&&basic.Snapshot.Nutrient==0
+            &&WeeklyPlants.Active(basic.Snapshot).Recipe.GrowthStep==0,"partial basic course stays pending with no fake completion");
+        // The 04:00 boundary is refreshed by the ending command itself, not a UI refresh.
+        clock=new Clock {Time=DateTimeOffset.Parse("2026-11-03T18:59:00Z")};service=Open(new Store(),clock);
+        StartTimedActivity(service,"synthetic-boundary-partial-first");Check(service.EndFocusParticipation("synthetic-boundary-partial-first"),"partial before reset");
+        clock.Time=clock.Time.AddMinutes(2);StartTimedActivity(service,"synthetic-boundary-partial-second");
+        Check(service.EndFocusParticipation("synthetic-boundary-partial-second"),"partial after reset without refresh");
+        saved=service.Snapshot;
+        Check(saved.PlantCollection.ParticipationDecisions.Count==2&&saved.PlantCollection.ParticipationDecisions.All(d=>d.Units==20)
+            &&saved.PlantCollection.ParticipationDecisions.Select(d=>d.CycleId).Distinct().Count()==2,"04:00 creates actual next-day additional entitlement");
+        clock.Time=clock.Time.AddDays(-2);StartTimedActivity(service,"synthetic-clockback-partial");
+        Check(service.EndFocusParticipation("synthetic-clockback-partial"),"clockback end saves");
+        Check(service.Snapshot.PlantCollection.ParticipationDecisions.Last().Reason=="already-credited","clock rollback cannot reopen earlier entitlement");
+    }
     static void Main()
     {
         var clock=new Clock();var store=new Store();var s=Open(store,clock);
@@ -126,6 +289,8 @@ class WeeklyPlantTests
         nextClock.Time=nextClock.Time.AddDays(1);nextService.RefreshCycle(null);
         Complete(nextService,"synthetic-rollover-21");Complete(nextService,"synthetic-rollover-22");Complete(nextService,"synthetic-rollover-23");Complete(nextService,"synthetic-rollover-24");
         Check(WeeklyPlants.Today(nextService.Snapshot)==3&&nextService.Snapshot.PlantCollection.Plants.Count==2&&WeeklyPlants.Active(nextService.Snapshot).Recipe.GrowthStep==2,"same-day plant rollover shares global daily quota");
+        ParticipationGrowthChecks();
+        ParticipationServiceChecks();
         Console.WriteLine(checks+" weekly plant checks passed; visible memory budget max "+maxTriangles+" triangles.");
     }
 }

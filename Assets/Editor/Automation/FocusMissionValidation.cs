@@ -238,7 +238,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report, true))
             {
-                f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기"); f.Click("시작");
+                f.Ui.ShowFocusRecommendationFor("M03"); f.Click("추가 미션 시작하기"); f.Click("시작");
                 f.Click("준비했어요"); f.ClickBack();
                 Assert(f.Latest.InstructionStep == 0, "Practice back did not return to the previous step.");
                 f.Click("닫기"); f.Click("추가 미션 이어서 하기");
@@ -298,7 +298,7 @@ namespace CapstoneDesign.EditorTools
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Basic-only done home has incorrect CTA state.");
                 f.AssertMissionBadge("·");
-                f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기"); f.Click("시작");
+                f.Ui.ShowFocusRecommendationFor("M03"); f.Click("추가 미션 시작하기"); f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("M03"), false); f.CompleteReflection("", "", false);
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Completing M03 hid the other available recommendations.");

@@ -36,7 +36,8 @@ def catalog(output):
     checks = [Check("harness", "python", [python, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"]),
               Check("server", "python", [python, "-m", "unittest", "discover", "-s", "server/tests", "-v"], ("server",))]
     for name in ("local-state", "mbct", "garden-appearance", "heart-range-refresh", "walking-baseline-refresh",
-                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation", "focus-state", "all-missions"):
+                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation", "focus-state", "all-missions",
+                 "focus-adjustment", "focus-contracts", "focus-preferences", "focus-recommendation-measurements"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("mono",)))
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
     checks.append(Check("weekly-plants", "unit", [python, "scripts/test-weekly-plants.py"], ("plant-compiler",)))
@@ -64,6 +65,7 @@ def catalog(output):
                          ("flower-spacing", "WeeklyPlantValidation.FlowerSpacing"),
                          ("plant-volume-ui", "WeeklyPlantValidation.PlantVolume"),
                          ("focus-missions", "FocusMissionValidation.Run"),
+                         ("focus-adjustments", "FocusAdjustmentValidation.Run"),
                          ("mobile-ui", "MobileUiValidation.Run"), ("all-courses", "AllCourseValidation.Run")):
         checks.append(editor(name, method, "visual", graphics=True))
     settings = editor("measurement-settings", "MeasurementSettingsCapture.Start", "visual", graphics=True, quit=False)

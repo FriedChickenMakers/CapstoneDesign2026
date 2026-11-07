@@ -10,6 +10,7 @@ namespace CapstoneDesign.Runtime
         {
             if(AndroidPlatformBridge.InputMode!=PlatformInputMode.Live)return "{}";
 #if UNITY_ANDROID && !UNITY_EDITOR
+            AndroidPlatformBridge.EnsureNotificationConnection();
             try { using(var bridge=new AndroidJavaClass(Native))return bridge.CallStatic<string>(method,args); }
             catch(Exception ex){Debug.LogWarning("Notification bridge unavailable: "+ex.GetType().Name);}
 #endif
@@ -23,8 +24,10 @@ namespace CapstoneDesign.Runtime
         public static ActivityNotificationSettings Settings() => Read<ActivityNotificationSettings>("getActivityNotificationSettingsJson");
         public static WalkingAchievement Achievement() => Read<WalkingAchievement>("getWalkingAchievementJson");
         public static ActivityNotificationOpen ConsumeOpen() => Read<ActivityNotificationOpen>("consumeActivityNotificationOpen");
+        public static PlatformActionResult ConfigureOptions(bool enabled,bool adaptive) => Read<PlatformActionResult>("configureActivityNotificationOptions",enabled,adaptive);
         public static PlatformActionResult Configure(bool enabled,int minute,bool adaptive) => Read<PlatformActionResult>("configureActivityNotifications",enabled,minute,adaptive);
         public static PlatformActionResult ChooseTime() => Read<PlatformActionResult>("showActivityNotificationTimePicker");
+        public static void OnAppEntry() => Call("showActivityNotificationEntryPrompt");
         public static void Permission() => Call("requestActivityNotificationPermission");
         public static PlatformActionResult Sync(string completedDay,string title,bool active) => Read<PlatformActionResult>("syncActivityReminder",completedDay,title,active);
     }

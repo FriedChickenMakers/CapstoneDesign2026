@@ -172,6 +172,21 @@ namespace CapstoneDesign.EditorTools
             Debug.Log("Android APK written to " + outputPath + " (" + report.summary.totalSize + " bytes)");
         }
 
+        // Device QA uses the same runtime sources in a separate application sandbox. Existing
+        // product saves, permissions, collectors and preferences are never replaced by fixtures.
+        [MenuItem("Capstone Mockup/Build Isolated Android QA")]
+        public static void BuildAndroidIsolatedQa()
+        {
+            var target=UnityEditor.Build.NamedBuildTarget.Android;
+            string original=PlayerSettings.GetApplicationIdentifier(target);
+            try
+            {
+                PlayerSettings.SetApplicationIdentifier(target,"com.capstonedesign2026.focusqa");
+                BuildAndroid();
+            }
+            finally { PlayerSettings.SetApplicationIdentifier(target,original); }
+        }
+
         [MenuItem("Capstone Mockup/Run Validation")]
         public static void RunValidation()
         {

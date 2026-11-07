@@ -46,10 +46,37 @@ namespace CapstoneDesign.Runtime
             if(!MeasurementConsented || !DateTimeOffset.TryParse(session.SelectedUtc,out var selected)
                 || selected.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs || !SynchronizeMeasurementConsent())return;
             RecordMeasuredActivity(session,"activity_selected",selected);
+            RecordMeasuredFocusSession(session);
             if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredActivity(session,"activity_started",started);
             if((session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended)
                 && DateTimeOffset.TryParse(session.EndedUtc,out var ended))
                 RecordMeasuredActivity(session,session.Status==ParticipationState.RewardCommitted?"activity_completed":"activity_ended",ended);
+        }
+        public void RecordMeasuredFocusExposure(FocusRecommendationExposure exposure)
+        {
+            if(exposure==null || !MeasurementConsented || !CollectionContextAllowed
+                || !DateTimeOffset.TryParse(exposure.ShownUtc,out var shown)
+                || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs || !SynchronizeMeasurementConsent())return;
+            RecordMeasuredFocus(exposure,"focus_recommendation_shown","",exposure.MissionId,shown);
+        }
+        void RecordMeasuredFocusSession(ActivitySession session)
+        {
+            var exposure=session.FocusRecommendationExposure;
+            // Never reconstruct a missing exposure from a later selection. The exposure
+            // event itself is written only while its card is actually visible.
+            if(exposure==null || !DateTimeOffset.TryParse(exposure.ShownUtc,out var shown)
+                || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs)return;
+            string key=EventQueue.Fingerprint(session.SessionId,"measurement").Substring(0,32);
+            if(DateTimeOffset.TryParse(session.SelectedUtc,out var selected))RecordMeasuredFocus(exposure,"focus_recommendation_selected",key,session.MissionId,selected);
+            if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredFocus(exposure,"focus_recommendation_started",key,session.MissionId,started);
+            if((session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended)
+                && DateTimeOffset.TryParse(session.EndedUtc,out var ended))
+                RecordMeasuredFocus(exposure,session.Status==ParticipationState.RewardCommitted?"focus_recommendation_completed":"focus_recommendation_ended",key,session.MissionId,ended);
+        }
+        void RecordMeasuredFocus(FocusRecommendationExposure exposure,string kind,string session,string actual,DateTimeOffset at)
+        {
+            MeasurementCall("recordMeasuredFocusRecommendation",kind,exposure.DecisionId,session,exposure.MissionId,actual,
+                exposure.PolicyId,exposure.Reason,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes);
         }
         void RecordMeasuredActivity(ActivitySession session,string kind,DateTimeOffset at)
         {

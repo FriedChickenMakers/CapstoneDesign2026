@@ -6,6 +6,22 @@ import java.time.ZoneId
 fun main() {
     var passed = 0
     fun test(name: String, block: () -> Unit) { block(); passed++; println("PASS $name") }
+    test("new unset reminders start at noon without assuming time selection") {
+        val initial = ActivityReminderPolicy.initialSettings(false, true, null, null)
+        check(initial.preferred == 720 && initial.effective == 720 && !initial.timeChosen && initial.source == "default")
+    }
+    test("legacy implicit evening default is preserved and not prompted again") {
+        val initial = ActivityReminderPolicy.initialSettings(true, true, null, null)
+        check(initial.preferred == 1200 && initial.effective == 1200 && initial.timeChosen)
+    }
+    test("existing adaptive value survives migration independently of preferred hour") {
+        val initial = ActivityReminderPolicy.initialSettings(true, true, 1200, 825)
+        check(initial.effective == 825 && initial.preferred == 1200)
+    }
+    test("existing fixed mode migrates the actual fixed hour rather than inactive learned value") {
+        val initial = ActivityReminderPolicy.initialSettings(true, false, 90, 825)
+        check(initial.effective == 90 && initial.timeChosen)
+    }
     val zone = ZoneId.of("Asia/Seoul")
     fun at(value: String) = Instant.parse(value).toEpochMilli()
     val day = "2026-10-12"

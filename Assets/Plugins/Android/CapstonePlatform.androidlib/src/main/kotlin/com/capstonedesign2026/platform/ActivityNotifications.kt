@@ -51,13 +51,27 @@ internal object ActivityNotifications {
     private fun save(edit: SharedPreferences.Editor) {
         if (!preferenceCommit(edit)) throw IOException("Activity reminder preferences could not be saved")
     }
+    private fun ensureSettingsState(p: SharedPreferences) {
+        if (p.getInt("settingsVersion", 0) >= 1) return
+        val existing = p.all.isNotEmpty()
+        val learned = when {
+            p.getInt("learningVersion", 0) >= 2 && p.contains("adaptiveMinute") -> p.getInt("adaptiveMinute", 0)
+            p.getInt("learnedClicks", 0) >= 3 && p.contains("learnedMinute") -> p.getInt("learnedMinute", 0)
+            else -> null
+        }
+        val initial = ActivityReminderPolicy.initialSettings(existing, p.getBoolean("adaptive", true),
+            if (p.contains("preferredMinute")) p.getInt("preferredMinute", 0) else null, learned)
+        save(p.edit().putInt("settingsVersion", 1).putInt("preferredMinute", initial.preferred)
+            .putInt("adaptiveMinute", initial.effective).putBoolean("timeChosen", initial.timeChosen)
+            .putString("timeAdjustmentSource", initial.source))
+    }
     private fun ensureLearningState(p: SharedPreferences) {
+        ensureSettingsState(p)
         if (p.getInt("learningVersion", 0) >= 2) return
         // Keep the old effective time, but never turn its aggregate count into invented
         // observations. Only new verified notification taps enter the bounded history.
         val preferred = ActivityReminderPolicy.clampMinute(p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE))
-        val previous = if (p.getInt("learnedClicks", 0) >= 3)
-            ActivityReminderPolicy.clampMinute(p.getInt("learnedMinute", preferred)) else preferred
+        val previous = ActivityReminderPolicy.clampMinute(p.getInt("adaptiveMinute", preferred))
         save(p.edit().putInt("learningVersion", 2).putInt("adaptiveMinute", previous)
             .putString("clickHistory", "[]").putInt("learnedClicks", 0)
             .putInt("windowStartMinute", -1).putInt("windowEndMinute", -1)
@@ -119,6 +133,10 @@ internal object ActivityNotifications {
         val minute = effectiveMinute(p)
         JSONObject().put("enabled", p.getBoolean("enabled", true))
             .put("adaptive", p.getBoolean("adaptive", true)).put("minuteOfDay", minute)
+            .put("timeChosen", p.getBoolean("timeChosen", false))
+            .put("timeAdjustmentSource", p.getString("timeAdjustmentSource", "default"))
+            .put("lastDeliveryStatus", p.getString("lastDeliveryStatus", "unknown"))
+            .put("lastDeliveryStatusEpochMs", p.getLong("lastDeliveryStatusEpochMs", 0))
             .put("preferredMinute", p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE))
             .put("learnedClicks", p.getInt("learnedClicks", 0))
             .put("windowStartMinute", p.getInt("windowStartMinute", -1))
@@ -131,16 +149,27 @@ internal object ActivityNotifications {
             .put("permissionStatus", permissionStatus(context, CHANNEL))
             .put("nextReminderEpochMs", ActivityReminderPolicy.nextEpoch(clock(), ZoneId.systemDefault(), minute))
     }
-    fun configure(context: Context, enabled: Boolean, minute: Int, adaptive: Boolean, resetLearning: Boolean = false): String = synchronized(lock) {
+    /** Toggle commands carry no time, so a stale Unity snapshot cannot revert a native edit. */
+    fun configureOptions(context: Context, enabled: Boolean, adaptive: Boolean): String = synchronized(lock) {
         try {
             val p = prefs(context)
             ensureLearningState(p)
+            configure(context, enabled, effectiveMinute(p), adaptive)
+        } catch (_: IOException) { resultJson(PlatformStatus.ERROR, "Notification preferences could not be saved") }
+    }
+    fun configure(context: Context, enabled: Boolean, minute: Int, adaptive: Boolean, timeSelected: Boolean = false, adjustmentSource: String = "user"): String = synchronized(lock) {
+        try {
+            require(adjustmentSource == "user" || adjustmentSource == "default")
+            val p = prefs(context)
+            ensureLearningState(p)
             val chosen = ActivityReminderPolicy.clampMinute(minute)
-            val timeChanged = resetLearning || p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE) != chosen
-            val edit = p.edit().putBoolean("enabled", enabled).putBoolean("adaptive", adaptive).putInt("preferredMinute", chosen)
-            if (timeChanged) edit.putInt("adaptiveMinute", chosen).putString("clickHistory", "[]").putInt("learnedClicks", 0)
-                .putInt("windowStartMinute", -1).putInt("windowEndMinute", -1).putInt("spreadMinutes", 0)
-                .putInt("informativeSamples", 0).putString("learningStatus", "collecting").remove("lastClickDelayMs")
+            val timeChanged = timeSelected || effectiveMinute(p) != chosen
+            val edit = p.edit().putBoolean("enabled", enabled).putBoolean("adaptive", adaptive)
+            // Editing the ordinary daily reminder never clears real click observations.
+            // The next eligible new delivery's tap can adjust this value again. A tap
+            // on an older notification cannot immediately overwrite the user's edit.
+            if (timeChanged) edit.putInt("preferredMinute", chosen).putInt("adaptiveMinute", chosen)
+                .putBoolean("timeChosen", true).putString("timeAdjustmentSource", adjustmentSource)
             if (timeChanged || p.getBoolean("enabled", true) != enabled || p.getBoolean("adaptive", true) != adaptive)
                 edit.putInt("learningGeneration", p.getInt("learningGeneration", 0) + 1)
             save(edit)
@@ -160,8 +189,11 @@ internal object ActivityNotifications {
         resultJson(PlatformStatus.AVAILABLE, "Activity reminder state synchronized")
     }
     private fun effectiveMinute(p: SharedPreferences): Int = ActivityReminderPolicy.clampMinute(
-        if (p.getBoolean("adaptive", true)) p.getInt("adaptiveMinute", p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE))
-        else p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE))
+        p.getInt("adaptiveMinute", p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE)))
+
+    private fun deliveryStatus(p: SharedPreferences, status: String, at: Long) {
+        save(p.edit().putString("lastDeliveryStatus", status).putLong("lastDeliveryStatusEpochMs", at))
+    }
 
     fun permissionStatus(context: Context, channel: String? = null): String {
         if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
@@ -196,7 +228,8 @@ internal object ActivityNotifications {
         save(p.edit().putString("postedDay", p.getString("pendingPostDay", ""))
             .putLong("postedAt", p.getLong("pendingPostAt", 0))
             .putLong("postedScheduledAt", p.getLong("pendingPostScheduledAt", 0))
-            .putInt("postedGeneration", p.getInt("pendingPostGeneration", -1)))
+            .putInt("postedGeneration", p.getInt("pendingPostGeneration", -1))
+            .putString("lastDeliveryStatus", "accepted").putLong("lastDeliveryStatusEpochMs", p.getLong("pendingPostAt", 0)))
         clearPending(p)
     }
     private fun reconcilePending(context: Context) {
@@ -227,13 +260,16 @@ internal object ActivityNotifications {
             !ActivityReminderPolicy.due(now, zone, minute, p.getString("postedDay", "") ?: "", p.getString("completedDay", "") ?: "", p.getLong("postedAt", 0))) return false
         val occurrence = ActivityReminderPolicy.dueOccurrence(now, zone, minute) ?: return false
         val generation = p.getInt("learningGeneration", 0)
+        val optimization = if (p.getBoolean("adaptive", true)) "auto" else "fixed"
+        val source = p.getString("timeAdjustmentSource", "legacy") ?: "legacy"
         val measurement = MeasurementTelemetry.ticket(context, "daily:${occurrence.scheduledEpochMs}:$generation",
-            occurrence.scheduledEpochMs, if (p.getBoolean("adaptive", true)) "daily-adaptive-v2" else "daily-fixed-v1",
+            occurrence.scheduledEpochMs, "daily-v3-$optimization-$source",
             p.getInt("preferredMinute", ActivityReminderPolicy.DEFAULT_MINUTE), minute, p.getInt("learnedClicks", 0))
         MeasurementTelemetry.notification(context, measurement, "notification_due", now)
         val permission = permissionStatus(context, CHANNEL)
         if (permission != PlatformStatus.AVAILABLE) {
             MeasurementTelemetry.notification(context, measurement, "notification_blocked", now, permission.lowercase())
+            deliveryStatus(p, "blocked", now)
             return false
         }
         val title = p.getString("title", "") ?: ""
@@ -257,6 +293,7 @@ internal object ActivityNotifications {
             MeasurementTelemetry.notification(context, measurement, "notification_post_accepted", clock())
         } catch (failure: Exception) {
             MeasurementTelemetry.notification(context, measurement, "notification_failed", clock(), "notify_exception")
+            deliveryStatus(p, "failed", clock())
             // Keep the unconfirmed reservation, not a posted-day guard. The next retry
             // checks Android's visible receipt before clearing/retrying it: even an
             // ambiguous binder failure after delivery must not immediately alert twice.
@@ -288,7 +325,9 @@ internal object ActivityNotifications {
             p.getBoolean("adaptive", true) && p.getInt("postedGeneration", -1) == p.getInt("learningGeneration", 0)) {
             ActivityReminderPolicy.observation(postedAt, now, ZoneId.systemDefault())?.let { observation ->
                 val observations = (history(p) + observation).takeLast(ActivityReminderPolicy.MAX_HISTORY)
-                val estimate = ActivityReminderPolicy.estimate(effectiveMinute(p), observations)
+                val previous = effectiveMinute(p)
+                val estimate = ActivityReminderPolicy.estimate(previous, observations)
+                if (estimate.minute != previous) edit.putString("timeAdjustmentSource", "algorithm")
                 edit.putString("clickHistory", historyJson(observations)).putInt("adaptiveMinute", estimate.minute)
                     .putInt("learnedClicks", estimate.sampleCount).putInt("windowStartMinute", estimate.windowStartMinute ?: -1)
                     .putInt("windowEndMinute", estimate.windowEndMinute ?: -1).putInt("spreadMinutes", estimate.spreadMinutes)

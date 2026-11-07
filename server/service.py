@@ -176,6 +176,9 @@ class EventService:
         now_ms = int(self.clock() * 1000)
         with self.lock, self.connect() as db:
             self._purge_expired(db, now_ms)
+            # Retention is independent of the request's transaction. A rejected
+            # batch must roll back its inserts without undoing expired-row removal.
+            db.commit()
             if method == "DELETE" and path == "/participant":
                 db.execute("DELETE FROM events WHERE subject=?", (subject,))
                 db.execute("DELETE FROM measurements WHERE subject=?", (subject,))

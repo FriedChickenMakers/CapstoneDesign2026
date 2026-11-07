@@ -40,7 +40,10 @@ if args[0]=='shell':
   if a[1]=='put': s['settings'][key]=a[4]
   else: s['settings'].pop(key,None)
   save()
- elif a[:2]==['pm','path']: print('package:/data/app/synthetic/base.apk' if s.get('installed',True) else '')
+ elif a[:3]==['pm','list','packages']: print('package:'+a[3] if s.get('installed',True) else '')
+ elif a[:2]==['pm','path']:
+  if not s.get('installed',True): sys.exit(1)
+  print('package:/data/app/synthetic/base.apk')
  elif a[:1]==['sha256sum']: print(s.get('apkHash','mismatch')+'  /data/app/synthetic/base.apk')
  elif a[:1]==['run-as'] and a[2:] == ['pwd']: print('/data/user/0/synthetic')
  elif a[:1]==['run-as'] and a[2:4]==['sh','-c']: print('present')
@@ -58,7 +61,7 @@ elif args[:2]==['exec-out','run-as']:
   # synthetic directory so double-quoting cannot be hidden by a canned tar.
   with tempfile.TemporaryDirectory(prefix='synthetic-remote-') as root:
    root=pathlib.Path(root)
-   for name in ['files','shared_prefs']:
+   for name in ([] if s.get('emptyInternal') else ['files','shared_prefs']):
     (root/name).mkdir();(root/name/'synthetic.txt').write_text('synthetic preserved record')
    result=subprocess.run(['sh','-c',args[5]],cwd=root,capture_output=True)
    sys.stdout.buffer.write(result.stdout+result.stderr)
@@ -134,6 +137,27 @@ class AndroidDeviceSessionTests(unittest.TestCase):
             self.assertEqual(second.journal["originals"], self.originals)
             self.assertEqual(self.state()["calls"][0], ["shell", "settings put system screen_off_timeout 45000"])
         self.assertEqual(self.state()["settings"], self.originals)
+
+    def test_installed_but_never_launched_has_valid_empty_internal_backup(self):
+        state=self.state();state["emptyInternal"]=True;self.write_state(state)
+        with self.session() as session:
+            snapshot=session.backup("empty-installed")
+            manifest=json.loads((snapshot/"manifest.json").read_text())
+            self.assertEqual(manifest["status"],"COMPLETE")
+            self.assertEqual(next(row["entries"] for row in manifest["archives"] if row["name"]=="internal.tar"),0)
+        self.assertEqual(self.state()["settings"],self.originals)
+
+    def test_first_install_handles_android10_absent_package(self):
+        state=self.state();state["installed"]=False;self.write_state(state)
+        apk=self.base/"synthetic.apk";apk.write_bytes(b"synthetic APK")
+        with self.session() as session:
+            self.assertFalse(session.is_installed())
+            snapshot=session.backup("absent")
+            self.assertEqual(json.loads((snapshot/"manifest.json").read_text())["status"],"NOT_INSTALLED")
+            self.assertFalse(any(call[0]=="shell" and call[1].startswith("pm path") for call in self.state()["calls"]))
+            session.install(apk)
+            self.assertTrue(session.is_installed())
+        self.assertEqual(self.state()["settings"],self.originals)
 
     def test_failed_backup_blocks_install_and_launch(self):
         state = self.state(); state["failBackup"] = True; self.write_state(state)

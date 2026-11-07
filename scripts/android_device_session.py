@@ -98,7 +98,7 @@ class DeviceSession:
     def adb(self, *args, timeout=90):
         try:
             result = subprocess.run([self.adb_bin, "-s", self.serial, *map(str, args)],
-                                    capture_output=True, timeout=timeout, check=False)
+                                    stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, check=False)
         except (OSError, subprocess.TimeoutExpired) as error:
             raise DeviceError("ADB command could not complete; reconnect the explicit target") from error
         if result.returncode:
@@ -197,19 +197,33 @@ class DeviceSession:
         finally:
             self.release()
 
+    def is_installed(self):
+        # Android 10 returns a nonzero status for `pm path` on an absent package.
+        # An empty successful package-list query is the safe first-install check.
+        rows = self.shell("pm", "list", "packages", self.package).splitlines()
+        if any(not row.startswith("package:") for row in rows):
+            raise DeviceError("Could not establish installed package identity")
+        return "package:" + self.package in rows
+
     def backup(self, label="before-app-work"):
         destination = private_directory(self.output / (label + "-" + stamp()))
         # An installed app that is not debuggable must fail closed; an empty backup is not sufficient.
-        installed = self.shell("pm", "path", self.package)
-        if not installed:
+        if not self.is_installed():
             durable_json(destination / "manifest.json", {"status": "NOT_INSTALLED", "archives": []})
             return destination
         self.shell("run-as", self.package, "pwd")
         archives = []
-        script = 'set --; for p in files shared_prefs databases no_backup; do if [ -e "$p" ]; then set -- "$@" "$p"; fi; done; if [ "$#" -gt 0 ]; then tar -cf - "$@"; else tar -cf - -T /dev/null; fi'
+        script = 'set --; for p in files shared_prefs databases no_backup; do if [ -e "$p" ]; then set -- "$@" "$p"; fi; done; if [ "$#" -gt 0 ]; then tar -cf - "$@"; else printf "CAPSTONE_EMPTY_APP_BACKUP\\n"; fi'
         # adb exec-out escapes each argument itself; adding shell quotes here
         # would make sh -c interpret the entire script as a command filename.
         internal = self.adb("exec-out", "run-as", self.package, "sh", "-c", script)
+        if internal == b"CAPSTONE_EMPTY_APP_BACKUP\n":
+            # Android toybox tar rejects an empty file list. The successful remote
+            # probe established that none of the backed-up directories exists.
+            empty = io.BytesIO()
+            with tarfile.open(fileobj=empty, mode="w"):
+                pass
+            internal = empty.getvalue()
         archives.append(self.save_archive(destination / "internal.tar", internal))
         external_root = "/sdcard/Android/data/" + self.package + "/files"
         exists = self.shell("run-as", self.package, "sh", "-c", "if [ -d " + shlex.quote(external_root) + " ]; then echo present; else echo absent; fi")

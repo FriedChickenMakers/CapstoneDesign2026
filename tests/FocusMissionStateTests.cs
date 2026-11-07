@@ -42,7 +42,7 @@ static class FocusMissionStateTests
     {
         var definition=FocusMissionCatalog.FindForSession(Get(service,id));
         for(int i=0;i<definition.Steps.Length;i++)
-            Check(service.ConfirmFocusStep(id,i,definition.Steps[i].Kind=="draw"?"DRAW1|AA_B":definition.Steps[i].RequiredAnswer?"synthetic input":null,definition.Steps[i].Kind!="draw" && !definition.Steps[i].RequiredAnswer),"confirm "+id+" "+i+": "+service.LastError);
+            Check(service.ConfirmFocusStep(id,i,definition.Steps[i].Kind=="draw"?"DRAW1|AA_B":definition.Steps[i].RequiredAnswer?(definition.Steps[i].Options.FirstOrDefault()??"synthetic input"):null,definition.Steps[i].Kind!="draw" && !definition.Steps[i].RequiredAnswer),"confirm "+id+" "+i+": "+service.LastError);
     }
     static void Complete(GardenStateService service,string id,string code,int order,bool review=false)
     {
@@ -267,9 +267,9 @@ static class FocusMissionStateTests
     }
     static void BranchStateValidation()
     {
-        var clock=new FocusClock();var service=Open(new FocusStore(),clock);Check(service.SelectMbctProgram("8w"),"branch course");
+        var clock=new FocusClock();var store=new FocusStore();var service=Open(store,clock);Check(service.SelectMbctProgram("8w"),"branch course");
         // A completed source occurrence is required for an archived practice review.
-        var branch=FocusMissionCatalog.Find("P19");
+        var branch=FocusMissionCatalog.Find("P19",2);
         Check(branch.Steps.Any(step=>!string.IsNullOrEmpty(step.ConditionKey)),"mountain and sound alternative defined");
         var records=branch.Steps.Select((step,index)=>new FocusStepRecord{Step=index,Key=step.Key,Value=""}).ToArray();
         var choice=branch.Steps.First(step=>step.Options.Contains("짧은 소리 실습"));
@@ -282,6 +282,13 @@ static class FocusMissionStateTests
         }
         while(FocusMissionPolicy.Availability(service.Snapshot)!=null){clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());}
         StartCurrent(service,"branch","P19",19);
+        // Persist a genuine version-2 shape to verify upgrade compatibility. New version-3
+        // sessions route sound to a separate activity and are covered by FocusAdjustmentTests.
+        var legacy=service.Snapshot;var legacySession=legacy.Sessions.Single(row=>row.SessionId=="branch");
+        legacySession.FocusVersion=2;legacySession.MissionTitleSnapshot=branch.Title;legacySession.MissionDescriptionSnapshot=branch.Overview;
+        for(int i=0;i<branch.Steps.Length;i++){legacySession.FocusStepRecords[i].Title=branch.Steps[i].Title;legacySession.FocusStepRecords[i].Prompt=branch.Steps[i].Body;}
+        store.Save(legacy);service=Open(store,clock);
+        Check(Get(service,"branch").FocusVersion==2,"version-2 branch resumes without reinterpretation");
         Check(service.ConfirmFocusStep("branch",0,"짧은 소리 실습"),"select actual sound alternative");
         Check(Get(service,"branch").InstructionStep==6 && Get(service,"branch").FocusStepRecords.Skip(1).Take(5).All(r=>r.Skipped && !string.IsNullOrEmpty(r.ConfirmedUtc)),"unselected mountain steps atomically skipped");
         Check(!service.MoveFocusStep("branch",2),"cannot navigate into hidden branch");

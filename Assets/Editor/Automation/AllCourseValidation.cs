@@ -79,7 +79,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Has("추천 미션 보기"), "Recommendation disappeared before course choice.");
                 f.Capture("allcourse-01-course-choice", capture);
                 f.Click("추천 미션 보기"); f.Click("추가 미션 시작하기");
-                Assert(!f.Service.Snapshot.MbctProgramChosen && f.Latest.MissionId == "free-mission:M03", "Independent recommendation required a course.");
+                Assert(!f.Service.Snapshot.MbctProgramChosen && f.Latest.FocusRole == FocusMissionCatalog.AdditionalRole, "Independent recommendation required a course.");
                 string draft = f.Latest.SessionId;
                 f.Click("닫기"); Pick(f, "2w");
                 Assert(f.Ui.CurrentScreen == "home" && f.Service.Snapshot.MbctProgramId == "2w", "Selecting course with additional draft failed.");
@@ -232,7 +232,8 @@ namespace CapstoneDesign.EditorTools
                         f.Capture("allcourse-08-saved-drawing", capture);
                     }
                 }
-                foreach (var branch in new[] { new[] { "P19", "짧은 소리 실습" }, new[] { "P24", "앱의 짧은 이야기" }, new[] { "P26", "아직 없어요" } })
+                // Different-purpose P19/P26 transfers are covered by FocusAdjustmentValidation.
+                foreach (var branch in new[] { new[] { "P24", "앱의 짧은 이야기" } })
                 {
                     var mission = FocusMissionCatalog.Find(branch[0]); int order = Array.IndexOf(FocusMissionPolicy.CourseCodes("8w"), branch[0]) + 1;
                     f.Ui.StartFocusReview(mission.Id, order, "8w"); f.Click("시작"); f.CompletePractice(mission, capture, false, branch[1]);

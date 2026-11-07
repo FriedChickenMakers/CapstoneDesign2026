@@ -14,6 +14,39 @@ namespace CapstoneDesign.Runtime
         readonly HashSet<string> focusExpandedCurricula = new HashSet<string>();
         readonly HashSet<string> focusExpandedRecordSteps = new HashSet<string>();
         string focusLibraryFilter = "전체";
+        FocusRecommendationExposure focusVisibleRecommendation;
+        string focusRecommendationSignature;
+
+        FocusRecommendationExposure PrepareFocusRecommendation(GardenState state)
+        {
+            var suggestion=FocusAdditionalRecommendationPolicy.Select(state,Service.CurrentUtc);
+            string signature=suggestion.MissionId+"|"+suggestion.PolicyId+"|"+suggestion.Reason+"|"+state.LastCycleId+"|"+state.Sessions.Count;
+            if(focusVisibleRecommendation==null || focusRecommendationSignature!=signature
+                || DateTimeOffset.TryParse(focusVisibleRecommendation.ShownUtc,out var prior) && (Service.CurrentUtc-prior).TotalHours>=24)
+            {
+                focusRecommendationSignature=signature;
+                focusVisibleRecommendation=new FocusRecommendationExposure {DecisionId=Guid.NewGuid().ToString("N"),
+                    MissionId=suggestion.MissionId,PolicyId=suggestion.PolicyId,Reason=suggestion.Reason};
+            }
+            return focusVisibleRecommendation;
+        }
+        RecommendationExposure ObserveFocusRecommendation(Transform target,FocusRecommendationExposure snapshot)
+        {
+            var visibility=target.gameObject.AddComponent<RecommendationExposure>();
+            visibility.OnVisible=()=>
+            {
+                if(string.IsNullOrEmpty(snapshot.ShownUtc))snapshot.ShownUtc=Service.CurrentUtc.ToString("o");
+                if(!preview && Application.isPlaying)PersonalizationClient.Instance.RecordMeasuredFocusExposure(snapshot);
+            };
+            return visibility;
+        }
+        FocusRecommendationExposure SelectedFocusRecommendation()
+        {
+            var snapshot=focusVisibleRecommendation;
+            if(snapshot==null || !DateTimeOffset.TryParse(snapshot.ShownUtc,out var shown)
+                || shown>Service.CurrentUtc || (Service.CurrentUtc-shown).TotalHours>=24)return null;
+            return snapshot;
+        }
         public void ShowHome() => ShowFocusHome();
         public void ShowCourse() => ShowFocusCourse();
         public void ShowFree() => ShowFocusRecommendation();
@@ -33,10 +66,7 @@ namespace CapstoneDesign.Runtime
         FocusMissionDefinition RecommendedFocusMission(GardenState state)
         {
             var active = FocusMissionPolicy.Active(state, FocusMissionCatalog.AdditionalRole);
-            if (active != null) return FocusMissionCatalog.Find(active.MissionId);
-            var water = FocusMissionCatalog.Find("M03");
-            if (water != null && !FocusMissionPolicy.AdditionalCompletedToday(state, water.Id)) return water;
-            return FocusMissionCatalog.Additional.FirstOrDefault(m => !FocusMissionPolicy.AdditionalCompletedToday(state, m.Id)) ?? water ?? FocusMissionCatalog.Additional.First();
+            return active!=null?FocusMissionCatalog.FindForSession(active):FocusMissionCatalog.Find(FocusAdditionalRecommendationPolicy.Select(state,Service.CurrentUtc).MissionId);
         }
 
         public void ShowFocusHome()
@@ -50,7 +80,7 @@ namespace CapstoneDesign.Runtime
             var state = Service.Snapshot; string program = state.MbctProgramId;
             int total = FocusMissionPolicy.TotalPracticesFor(program), done = FocusMissionPolicy.CompletedCount(state, program);
             var active = FocusMissionPolicy.Active(state, FocusMissionCatalog.BasicRole, program)
-                ?? state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
+                ?? state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
             var mission = active == null ? FocusMissionPolicy.MissionAt(FocusMissionPolicy.NextOrder(state, program), program) : FocusMissionCatalog.FindForSession(active);
             bool finished = done >= total; string unavailable = FocusMissionPolicy.Availability(state, program);
             bool doneToday = state.Sessions.Any(a => FocusMissionPolicy.IsFocus(a) && a.FocusRole == FocusMissionCatalog.BasicRole && !a.FocusReview && a.Status == ParticipationState.RewardCommitted && a.InstanceId == state.LastCycleId);
@@ -83,8 +113,11 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Asset(box, mission.IconAsset, 16, 20, 44, 44);
             FigmaMissionUi.Label(box, mission.Code + " · " + mission.Title, 72, 16, 254, 48, 18, null, true);
             FigmaMissionUi.Label(box, active != null ? "멈춘 곳부터 이어가요" : FocusMissionEffort(mission), 72, 66, 254, 22, 14, FigmaMissionUi.Brown);
+            var snapshot=active==null && !completed?PrepareFocusRecommendation(state):null;
+            var visibility=snapshot==null || snapshot.MissionId!=mission.Id?null:ObserveFocusRecommendation(box,snapshot);
             FigmaMissionUi.Button(box, active != null ? "추가 미션 이어서 하기" : completed ? "오늘 기록 보기" : "추천 미션 보기", 16, 96, 310, 48,
-                active != null ? (Action)(() => SelectFocusSession(active.SessionId)) : completed ? () => ShowFocusHistory(mission.Id, 0, "additional") : () => ShowFocusRecommendationFor(mission.Id), Color.white, FigmaMissionUi.Brown);
+                active != null ? (Action)(() => SelectFocusSession(active.SessionId)) : completed ? () => ShowFocusHistory(mission.Id, 0, "additional") : () =>
+                { visibility?.ReportVisible();ShowFocusRecommendationDetails(mission.Id,true); }, Color.white, FigmaMissionUi.Brown);
         }
 
         static string FocusLibraryCategory(FocusMissionDefinition mission)
@@ -110,7 +143,7 @@ namespace CapstoneDesign.Runtime
             var state = Service.Snapshot;
             var root = BeginFigmaPage("focus-programs", ShowFocusProgramSelection, FigmaMissionUi.Background, true);
             FigmaHeader(root, state.MbctProgramChosen ? "내게 맞는 코스" : "내 속도로 시작해요", "기간을 정하고, 하루 한 가지씩 이어가요.");
-            var previous = state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
+            var previous = state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
             var body = FigmaScroll(root, 132, 628, previous == null ? 584 : 648);
             var independent = FigmaMissionUi.Button(body, "코스 없이 추천 미션 하기", 24, 8, 342, 48, ShowFocusRecommendation, FigmaMissionUi.Warm, FigmaMissionUi.Brown);
             independent.name = "추천 미션 보기";
@@ -146,7 +179,7 @@ namespace CapstoneDesign.Runtime
             int done = FocusMissionPolicy.CompletedCount(state, program);
             FigmaMissionUi.Label(body, done > 0 ? "이 코스에서 " + done + "회 실습을 마쳤어요.\n저장된 진도부터 이어갑니다." : "코스를 바꿔도 이전 기록은 남아요.\n추천 미션은 코스와 별개로 수행해요.", 24, 232, 342, 64, 16, FigmaMissionUi.Muted);
             bool current = state.MbctProgramChosen && state.MbctProgramId == program;
-            var previous = state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
+            var previous = state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
             bool blocked = previous != null && !current;
             if (blocked)
             {
@@ -169,7 +202,7 @@ namespace CapstoneDesign.Runtime
             var state = Service.Snapshot;
             if (!state.MbctProgramChosen) { ShowFocusProgramSelection(); return; }
             var active = FocusMissionPolicy.Active(state, FocusMissionCatalog.BasicRole)
-                ?? state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
+                ?? state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
             if (active != null) { SelectFocusSession(active.SessionId); return; }
             int order = FocusMissionPolicy.NextOrder(state);
             var mission = FocusMissionPolicy.MissionAt(order, state.MbctProgramId);
@@ -188,7 +221,11 @@ namespace CapstoneDesign.Runtime
         void BeginFocus(string mission, int order, bool review, string program = null)
         {
             string id = Guid.NewGuid().ToString("N");
-            if (!Apply(Service.BeginFocusSession(id, mission, order, review, program))) return;
+            // A direct library start must not fabricate an algorithm exposure. The
+            // last actually visible recommendation may be declined for another mission.
+            var attribution=!review && order==0?SelectedFocusRecommendation():null;
+            if (!Apply(Service.BeginFocusSession(id, mission, order, review, program, null, attribution))) return;
+            focusVisibleRecommendation=null;focusRecommendationSignature=null;
             sessionId = id; ClearPracticeDraft(); ShowFocusPractice();
         }
         public void SelectFocusSession(string id)
@@ -212,12 +249,13 @@ namespace CapstoneDesign.Runtime
         }
 
         public void ShowFocusRecommendation() => ShowFocusRecommendationFor(null);
-        public void ShowFocusRecommendationFor(string missionId)
+        public void ShowFocusRecommendationFor(string missionId) => ShowFocusRecommendationDetails(missionId,missionId==null);
+        void ShowFocusRecommendationDetails(string missionId,bool recommended)
         {
             if (!opened || !SaveActivePracticeDraft()) return;
             var state = Service.Snapshot; var mission = FocusMissionCatalog.Find(missionId) ?? RecommendedFocusMission(state);
             if (mission.Role != FocusMissionCatalog.AdditionalRole) { ShowFocusMissionLibrary(); return; }
-            var root = BeginFigmaPage("focus-recommendation", () => ShowFocusRecommendationFor(mission.Id), FigmaMissionUi.Background, true);
+            var root = BeginFigmaPage("focus-recommendation", () => ShowFocusRecommendationDetails(mission.Id,recommended), FigmaMissionUi.Background, true);
             FigmaHeader(root, "추천 미션", "코스와 상관없이, 원하는 만큼.");
             var body = FigmaScroll(root, 132, 628, 584);
             var box = FigmaMissionUi.Box(body, "추천 미션 안내", 24, 8, 342, 280, FigmaMissionUi.Hex(mission.BackgroundHex), 24);
@@ -229,8 +267,10 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(body, "추천 미션의 기록은 코스와 별도로 남아요.", 24, 312, 342, 48, 16, FigmaMissionUi.Muted);
             var active = FocusMissionPolicy.Active(state, FocusMissionCatalog.AdditionalRole);
             bool completed = FocusMissionPolicy.AdditionalCompletedToday(state, mission.Id);
+            var snapshot=recommended && active==null && !completed?PrepareFocusRecommendation(state):null;
+            var visibility=snapshot!=null && snapshot.MissionId==mission.Id?ObserveFocusRecommendation(box,snapshot):null;
             var button = FigmaMissionUi.Button(body, active != null ? "추가 미션 이어서 하기" : completed ? "오늘 완료했어요" : "추가 미션 시작하기", 24, 384, 342, 56,
-                active != null ? (Action)(() => SelectFocusSession(active.SessionId)) : () => StartFocusAdditionalMission(mission.Id), FigmaMissionUi.Brown);
+                active != null ? (Action)(() => SelectFocusSession(active.SessionId)) : () => { visibility?.ReportVisible();StartFocusAdditionalMission(mission.Id); }, FigmaMissionUi.Brown);
             button.interactable = active != null || !completed;
             FigmaMissionUi.Button(body, "추천·자유 미션 모두 보기", 24, 456, 342, 48, ShowFocusMissionLibrary, Color.white, FigmaMissionUi.Brown);
             FigmaMissionUi.Button(body, "미션 창으로 돌아가기", 24, 520, 342, 48, ShowHome, Color.clear, FigmaMissionUi.Green, 14);
@@ -425,6 +465,8 @@ namespace CapstoneDesign.Runtime
             string group = (focus ? FocusProgramTitle(program) + (entry.FocusRole == FocusMissionCatalog.BasicRole ? " · " + entry.FocusOrder + "회차" : "") : "이전 미션") + " · " + StateLabel(entry.Status);
             int elapsed = entry.FocusStepRecords?.Sum(step => step.ElapsedSeconds) ?? 0;
             string when = focus ? LocalTime(entry.EndedUtc ?? entry.SelectedUtc) : "시작 · " + LocalTime(entry.StartedUtc) + "\n마침 · " + (entry.EndedUtc == null ? "진행 중" : LocalTime(entry.EndedUtc));
+            if(entry.FocusSupport)when+="\n다른 목적의 활동으로 전환 · 원 코스 회차는 유지";
+            if(entry.FocusEndReason=="skipped"||entry.FocusEndReason=="stopped")when+="\n미완료로 마침 · 실제 수행만 기록";
             if (elapsed > 0) when += "\n집중한 시간 · " + FocusRecordDuration(elapsed);
             y = BuildFocusRecordCard(body, group, when, y, FigmaMissionUi.Soft);
             if (!string.IsNullOrEmpty(entry.Mood)) y = BuildFocusRecordCard(body, "그때의 감정", entry.Mood, y);
@@ -459,13 +501,15 @@ namespace CapstoneDesign.Runtime
                         bool drawing = step.Value != null && step.Value.StartsWith("DRAW1|", StringComparison.Ordinal);
                         string value = unselectedBranch ? "선택하지 않은 경로" : drawing ? "그림 저장됨 · 위에서 확인" : step.Skipped ? "입력 건너뜀" : string.IsNullOrEmpty(step.Value) ? "행동 확인" : step.Value;
                         string time = step.ElapsedSeconds > 0 ? "\n집중 타이머 기록 · " + FocusRecordDuration(step.ElapsedSeconds) : "";
+                        if(step.EndReason=="too_long")time+="\n너무 길어요 · 여기까지 진행";
+                        if(step.RecommendedSeconds>0)time+="\n시작 시 추천 · "+FocusRecordDuration(step.RecommendedSeconds);
                         y = BuildFocusRecordCard(body, step.Title, step.Prompt + "\n" + (string.IsNullOrEmpty(step.ConfirmedUtc) ? "작성 중" : "확인 · " + LocalTime(step.ConfirmedUtc)) + "\n" + value + time, y);
                     }
                     y = BuildFocusRecordCard(body, "선택 기록", "감정 · " + (string.IsNullOrEmpty(entry.Mood) ? "선택하지 않음" : entry.Mood) + "\n한 줄 기록 · " + (string.IsNullOrEmpty(entry.Note) ? "남긴 기록 없음" : entry.Note), y);
                 }
             }
             if (FocusMissionPolicy.IsActive(entry)) { FigmaMissionUi.Button(body, "저장한 단계 이어서 하기", 24, y, 342, 48, () => SelectFocusSession(id)); y += 64; }
-            if (focus && entry.Status == ParticipationState.RewardCommitted) { FigmaMissionUi.Button(body, "다시 연습하기 · 하루 3회까지 성장", 24, y, 342, 48, () => StartFocusReview(entry.MissionId, entry.FocusOrder, program), Color.white, FigmaMissionUi.Green, 14); y += 64; }
+            if (focus && !entry.FocusSupport && entry.Status == ParticipationState.RewardCommitted) { FigmaMissionUi.Button(body, "다시 연습하기 · 하루 3회까지 성장", 24, y, 342, 48, () => StartFocusReview(entry.MissionId, entry.FocusOrder, program), Color.white, FigmaMissionUi.Green, 14); y += 64; }
             if(entry.Status==ParticipationState.RewardCommitted) { FigmaMissionUi.Button(body,"감정 기록 수정",24,y,342,48,()=>EditPlantReflection(id),Color.white,FigmaMissionUi.Green);y+=64; }
             FigmaMissionUi.Button(body,"식물로 돌아가기",24,y,342,48,GoGarden,Color.white,FigmaMissionUi.Green);y+=64;
             FigmaMissionUi.Button(body, "기록 목록", 24, y, 342, 48, () => ShowFocusHistory(null, 0, program), Color.clear, FigmaMissionUi.Green); y += 64;

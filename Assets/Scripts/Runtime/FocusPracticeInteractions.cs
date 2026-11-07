@@ -12,23 +12,29 @@ namespace CapstoneDesign.Runtime
     {
         public Text Label;public Button Toggle;public int RecommendedSeconds,ElapsedSeconds;
         public Func<int,bool> Persist;
+        public Func<bool> StartPractice;public Action StateChanged;public bool PreviouslyStarted;
         float fraction,sinceSave;bool running,started;
-        public bool Running=>running;
-        public void Initialize(){started=ElapsedSeconds>0;if(Toggle!=null)Toggle.onClick.AddListener(ToggleRunning);Refresh();}
+        public bool Running=>running;public bool HasStarted=>started;
+        public void Initialize(){started=PreviouslyStarted;if(Toggle!=null)Toggle.onClick.AddListener(ToggleRunning);Refresh();}
         void Update()
         {
             if(!running)return;fraction+=Time.unscaledDeltaTime;sinceSave+=Time.unscaledDeltaTime;
             if(fraction>=1){int whole=(int)fraction;ElapsedSeconds=Math.Min(86400,ElapsedSeconds+whole);fraction-=whole;Refresh();}
             if(sinceSave>=5){sinceSave=0;if(!Flush()){running=false;Refresh();}}
         }
-        public void ToggleRunning(){running=!running;if(!Flush())running=false;else if(running)started=true;Refresh();}
+        public void ToggleRunning()
+        {
+            if(!running && !started && StartPractice!=null && !StartPractice())return;
+            running=!running;if(!Flush())running=false;else if(running)started=true;Refresh();
+        }
         public bool Flush()=>Persist==null||Persist(ElapsedSeconds);
         public void Pause(){running=false;Flush();Refresh();}
         void OnApplicationPause(bool pause){if(pause)Pause();}
         void OnApplicationFocus(bool focused){if(!focused)Pause();}
         void Refresh()
         {
-            if(Label!=null)Label.text=(running?"집중 중 · ":started?"잠시 멈춤 · ":"권장 "+Format(RecommendedSeconds)+" · ")+Format(ElapsedSeconds)+(started?" / "+Format(RecommendedSeconds):"");
+            if(Label!=null)Label.text=started?(running?"집중 중 · ":"잠시 멈춤 · ")+(ElapsedSeconds<RecommendedSeconds?Format(RecommendedSeconds-ElapsedSeconds)+" 남음":"추천 시간 지남")+" · 수행 "+Format(ElapsedSeconds):"추천 "+Format(RecommendedSeconds)+" · 편한 만큼 해요";
+            StateChanged?.Invoke();
             if(Toggle!=null){var label=Toggle.GetComponentInChildren<Text>();if(label!=null)label.text=running?"잠시 쉬기":started?"이어서 집중":"집중 시작";}
         }
         static string Format(int seconds)=>seconds/60+":"+(seconds%60).ToString("00");
@@ -98,16 +104,20 @@ namespace CapstoneDesign.Runtime
     public sealed class FocusAudioPlayer:MonoBehaviour
     {
         public AudioSource Source;public Text Status,Duration;public Image Progress;public Button Toggle,Replay;public string Transcript;
+        public Func<bool> StartPractice;
         bool paused,started,wasPlaying;float nextRefresh;
         public void Initialize()
         {
             if(Toggle!=null)Toggle.onClick.AddListener(TogglePlayback);
-            if(Replay!=null)Replay.onClick.AddListener(()=>{if(Source==null||Source.clip==null)return;Source.Stop();Source.Play();paused=false;started=true;Refresh();});Refresh();
+            if(Replay!=null)Replay.onClick.AddListener(()=>{if(Source==null||Source.clip==null||StartPractice!=null&&!StartPractice())return;Source.Stop();Source.Play();paused=false;started=true;Refresh();});Refresh();
         }
+        public bool Playing=>Source!=null&&Source.isPlaying;
+        public void PausePlayback(){if(Playing){Source.Pause();paused=true;Refresh();}}
+        public void ResumePlayback(){if(paused&&Source!=null&&Source.clip!=null){Source.UnPause();paused=false;Refresh();}}
         void TogglePlayback()
         {
             if(Source==null||Source.clip==null)return;
-            if(Source.isPlaying){Source.Pause();paused=true;}else{if(paused)Source.UnPause();else Source.Play();paused=false;started=true;}Refresh();
+            if(Source.isPlaying){Source.Pause();paused=true;}else{if(StartPractice!=null&&!StartPractice())return;if(paused)Source.UnPause();else Source.Play();paused=false;started=true;}Refresh();
         }
         void Update(){if(Time.unscaledTime<nextRefresh)return;nextRefresh=Time.unscaledTime+.15f;Refresh();}
         void OnApplicationPause(bool pause){if(pause&&Source!=null&&Source.isPlaying){Source.Pause();paused=true;Refresh();}}

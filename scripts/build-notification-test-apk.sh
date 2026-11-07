@@ -6,7 +6,7 @@ gradle_home="${UNITY_GRADLE_HOME:-/opt/unity/editors/6000.3.24f1/Editor/Data/Pla
 java_bin="${JAVA_BIN:-/opt/android-jdk/bin/java}"
 mkdir -p "$output"
 python3 - "$repo_root" "$output" <<'PY'
-import pathlib,sys
+import pathlib,sys,os
 repo,out=map(lambda x:pathlib.Path(x).resolve(),sys.argv[1:])
 project=out/'project'
 def write(name,text):
@@ -38,11 +38,17 @@ def quoted(path): return "'"+str(path).replace('\\','\\\\').replace("'","\\'")+"
 gradle=(native/'build.gradle').read_text().replace("'src/main/AndroidManifest.xml'",quoted(native/'src/main/AndroidManifest.xml'))
 gradle=gradle.replace("['src/main/kotlin']",'['+', '.join(map(quoted,[native/'src/main/kotlin',repo/'tests/android/notifications',project/'persona']))+']')
 gradle=gradle.replace("['src/main/res']",'['+quoted(native/'src/main/res')+']')
+gradle += "\nandroid { sourceSets { main { assets.srcDirs = ["+quoted(native/'src/main/assets')+"] } } }\n"
+if os.environ.get('NOTIFICATION_HOST_TESTS') == '1':
+ gradle += "\ndependencies { testImplementation 'junit:junit:4.13.2'; testImplementation 'org.robolectric:robolectric:4.17' }\n"
+ gradle += "android { sourceSets { test { kotlin.srcDirs = ["+quoted(repo/'tests/robolectric')+"] } }; testOptions { unitTests.includeAndroidResources = true; unitTests.all { maxHeapSize = '1g'; systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'; jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED', '--add-opens=java.base/java.util=ALL-UNNAMED', '--add-opens=java.base/java.io=ALL-UNNAMED', '--add-opens=java.base/java.net=ALL-UNNAMED', '--add-opens=java.base/java.security=ALL-UNNAMED', '--add-opens=java.base/java.text=ALL-UNNAMED', '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED', '--add-opens=java.desktop/java.awt.font=ALL-UNNAMED', '--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED' } } }\n"
 write('platform/build.gradle',gradle)
 write('persona/NotificationPersonaEvaluation.kt',(repo/'tests/native/NotificationPersonaEvaluation.kt').read_text())
 PY
+tasks=(:app:assembleDebug)
+if [[ "${NOTIFICATION_HOST_TESTS:-0}" == 1 ]]; then tasks+=(:platform:testDebugUnitTest); fi
 launcher=("$gradle_home"/lib/gradle-launcher-*.jar)
 "$java_bin" -classpath "${launcher[0]}" org.gradle.launcher.GradleMain \
-  -p "$output/project" --no-daemon --max-workers=2 :app:assembleDebug
+  -p "$output/project" --no-daemon --max-workers=2 "${tasks[@]}"
 cp "$output/project/app/build/outputs/apk/debug/app-debug.apk" "$output/notification-tests.apk"
 printf 'Synthetic APK: %s/notification-tests.apk\n' "$output"

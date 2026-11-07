@@ -64,6 +64,23 @@ class MeasurementValidationInstrumentation : Instrumentation() {
                 verify("preconsent activity excluded",!JSONObject(MeasurementTelemetry.activity(ctx,"activity_selected","b".repeat(32),"course:MBCT01",since-1,0)).getBoolean("ok"))
                 MeasurementTelemetry.activity(ctx,"activity_selected","b".repeat(32),"course:MBCT01",System.currentTimeMillis(),0)
                 verify("postconsent activity recorded",events().length()==4)
+                for ((decision, session, actual) in listOf(Triple("c".repeat(32), "d".repeat(32), "free-mission:M17"),
+                                                          Triple("e".repeat(32), "f".repeat(32), "free-mission:M02"))) {
+                    for (kind in listOf("shown", "selected", "started", "completed")) {
+                        val accepted = MeasurementTelemetry.focusRecommendation(ctx, "focus_recommendation_" + kind,
+                            decision, if(kind == "shown") "" else session, "free-mission:M17",
+                            if(kind == "shown") "free-mission:M17" else actual,
+                            "focus-additional-history-preference-v2", "focus-method-preference", System.currentTimeMillis(), 0)
+                        verify("focus $kind ${if(actual == "free-mission:M17") "accepted suggestion" else "different choice"} stored", JSONObject(accepted).getBoolean("ok"))
+                    }
+                }
+                val focus = (0 until events().length()).map { events().getJSONObject(it) }.filter { it.getString("kind").startsWith("focus_recommendation_") }
+                verify("focus two exposure identities and actual alternatives retained", focus.size == 8 && focus.map {it.getString("decision_id")}.distinct().size == 2
+                    && focus.any {it.getString("activity_id") == "free-mission:M02" && it.getString("recommended_activity_id") == "free-mission:M17"})
+                val beforeRepeat = events().toString()
+                MeasurementTelemetry.focusRecommendation(ctx,"focus_recommendation_shown","c".repeat(32),"","free-mission:M17","free-mission:M17",
+                    "focus-additional-history-preference-v2","focus-method-preference",System.currentTimeMillis(),0)
+                verify("focus repeated render keeps first exposure payload",events().toString()==beforeRepeat)
                 producedEvents = events().toString()
                 File(out,"pending.json").writeText(batch().toString(2))
                 File(out,"expected.json").writeText(JSONObject().put("collection",batch().getString("collection_id")).put("ids",ids(events())).toString())
@@ -73,7 +90,7 @@ class MeasurementValidationInstrumentation : Instrumentation() {
                 val originalEvents=JSONObject(File(out,"pending.json").readText()).getJSONArray("events")
                 val first=batch();val a=first.getJSONArray("events")
                 verify("new process reads original consent collection",first.getString("collection_id")==expected.getString("collection"))
-                verify("process restart preserves exact pending events",a.length()==4 && ids(a)==expected.getString("ids") && a.toString()==originalEvents.toString())
+                verify("process restart preserves exact pending events",a.length()==12 && ids(a)==expected.getString("ids") && a.toString()==originalEvents.toString())
                 verify("full snapshot has measurement watermark",first.getLong("complete_through_utc_ms")>0)
                 MeasurementTelemetry.acknowledge(ctx,binding,first.getString("collection_id"),ids(a),ids(a))
                 verify("ack clears pending durable outbox",events().length()==0)

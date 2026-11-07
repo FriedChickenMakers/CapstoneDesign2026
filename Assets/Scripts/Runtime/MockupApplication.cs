@@ -156,6 +156,7 @@ namespace CapstoneDesign.Runtime
         {
             if(focus)
             {
+                ActivityNotificationBridge.OnAppEntry();
                 var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
                 loop?.OnAppReturned();
                 home?.RefreshFromState();

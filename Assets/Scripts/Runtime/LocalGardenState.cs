@@ -33,7 +33,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public List<string> CompletedMissionIds = new List<string>();
         public List<string> UnlockIds = new List<string>();
     }
-    public sealed class PracticeAnswer { public string Key, Value; internal PracticeAnswer Copy() => (PracticeAnswer)MemberwiseClone(); }
+    public sealed class PracticeAnswer { public string Key, Value, UpdatedUtc; internal PracticeAnswer Copy() => (PracticeAnswer)MemberwiseClone(); }
     public sealed class ExperienceRecord
     {
         internal ExperienceRecord Copy() => (ExperienceRecord)MemberwiseClone();
@@ -107,8 +107,12 @@ namespace CapstoneDesign.Runtime.LocalState
     public enum ParticipationState { Selected, InProgress, Paused, Ended, RewardCommitted }
     public sealed class FocusStepRecord
     {
+        public string PlanActivity, PlanTimePeriod, PlanNote;
         public int Step;
         public string Key, Title, Prompt, Value = "", ConfirmedUtc, UpdatedUtc;
+        // Additive fields: opening a mission is not evidence of starting its practice.
+        public string PracticeStartedUtc, RecommendationPolicy, EndReason, ShortenedUtc;
+        public int RecommendedSeconds;
         public bool Skipped;
         public int ElapsedSeconds;
         internal FocusStepRecord Copy() => (FocusStepRecord)MemberwiseClone();
@@ -166,16 +170,25 @@ namespace CapstoneDesign.Runtime.LocalState
         public float[] Features;
         internal RecommendationContext Copy() => new RecommendationContext {DecisionId=DecisionId,PolicyId=PolicyId,AppVersion=AppVersion,UtcOffsetMinutes=UtcOffsetMinutes,Features=Features==null?null:(float[])Features.Clone()};
     }
+    // The recommendation actually visible before this selection; no free-text or health inputs.
+    public sealed class FocusRecommendationExposure
+    {
+        public string DecisionId, MissionId, PolicyId, Reason, ShownUtc;
+        internal FocusRecommendationExposure Copy() => (FocusRecommendationExposure)MemberwiseClone();
+    }
     public sealed class ActivitySession
     {
-        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); return copy; }
+        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusRecommendationExposure=FocusRecommendationExposure?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); return copy; }
         public RecommendationContext Recommendation;
+        public FocusRecommendationExposure FocusRecommendationExposure;
         public string SessionId, MissionId, InstanceId, SelectedUtc, StartedUtc, EndedUtc;
         public string Mood, Note;
         // Optional schema-1 additions: old sessions remain FocusVersion=0 and keep their meaning.
         public int FocusVersion, FocusOrder, RewardAmount;
         public string FocusRole, FocusProgramId, MissionTitleSnapshot, MissionDescriptionSnapshot;
-        public bool FocusReview;
+        public bool FocusReview, FocusSupport;
+        public string FocusSourceSessionId, FocusSourceMissionId, FocusEndReason;
+        public string FocusRecommendationId, FocusRecommendationPolicy, FocusRecommendationReason;
         public List<FocusStepRecord> FocusStepRecords = new List<FocusStepRecord>();
         public int CourseOrder;
         public int InstructionStep;
@@ -321,7 +334,7 @@ namespace CapstoneDesign.Runtime.LocalState
             Unique(s.MbctCompletedIds);
             if(s.MbctCompletedIds.Count!=s.MbctNextOrder-1 || s.MbctCompletedIds.Any(id=>!MbctPolicy.IsMbct(id)))throw new InvalidDataException("Invalid MBCT progress.");
             for(int i=0;i<s.MbctCompletedIds.Count;i++)if(s.MbctCompletedIds[i]!=MbctPolicy.MissionId(i+1))throw new InvalidDataException("MBCT progress order mismatch.");
-            if(s.PracticePreferences.Any(a=>a==null || a.Value==null))throw new InvalidDataException("Invalid practice preferences.");
+            if(s.PracticePreferences.Any(a=>a==null || a.Value==null || (!string.IsNullOrEmpty(a.UpdatedUtc) && !Timestamp(a.UpdatedUtc))))throw new InvalidDataException("Invalid practice preferences.");
             Unique(s.PracticePreferences.Select(a=>a.Key));
             if(s.Experiences.Any(e=>e==null || !Timestamp(e.CreatedUtc) || !new[]{"즐거움","불편함","중립","잘 모르겠음"}.Contains(e.Type)))throw new InvalidDataException("Invalid experience.");
             Unique(s.Experiences.Select(e=>e.Id));
@@ -353,6 +366,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(MbctPolicy.IsMbct(a.MissionId) && (a.CourseOrder<1 || a.MissionId!=MbctPolicy.MissionId(MbctPolicy.ProgramForMission(a.MissionId),a.CourseOrder)))throw new InvalidDataException("MBCT mission/order mismatch.");
                 Unique(a.Answers.Select(x=>x.Key));
                 ValidateRecommendation(a.Recommendation);
+                ValidateFocusExposure(a);
                 if (a.CourseOrder > 0 && !Typed(a.MissionId,"course")) throw new InvalidDataException("Invalid session course type.");
                 if ((a.Status == ParticipationState.InProgress || a.Status == ParticipationState.Paused || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.StartedUtc)) throw new InvalidDataException("Session start missing.");
                 if ((a.Status == ParticipationState.Ended || a.Status == ParticipationState.RewardCommitted) && !Timestamp(a.EndedUtc)) throw new InvalidDataException("Session end missing.");
@@ -401,12 +415,36 @@ namespace CapstoneDesign.Runtime.LocalState
                     if((session.FocusVersion>1 && !MbctPolicy.IsProgram(session.FocusProgramId)) || FocusMissionPolicy.MissionAt(session.FocusOrder,FocusMissionPolicy.ProgramFor(session))?.Id!=session.MissionId)throw new InvalidDataException("Focus course occurrence mismatch.");
                 }
                 else if(session.FocusOrder!=0 || (session.FocusVersion>1 && !string.IsNullOrEmpty(session.FocusProgramId)))throw new InvalidDataException("Invalid additional mission occurrence.");
+                if(session.FocusSupport && (session.FocusVersion<3 || session.FocusRole!=FocusMissionCatalog.AdditionalRole || session.MissionId!="course:P02" || session.FocusReview
+                    || (session.FocusSourceMissionId!="course:P19" && session.FocusSourceMissionId!="course:P26") || string.IsNullOrWhiteSpace(session.FocusSourceSessionId)))
+                    throw new InvalidDataException("Invalid support activity source.");
+                if(session.FocusSupport)
+                {
+                    var source=state.Sessions.FirstOrDefault(a=>a.SessionId==session.FocusSourceSessionId);
+                    if(source!=null && (source.Status!=ParticipationState.Ended || source.FocusEndReason!="alternative" || source.MissionId!=session.FocusSourceMissionId))throw new InvalidDataException("Support activity source mismatch.");
+                }
+                if(session.Status==ParticipationState.RewardCommitted && FocusMissionAdjustmentPolicy.DifferentPurposeAlternative(session)!=null)throw new InvalidDataException("Different-purpose activity cannot complete original occurrence.");
+                if(!string.IsNullOrEmpty(session.FocusEndReason) && session.FocusEndReason!="skipped" && session.FocusEndReason!="stopped" && session.FocusEndReason!="alternative")
+                    throw new InvalidDataException("Invalid practice ending reason.");
+                if(!string.IsNullOrEmpty(session.FocusEndReason) && session.Status!=ParticipationState.Ended)throw new InvalidDataException("Ending reason requires ended activity.");
                 bool gap=false;DateTimeOffset previous=DateTimeOffset.MinValue;
                 for(int i=0;i<session.FocusStepRecords.Count;i++)
                 {
                     var record=session.FocusStepRecords[i];
+                    if(record!=null && (record.PlanActivity!=null || record.PlanTimePeriod!=null || record.PlanNote!=null))
+                    {
+                        if(definition.Steps[i].Kind!="plan" || (record.PlanNote?.Length??0)>450)throw new InvalidDataException("Invalid plan draft.");
+                        string composed;
+                        try {composed=FocusMissionAdjustmentPolicy.ComposePlan(record.PlanActivity,record.PlanTimePeriod,record.PlanNote);}
+                        catch(ArgumentException) {throw new InvalidDataException("Invalid plan choices.");}
+                        if(record.Value!=composed)throw new InvalidDataException("Plan draft does not match recorded value.");
+                    }
                     if(record==null || record.Step!=i || record.Key!=definition.Steps[i].Key || string.IsNullOrWhiteSpace(record.Title) || string.IsNullOrWhiteSpace(record.Prompt)
                         || record.Value==null || record.Value.Length>500 || (record.Skipped && record.Value.Length>0) || record.ElapsedSeconds<0 || record.ElapsedSeconds>86400
+                        || record.RecommendedSeconds<0 || record.RecommendedSeconds>86400
+                        || (!string.IsNullOrEmpty(record.PracticeStartedUtc) && (!GardenStateService.IsActualFocusPractice(definition.Steps[i]) || !Timestamp(record.PracticeStartedUtc) || !Timestamp(session.StartedUtc) || DateTimeOffset.Parse(record.PracticeStartedUtc)<DateTimeOffset.Parse(session.StartedUtc)))
+                        || (!string.IsNullOrEmpty(record.ShortenedUtc) && (!Timestamp(record.ShortenedUtc) || string.IsNullOrEmpty(record.PracticeStartedUtc) || record.EndReason!="too_long" || DateTimeOffset.Parse(record.ShortenedUtc)<DateTimeOffset.Parse(record.PracticeStartedUtc)))
+                        || (!string.IsNullOrEmpty(record.EndReason) && record.EndReason!="completed" && record.EndReason!="too_long" && record.EndReason!="not_applicable")
                         || (!string.IsNullOrEmpty(record.UpdatedUtc) && !Timestamp(record.UpdatedUtc)))throw new InvalidDataException("Invalid focus step record.");
                     if(string.IsNullOrEmpty(record.ConfirmedUtc)){gap=true;continue;}
                     if(session.FocusVersion>1 && definition.Steps[i].Kind=="draw" && FocusDrawingData.Decode(record.Value).Count==0)throw new InvalidDataException("Confirmed drawing is missing.");
@@ -436,6 +474,22 @@ namespace CapstoneDesign.Runtime.LocalState
                 if(sessions.Any(s=>s.FocusRole==FocusMissionCatalog.BasicRole && s.FocusReview && FocusMissionPolicy.ProgramFor(s)==program && s.FocusOrder>completed.Length))throw new InvalidDataException("Unlearned focus review.");
             }
             if(sessions.Where(s=>s.FocusRole==FocusMissionCatalog.AdditionalRole && s.RewardAmount>0).GroupBy(s=>s.InstanceId+"|"+s.MissionId).Any(g=>g.Count()>1))throw new InvalidDataException("Additional reward duplicated.");
+        }
+        internal static void ValidateFocusExposure(ActivitySession session)
+        {
+            var value=session.FocusRecommendationExposure;
+            if(value==null)return; // Historical sessions have no observed exposure.
+            Guid id;DateTimeOffset shown,selected;
+            var definition=FocusMissionCatalog.Find(value.MissionId);
+            string[] reasons={"resume-active-activity","saved-preference","participation-history","catalog-default-no-history",
+                "focus-method-preference","focus-frequency-more","focus-frequency-less"};
+            if(!FocusMissionPolicy.IsFocus(session) || session.FocusRole!=FocusMissionCatalog.AdditionalRole || session.FocusReview || session.FocusSupport
+                || !Guid.TryParseExact(value.DecisionId,"N",out id) || definition==null || definition.Role!=FocusMissionCatalog.AdditionalRole
+                || (value.PolicyId!="focus-additional-history-v1" && value.PolicyId!="focus-additional-history-preference-v2") || !reasons.Contains(value.Reason)
+                || !DateTimeOffset.TryParse(value.ShownUtc,out shown) || !DateTimeOffset.TryParse(session.SelectedUtc,out selected)
+                || shown>selected || selected-shown>TimeSpan.FromHours(24)
+                || session.FocusRecommendationId!=value.DecisionId || session.FocusRecommendationPolicy!=value.PolicyId || session.FocusRecommendationReason!=value.Reason)
+                throw new InvalidDataException("Invalid observed focus recommendation.");
         }
         static bool Finite(float n) { return !float.IsNaN(n) && !float.IsInfinity(n); }
         internal static void ValidateRecommendation(RecommendationContext context)
@@ -696,7 +750,7 @@ namespace CapstoneDesign.Runtime.LocalState
             return Change(next => {
                 if(!MbctPolicy.IsProgram(program))throw new ArgumentException("Unknown course program.");
                 if(next.MbctProgramChosen && next.MbctProgramId==program)return;
-                if(next.Sessions.Any(s=>StateCodec.Typed(s.MissionId,"course") && FocusMissionPolicy.IsActive(s)))
+                if(next.Sessions.Any(s=>StateCodec.Typed(s.MissionId,"course") && !s.FocusSupport && FocusMissionPolicy.IsActive(s)))
                     throw new InvalidOperationException("진행 중인 기본 미션을 마치거나 종료한 뒤 기간을 바꿀 수 있어요.");
                 next.MbctProgramId=program;next.MbctProgramChosen=true;next.MbctProgramSelectionVersion=1;
             });
@@ -736,7 +790,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 next.Sessions.Add(new ActivitySession { SessionId = sessionId, MissionId = missionId, InstanceId = next.LastCycleId, SelectedUtc = Now, Status = ParticipationState.Selected, CourseOrder = courseOrder, Recommendation=recommendation?.Copy() });
             });
         }
-        public bool BeginFocusSession(string sessionId,string missionId,int order=0,bool review=false,string program=null)
+        public bool BeginFocusSession(string sessionId,string missionId,int order=0,bool review=false,string program=null,FocusAdditionalRecommendation recommendation=null,FocusRecommendationExposure exposure=null)
         {
             lock(gate)
             {
@@ -748,6 +802,7 @@ namespace CapstoneDesign.Runtime.LocalState
                     var definition=FocusMissionCatalog.Find(missionId,version)??throw new ArgumentException("Unknown active mission.");
                     var existing=next.Sessions.FirstOrDefault(s=>s.SessionId==sessionId);
                     bool basic=definition.Role==FocusMissionCatalog.BasicRole;
+                    if(recommendation!=null && (basic || recommendation.MissionId!=definition.Id))throw new ArgumentException("Recommendation does not match selected activity.");
                     int occurrence=basic?(order>0?order:existing?.FocusOrder??(review?FocusMissionPolicy.Completed(next,selected).Where(s=>s.MissionId==definition.Id).Select(s=>s.FocusOrder).DefaultIfEmpty(0).Max():FocusMissionPolicy.NextOrder(next,selected))):0;
                     if(existing!=null)
                     {
@@ -776,6 +831,9 @@ namespace CapstoneDesign.Runtime.LocalState
                     next.Sessions.Add(new ActivitySession {SessionId=sessionId,MissionId=definition.Id,InstanceId=next.LastCycleId,SelectedUtc=Now,Status=ParticipationState.Selected,
                         FocusVersion=version,FocusRole=definition.Role,FocusProgramId=basic && version>1?selected:"",FocusOrder=occurrence,FocusReview=review,
                         MissionTitleSnapshot=definition.Title,MissionDescriptionSnapshot=definition.Overview,
+                        FocusRecommendationId=exposure?.DecisionId??(recommendation!=null?Guid.NewGuid().ToString("N"):null),
+                        FocusRecommendationPolicy=exposure?.PolicyId??recommendation?.PolicyId,FocusRecommendationReason=exposure?.Reason??recommendation?.Reason,
+                        FocusRecommendationExposure=exposure?.Copy(),
                         FocusStepRecords=definition.Steps.Select((step,index)=>new FocusStepRecord {Step=index,Key=step.Key,Title=step.Title,Prompt=step.Body}).ToList()});
                 });
                 if(saved && pendingDecision!=null && pendingDecision.CycleId==state.LastCycleId)pendingDecision=null;
@@ -816,6 +874,90 @@ namespace CapstoneDesign.Runtime.LocalState
             var record=session.FocusStepRecords[step];
             record.ElapsedSeconds=Math.Max(record.ElapsedSeconds,elapsedSeconds);
         });
+        public bool SaveFocusPlan(string id,int step,string activity,string period,string note) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);
+            if(step!=session.InstructionStep || step<0 || step>=session.FocusStepRecords.Count || FocusMissionCatalog.FindForSession(session).Steps[step].Kind!="plan")throw new InvalidOperationException("계획 화면에서 저장해 주세요.");
+            string value=FocusMissionAdjustmentPolicy.ComposePlan(activity,period,note);
+            UpdateFocusAnswer(session,step,value,string.IsNullOrEmpty(value));
+            var record=session.FocusStepRecords[step];record.PlanActivity=activity;record.PlanTimePeriod=period;record.PlanNote=note;
+            if(value.Length>0 && string.IsNullOrEmpty(record.PracticeStartedUtc))record.PracticeStartedUtc=SessionTime(session.StartedUtc);
+        });
+        public int RecommendedFocusSeconds(string id,int step)
+        {
+            lock(gate) { RequireOpen();return FocusDuration(state,Session(state,id),step).RecommendedSeconds; }
+        }
+        static FocusDurationRecommendation FocusDuration(GardenState source,ActivitySession session,int step)
+        {
+            var definition=FocusMissionCatalog.FindForSession(session);
+            if(definition==null || step<0 || step>=definition.Steps.Length)throw new ArgumentException("Invalid practice step.");
+            var record=session.FocusStepRecords[step];
+            if(record.RecommendedSeconds>0)return new FocusDurationRecommendation {BaselineSeconds=definition.Steps[step].RecommendedSeconds,RecommendedSeconds=record.RecommendedSeconds,PolicyId=record.RecommendationPolicy,Reason="saved_at_start"};
+            var history=source.Sessions.Where(a=>FocusMissionPolicy.IsFocus(a) && a.SessionId!=session.SessionId && a.FocusVersion==session.FocusVersion)
+                .SelectMany(a=>a.FocusStepRecords.Where(r=>r.EndReason=="too_long" && !string.IsNullOrEmpty(r.ShortenedUtc))
+                    .Select(r=>new FocusDurationFeedback {MissionId=a.MissionId,StepKey=r.Key,ActualSeconds=r.ElapsedSeconds,ConfirmedTooLong=true,ConfirmedUtc=r.ShortenedUtc}));
+            return FocusMissionAdjustmentPolicy.RecommendDuration(session.MissionId,definition.Steps[step].Key,definition.Steps[step].RecommendedSeconds,history);
+        }
+        public static bool IsActualFocusPractice(FocusMissionStep step)
+            =>step!=null && (FocusMissionAdjustmentPolicy.IsTimedPractice(step) || step.Kind=="draw" || step.Kind=="observe" || step.Kind=="listen" || new[]{"light","wash","feeling","plan","recall","word","message","trigger"}.Contains(step.Key));
+        public bool StartFocusPracticeStep(string id,int step) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);
+            if(step!=session.InstructionStep || step<0 || step>=session.FocusStepRecords.Count)throw new InvalidOperationException("현재 실습에서 시작해 주세요.");
+            if(!IsActualFocusPractice(FocusMissionCatalog.FindForSession(session).Steps[step]))throw new InvalidOperationException("준비가 아닌 실제 실습에서 시작해 주세요.");
+            var record=session.FocusStepRecords[step];
+            if(!string.IsNullOrEmpty(record.ConfirmedUtc))throw new InvalidOperationException("이미 마친 단계예요.");
+            if(string.IsNullOrEmpty(record.PracticeStartedUtc))record.PracticeStartedUtc=SessionTime(session.StartedUtc);
+            if(record.RecommendedSeconds==0)
+            {
+                var recommendation=FocusDuration(next,session,step);
+                record.RecommendedSeconds=recommendation.RecommendedSeconds;record.RecommendationPolicy=recommendation.PolicyId;
+            }
+        });
+        public bool ShortenFocusStep(string id,int step,int elapsedSeconds,string answer=null) => Change(next=>
+        {
+            var session=FocusActiveSession(next,id);
+            if(step<0 || step>=session.FocusStepRecords.Count || elapsedSeconds<0 || elapsedSeconds>86400)throw new ArgumentException("Invalid practice duration.");
+            var record=session.FocusStepRecords[step];
+            if(step<session.InstructionStep && record.EndReason=="too_long")return;
+            if(step!=session.InstructionStep || string.IsNullOrEmpty(record.PracticeStartedUtc) || !FocusMissionAdjustmentPolicy.IsTimedPractice(FocusMissionCatalog.FindForSession(session).Steps[step]))
+                throw new InvalidOperationException("실습을 시작한 뒤 줄일 수 있어요.");
+            record.ElapsedSeconds=Math.Max(record.ElapsedSeconds,elapsedSeconds);
+            ConfirmFocusStepCore(session,step,answer,string.IsNullOrEmpty(answer));
+            record.EndReason="too_long";record.ShortenedUtc=SessionTime(record.PracticeStartedUtc);
+        });
+        public bool EndFocusParticipation(string id,string reason="skipped") => Change(next=>
+        {
+            var session=Session(next,id);
+            if(!FocusMissionPolicy.IsFocus(session))throw new InvalidOperationException("미션을 확인해 주세요.");
+            if(session.Status==ParticipationState.Ended)return;
+            if(session.Status==ParticipationState.RewardCommitted)throw new InvalidOperationException("이미 완료한 미션이에요.");
+            if(reason!="skipped" && reason!="stopped")throw new ArgumentException("Unknown ending reason.");
+            AdvanceCycle(next,cycleCandidates);
+            session.Status=ParticipationState.Ended;session.FocusEndReason=reason;session.EndedUtc=SessionTime(session.StartedUtc??session.SelectedUtc);
+            WeeklyPlants.EndParticipation(next,session,Now);GardenPlantVisuals.Sync(next);
+        });
+        public bool BeginFocusAlternative(string sourceId,int step,string answer,string newId) => Change(next=>
+        {
+            if(string.IsNullOrWhiteSpace(newId))throw new ArgumentException("Activity identity required.");
+            var existing=next.Sessions.FirstOrDefault(a=>a.SessionId==newId);
+            if(existing!=null) { if(existing.FocusSupport && existing.FocusSourceSessionId==sourceId)return;throw new InvalidOperationException("Activity identity already used."); }
+            var source=FocusActiveSession(next,sourceId);var original=FocusMissionCatalog.FindForSession(source);
+            if(step!=source.InstructionStep || step<0 || step>=original.Steps.Length)throw new InvalidOperationException("현재 선택에서 전환해 주세요.");
+            string alternative=FocusMissionAdjustmentPolicy.DifferentPurposeAlternative(original,original.Steps[step].Key,answer);
+            if(alternative!="course:P02")throw new InvalidOperationException("검토된 대체 활동을 선택해 주세요.");
+            if(next.Sessions.Any(a=>FocusMissionPolicy.IsFocus(a)&&a.FocusRole==FocusMissionCatalog.AdditionalRole&&FocusMissionPolicy.IsActive(a)))
+                throw new InvalidOperationException("진행 중인 추가 활동을 먼저 마치거나 넘겨 주세요.");
+            UpdateFocusAnswer(source,step,answer,false);AdvanceCycle(next,cycleCandidates);
+            source.Status=ParticipationState.Ended;source.FocusEndReason="alternative";source.EndedUtc=SessionTime(source.StartedUtc);
+            WeeklyPlants.EndParticipation(next,source,Now);
+            var definition=FocusMissionCatalog.Find(alternative);
+            next.Sessions.Add(new ActivitySession {SessionId=newId,MissionId=definition.Id,InstanceId=next.LastCycleId,SelectedUtc=Now,Status=ParticipationState.Selected,
+                FocusVersion=FocusMissionCatalog.Version,FocusRole=FocusMissionCatalog.AdditionalRole,FocusSupport=true,FocusSourceSessionId=sourceId,FocusSourceMissionId=source.MissionId,
+                MissionTitleSnapshot=definition.Title,MissionDescriptionSnapshot=definition.Overview,
+                FocusStepRecords=definition.Steps.Select((instruction,index)=>new FocusStepRecord {Step=index,Key=instruction.Key,Title=instruction.Title,Prompt=instruction.Body}).ToList()});
+            GardenPlantVisuals.Sync(next);
+        });
         void SkipInapplicableFocusSteps(ActivitySession session)
         {
             if(session.FocusVersion<2)return;
@@ -825,13 +967,14 @@ namespace CapstoneDesign.Runtime.LocalState
                 int step=session.InstructionStep;var record=session.FocusStepRecords[step];
                 var previous=DateTimeOffset.Parse(step==0?session.StartedUtc:session.FocusStepRecords[step-1].ConfirmedUtc);
                 var confirmed=CurrentUtc;if(confirmed<=previous)confirmed=previous.AddTicks(1);
-                record.Value="";record.Skipped=true;record.ConfirmedUtc=confirmed.ToString("O");record.UpdatedUtc=record.ConfirmedUtc;
+                record.Value="";record.Skipped=true;record.EndReason="not_applicable";record.ShortenedUtc=null;record.ConfirmedUtc=confirmed.ToString("O");record.UpdatedUtc=record.ConfirmedUtc;
                 session.Answers.RemoveAll(a=>a.Key==record.Key);session.InstructionStep++;
             }
         }
-        public bool ConfirmFocusStep(string id,int step,string answer=null,bool skipped=false) => Change(next=>
+        public bool ConfirmFocusStep(string id,int step,string answer=null,bool skipped=false) => Change(next=>ConfirmFocusStepCore(FocusActiveSession(next,id),step,answer,skipped));
+        void ConfirmFocusStepCore(ActivitySession session,int step,string answer,bool skipped)
         {
-            var session=FocusActiveSession(next,id);int count=session.FocusStepRecords.Count;
+            int count=session.FocusStepRecords.Count;
             if(step<0 || step>=count)throw new ArgumentException("Invalid focus step.");
             var record=session.FocusStepRecords[step];
             // A duplicate tap cannot update an already-advanced response or award anything twice.
@@ -839,7 +982,8 @@ namespace CapstoneDesign.Runtime.LocalState
             if(step!=session.InstructionStep || session.FocusStepRecords.Take(step).Any(r=>string.IsNullOrEmpty(r.ConfirmedUtc)))throw new InvalidOperationException("앞선 안내를 먼저 확인해 주세요.");
             if(session.FocusVersion>1)
             {
-                var instruction=FocusMissionCatalog.FindForSession(session).Steps[step];
+                var definition=FocusMissionCatalog.FindForSession(session);var instruction=definition.Steps[step];
+                if(FocusMissionAdjustmentPolicy.DifferentPurposeAlternative(definition,instruction.Key,answer)!=null)throw new InvalidOperationException("다른 목적의 활동은 별도 활동으로 시작해 주세요.");
                 if(instruction.Kind=="draw" && FocusDrawingData.Decode(skipped?"":answer).Count==0)throw new InvalidOperationException("선을 하나 이상 그려주세요.");
                 if(instruction.RequiredAnswer && (skipped || string.IsNullOrWhiteSpace(answer)))throw new InvalidOperationException("짧게 입력하거나 제공된 선택지에서 골라주세요.");
             }
@@ -850,9 +994,10 @@ namespace CapstoneDesign.Runtime.LocalState
                 var confirmed=CurrentUtc;if(confirmed<=previous)confirmed=previous.AddTicks(1);
                 record.ConfirmedUtc=confirmed.ToString("O");record.UpdatedUtc=record.ConfirmedUtc;
             }
+            if(record.EndReason!="too_long")record.EndReason="completed";
             session.InstructionStep=step+1;
             SkipInapplicableFocusSteps(session);
-        });
+        }
         public bool MoveFocusStep(string id,int step) => Change(next=>
         {
             var session=FocusActiveSession(next,id);int reached=session.FocusStepRecords.Count(r=>!string.IsNullOrEmpty(r.ConfirmedUtc));
@@ -1015,7 +1160,7 @@ namespace CapstoneDesign.Runtime.LocalState
                     if ((!mbct || advancing) && !next.RewardReceipts.Contains(receipt) && !next.LegacyCompletedUnknownDate.Contains(s.MissionId))
                     { next.RewardReceipts.Add(receipt); next.Nutrient = checked(next.Nutrient + config.CompletionNutrient); }
                     if(advancing) MbctPolicy.Advance(next,s.MissionId);
-                    if(mbct) foreach(var answer in s.Answers) SetAnswer(next.PracticePreferences,answer.Key,answer.Value);
+                    if(mbct) foreach(var answer in s.Answers) SetAnswer(next.PracticePreferences,answer.Key,answer.Value,Now);
                     if (!mbct && s.CourseOrder == next.NextCourseOrder && s.CourseOrder > 0 && !next.CompletedCourseIds.Contains(s.MissionId))
                     { next.CompletedCourseIds.Add(s.MissionId); next.NextCourseOrder = Math.Min(29, next.NextCourseOrder + 1); }
                     WeeklyPlants.Complete(next,s,Now,RecordOffset);
@@ -1025,12 +1170,13 @@ namespace CapstoneDesign.Runtime.LocalState
                 return completed;
             }
         }
-        static void SetAnswer(List<PracticeAnswer> answers,string key,string value)
+        static void SetAnswer(List<PracticeAnswer> answers,string key,string value,string updatedUtc=null)
         {
             if(string.IsNullOrWhiteSpace(key) || key.Length>80 || key.Contains("|"))throw new ArgumentException("Invalid answer key.");
             if(value==null || value.Length>500)throw new ArgumentException("Answer too long.");
             var answer=answers.FirstOrDefault(a=>a.Key==key);
-            if(answer==null)answers.Add(new PracticeAnswer{Key=key,Value=value});else answer.Value=value;
+            if(answer==null){answer=new PracticeAnswer{Key=key};answers.Add(answer);}
+            answer.Value=value;if(updatedUtc!=null)answer.UpdatedUtc=updatedUtc;
         }
         public bool SavePracticeStep(string id,int step,string key=null,string value=null)
         {
@@ -1056,7 +1202,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 // Previous completed practices' preferences remain available for later use.
             });
         }
-        public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??""));
+        public bool SavePreference(string key,string value) => Change(next=>SetAnswer(next.PracticePreferences,key,value??"",Now));
         public bool SaveExperience(string id,string type,string eventText,string body,string emotion,string thought,string plantId=null)
         {
             return Change(next=>

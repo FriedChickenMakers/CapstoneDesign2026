@@ -5,6 +5,13 @@ import re
 NOTIFICATION_KINDS = {"notification_due", "notification_post_accepted", "notification_post_recovered",
                       "notification_blocked", "notification_failed", "notification_opened"}
 ACTIVITY_KINDS = {"activity_selected", "activity_started", "activity_completed", "activity_ended"}
+FOCUS_KINDS = {"focus_recommendation_shown", "focus_recommendation_selected", "focus_recommendation_started",
+               "focus_recommendation_completed", "focus_recommendation_ended"}
+FOCUS_FIELDS = {"decision_id", "recommended_activity_id"}
+FOCUS_POLICIES = {"focus-additional-history-v1", "focus-additional-history-preference-v2"}
+FOCUS_REASONS = {"saved-preference", "participation-history", "catalog-default-no-history", "resume-active-activity",
+                 "focus-method-preference", "focus-frequency-more", "focus-frequency-less"}
+FOCUS_ACTIVITY = r"free-mission:M(?:0[1-9]|1[0-7])"
 FIELDS = {"event_id", "notification_id", "session_key", "kind", "occurred_utc_ms", "elapsed_ms", "boot_count",
           "utc_offset_minutes", "scheduled_utc_ms", "policy_id", "preferred_minute", "effective_minute",
           "learned_samples", "reason", "activity_id", "app_version", "dataset"}
@@ -20,9 +27,9 @@ def integer(value, low, high):
 
 
 def validate(event, now):
-    if not isinstance(event, dict) or set(event) != FIELDS:
+    if not isinstance(event, dict) or set(event) not in (FIELDS, FIELDS | FOCUS_FIELDS):
         return False
-    if not identifier(event["event_id"]) or not isinstance(event["kind"], str) or event["kind"] not in NOTIFICATION_KINDS | ACTIVITY_KINDS:
+    if not identifier(event["event_id"]) or not isinstance(event["kind"], str) or event["kind"] not in NOTIFICATION_KINDS | ACTIVITY_KINDS | FOCUS_KINDS:
         return False
     for field, low, high in (("occurred_utc_ms", now - 90 * 86400000, now + 300000),
                              ("scheduled_utc_ms", 0, now + 86400000), ("elapsed_ms", -1, 2**63-1),
@@ -33,13 +40,26 @@ def validate(event, now):
     if any(not isinstance(event[f], str) or not re.fullmatch(r"[A-Za-z0-9._-]{1,48}", event[f])
            for f in ("app_version", "policy_id")):
         return False
-    if not isinstance(event["dataset"], str) or not isinstance(event["reason"], str) or event["dataset"] not in ("live", "synthetic") or event["reason"] not in REASONS:
+    if not isinstance(event["dataset"], str) or not isinstance(event["reason"], str) or event["dataset"] not in ("live", "synthetic") or event["reason"] not in (REASONS | FOCUS_REASONS):
+        return False
+    if event["kind"] in FOCUS_KINDS:
+        if (set(event) != FIELDS | FOCUS_FIELDS or not identifier(event["decision_id"])
+                or event["notification_id"] != "" or event["policy_id"] not in FOCUS_POLICIES
+                or event["reason"] not in FOCUS_REASONS or event["elapsed_ms"] != -1 or event["boot_count"] != -1
+                or event["scheduled_utc_ms"] != 0 or event["preferred_minute"] != -1
+                or event["effective_minute"] != -1 or event["learned_samples"] != 0
+                or any(not isinstance(event[k], str) or not re.fullmatch(FOCUS_ACTIVITY, event[k])
+                       for k in ("recommended_activity_id", "activity_id"))):
+            return False
+        return (event["session_key"] == "" and event["activity_id"] == event["recommended_activity_id"]
+                if event["kind"] == "focus_recommendation_shown" else identifier(event["session_key"]))
+    if set(event) != FIELDS or event["reason"] not in REASONS:
         return False
     if event["kind"] in NOTIFICATION_KINDS:
         return identifier(event["notification_id"]) and event["session_key"] == event["activity_id"] == ""
     return (identifier(event["session_key"]) and event["notification_id"] == ""
             and isinstance(event["activity_id"], str)
-            and re.fullmatch(r"(?:course:MBCT(?:2W|4W)?[0-9]{2}|free-mission:M[0-9]{2})", event["activity_id"]) is not None
+            and re.fullmatch(r"(?:course:MBCT(?:2W|4W)?[0-9]{2}|course:P(?:0[1-9]|1[0-9]|2[0-8])|free-mission:M(?:0[1-9]|1[0-7]))", event["activity_id"]) is not None
             and event["elapsed_ms"] == event["boot_count"] == -1)
 
 
