@@ -14,6 +14,31 @@ namespace CapstoneDesign.Runtime
         private static bool initialized;
         private static IPlatformDataProvider provider = new LivePlatformDataProvider();
 
+        public static PlatformActionResult ResetLocalData(string resetId)
+        {
+            if(string.IsNullOrWhiteSpace(resetId))return ActionError("초기화 요청을 확인해 주세요.","INVALID_RESET_ID");
+            StopSnapshotRecording();
+            if (provider is ReplayPlatformDataProvider replay) replay.ClearForFullReset();
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                // Do not initialize collectors/permissions just to erase their data.
+                using(var unity=new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+                using(var activity=unity.GetStatic<AndroidJavaObject>("currentActivity"))
+                using(var bridge=new AndroidJavaClass(NativeClassName))
+                {
+                    var result=JsonUtility.FromJson<PlatformActionResult>(bridge.CallStatic<string>("resetLocalData",activity,resetId))
+                        ?? ActionError("기기 기록 초기화를 확인하지 못했어요.","LOCAL_RESET_PENDING");
+                    if(result.status=="AVAILABLE")initialized=false;
+                    return result;
+                }
+            }
+            catch(Exception) {return ActionError("기기 기록을 지우지 못했어요. 다시 시도해 주세요.","LOCAL_RESET_PENDING");}
+#else
+            return new PlatformActionResult {status="AVAILABLE",message="Local platform reset complete"};
+#endif
+        }
+
         public static PlatformInputMode InputMode
         {
             get => provider.Mode;

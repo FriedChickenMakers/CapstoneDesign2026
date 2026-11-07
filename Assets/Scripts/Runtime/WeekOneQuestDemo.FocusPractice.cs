@@ -55,6 +55,8 @@ namespace CapstoneDesign.Runtime
 
         public bool SaveFocusDraft()
         {
+            if (opened && screen == "focus-practice" && FocusMissionCatalog.IsGuided(ActiveSession())
+                && ActiveSession().InstructionStep == 0) return SaveGuidedFocusDraft();
             if (!SaveFocusActivity()) return false;
             if (!opened || !screen.StartsWith("focus-", StringComparison.Ordinal) || !focusDirty) return true;
             var session = ActiveSession();
@@ -83,8 +85,11 @@ namespace CapstoneDesign.Runtime
             if (screen != "focus-practice" && screen != "focus-emotion" && screen != "focus-note" && screen != "focus-save-error" && screen != "focus-complete") return false;
             if (screen == "focus-complete") { ShowHome(); return true; }
             if (screen == "focus-save-error") { ShowFocusNote(); return true; }
-            if (!SaveFocusDraft()) return true;
             var session = ActiveSession();
+            if (screen == "focus-practice" && FocusMissionCatalog.IsGuided(session) && session.InstructionStep == 0)
+                return TryGuidedPrevious();
+            if (screen == "focus-practice" && UsesBasicFocusSlides(session)) return TryBasicFocusBack();
+            if (!SaveFocusDraft()) return true;
             if (!FocusMissionPolicy.IsFocus(session)) return false;
             if (screen == "focus-note")
             {
@@ -92,7 +97,8 @@ namespace CapstoneDesign.Runtime
             }
             else if (screen == "focus-emotion")
             {
-                if (FocusSaved(Service.MoveFocusStep(session.SessionId, session.FocusStepRecords.Count - 1))) ShowFocusPractice();
+                int previous = FocusMissionCatalog.IsGuided(session) ? 0 : session.FocusStepRecords.Count - 1;
+                if (FocusSaved(Service.MoveFocusStep(session.SessionId, previous))) ShowFocusPractice();
             }
             else if (screen == "focus-practice" && session.Status != ParticipationState.Selected && session.InstructionStep > 0)
             {
@@ -112,21 +118,38 @@ namespace CapstoneDesign.Runtime
             var mission = FocusMissionCatalog.FindForSession(session);
             if (!FocusMissionPolicy.IsFocus(session) || mission == null) { ShowHome(); return; }
             if (session.Status == ParticipationState.RewardCommitted) { ShowFocusCompletion(session.SessionId); return; }
+            if (!RequireMissionPlant()) return;
             if (session.Status == ParticipationState.Paused)
             {
                 if (!FocusSaved(Service.ResumeSession(session.SessionId))) return;
                 session = ActiveSession();
             }
-            bool overview = session.Status == ParticipationState.Selected;
+            if (UsesBasicFocusSlides(session)) BindBasicFocusSlides(session);
+            bool overview = session.Status == ParticipationState.Selected || UsesBasicFocusSlides(session) && basicOverview;
             if (!overview && session.InstructionStep >= mission.Steps.Length)
             {
-                if (session.InstructionStep == mission.Steps.Length) ShowFocusEmotion(); else ShowFocusNote();
+                FinishFocusMission();
                 return;
             }
             int step = overview ? -1 : session.InstructionStep;
+            if (FocusMissionCatalog.IsGuided(session) && (overview || step == 0))
+            {
+                if (guidedDraftSession == session.SessionId) GuidedElapsed();
+                focusAnswerInput = null; focusNoteInput = null; focusDirty = false;
+                var guidedRoot = BeginFigmaPage("focus-practice", ShowFocusPractice, FigmaMissionUi.Hex(mission.BackgroundHex));
+                BuildGuidedFocusPractice(guidedRoot, mission, session);
+                FocusEnter(guidedRoot);
+                return;
+            }
             BindFocusDraft(session, step);
             focusAnswerInput = null; focusNoteInput = null;
             var root = BeginFigmaPage("focus-practice", ShowFocusPractice, FigmaMissionUi.Hex(mission.BackgroundHex));
+            if (UsesBasicFocusSlides(session))
+            {
+                BuildBasicFocusSlides(root, mission, session, step);
+                FocusEnter(root);
+                return;
+            }
             string frame = FocusMissionCatalog.HasOriginalLayout(mission.Code) ? FocusFrame(mission.Code, step) : "86_770";
             FocusPracticeHeader(root, mission, step, frame);
             string id = session.SessionId;
@@ -173,7 +196,7 @@ namespace CapstoneDesign.Runtime
             var close = FigmaMissionUi.Button(root, "", 24, 24, 88, 48, CloseFocusPractice, Color.clear, ink);
             close.name = "Focus.Close"; FigmaMissionUi.Asset(close.transform, FocusArt + frame + "_imgIconClose", 10, 14, 20, 20);
             FigmaMissionUi.Label(close.transform, "닫기", 36, 0, 42, 48, 14, ink, false, TextAnchor.MiddleLeft);
-            FigmaMissionUi.Label(root, step < 0 ? "시작하기" : "지금 할 일", 260, 36, 106, 24, 14, accent, false, TextAnchor.MiddleRight);
+            FigmaMissionUi.Label(root, FocusPracticeContext(step < 0 ? "시작하기" : "지금 할 일"), 172, 36, 194, 24, 14, accent, false, TextAnchor.MiddleRight);
             FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 81, 342, 20, 14, accent);
             bool original = FocusMissionCatalog.HasOriginalLayout(mission.Code);
             string heading = step < 0 ? mission.Title : mission.Steps[step].Title;
@@ -400,100 +423,23 @@ namespace CapstoneDesign.Runtime
             return true;
         }
 
-        static void FocusRoleBadge(Transform root, ActivitySession session)
+        // Retain serialized entry points from the former reflection flow. New
+        // and resumed practices now finish without another emotion/note page.
+        public void ShowFocusEmotion() => FinishFocusMission();
+        public void ShowFocusNote() => FinishFocusMission();
+
+        void FinishFocusMission()
         {
-            bool basic = session.FocusRole == FocusMissionCatalog.BasicRole;
-            FigmaMissionUi.Box(root, "미션 구분", 24, 140, 78, 37, basic ? FigmaMissionUi.Soft : FigmaMissionUi.Warm, 12);
-            FigmaMissionUi.Label(root, basic ? "기본 미션" : "추가 미션", 24, 140, 78, 37, 14, basic ? FigmaMissionUi.Green : FigmaMissionUi.Brown, true, TextAnchor.MiddleCenter);
+            if (!SaveFocusDraft() || !FocusReflectionReady(out var session)) return;
+            if (focusPracticeClock != null) focusPracticeClock.Pause();
+            HandlePracticeCompletion(session.SessionId, () =>
+            {
+                focusDirty = false;
+                focusAnswerInput = focusNoteInput = null;
+                ResetCompletedNavigation();
+                ShowFocusCompletion(session.SessionId);
+            });
         }
-
-        public void ShowFocusEmotion()
-        {
-            if (!FocusReflectionReady(out var session)) return;
-            var root = BeginFigmaPage("focus-emotion", ShowFocusEmotion, FigmaMissionUi.Background);
-            FigmaHeader(root, "지금 느낌은 어떤가요?", "감정 기록 · 선택"); FocusRoleBadge(root, session);
-            FigmaMissionUi.Label(root, "원하면 가까운 감정 하나를 골라요.", 24, 190, 342, 24, 16, FigmaMissionUi.Muted);
-            FigmaMissionUi.Label(root, string.IsNullOrEmpty(focusMood) ? "고르지 않아도 괜찮아요." : "선택한 감정 · " + focusMood, 24, 218, 342, 24, 14, FigmaMissionUi.Green, true);
-            var emotions = focusAllEmotions ? FocusEmotions : new[] { "기쁨", "편안함", "뿌듯함", "무덤덤함", "슬픔", "불안함", "답답함", "화남" };
-            var body = FigmaScroll(root, 250, focusAllEmotions ? 328 : 112, focusAllEmotions ? 336 : 112);
-            for (int i = 0; i < emotions.Length; i++)
-            {
-                string emotion = emotions[i]; bool selected = focusMood == emotion;
-                FigmaMissionUi.Button(body, emotion, 24 + (i % 4) * 88, (i / 4) * 56, 78, 48, () =>
-                {
-                    focusMood = focusMood == emotion ? "" : emotion; focusDirty = true; if (SaveFocusDraft()) ShowFocusEmotion();
-                }, selected ? FigmaMissionUi.Green : Color.white, selected ? Color.white : FigmaMissionUi.Ink, 14).name = "Focus.Emotion." + emotion;
-            }
-            FigmaMissionUi.Button(root, focusAllEmotions ? "감정 접기" : "감정 더 보기", 24, focusAllEmotions ? 586 : 378, 342, 48, () =>
-            {
-                if (!SaveFocusDraft()) return;
-                focusAllEmotions = !focusAllEmotions; ShowFocusEmotion();
-            }, Color.clear, FigmaMissionUi.Green, 14).name = "Focus.MoreEmotions";
-            FocusBackControl(root, "23_192_imgIconBack");
-            FigmaMissionUi.Button(root, "다음", 24, 650, 342, 56, () =>
-            {
-                if (!FocusSaved(Service.SaveFocusReflection(session.SessionId, focusMood, focusNote, 1))) return;
-                focusDirty = false; ShowFocusNote();
-            }).name = "Focus.ReflectionNext";
-            FigmaMissionUi.Button(root, "기록 없이 완료", 84, 714, 282, 48, () => CompleteFocusPractice(session.SessionId, true), Color.clear, FigmaMissionUi.Green, 16).name = "Focus.SkipReflection";
-        }
-
-        void FocusBackControl(Transform root, string asset)
-        {
-            var back = FigmaMissionUi.Button(root, "", 24, 768, 48, 52, () => TryFocusBack(), Color.clear);
-            back.name = "Focus.Back"; FocusArtAt(back.transform, asset, 12, 14, 24, 24);
-        }
-
-        public void ShowFocusNote() => RenderFocusNote(false);
-
-        void RenderFocusNote(bool saveError)
-        {
-            if (!FocusReflectionReady(out var session)) return;
-            var root = BeginFigmaPage(saveError ? "focus-save-error" : "focus-note", () => RenderFocusNote(saveError), FigmaMissionUi.Background);
-            if (notice != null && saveError) notice.gameObject.SetActive(false);
-            FigmaHeader(root, "한 줄 남기기", "나의 메모 · 선택"); FocusRoleBadge(root, session);
-            float shift = saveError ? 124 : 0;
-            if (saveError)
-            {
-                FigmaMissionUi.Box(root, "저장 실패", 24, 193, 342, 108, FigmaMissionUi.Hex("FFF0EB"), 24);
-                FigmaMissionUi.Label(root, "아직 저장하지 못했어요.", 40, 209, 310, 26, 18, FigmaMissionUi.Hex("923E30"), true);
-                FigmaMissionUi.Label(root, "작성한 내용은 그대로 남아 있어요.\n내용을 확인하고 다시 시도해주세요.", 40, 243, 310, 42, 14, FigmaMissionUi.Hex("923E30"));
-            }
-            FigmaMissionUi.Label(root, "고른 감정", 24, 193 + shift, 342, 21, 14, FigmaMissionUi.Muted);
-            FigmaMissionUi.Label(root, string.IsNullOrEmpty(focusMood) ? "선택하지 않았어요" : focusMood, 24, 222 + shift, 342, 26, 18, FigmaMissionUi.Green, true);
-            FigmaMissionUi.Label(root, "어떤 순간이 떠오르나요? · 선택", 24, 264 + shift, 342, 26, 18, null, true);
-            focusNoteInput = FigmaMissionUi.Input(root, "감정이나 생각을 편하게 적어보세요.", 24, 306 + shift, 342, 164, 500);
-            focusNoteInput.name = "Focus.NoteInput"; focusNoteInput.SetTextWithoutNotify(focusNote);
-            focusNoteInput.onValueChanged.AddListener(value => { focusNote = value; focusDirty = true; });
-            focusNoteInput.onEndEdit.AddListener(value => SaveFocusDraft());
-            AttachFocusKeyboard(root, focusNoteInput, "한 줄 남기기", FigmaMissionUi.Background, FigmaMissionUi.Green);
-            FigmaMissionUi.Label(root, "적지 않아도 미션을 완료할 수 있어요.", 24, 486 + shift, 342, 21, 14, FigmaMissionUi.Muted);
-            if (saveError)
-                FigmaMissionUi.Button(root, "입력 내용 확인하기", 24, 768, 342, 52, () => { focusNote = focusNoteInput.text; ShowFocusNote(); }).name = "Focus.ReviewFailedSave";
-            else
-            {
-                FocusBackControl(root, "47_1511_imgIconBack");
-                FigmaMissionUi.Button(root, "미션 완료", 84, 768, 282, 52, () => CompleteFocusPractice(session.SessionId)).name = "Focus.Complete";
-            }
-        }
-
-        void CompleteFocusPractice(string id, bool withoutReflection = false)
-        {
-            if ((Application.isPlaying && Time.unscaledTime < focusNextAction) || sessionId != id || (screen != "focus-note" && !(withoutReflection && screen == "focus-emotion"))) return;
-            focusNextAction = Time.unscaledTime + .2f;
-            if (focusNoteInput != null) focusNote = focusNoteInput.text;
-            // Keep the editable draft until the session and reward commit succeeds atomically.
-            focusDirty = true;
-            if (!FocusSaved(Service.CompleteFocusSession(id, withoutReflection ? "" : focusMood, withoutReflection ? "" : focusNote)))
-            {
-                if (!withoutReflection) RenderFocusNote(true);
-                return;
-            }
-            if (withoutReflection) { focusMood = ""; focusNote = ""; }
-            focusDirty = false; focusAnswerInput = null; focusNoteInput = null;
-            ResetCompletedNavigation(); UpdateGarden(); ShowFocusCompletion(id);
-        }
-
         public void ShowFocusCompletion(string completedSessionId)
         {
             var session = opened ? Service.Snapshot.Sessions.FirstOrDefault(item => item.SessionId == completedSessionId) : null;
@@ -504,7 +450,17 @@ namespace CapstoneDesign.Runtime
             var accent = FocusAccent(mission);
             FigmaMissionUi.Label(root, mission.Code + " · " + mission.Title, 24, 24, 342, 24, 14, FocusMuted(mission));
             FigmaMissionUi.Label(root, "미션 완료!", 24, 90, 342, 40, 32, FocusInk(mission), true);
-            FigmaMissionUi.Label(root, session.RewardAmount > 0 ? "영양제 +" + session.RewardAmount : "기록을 저장했어요", 24, 138, 342, 28, 18, FocusMuted(mission));
+            var plantState = Service.Snapshot;
+            bool plantCompleted = GardenPlantVisuals.HasCurrentPlant(plantState) && GardenPlantVisuals.IsCompleted(plantState);
+            string storedGrowth = StoredGrowthSummary(plantState);
+            var growth = Service.GetPracticeGrowth(completedSessionId);
+            string result = plantCompleted ? "식물이 완성됐어요" + (storedGrowth == null ? "" : "\n" + storedGrowth)
+                : storedGrowth ?? (growth != null && growth.AfterStep > growth.BeforeStep ? "식물이 한 단계 자랐어요" : "기록을 저장했어요");
+            FigmaMissionUi.Label(root, result, 24, 138, 342, plantCompleted && storedGrowth != null ? 52 : 28,
+                plantCompleted && storedGrowth != null ? 16 : 18, FocusMuted(mission)).name = "Focus.GrowthResult";
+            if (session.RewardAmount > 0)
+                FigmaMissionUi.Label(root, "코인 +" + session.RewardAmount, 24, 206, 342, 32, 22, accent, true)
+                    .name = "Focus.CoinReward";
             FocusCircle(root, 55, 319.5f, 280, FocusCircleColor(mission));
             if (FocusMissionCatalog.HasOriginalLayout(mission.Code))
             {
@@ -520,15 +476,37 @@ namespace CapstoneDesign.Runtime
             }
             string message = mission.Code == "M03" ? "물 마시기 완료" : mission.Code == "P10" ? "잠시 숨을 골랐어요" : mission.Code == "P23" ? "한입을 느꼈어요" : mission.Code == "P25" ? "전할 말을 확인했어요" : "오늘의 실천을 남겼어요";
             FigmaMissionUi.Label(root, message, 45, 613.5f, 300, 36, 24, accent, true, TextAnchor.MiddleCenter);
-            FigmaMissionUi.Button(root, "미션 목록으로", 24, 698, 166, 48, ShowHome, Color.clear, accent, 16).name = "Focus.ConfirmHome";
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (IsMissionDebugActive)
+            {
+                FigmaMissionUi.Label(root, "테스트 결과 · 실제 기록에 반영되지 않아요", 24, 662, 342, 28, 14, FocusMuted(mission));
+                FigmaMissionUi.Button(root, "다른 P/M 테스트", 24, 706, 342, 48, ShowMissionDebugPicker, Color.clear, accent, 16).name = "Focus.DebugAgain";
+                FigmaMissionUi.Button(root, "테스트 종료", 24, 764, 342, 52, ShowHome, accent).name = "Focus.DebugExit";
+                FocusEnter(root);
+                return;
+            }
+#endif
+            FigmaMissionUi.Button(root, "오늘의 미션으로", 24, 698, 166, 48, ShowHome, Color.clear, accent, 16).name = "Focus.ConfirmHome";
             FigmaMissionUi.Button(root, "저장한 기록 보기", 200, 698, 166, 48, () => ShowFocusRecord(completedSessionId), Color.clear, accent, 16).name = "Focus.ViewRecord";
-            FigmaMissionUi.Button(root, "정원으로", 24, 756, 342, 58, GoGarden, accent, Color.white, 18).name = "Focus.GoGarden";
+            if (plantCompleted)
+                FigmaMissionUi.Button(root, "사진첩으로", 24, 756, 166, 58, ShowPlantAlbum, accent, Color.white, 18).name = "Focus.PlantAlbum";
+            FigmaMissionUi.Button(root, "정원으로", plantCompleted ? 200 : 24, 756, plantCompleted ? 166 : 342, 58,
+                GoGarden, accent, Color.white, 18).name = "Focus.GoGarden";
             FocusEnter(root);
         }
 
         static void FocusEnter(RectTransform root)
         {
             root.GetComponent<FocusMobilePageLayout>()?.Refresh();
+            root.GetComponent<FocusGuidedSlideLayout>()?.Refresh();
+        }
+
+        string FocusPracticeContext(string regular)
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (IsMissionDebugActive) return "테스트 · 실제 기록에 미반영";
+#endif
+            return regular;
         }
 
         void AttachFocusKeyboard(Transform root, InputField input, string title, Color background, Color accent)

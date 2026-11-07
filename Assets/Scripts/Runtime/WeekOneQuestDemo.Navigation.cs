@@ -42,6 +42,9 @@ namespace CapstoneDesign.Runtime
 
         public bool TryNavigateBack()
         {
+            if (GardenMemoPopup.TryCloseOpen()) return true;
+            if(HasPendingFullReset){ShowFullResetRecovery();return true;}
+            if(TryDailyEmotionBack())return true;
             if(TryFocusBack())return true;
             if (screen == "home" || (screen == "programs" && opened && !Service.Snapshot.MbctProgramChosen)) return false;
             // A failed save consumes Back and retains the input and error message.

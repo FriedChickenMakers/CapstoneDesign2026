@@ -14,6 +14,7 @@ namespace CapstoneDesign.Runtime
 
         void ClearPageView()
         {
+            ClosePlantMemoPopup();
             var previous = activityFrame != null ? activityFrame : pageViewport;
             if (previous != null)
             {

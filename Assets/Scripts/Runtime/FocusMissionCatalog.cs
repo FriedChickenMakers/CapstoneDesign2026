@@ -19,7 +19,7 @@ namespace CapstoneDesign.Runtime.LocalState
     }
     public static class FocusMissionCatalog
     {
-        public const int Version = 2;
+        public const int Version = 3, Version2 = 2;
         public const string BasicRole = "basic", AdditionalRole = "additional";
         public const string StoryText = "아침에 창문을 열자 서늘한 바람이 방으로 들어왔습니다. 창가의 작은 화분에는 새 잎이 하나 나 있었습니다. 물을 조금 주고 잠시 바라보니, 잎 위에 남은 물방울이 빛을 받아 반짝였습니다. 밖에서는 자전거가 지나가는 소리가 들렸습니다. 나는 따뜻한 컵을 두 손으로 감싸고, 오늘 해야 할 일 중 한 가지만 천천히 시작하기로 했습니다.";
         static FocusMissionStep S(string key,string title,string body,string action="계속",string kind="observe",string[] options=null,bool input=false,string hint=null,int seconds=0,string condition=null,string[] when=null,bool required=false)
@@ -27,7 +27,8 @@ namespace CapstoneDesign.Runtime.LocalState
         static string[] O(params string[] options)=>options;
         static FocusMissionDefinition D(string code,string title,string overview,string background,string accent,string circle,params FocusMissionStep[] steps)
             =>new FocusMissionDefinition {Code=code,Id=(code[0]=='P'?"course:":"free-mission:")+code,Role=code[0]=='P'?BasicRole:AdditionalRole,Title=title,Overview=overview,BackgroundHex=background,AccentHex=accent,CircleHex=circle,TextHex=code=="P10"?"#224B49":code=="M03"?"#163D50":"#183845",IconAsset="FocusMissions/Catalog/"+code,Steps=steps};
-        public static readonly FocusMissionDefinition[] All={
+        // Version 2 is retained verbatim for saved sessions, including their original step indexes.
+        public static readonly FocusMissionDefinition[] AllV2={
             D("M01","주변 밝히기","주변에 빛을\n조금 더해볼까요?","#FFF9E6","#8A671D","#F8E9B6",
                 S("light","빛 더하기","커튼을 열거나\n조명을 켜세요.","했어요","prepare")),
             D("M02","창밖 바라보기","창밖 풍경 하나를\n잠시 살펴봐요.","#F0F8FC","#39758C","#D7EBF3",
@@ -129,11 +130,36 @@ namespace CapstoneDesign.Runtime.LocalState
             D("P28","다음 주의 나 돌보기","편한 실습을 다시 해보고\n다음 주 계획을 세워요.","#F3F7EF","#718652","#E0EACF",
                 S("activity","편한 실습 선택","해본 실습 중\n하나를 골라요.",kind:"choice",options:O("호흡","몸의 접촉","주변 소리","잠시 멈춤")),S("practice","한 번 더 실습","선택한 실습을\n편한 만큼 해봐요.",kind:"focus",seconds:60),S("next-activity","다음 주의 활동","다음 주 다시 할\n활동을 골라요.",kind:"choice",options:O("호흡","몸의 접촉","주변 소리","잠시 멈춤")),S("time","부담 없는 시간","이어가기 편한 시간대를\n고르거나 나중에 정해요.",kind:"choice",options:O("아침","점심","저녁","생활 행동 뒤","나중에 정하기")),S("review","나의 계획 확인","고른 활동과 시간대를 확인해요.\n이전 단계에서 바꿀 수 있어요.","완료","review"))
         };
+        static readonly FocusMissionDefinition[] GuidedV3={
+            D("P01","잠깐 멈춰보기","잠깐 멈춰\n호흡이 느껴지는 곳을 찾아요.","#EEF8F7","#357C78","#D8ECE8",
+                S("practice","숨이 느껴지는 곳","편하게 앉거나 누워요.\n숨을 바꾸지 않고 고른 곳의 감각을 살펴요.","실습 마치기","focus",O("코","가슴","배"),seconds:60),
+                S("notice","어디에서 느꼈나요?","뚜렷하지 않아도 괜찮아요.","완료","choice",O("코","가슴","배","잘 모르겠음"))),
+            D("P02","주변 소리 만나기","주변 소리 하나에\n귀 기울여봐요.","#EFF5FC","#5079A4","#DDE8F7",
+                S("practice","가까운 소리·먼 소리","편하게 앉아 들리는 소리에 귀 기울여요.\n소리가 나타나고 달라지는 것을 살펴요.","실습 마치기","focus",seconds:60),
+                S("notice","기억나는 소리","들린 소리를 골라보거나\n짧게 적어요.","완료","input",O("사람 소리","자연 소리","생활 소리","잘 모르겠음"),true,"기억나는 소리 · 선택")),
+            D("P03","몸에 안부 묻기","몸에서 느껴지는\n감각 하나를 살펴봐요.","#F2F5FC","#677DA0","#E0E7F4",
+                S("practice","몸이 닿는 곳","앉거나 누워 몸을 편하게 두어요.\n의자나 바닥에 닿는 곳의 감각을 느껴봐요.","실습 마치기","focus",seconds:60),
+                S("notice","어떤 느낌인가요?","가까운 느낌을 골라요.\n뚜렷하지 않아도 괜찮아요.","완료","choice",O("따뜻함","차가움","압박감","특별한 느낌 없음"))),
+            D("P04","한 모금 천천히","마시는 한 모금의 감각을\n차례로 살펴봐요.","#F0FAFF","#307D9A","#D9EEF6",
+                S("practice","천천히 한 모금","편한 온도의 음료를 준비해 컵의 감촉을 느껴요.\n한 모금 마시며 맛과 온도, 삼킨 뒤의 느낌을 살펴요.","실습 마치기","focus",seconds:30),
+                S("notice","눈에 띈 감각","뚜렷하지 않아도 괜찮아요.","완료","choice",O("감촉","온도","맛","뚜렷하지 않음"))),
+            D("P05","다시 돌아오기","주의가 벗어나면\n호흡으로 돌아오는 연습이에요.","#EDF7F6","#3C7F77","#D5EAE4",
+                S("practice","부드럽게 돌아오기","편한 자세에서 자연스러운 호흡을 느껴요.\n생각에 빠진 것을 알아차리면 부드럽게 돌아와요.","실습 마치기","focus",seconds:120),
+                S("notice","떠오른 생각","생각이 떠오르지 않아도\n괜찮아요.","완료","choice",O("알아차렸어요","떠오르지 않았어요","잘 모르겠음"))),
+            D("P06","익숙한 행동 새롭게","평소 하던 행동에서\n새로운 감각을 살펴봐요.","#F1F9FB","#49818A","#DCEEF1",
+                S("practice","온도·움직임·소리","고른 행동을 하면서\n물의 온도와 손의 움직임, 소리를 살펴요.","실습 마치기","focus",O("손 씻기","설거지"),seconds:60),
+                S("notice","눈에 띈 감각","처음 느낀 감각이 없어도\n괜찮아요.","완료","choice",O("온도","움직임","소리","잘 모르겠음"))),
+            D("P07","나에게 편한 실습 찾기","부담이 적었던 실습을\n한 번 더 해봐요.","#F3F8EF","#6B854D","#E2ECCF",
+                S("practice","고른 대상에 머물기","오늘 부담이 적은 대상을 골라 잠시 머물러요.\n주의가 벗어나면 선택한 대상으로 돌아와요.","실습 마치기","focus",O("호흡","몸의 접촉","주변 소리"),seconds:60),
+                S("notice","다음에도 해볼까요?","앞으로 하고 싶은 활동을\n고르거나 건너뛰어요.","완료","choice",O("호흡","몸의 접촉","주변 소리","없음","잘 모르겠음")))
+        };
+        public static readonly FocusMissionDefinition[] All=AllV2.Select(m=>GuidedV3.FirstOrDefault(g=>g.Id==m.Id)??m).ToArray();
         public static FocusMissionDefinition[] Basic=>All.Where(m=>m.Role==BasicRole).ToArray();
         public static FocusMissionDefinition[] Additional=>All.Where(m=>m.Role==AdditionalRole).ToArray();
         public static FocusMissionDefinition Find(string idOrCode)=>Find(idOrCode,Version);
-        public static FocusMissionDefinition Find(string idOrCode,int version)=>(version==1?Legacy:All).FirstOrDefault(m=>m.Id==idOrCode||m.Code==idOrCode);
+        public static FocusMissionDefinition Find(string idOrCode,int version)=>(version==1?Legacy:version==Version2?AllV2:version==Version?All:Array.Empty<FocusMissionDefinition>()).FirstOrDefault(m=>m.Id==idOrCode||m.Code==idOrCode);
         public static FocusMissionDefinition FindForSession(ActivitySession session)=>session==null?null:Find(session.MissionId,session.FocusVersion);
+        public static bool IsGuided(ActivitySession session)=>session!=null && session.FocusVersion>=3 && GuidedV3.Any(m=>m.Id==session.MissionId);
         public static bool IsApplicable(FocusMissionDefinition mission,IReadOnlyList<FocusStepRecord> records,int index)
         {
             if(mission==null||index<0||index>=mission.Steps.Length)return false;

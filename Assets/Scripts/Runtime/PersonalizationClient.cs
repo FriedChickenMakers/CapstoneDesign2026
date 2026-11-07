@@ -16,6 +16,9 @@ namespace CapstoneDesign.Runtime
     {
         [Serializable] sealed class Enrollment { public string endpoint, token; }
         static PersonalizationClient instance;
+        static bool localResetBlocked;
+        UnityWebRequest activeRequest;
+        int localResetGeneration;
         EventQueue queue;
         Enrollment enrollment;
         ResponsePolicy policy = new ResponsePolicy();
@@ -49,7 +52,7 @@ namespace CapstoneDesign.Runtime
                 return AndroidPlatformBridge.InputMode==PlatformInputMode.Live;
             }
         }
-        public bool Configured => CollectionContextAllowed && enrollment != null && queue != null && queue.BoundTo(EventQueue.Fingerprint(enrollment.endpoint, enrollment.token));
+        public bool Configured => !localResetBlocked && CollectionContextAllowed && enrollment != null && queue != null && queue.BoundTo(EventQueue.Fingerprint(enrollment.endpoint, enrollment.token));
         public bool Consented => Configured && queue.Enabled;
         public bool DeletionPending => queue != null && queue.DeletePending;
         public bool EnrollmentRevoked => queue != null && queue.EnrollmentRevoked;
@@ -70,6 +73,8 @@ namespace CapstoneDesign.Runtime
             try
             {
                 string directory = PrivateDirectory();
+                if (localResetBlocked || File.Exists(Path.Combine(directory,"personalization-local-reset")))
+                { localResetBlocked=true; status="연결 설정 없음"; return; }
                 queue = new EventQueue(new FileEventQueueStore(Path.Combine(directory, "behavior-queue.xml")));
                 string path = Path.Combine(directory, "personalization-enrollment.json");
                 if (!File.Exists(path)) return;
@@ -106,6 +111,39 @@ namespace CapstoneDesign.Runtime
 #else
             return Path.Combine(Application.persistentDataPath, "personalization");
 #endif
+        }
+        // Local app reset is deliberately separate from SetConsent(false), which
+        // performs the operator's server-side participant deletion protocol.
+        // No singleton is created and no network/native request is issued here.
+        public static PlatformActionResult ResetLocalDataForAppReset(string resetId)
+        {
+            if(string.IsNullOrEmpty(resetId) || resetId.Length>128 || resetId.Any(c=>!(c>='a' && c<='z') && !(c>='A' && c<='Z') && !(c>='0' && c<='9') && c!='-' && c!='_' && c!=':'))
+                return new PlatformActionResult {status="ERROR",errorCode="INVALID_RESET_ID",message="초기화 요청을 확인해 주세요."};
+            localResetBlocked=true;
+            if(instance!=null)
+            {
+                instance.localResetGeneration++;
+                try {instance.activeRequest?.Abort();} catch(Exception) { }
+                instance.StopAllCoroutines();
+                try {instance.activeRequest?.Dispose();} catch(Exception) { }
+                instance.activeRequest=null; instance.queue=null; instance.enrollment=null;
+                instance.policy=new ResponsePolicy(); instance.policyLoaded=false; instance.busy=false;
+                instance.initializationAttempted=true; instance.nextPolicyRefresh=0;
+                instance.nextAttempt=instance.nextActivationAttempt=instance.nextMeasurementSync=0;
+                instance.measurementSyncKey=null; instance.status="연결 설정 없음";
+            }
+            try
+            {
+                string directory=PrivateDirectory(); Directory.CreateDirectory(directory);
+                // A crash after the first deletion must never reactivate old enrollment.
+                using(var marker=new FileStream(Path.Combine(directory,"personalization-local-reset"),FileMode.Create,FileAccess.Write,FileShare.Read))
+                {var bytes=Encoding.UTF8.GetBytes(resetId);marker.Write(bytes,0,bytes.Length);marker.Flush(true);}
+                foreach(string name in new[]{"personalization-enrollment.json","behavior-queue.xml"})
+                    foreach(string suffix in new[]{"",".tmp",".bak",".new"})
+                    {string path=Path.Combine(directory,name+suffix);File.Delete(path);if(File.Exists(path))throw new IOException();}
+                return new PlatformActionResult {status="AVAILABLE",message="앱 내부 연결 기록을 초기화했어요."};
+            }
+            catch(Exception) {return new PlatformActionResult {status="ERROR",errorCode="PERSONALIZATION_RESET_PENDING",message="연결 기록을 지우지 못했어요. 다시 시도해 주세요."};}
         }
         static bool ValidEndpoint(string value)
         {
@@ -177,6 +215,7 @@ namespace CapstoneDesign.Runtime
         }
         void Update()
         {
+            if(localResetBlocked)return;
             if(Time.unscaledTime>=nextMeasurementSync) {nextMeasurementSync=Time.unscaledTime+3;SynchronizeMeasurementConsent();}
             if(!CollectionContextAllowed)return;
             if(!initializationAttempted)InitializeEnrollment();
@@ -197,10 +236,12 @@ namespace CapstoneDesign.Runtime
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));
                 request.SetRequestHeader("Content-Type", "application/json");
             }
+            activeRequest=request;
             return request;
         }
         IEnumerator Synchronize()
         {
+            int generation=localResetGeneration;
             busy = true;
             try
             {
@@ -209,6 +250,7 @@ namespace CapstoneDesign.Runtime
                     using (var request = Request("DELETE", "/participant"))
                     {
                         yield return request.SendWebRequest();
+                        if(generation!=localResetGeneration || localResetBlocked)yield break;
                         if (request.result == UnityWebRequest.Result.Success)
                         {
                             try
@@ -228,6 +270,7 @@ namespace CapstoneDesign.Runtime
                     using (var request = Request("GET", "/policy/current"))
                     {
                         yield return request.SendWebRequest();
+                        if(generation!=localResetGeneration || localResetBlocked)yield break;
                         if (queue.Enabled && request.result == UnityWebRequest.Result.Success)
                         {
                             try
@@ -246,6 +289,7 @@ namespace CapstoneDesign.Runtime
                 }
                 if (!queue.Enabled || !CollectionContextAllowed) { nextAttempt = 0; yield break; }
                 yield return SynchronizeMeasurements();
+                if(generation!=localResetGeneration || localResetBlocked)yield break;
                 if (!queue.Enabled || !CollectionContextAllowed) { nextAttempt = 0; yield break; }
                 BehaviorEvent[] sent;
                 try { sent = queue.Batch(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()); }
@@ -254,6 +298,7 @@ namespace CapstoneDesign.Runtime
                 using (var request = Request("POST", "/events/batch", JsonUtility.ToJson(new BehaviorBatch { events=sent })))
                 {
                     yield return request.SendWebRequest();
+                    if(generation!=localResetGeneration || localResetBlocked)yield break;
                     if (!queue.Enabled) { nextAttempt = 0; yield break; }
                     if (request.result == UnityWebRequest.Result.Success)
                     {
@@ -269,7 +314,7 @@ namespace CapstoneDesign.Runtime
                     else status = "참여 기록 전송 대기 · 활동은 계속할 수 있어요";
                 }
             }
-            finally { busy = false; }
+            finally { if(generation==localResetGeneration) {busy = false;activeRequest=null;} }
         }
     }
 }

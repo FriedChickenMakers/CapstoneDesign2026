@@ -22,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.cancelChildren
 import kotlin.coroutines.coroutineContext
 import org.json.JSONArray
 import kotlin.reflect.KClass
@@ -40,6 +41,7 @@ internal object HealthRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
     private var appContext: Context? = null
+    private var generation = 0
     private var refreshing = false
     private var refreshQueued = false
     private var stepRangeBusy = false
@@ -55,6 +57,15 @@ internal object HealthRepository {
     fun initialize(context: Context) {
         appContext = context.applicationContext
         refresh()
+    }
+
+    fun resetLocalData() = synchronized(lock) {
+        generation++
+        scope.coroutineContext.cancelChildren()
+        refreshing=false; refreshQueued=false; stepRangeBusy=false
+        activityBaselineCache=null; lastSuccessfulRefreshEpochMs=0
+        stepRangeResult=JSONObject().put("status",PlatformStatus.NO_DATA).put("requestId", "").put("queryComplete",false)
+        lastSnapshot=emptySnapshot(PlatformStatus.NO_DATA,"App-local health cache cleared")
     }
 
     fun requiredPermissions(): Set<String> = setOf(
@@ -89,12 +100,15 @@ internal object HealthRepository {
     fun refresh(heartRange: Pair<Instant, Instant>? = null): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Health Connect is not initialized")
+        if (NativeLocalReset.pending(context)) return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
+        val requestGeneration = synchronized(lock) { generation }
         val (availability, message) = availabilityStatus()
         if (availability != PlatformStatus.AVAILABLE) {
-            synchronized(lock) { lastSnapshot = emptySnapshot(availability, message) }
+            synchronized(lock) { if(requestGeneration == generation) lastSnapshot = emptySnapshot(availability, message) }
             return resultJson(availability, message)
         }
         synchronized(lock) {
+            if(requestGeneration != generation)return resultJson(PlatformStatus.NO_DATA,"Local reset invalidated this query")
             if (refreshing) {
                 if (heartRange != null)
                     return resultJson(PlatformStatus.ERROR, "Health refresh is already running", "REFRESH_BUSY")
@@ -105,16 +119,18 @@ internal object HealthRepository {
         }
         scope.launch {
             try {
-                refreshInternal(context, heartRange)
+                refreshInternal(context, heartRange, requestGeneration)
             } catch (exception: Exception) {
                 if (exception is CancellationException) throw exception
                 synchronized(lock) {
-                    lastSnapshot = emptySnapshot(PlatformStatus.ERROR, exception.safeMessage())
+                    if (requestGeneration == generation) lastSnapshot = emptySnapshot(PlatformStatus.ERROR, exception.safeMessage())
                 }
             } finally {
                 val again = synchronized(lock) {
-                    refreshing = false
-                    refreshQueued.also { refreshQueued = false }
+                    if (requestGeneration != generation) false else {
+                        refreshing = false
+                        refreshQueued.also { refreshQueued = false }
+                    }
                 }
                 if (again) refresh()
             }
@@ -147,7 +163,10 @@ internal object HealthRepository {
             return resultJson(PlatformStatus.ERROR, "Invalid step interval", "INVALID_STEP_RANGE")
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Health Connect is not initialized")
+        if (NativeLocalReset.pending(context)) return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
+        val requestGeneration = synchronized(lock) { generation }
         synchronized(lock) {
+            if(requestGeneration != generation)return resultJson(PlatformStatus.NO_DATA,"Local reset invalidated this query")
             if (stepRangeBusy) return resultJson(PlatformStatus.ERROR, "Step query is running", "STEP_QUERY_BUSY")
             stepRangeBusy = true
             stepRangeResult = JSONObject().put("status", PlatformStatus.NO_DATA)
@@ -188,16 +207,17 @@ internal object HealthRepository {
                     }
                 }
             } catch (exception: Exception) {
+                if (exception is CancellationException) throw exception
                 JSONObject().put("status", PlatformStatus.ERROR).put("message", exception.safeMessage())
             }
             result.put("requestId", requestId).put("queryStartEpochMs", startEpochMs)
                 .put("queryEndEpochMs", endEpochMs).put("lastUpdatedEpochMs", System.currentTimeMillis())
-            synchronized(lock) { stepRangeResult = result; stepRangeBusy = false }
+            synchronized(lock) { if(requestGeneration == generation) {stepRangeResult = result; stepRangeBusy = false} }
         }
         return resultJson(PlatformStatus.AVAILABLE, "Step query started")
     }
 
-    private suspend fun refreshInternal(context: Context, heartRange: Pair<Instant, Instant>?) {
+    private suspend fun refreshInternal(context: Context, heartRange: Pair<Instant, Instant>?, requestGeneration: Int) {
         val client = HealthConnectClient.getOrCreate(context)
         val granted = client.permissionController.getGrantedPermissions()
         val now = Instant.now()
@@ -220,7 +240,7 @@ internal object HealthRepository {
             readSleep(client, now, queryTime)
         } else missingPermissionMetric("sleep", permissionRequestCompleted)
         val personalization = if (granted.contains(stepsPermission)) {
-            readActivityBaseline(client, now, zone)
+            readActivityBaseline(client, now, zone, requestGeneration)
         } else JSONObject().put("status", if (permissionRequestCompleted) PlatformStatus.PERMISSION_DENIED else PlatformStatus.PERMISSION_REQUIRED)
             .put("queryComplete", false)
         personalization.put("sleep", sleep)
@@ -247,7 +267,7 @@ internal object HealthRepository {
         }
 
         if (listOf(steps, samsungSteps, sleep, heartRate, exercise).any { it.optBoolean("queryComplete") }) {
-            lastSuccessfulRefreshEpochMs = queryTime
+            synchronized(lock) { if(requestGeneration == generation) lastSuccessfulRefreshEpochMs = queryTime }
         }
         val snapshot = JSONObject()
             .put("status", PlatformStatus.AVAILABLE)
@@ -277,7 +297,7 @@ internal object HealthRepository {
                     .put("source", if (hasSamsungData) "Samsung Health" else "")
                     .put("directConnectionStatus", "NOT_CHECKED"),
             )
-        synchronized(lock) { lastSnapshot = snapshot }
+        synchronized(lock) { if(requestGeneration == generation) lastSnapshot = snapshot }
     }
 
     private fun window(value: JSONObject, start: Instant, end: Instant, zone: ZoneId = ZoneId.systemDefault()): JSONObject =
@@ -400,7 +420,7 @@ internal object HealthRepository {
             .put("sourceBreakdown", "").put("message", "Health Connect priority-based aggregate")
     }
 
-    private suspend fun readActivityBaseline(client: HealthConnectClient, now: Instant, zone: ZoneId): JSONObject {
+    private suspend fun readActivityBaseline(client: HealthConnectClient, now: Instant, zone: ZoneId, requestGeneration: Int): JSONObject {
         val today = now.atZone(zone).toLocalDate()
         val start = today.minusDays(14).atStartOfDay()
         val end = today.atStartOfDay()
@@ -428,7 +448,7 @@ internal object HealthRepository {
                     .put("endEpochMs", date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()))
             }
             value.put("status", PlatformStatus.AVAILABLE).put("queryComplete", true).put("days", days)
-            activityBaselineCache = JSONObject(value.toString())
+            synchronized(lock) { if(requestGeneration == generation) activityBaselineCache = JSONObject(value.toString()) }
             value
         } catch (exception: Exception) {
             coroutineContext.ensureActive()

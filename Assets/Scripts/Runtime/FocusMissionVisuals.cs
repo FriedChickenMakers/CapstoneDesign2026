@@ -4,13 +4,20 @@ using UnityEngine.UI;
 
 namespace CapstoneDesign.Runtime
 {
+    [RequireComponent(typeof(CanvasGroup))]
     public sealed class FocusMissionEntrance : MonoBehaviour
     {
         CanvasGroup group;
         float elapsed;
-        void Awake() { group = GetComponent<CanvasGroup>() ?? gameObject.AddComponent<CanvasGroup>(); group.alpha = FigmaMissionUi.ReducedMotion?1:.65f; }
+        void Awake()
+        {
+            group = GetComponent<CanvasGroup>();
+            if (group == null) group = gameObject.AddComponent<CanvasGroup>();
+            group.alpha = FigmaMissionUi.ReducedMotion?1:.65f;
+        }
         void Update()
         {
+            if (group == null) { Destroy(this); return; }
             elapsed += Time.unscaledDeltaTime;
             group.alpha = FigmaMissionUi.ReducedMotion?1:Mathf.Lerp(.65f,1,Mathf.Clamp01(elapsed / .18f));
             if (elapsed >= .18f) { group.alpha = 1; Destroy(this); }

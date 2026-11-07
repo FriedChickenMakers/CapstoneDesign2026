@@ -263,17 +263,20 @@ namespace CapstoneDesign.EditorTools
                 yield return null;
                 AssertRaycastTarget(heartChart);
                 nav.ShowActivities();
-                // Five nutrients of synthetic legacy participation fund the ten-nutrient garden check.
-                if(!ui.Service.BeginSession("synthetic-starter","free-mission:M01",0) || !ui.Service.StartSession("synthetic-starter") || !ui.Service.CompleteSession("synthetic-starter"))throw new Exception(ui.Service.LastError);
-                if(ui.Service.Snapshot.Nutrient!=5)throw new Exception("Default reward must be five");
+                // This isolated developer fixture has coins before practice. A
+                // completed practice must neither grant nor spend this balance.
+                if(ui.Service.CoinBalance!=0 || !ui.Service.AddTestCoins() || ui.Service.CoinBalance!=100)
+                    throw new Exception("Could not establish the isolated 100-coin fixture");
                 ui.SelectMission(MbctContent.Course[0]);
                 // New CanvasRenderers acquire raycast depth after a rendered frame.
                 yield return null;
-                AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="시작"));
+                var start=ui.GetComponentsInChildren<Button>().Single(button=>button.name=="시작");
+                AssertRaycastTarget(start);
                 AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="선택 취소"));
                 string id=ui.Service.Snapshot.Sessions.Last().SessionId;
-                if(!ui.Service.StartSession(id))throw new Exception(ui.Service.LastError);
-                ui.ShowSession();
+                start.onClick.Invoke();
+                if(ui.Service.Snapshot.Sessions.Single().Status!=ParticipationState.InProgress)
+                    throw new Exception("The actual practice start button did not persist participation");
                 yield return null;
                 var activityScroll=ui.GetComponentsInChildren<ScrollRect>().Single(scroll=>scroll.name=="Local garden flow");
                 activityScroll.verticalNormalizedPosition=0;
@@ -281,10 +284,27 @@ namespace CapstoneDesign.EditorTools
                 AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="잠시 쉬기"));
                 activityScroll.verticalNormalizedPosition=1;
                 ui.GetComponentsInChildren<InputField>(true).Single(f=>f.gameObject.activeInHierarchy).text="물";
-                for(int step=0;step<4;step++)ui.AdvancePractice(false);
-                ui.Finish(null,null);
+                int practiceSteps=MbctContent.Course[0].steps.Length;
+                for(int step=0;step<practiceSteps;step++)ui.AdvancePractice(false);
+                var growth=ui.Service.GetPracticeGrowth(id);
+                var sequence=home.GetComponent<GardenMissionGrowthSequence>();
+                if(growth==null || growth.Outcome!=PracticeGrowthOutcome.Grown || growth.BeforeStep!=0 || growth.AfterStep!=1
+                    || ui.Service.CoinBalance!=100 || ui.Service.Snapshot.Sessions.Single().Status!=ParticipationState.InProgress
+                    || sequence==null || !sequence.IsPlaying || !sequence.OrdinaryUiHidden)
+                    throw new Exception("Finishing the actual practice did not commit one free growth before reflection and begin the garden sequence");
+                float sequenceDeadline=Time.realtimeSinceStartup+GardenMissionGrowthSequence.Duration+3;
+                while(sequence.IsPlaying && Time.realtimeSinceStartup<sequenceDeadline)yield return null;
+                if(sequence.IsPlaying || ui.CurrentScreen!="reflection" || sequence.PeakParticleCount<=0)
+                    throw new Exception("The growth sequence did not visibly finish and restore optional reflection");
+                yield return null;
+                var finish=ui.GetComponentsInChildren<Button>().Single(button=>button.name=="기록 건너뛰고 완료");
+                AssertRaycastTarget(finish);finish.onClick.Invoke();
+                if(ui.Service.Snapshot.Sessions.Single().Status!=ParticipationState.RewardCommitted
+                    || ui.Service.Snapshot.PracticeGrowthRecords.Count!=1 || ui.Service.Snapshot.PlantAppearance.Recipe.GrowthStep!=1
+                    || ui.Service.CoinBalance!=100)
+                    throw new Exception("Final reflection completion changed coins or repeated practice growth");
                 if(!ui.Service.SaveExperience("play-record","즐거움","바깥 소리","어깨가 내려감","차분해요","소리가 들린다") || !ui.Service.SavePreference("support","치료진"))throw new Exception(ui.Service.LastError);
-                if(ui.Service.Snapshot.Nutrient!=10 || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
+                if(ui.Service.CoinBalance!=100 || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
                 LocalLoopValidation.ShowLegacy(ui,"Home");
                 yield return null;
                 AssertPageStartsAtTop(ui,"오늘의 활동");
@@ -292,42 +312,51 @@ namespace CapstoneDesign.EditorTools
                 yield return null;
                 AssertPageStartsAtTop(ui,"참여 기록");
                 ui.PreviewEnvironment("environment:E01");nav.ShowIsland();
-                if(GameObject.Find("PREVIEW environment:E01")!=null || ui.Service.Snapshot.Nutrient!=10)throw new Exception("Navigation did not cancel unpaid preview");
+                if(GameObject.Find("PREVIEW environment:E01")!=null || ui.Service.CoinBalance!=100)throw new Exception("Navigation did not cancel unpaid preview");
                 home.shopButton.onClick.Invoke();
                 if(ui.CurrentScreen!="shop")throw new Exception("Home shop button did not open the existing garden shop");
-                ui.PreviewGrowth();nav.ShowIsland();
-                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=0) || ui.Service.Snapshot.Nutrient!=10)
-                    throw new Exception("Cancelled growth changed the saved home");
-                nav.ShowActivities();ui.PreviewGrowth();
-                ui.GetComponentsInChildren<Button>(true).Single(b=>b.gameObject.activeInHierarchy && b.gameObject.name=="확정").onClick.Invoke();
-                if(ui.Service.Snapshot.Nutrient!=0 || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))
-                    throw new Exception("Growth purchase did not update the saved home");
+                string beforeGuide=StateCodec.Encode(ui.Service.Snapshot);
+                ui.PreviewGrowth();
+                if(!ui.GetComponentsInChildren<Text>().Any(text=>text.name=="PlantGrowth.MissionGuidance")
+                    || !ui.GetComponentsInChildren<Button>().Any(button=>button.name=="미션으로 이동")
+                    || ui.GetComponentsInChildren<Button>().Any(button=>button.name=="확정" || button.name.Contains("영양제")))
+                    throw new Exception("The growth guide still exposes a paid purchase instead of mission guidance");
+                if(ui.Service.GrowPlant("synthetic-forbidden-paid-growth",GardenPlantVisuals.GrowthPlantId)
+                    || StateCodec.Encode(ui.Service.Snapshot)!=beforeGuide)
+                    throw new Exception("A retired paid-growth request changed the saved plant or coin balance");
+                nav.ShowIsland();
+                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=1) || ui.Service.CoinBalance!=100
+                    || StateCodec.Encode(ui.Service.Snapshot)!=beforeGuide)
+                    throw new Exception("Returning from growth guidance changed the committed garden");
                 yield return null;
                 AssertFullScreenGarden(home);
                 LocalLoopPreview.Render(new Vector2Int(900,1600),Path.Combine(root,"home-after-growth.png"));
             }
             else
             {
-                if(ui.Service.Snapshot.Nutrient!=0 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=2
-                    || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=3))throw new Exception("Process restart failed to restore committed progress and growth");
+                if(ui.Service.CoinBalance!=100 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=1
+                    || ui.Service.Snapshot.PracticeGrowthRecords.Count!=1
+                    || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=1))throw new Exception("Process restart failed to restore committed progress, coins and practice growth");
                 if(ui.Service.Snapshot.Experiences.Single().Emotion!="차분해요" || ui.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="support").Value!="치료진")throw new Exception("Restart lost journal or plan");
                 string id=ui.Service.Snapshot.Sessions.Single(s=>MbctPolicy.IsMbct(s.MissionId)).SessionId;
-                if(!ui.Service.CompleteSession(id) || ui.Service.Snapshot.Nutrient!=0)throw new Exception("Restart retry duplicated reward");
+                string restored=StateCodec.Encode(ui.Service.Snapshot);
+                if(!ui.Service.CommitPracticeGrowth(id) || !ui.Service.CompleteSession(id)
+                    || StateCodec.Encode(ui.Service.Snapshot)!=restored)throw new Exception("Restart retry duplicated growth, coins or final completion");
                 nav.ShowIsland();
                 if(!home.IsOverview || home.ViewControlsExpanded)throw new Exception("Process restart did not restore the complete garden with folded controls");
                 yield return null;
                 AssertFullScreenGarden(home);
                 LocalLoopPreview.Render(new Vector2Int(900,1600),Path.Combine(root,"home-after-restore.png"));
                 GardenProceduralValidation.CaptureGardenContext(home);
-                // A step sync may commit rewards while the activity page is hidden.
+                // A debug step sync may update coins while the activity page is hidden.
                 // Reopening that existing page must agree with the main garden.
                 ui.ShowHome();nav.ShowIsland();
                 if(!ui.ToggleDebugWalk())throw new Exception("Could not enable synthetic debug walk");
                 for(int i=0;i<10;i++)if(!ui.AddVirtualDebugStep())throw new Exception("Synthetic step failed");
                 nav.ShowActivities();LocalLoopValidation.ShowLegacy(ui,"Home");
-                if(ui.Service.Snapshot.Nutrient!=1 || !home.guide.text.Contains("영양제 1개")
-                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제 1  ·  8주 코스")))
-                    throw new Exception("Activity header retained stale nutrients after a hidden reward update");
+                if(ui.Service.CoinBalance!=101 || !home.guide.text.Contains("코인 101개")
+                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("코인 101  ·  8주 코스")))
+                    throw new Exception("Activity header retained stale coins after a hidden debug update");
             }
             Finish(root,phase,null);
         }

@@ -38,6 +38,16 @@ namespace CapstoneDesign.Runtime
             var player=Ensure();player.muted=value;player.ApplySuspension();
         }
 
+        public static void RestoreInitialSettings()
+        {
+            // PlayerPrefs has already been cleared. Do not create a new player
+            // or write a replacement preference merely to restore its default.
+            if(instance==null)return;
+            instance.muted=false;
+            instance.ApplySuspension();
+            instance.SetContext(GardenMusicContext.HomeGarden);
+        }
+
         void Awake()
         {
             if(instance!=null && instance!=this){Destroy(gameObject);return;}

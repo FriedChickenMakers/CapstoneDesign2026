@@ -20,5 +20,10 @@ namespace CapstoneDesign.Prototype
         public static readonly Color Border = new Color32(202, 187, 145, 255);
         public static readonly Color Terracotta = new Color32(179, 103, 72, 255);
         public static readonly Color Gold = new Color32(228, 188, 93, 255);
+        // Controls follow their surrounding panel: warm neutral on paper,
+        // muted green inside the main green mission card.
+        public static readonly Color HeaderSurface = new Color32(216, 222, 206, 255);
+        public static readonly Color SecondarySurface = new Color32(229, 230, 216, 255);
+        public static readonly Color GrowthSurface = new Color32(208, 223, 199, 255);
     }
 }

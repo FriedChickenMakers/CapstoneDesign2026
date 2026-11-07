@@ -9,6 +9,7 @@ $testBinary = Join-Path $testDirectory 'focus-state-tests.exe'
 $mono = Join-Path $UnityMonoRoot 'bin/mono.exe'
 $compiler = Join-Path $UnityMonoRoot 'lib/mono/4.5/mcs.exe'
 $sources = @('Assets/Scripts/Runtime/LocalGardenState.cs', 'Assets/Scripts/Runtime/FocusMissionCatalog.cs', 'Assets/Scripts/Runtime/FocusDrawingData.cs', 'Assets/Scripts/Runtime/GardenPlantAppearance.cs')
+$sources += @('Assets/Scripts/Runtime/MindfulnessContent.cs', 'Assets/Scripts/Runtime/MbctContent.cs')
 $sources += @('Catalog', 'Math', 'Recipe', 'Generator', 'Geometry') | ForEach-Object { 'Assets/Scripts/ProceduralPlants/Plant' + $_ + '.cs' }
 $sources += 'tests/FocusMissionStateTests.cs'
 $sources = $sources | ForEach-Object { Join-Path $projectRoot $_ }

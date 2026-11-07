@@ -12,7 +12,7 @@ namespace CapstoneDesign.Runtime
         public Button HomeButton, MissionButton, CourseButton;
         public Text MissionBadge;
         public string ActiveTab { get; private set; }
-        readonly string[] labels={"홈","미션","내 과정"};
+        readonly string[] labels={"홈","미션","기록"};
         Button[] buttons;
         Text[] captions;
         RawImage[] icons;
@@ -20,7 +20,7 @@ namespace CapstoneDesign.Runtime
 
         public static MissionBottomNavigation Create(Transform design,string active,Action home,Action missions,Action course,bool? hasPending,bool hasOptional=false)
         {
-            var rect=FigmaMissionUi.Box(design,"하단 탐색",0,760,390,84,Color.white);
+            var rect=FigmaMissionUi.Box(design,"하단 탐색",0,760,390,84,GardenThemePalette.WoodDark);
             GardenThemeSurface.Apply(rect.gameObject,GardenThemeSurface.Style.Shelf);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
             bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);return bar;
@@ -45,10 +45,12 @@ namespace CapstoneDesign.Runtime
         public void Refresh(string active,bool? hasPending,bool hasOptional=false)
         {
             if(buttons==null)return;ActiveTab=active;
-            string[] paths={"home",active=="미션"?"leaf":"leaf-muted",active=="내 과정"?"book-active":"book"};
+            string[] paths={"home",active=="미션"?"leaf":"leaf-muted",active=="기록"?"book-active":"book"};
             for(int i=0;i<3;i++)
             {
-                bool selected=active==labels[i];FigmaMissionUi.SetSelected(buttons[i],selected);
+                bool selected=active==labels[i];
+                buttons[i].GetComponent<Image>().color=selected?FigmaMissionUi.Soft:Color.white;
+                GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.TabWood);
                 captions[i].color=selected?FigmaMissionUi.Green:FigmaMissionUi.Muted;
                 icons[i].texture=Resources.Load<Texture2D>("FocusMissions/Main/"+paths[i]);
             }

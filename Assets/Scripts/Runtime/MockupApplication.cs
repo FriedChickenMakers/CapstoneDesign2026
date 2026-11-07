@@ -82,7 +82,7 @@ namespace CapstoneDesign.Runtime
                 settingsButton.onClick.AddListener(ShowCourse);
             }
 
-            RenameTab(islandButton,"홈");RenameTab(activitiesButton,"미션");RenameTab(settingsButton,"내 과정");
+            RenameTab(islandButton,"홈");RenameTab(activitiesButton,"미션");RenameTab(settingsButton,"기록");
 
             ShowIsland();
             // Registered collection must start on the initial garden screen,
@@ -144,6 +144,15 @@ namespace CapstoneDesign.Runtime
         private void Update()
         {
             HandleBackInput();
+            var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
+            if(loop!=null && loop.HasPendingFullReset)
+            {
+                // The activity panel may be inactive while Settings or Home is
+                // open. Recovery must still run before health/reward polling.
+                loop.PollFullResetRecovery();
+                if(loop.HasPendingFullReset && activePanel!=settingsPanel && activePanel!=activitiesPanel)ShowActivities();
+                return;
+            }
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickStepSync();
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickWalkingPersonalization();
             activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickMissionNotifications();
@@ -157,14 +166,17 @@ namespace CapstoneDesign.Runtime
             if(focus)
             {
                 var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
+                if(loop!=null && loop.HasPendingFullReset){loop.PollFullResetRecovery();return;}
                 loop?.OnAppReturned();
                 home?.RefreshFromState();
             }
         }
         private void SetActivePanel(GameObject selected)
         {
+            GardenMemoPopup.TryCloseOpen();
             using var timing = UiPerformanceProbe.Measure("Navigation.SetActivePanel");
             var leaving = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
+            if(leaving!=null && leaving.HasPendingFullReset)selected=activitiesPanel;
             if (selected != activitiesPanel && activitiesPanel != null && activitiesPanel.activeSelf &&
                 leaving != null && !leaving.LeaveActivityPanel()) return;
             PreparePresentation();
@@ -212,11 +224,13 @@ namespace CapstoneDesign.Runtime
             int visited = panelHistory.IndexOf(selected);
             if (visited >= 0) panelHistory.RemoveRange(visited + 1, panelHistory.Count - visited - 1);
             else panelHistory.Add(selected);
+            if(loop!=null && loop.HasPendingFullReset)loop.ShowHome();
         }
 
         /// <summary>Returns through pages and visited tabs; false means the app's Home root.</summary>
         public bool TryNavigateBack()
         {
+            if (GardenMemoPopup.TryCloseOpen()) return true;
             if (activePanel == settingsPanel && GetComponentInChildren<SensorRawDisplay>(true)?.CloseVisualDebug() == true) return true;
             if (activePanel == activitiesPanel &&
                 activitiesPanel.GetComponent<WeekOneQuestDemo>()?.TryNavigateBack() == true) return true;

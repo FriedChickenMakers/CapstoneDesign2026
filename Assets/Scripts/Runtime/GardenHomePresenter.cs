@@ -46,6 +46,7 @@ namespace CapstoneDesign.Runtime
         public ProceduralPlantView ProceduralPlant { get; private set; }
         public PlantRecipe RenderedRecipe { get; private set; }
         public GardenPlantPlanter Planter { get; private set; }
+        public GardenPlantMemoView MemoView { get; private set; }
         public float PlantingHeight { get; private set; }
         public bool IsOverview => backgroundPreview != null && !backgroundPreview.IsSubjectFocused;
         public float Zoom => backgroundPreview != null ? backgroundPreview.Zoom : .85f;
@@ -57,6 +58,9 @@ namespace CapstoneDesign.Runtime
         Transform additions;
         string additionsSignature;
         string plantSignature;
+        Button newPlantButton;
+        string newPlantButtonSource;
+        RectTransform growthSurface;
         PrototypeGardenPreviewLayout backgroundPreview;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
@@ -72,6 +76,13 @@ namespace CapstoneDesign.Runtime
 
         private void OnDestroy()
         {
+            if(backgroundPreview!=null)
+            {
+                backgroundPreview.MemoClicked-=OpenPlantMemo;
+                backgroundPreview.MemoRayPicker=null; backgroundPreview.MemoPickingAllowed=null; backgroundPreview.InputBlocked=null;
+                if(backgroundPreview.orbit!=null)backgroundPreview.orbit.InputBlocked=null;
+            }
+            MemoView?.DisposeOwnedResources();
             missionButton?.onClick.RemoveListener(OpenActivity);
             shopButton?.onClick.RemoveListener(OpenShop);
             homeTab?.onClick.RemoveListener(OpenHome);
@@ -206,6 +217,13 @@ namespace CapstoneDesign.Runtime
             if(shopButton!=null)foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.color=Color.white;
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
+            backgroundPreview.MemoClicked-=OpenPlantMemo;
+            backgroundPreview.MemoClicked+=OpenPlantMemo;
+            backgroundPreview.InputBlocked=()=>GardenMemoPopup.IsOpen;
+            backgroundPreview.MemoPickingAllowed=()=>!GardenMemoPopup.IsOpen && IsGardenVisible && MemoView!=null
+                && MemoView.MemoCount>0 && MemoView.gameObject.activeInHierarchy;
+            backgroundPreview.MemoRayPicker=PickPlantMemo;
+            if(backgroundPreview.orbit!=null)backgroundPreview.orbit.InputBlocked=()=>GardenMemoPopup.IsOpen;
             backgroundPreview.excludedBoundsRoot = plant != null ? plant.transform : null;
             backgroundPreview.UseFullScreenBackground(homeCanvas);
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
@@ -215,6 +233,7 @@ namespace CapstoneDesign.Runtime
             PlaceOverlayText(guide,content,48,100,180,40,24,true);
             var growth=home.Find("Growth surface") as RectTransform;
             if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,GardenUi.Background).transform;
+            growthSurface=growth;
             growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),GardenUi.Background);
             GardenThemeSurface.Apply(growth.gameObject,GardenThemeSurface.Style.Paper);
             growth.GetComponent<Image>().raycastTarget=false;
@@ -237,6 +256,13 @@ namespace CapstoneDesign.Runtime
                 var icon=GardenUi.Icon(rect,symbol,.5f,.5f,0,0);
                 icon.rectTransform.sizeDelta=new Vector2(30,30);
             }
+            newPlantButton=GardenUi.Button(growth,"새 식물 키우기",0,0,1,1,()=>{},true);
+            newPlantButton.name="Garden.StartNewPlant";
+            var startRect=(RectTransform)newPlantButton.transform;
+            startRect.anchorMin=startRect.anchorMax=startRect.pivot=new Vector2(1,.5f);
+            startRect.anchoredPosition=new Vector2(-8,0);startRect.sizeDelta=new Vector2(274,88);
+            foreach(var label in newPlantButton.GetComponentsInChildren<Text>())label.fontSize=24;
+            newPlantButton.gameObject.SetActive(false);
             foreach(var name in new[]{"Home overview surface","Brand"})
                 if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(false);
             if(home!=null)foreach(var name in new[]{"Garden view controls","보기 +","보기 −"})
@@ -260,6 +286,9 @@ namespace CapstoneDesign.Runtime
             label.overflowMode=TextOverflowModes.Ellipsis;label.alignment=right?TextAlignmentOptions.MidlineRight:TextAlignmentOptions.MidlineLeft;
             // A thin opposite-color edge keeps the camera scene visible while
             // separating the day/night text from leaves, clouds and bright sky.
+            // The early home Awake can run before TMP Awake; prime TMP's own
+            // renderer cache before its outline setter uses that cache directly.
+            if (label is TextMeshProUGUI uiLabel) _ = uiLabel.canvasRenderer;
             label.outlineWidth = .12f;
             label.raycastTarget=false;
         }
@@ -301,7 +330,7 @@ namespace CapstoneDesign.Runtime
 
         public void ShowGrowthConfirmation(int nutrientCost)
         {
-            growthConfirmation = "성장 완료 · 영양제 " + nutrientCost + "개 사용";
+            growthConfirmation = "미션을 마쳐 식물이 자랐어요";
             growthConfirmationUntil = Time.unscaledTime + 3.5f;
             RefreshFromState();
         }
@@ -392,17 +421,39 @@ namespace CapstoneDesign.Runtime
             // The service owns persistence. This detached snapshot also supports
             // unpaid previews without changing the saved recipe or wallet.
             GardenPlantVisuals.Sync(saved);
+            bool hasCurrent=GardenPlantVisuals.HasCurrentPlant(saved);
             float growth = GardenPlantVisuals.TotalGrowth(saved);
             int visualStage = StageForGrowth(growth);
-            RenderPlant(saved.PlantAppearance.Recipe, growth);
+            RenderPlant(hasCurrent?saved.PlantAppearance.Recipe:null, growth);
+            RenderMemos(saved, hasCurrent);
             if (date != null) date.text = CurrentDateText();
-            if (title != null) title.text = CurrentPlantName(RenderedRecipe);
-            if (guide != null) guide.text = "영양제 " + saved.Nutrient + "개";
-            if (stage != null) stage.text = new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage];
+            if (title != null) title.text = hasCurrent?CurrentPlantName(RenderedRecipe):"새 식물을 기다려요";
+            if (guide != null) guide.text = "코인 " + saved.Coins + "개";
+            if (stage != null) stage.text = hasCurrent?new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage]:
+                activity.NewPlantStartFailed?"다시 시도해 주세요":"빈 화분";
+            // Keep the camera boundary's top edge fixed while giving the empty
+            // planter's primary action a 44px target on the 360px mobile layout.
+            if(growthSurface!=null)growthSurface.sizeDelta=new Vector2(624,hasCurrent?64:100);
+            if(newPlantButton!=null)
+            {
+                newPlantButton.gameObject.SetActive(!hasCurrent);
+                string archivedSource=saved.PlantAppearance?.Recipe?.InstanceId;
+                if(!hasCurrent && newPlantButtonSource!=archivedSource)
+                {
+                    newPlantButtonSource=archivedSource;
+                    newPlantButton.onClick=new Button.ButtonClickedEvent();
+                    newPlantButton.onClick.AddListener(()=>
+                    {
+                        if(newPlantButton!=null && newPlantButton.gameObject.activeInHierarchy)
+                            activity.StartNewGardenPlant(archivedSource);
+                    });
+                }
+            }
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
                     if (progressDots[i] != null)
                     {
+                        progressDots[i].gameObject.SetActive(hasCurrent);
                         progressDots[i].color = i <= visualStage ? Green : Pale;
                         GardenThemeSurface.Apply(progressDots[i].gameObject,i<=visualStage?
                             GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper);
@@ -418,7 +469,7 @@ namespace CapstoneDesign.Runtime
             if (missionActionLabel != null) missionActionLabel.text = active != null ? "활동 이어가기" : "오늘의 활동";
             if (homeTabLabel != null) homeTabLabel.text = "홈";
             if (activityTabLabel != null) activityTabLabel.text = "미션";
-            if (settingsTabLabel != null) settingsTabLabel.text = "내 과정";
+            if (settingsTabLabel != null) settingsTabLabel.text = "기록";
             RefreshAdditions(saved);
             if (Application.isPlaying && homeCanvas.gameObject.activeInHierarchy
                 && gardenVisuals.activeInHierarchy && gardenCamera != null)
@@ -441,6 +492,41 @@ namespace CapstoneDesign.Runtime
                 plant.bud.gameObject.SetActive(false);
                 plant.blossomAnchor.gameObject.SetActive(false);
             }
+            var footprint = new Vector2(0, .12f);
+            float ground = GardenSceneModels.GroundHeight(gardenRoot, footprint);
+            if (Planter == null) Planter = GardenPlantPlanter.Create(gardenRoot);
+            Planter.transform.localPosition = new Vector3(footprint.x, ground + .002f, footprint.y);
+            PlantingHeight = ground + .002f + GardenPlantPlanter.SoilHeight + .002f;
+            if(recipe==null)
+            {
+                // Retire only the live model. Its owned mesh/material are released
+                // by ProceduralPlantView while the soil and island remain in place.
+                backgroundPreview?.SetSubjectFocus(false);
+                bool removed=ProceduralPlant!=null;
+                if(ProceduralPlant!=null)
+                {
+                    var retired=ProceduralPlant.gameObject;
+                    retired.SetActive(false);
+                    ProceduralPlant=null;
+                    if(Application.isPlaying)Destroy(retired);
+                    else
+                    {
+                        // Edit-mode preview fixtures do not guarantee OnDestroy
+                        // on this runtime-only component; both resources are owned.
+                        var filter=retired.GetComponent<MeshFilter>();
+                        var renderer=retired.GetComponent<MeshRenderer>();
+                        var mesh=filter.sharedMesh;var material=renderer.sharedMaterial;
+                        filter.sharedMesh=null;renderer.sharedMaterial=null;
+                        if(mesh!=null)DestroyImmediate(mesh);
+                        if(material!=null)DestroyImmediate(material);
+                        DestroyImmediate(retired);
+                    }
+                }
+                RenderedRecipe=null;plantSignature=null;
+                backgroundPreview?.SetSubject(null,Planter.transform);
+                if(removed)backgroundPreview?.RecalculateBounds();
+                return;
+            }
             if (ProceduralPlant == null)
             {
                 var model = new GameObject("Saved procedural garden plant");
@@ -462,15 +548,41 @@ namespace CapstoneDesign.Runtime
             bool scaleChanged = ProceduralPlant.transform.localScale != Vector3.one * scale;
             ProceduralPlant.transform.localScale = Vector3.one * scale;
             // A growing branch changes the bounds, never the stem's soil point.
-            var footprint = new Vector2(0, .12f);
-            float ground = GardenSceneModels.GroundHeight(gardenRoot, footprint);
-            if (Planter == null) Planter = GardenPlantPlanter.Create(gardenRoot);
-            Planter.transform.localPosition = new Vector3(footprint.x, ground + .002f, footprint.y);
-            PlantingHeight = ground + .002f + GardenPlantPlanter.SoilHeight + .002f;
             ProceduralPlant.transform.localPosition = new Vector3(footprint.x, PlantingHeight, footprint.y);
             backgroundPreview?.SetSubject(ProceduralPlant.transform, Planter.transform);
             if (meshChanged || scaleChanged)
                 homeCanvas?.GetComponentInChildren<PrototypeGardenPreviewLayout>(true)?.RecalculateBounds();
+        }
+
+        void RenderMemos(GardenState saved, bool hasCurrent)
+        {
+            var memos = hasCurrent ? saved.PlantAppearance.Memos : null;
+            if (Planter == null || (MemoView == null && (memos == null || memos.Count == 0))) return;
+            if (MemoView == null)
+            {
+                var node = new GameObject("Saved plant 메모");
+                // Including the notes in subjectBase keeps the existing close-up
+                // and overview camera bounds complete without a second camera.
+                node.transform.SetParent(Planter.transform, false);
+                MemoView = node.AddComponent<GardenPlantMemoView>();
+            }
+            if (MemoView.Render(memos, point => GardenSceneModels.GroundHeight(gardenRoot,
+                    point + new Vector2(Planter.transform.localPosition.x, Planter.transform.localPosition.z))
+                    - Planter.transform.localPosition.y, 30))
+                backgroundPreview?.RecalculateBounds();
+        }
+
+        void OpenPlantMemo(string memoId)
+        {
+            if(!isActiveAndEnabled || !IsGardenVisible || homeCanvas==null || !homeCanvas.enabled
+                || !homeCanvas.gameObject.activeInHierarchy || activity==null || RenderedRecipe==null
+                || backgroundPreview==null || !backgroundPreview.isActiveAndEnabled)return;
+            activity.OpenPlantMemo(RenderedRecipe.InstanceId,memoId,null,homeCanvas.transform);
+        }
+        string PickPlantMemo(Ray ray)
+        {
+            if(MemoView==null || !MemoView.TryPickMemo(ray,out var memoId,out float distance))return null;
+            return GardenPlantMemoView.IsOccluded(ray,distance,gardenRoot,MemoView)?null:memoId;
         }
 
         public void RefreshDate()

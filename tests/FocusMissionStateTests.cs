@@ -32,6 +32,15 @@ static class FocusMissionStateTests
         Check(service.RefreshCycle(Array.Empty<string>()),"cycle");return service;
     }
     static ActivitySession Get(GardenStateService service,string id) => service.Snapshot.Sessions.Single(s=>s.SessionId==id);
+    static GardenState WithLegacyPaidGrowth(GardenState state, FocusClock clock, string request, string linked = "")
+    {
+        state.PurchaseReceipts.Add(request);
+        state.PurchaseCommands.Add(new PurchaseCommand { RequestId=request, Command="growth|plant:P06" });
+        state.GrowthHistory.Add(new GardenGrowthRecord { RequestId=request, PlantId="plant:P06", LinkedSessionId=linked,
+            CreatedUtc=clock.UtcNow.ToString("O"), BeforeGrowth=0, AfterGrowth=.1f });
+        state.Plants.Add(new PlantProgress { PlantId="plant:P06", Growth=.1f });
+        return state;
+    }
     static void Start(GardenStateService service,string id,string code,int order=0,bool review=false)
     {
         Check(service.BeginFocusSession(id,code,order,review,program:"legacy"),"select "+id+": "+service.LastError);
@@ -61,6 +70,8 @@ static class FocusMissionStateTests
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"initial day has basic and additional missions left");
         Check(!FocusMissionPolicy.HasPendingToday(null),"unavailable state does not invent pending missions");
         Check(service.BeginSession("legacy-kept","course:P01",1) && service.StartSession("legacy-kept"),"legacy active record seeded");
+        Check(!service.BeginFocusSession("blocked-by-legacy","P23",1,program:"legacy"),"old active basic must resume before a new basic selection");
+        Check(service.EndParticipation("legacy-kept"),"explicitly end synthetic legacy draft before starting focus basic");
         Check(!service.BeginFocusSession("wrong","P10",1,program:"legacy"),"reject mismatched occurrence");
         Start(service,"basic-1","P23",1);
         Check(!service.BeginFocusSession("parallel-basic","P23",1,program:"legacy"),"one basic draft");
@@ -91,31 +102,26 @@ static class FocusMissionStateTests
         Check(Get(service,"basic-1").Note=="synthetic reflection","failed save keeps reflection draft");
         store.Fail=false;
         Check(service.CompleteFocusSession("basic-1","평온함","synthetic reflection"),"completion retry");
-        Check(service.Snapshot.Nutrient==5 && Get(service,"basic-1").RewardAmount==5 && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==2,"first scheduled occurrence reward");
-        Check(service.CompleteFocusSession("basic-1","changed","changed") && service.Snapshot.Nutrient==5 && Get(service,"basic-1").Note=="synthetic reflection","completed retry immutable");
-        Check(service.Snapshot.NextCourseOrder==1 && service.Snapshot.MbctNextOrder==1 && Get(service,"legacy-kept").Status==ParticipationState.InProgress,"legacy progress and session preserved");
+        Check(service.Snapshot.Nutrient==50 && Get(service,"basic-1").RewardAmount==50 && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==2,"first scheduled occurrence advances course and awards 50 coins");
+        Check(service.CompleteFocusSession("basic-1","changed","changed") && service.Snapshot.Nutrient==50 && Get(service,"basic-1").Note=="synthetic reflection","completed retry immutable");
+        Check(service.Snapshot.NextCourseOrder==1 && service.Snapshot.MbctNextOrder==1 && Get(service,"legacy-kept").Status==ParticipationState.Ended,"legacy progress and ended session preserved");
         Check(!service.BeginFocusSession("too-soon","P10",2,program:"legacy"),"daily basic quota");
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"basic completion alone leaves the additional mission pending");
         ConfirmAll(service,"extra-1");Check(service.CompleteFocusSession("extra-1"),"additional completes while basic day done");
-        Check(service.Snapshot.Nutrient==10 && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==2,"additional does not advance course");
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"other additional missions remain available after legacy example completion");
-        Start(service,"extra-repeat","M03",0);
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"normal additional draft needs attention even after an earlier daily completion");
-        Check(service.PauseSession("extra-repeat") && FocusMissionPolicy.HasPendingToday(service.Snapshot),"paused normal additional draft remains pending");
-        Check(service.ResumeSession("extra-repeat"),"resume additional badge fixture");
-        ConfirmAll(service,"extra-repeat");Check(service.CompleteFocusSession("extra-repeat"),"repeat additional complete");
-        Check(Get(service,"extra-repeat").RewardAmount==0 && service.Snapshot.Nutrient==10,"same-day extra no duplicate reward");
+        Check(service.Snapshot.Nutrient==100 && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==2,"additional does not advance course");
+        Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"completed additional slot blocks every normal M");
+        Check(!service.BeginFocusSession("extra-repeat","M03") && !service.BeginFocusSession("extra-other","M01"),"same-day repeat and different additional mission rejected");
         Start(service,"extra-review","M03",0,true);
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"other additional missions remain available after legacy example completion");
+        Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"explicit review does not reopen today's additional allowance");
         ConfirmAll(service,"extra-review");Check(service.CompleteFocusSession("extra-review"),"additional review complete");
-        Check(Get(service,"extra-review").RewardAmount==0 && service.Snapshot.Nutrient==10,"explicit additional review has no reward");
+        Check(Get(service,"extra-review").RewardAmount==0 && service.Snapshot.Nutrient==100,"explicit additional review has no reward");
         clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"day two");
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"daily rollover restores pending status");
         Complete(service,"extra-day2","M03",0);
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"additional completion alone leaves the basic mission pending");
         Complete(service,"basic-2","P10",2);
-        Check(service.Snapshot.Nutrient==20,"additional reward resets on new daily cycle");
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"other additional missions remain available after legacy example completion");
+        Check(service.Snapshot.Nutrient==200,"Two days of basic and additional completions grant four 50-coin rewards");
+        Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"one completed additional mission fills today's role allowance");
         clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());
         Start(service,"basic-3","P25",3);
         Check(service.ConfirmFocusStep("basic-3",0),"pause confirmation");
@@ -132,16 +138,16 @@ static class FocusMissionStateTests
         clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());
         Check(FocusMissionPolicy.Availability(service.Snapshot,"legacy")!=null && !service.BeginFocusSession("week-cap","P23",7,program:"legacy"),"six-per-calendar-week cap");
         Complete(service,"extra-week-cap","M03",0);
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"other additional missions remain available after legacy example completion");
+        Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"one completed additional mission fills today's role allowance");
         for(int order=7;order<=12;order++)
         {clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());Complete(service,"basic-"+order,FocusMissionPolicy.MissionAt(order,"legacy").Code,order);}
         Check(FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==13 && FocusMissionPolicy.CompletedCount(service.Snapshot,"legacy")==12,"two-week completion");
         Check(!service.BeginFocusSession("beyond","P23",13,program:"legacy"),"cannot exceed twelve occurrences");
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"finished basic course still has today's additional mission pending");
         Complete(service,"extra-course-done","M03",0);
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"other additional missions remain available after legacy example completion");
+        Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"one completed additional mission fills today's role allowance");
         before=service.Snapshot.Nutrient;Start(service,"review","P23",1,true);
-        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"other additional missions remain available after legacy example completion");
+        Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"one completed additional mission fills today's role allowance");
         ConfirmAll(service,"review");Check(service.CompleteFocusSession("review"),"basic review complete");
         Check(Get(service,"review").RewardAmount==0 && service.Snapshot.Nutrient==before && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==13,"review no reward/progress");
         Check(FocusMissionPolicy.History(service.Snapshot,"P23").Count()==5,"repeated template stores four distinct occurrences and separate review");
@@ -155,8 +161,8 @@ static class FocusMissionStateTests
         Check(StateCodec.Decode(legacyXml.OuterXml).Sessions.Single(s=>s.SessionId=="legacy-kept").FocusVersion==0,"pre-focus schema remains readable");
         var migration=Open(new FocusStore(),new FocusClock());
         Check(migration.BeginSession("old-water","free-mission:M03") && migration.StartSession("old-water") && migration.CompleteSession("old-water"),"old water completion seeded");
-        Complete(migration,"new-water","M03",0);
-        Check(migration.Snapshot.Nutrient==5 && Get(migration,"new-water").RewardAmount==0,"upgrade does not duplicate an existing same-day M03 reward");
+        Check(!migration.BeginFocusSession("new-water","M03") && !migration.BeginFocusSession("new-other","M01"),"upgrade shares the legacy completed additional day");
+        Check(migration.Snapshot.Nutrient==50 && migration.Snapshot.Sessions.Count==1,"upgrade preserves legacy receipt without creating another same-day session");
         AllCoursesAndRecommendations();
         FocusWalkingSnapshot();
         RealFileReload();
@@ -191,6 +197,7 @@ static class FocusMissionStateTests
         ConfirmAll(service,"before-course");Check(service.CompleteFocusSession("before-course"),"pre-course recommendation completes after choosing course");
         foreach(var mission in FocusMissionCatalog.Additional.Where(m=>m.Code!="M01"))
         {
+            clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"advance additional content coverage day");
             if(mission.Code=="M07" || mission.Code=="M10")
             {
                 string inputId="all-extra-"+mission.Code;StartCurrent(service,inputId,mission.Code);
@@ -207,21 +214,23 @@ static class FocusMissionStateTests
             var missingDrawing=service.Snapshot;missingDrawing.Sessions.Single(a=>a.SessionId=="all-extra-M11").FocusStepRecords[0].Value="";bool drawingRejected=false;
             try{StateCodec.Validate(missingDrawing);}catch(InvalidDataException){drawingRejected=true;}Check(drawingRejected,"completed drawing corruption rejected on reload");
         }
-        Check(service.Snapshot.Nutrient==85 && FocusMissionCatalog.Additional.All(m=>FocusMissionPolicy.AdditionalCompletedToday(service.Snapshot,m.Id)),"all17 recommendations separately rewarded once per day");
-        CompleteCurrent(service,"repeat-M03","M03");
-        Check(service.Snapshot.Nutrient==85 && Get(service,"repeat-M03").RewardAmount==0,"same recommendation cannot receive duplicate daily reward");
+        Check(service.Snapshot.Nutrient==850 && FocusMissionCatalog.Additional.All(m=>service.Snapshot.Sessions.Any(s=>s.MissionId==m.Id && s.Status==ParticipationState.RewardCommitted)),"all17 recommendations completed on distinct days with exactly 50 coins each");
+        Check(!service.BeginFocusSession("repeat-M03","M03") && service.Snapshot.Nutrient==850,"different M cannot bypass today's additional allowance");
         Check(FocusMissionPolicy.NextOrder(service.Snapshot,"2w")==1 && FocusMissionPolicy.NextOrder(service.Snapshot,"8w")==1,"recommendations do not advance any course");
         StartCurrent(service,"first2w","P04",1);
         Check(!service.SelectMbctProgram("4w"),"active basic prevents changing its course");
         Check(service.SelectMbctProgram("2w") && Get(service,"first2w").Status==ParticipationState.InProgress,"selecting current course is idempotent with an active draft");
-        Check(service.SaveFocusElapsed("first2w",2,17) && service.SaveFocusElapsed("first2w",2,7) && Get(service,"first2w").FocusStepRecords[2].ElapsedSeconds==17,"elapsed time save monotonic");
-        store.Fail=true;Check(!service.SaveFocusElapsed("first2w",2,30) && Get(service,"first2w").FocusStepRecords[2].ElapsedSeconds==17,"failed elapsed save preserves durable value");store.Fail=false;
-        Check(!service.SaveFocusElapsed("first2w",2,-1) && !service.SaveFocusElapsed("first2w",2,86401),"elapsed bounds checked");
+        int timedStep=Array.FindIndex(FocusMissionCatalog.FindForSession(Get(service,"first2w")).Steps,s=>s.RecommendedSeconds>0);
+        Check(timedStep>=0,"current P04 has a timed practice milestone");
+        Check(service.SaveFocusElapsed("first2w",timedStep,17) && service.SaveFocusElapsed("first2w",timedStep,7) && Get(service,"first2w").FocusStepRecords[timedStep].ElapsedSeconds==17,"elapsed time save monotonic");
+        store.Fail=true;Check(!service.SaveFocusElapsed("first2w",timedStep,30) && Get(service,"first2w").FocusStepRecords[timedStep].ElapsedSeconds==17,"failed elapsed save preserves durable value");store.Fail=false;
+        Check(!service.SaveFocusElapsed("first2w",timedStep,-1) && !service.SaveFocusElapsed("first2w",timedStep,86401),"elapsed bounds checked");
         ConfirmAll(service,"first2w");Check(service.CompleteFocusSession("first2w"),"first two-week mission completes");
-        Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot),"all recommendation completions and today's basic clear pending badge");
+        Check(FocusMissionPolicy.HasPendingToday(service.Snapshot)&&DailyEmotionPolicy.Availability(service.Snapshot)==null,
+            "today's completed P/M expose the pending daily emotion mission");
         Check(Get(service,"first2w").FocusProgramId=="2w" && FocusMissionPolicy.NextOrder(service.Snapshot,"2w")==2 && FocusMissionPolicy.NextOrder(service.Snapshot,"4w")==1,"course attribution and progress isolated");
         service=Open(store,clock);
-        Check(Get(service,"first2w").FocusStepRecords[2].ElapsedSeconds==17 && FocusMissionPolicy.NextOrder(service.Snapshot,"2w")==2,"course and timing survive reload");
+        Check(Get(service,"first2w").FocusStepRecords[timedStep].ElapsedSeconds==17 && FocusMissionPolicy.NextOrder(service.Snapshot,"2w")==2,"course and timing survive reload");
         Check(service.SelectMbctProgram("4w") && !service.BeginFocusSession("same-day4w","P01",1),"course switch cannot bypass daily basic limit");
         int nutrient=service.Snapshot.Nutrient;
         CompleteCurrent(service,"review2w","P04",1,true,"2w");
@@ -231,7 +240,7 @@ static class FocusMissionStateTests
         Check(FocusMissionPolicy.NextOrder(service.Snapshot,"4w")==2 && FocusMissionPolicy.NextOrder(service.Snapshot,"2w")==2,"different course same source P retains independent occurrence");
         clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());Check(service.SelectMbctProgram("2w"),"rejoin prior course");
         CompleteCurrent(service,"second2w","P01",2);
-        Check(Get(service,"first4w").RewardAmount==5 && Get(service,"second2w").RewardAmount==5,"same source mission can be learned in distinct course occurrences");
+        Check(Get(service,"first4w").RewardAmount==50 && Get(service,"second2w").RewardAmount==50,"same source mission can be learned in distinct course occurrences");
         var corrupt=service.Snapshot;corrupt.Sessions.Single(a=>a.SessionId=="second2w").FocusProgramId="4w";bool rejected=false;
         try{StateCodec.Validate(corrupt);}catch(InvalidDataException){rejected=true;}Check(rejected,"persisted mismatched course occurrence rejected");
         before=StateCodec.Encode(service.Snapshot);store.Fail=true;Check(!service.SelectMbctProgram("8w") && StateCodec.Encode(service.Snapshot)==before,"switch failure preserves every course history");store.Fail=false;
@@ -248,7 +257,7 @@ static class FocusMissionStateTests
                 Check(Get(course,id).FocusStepRecords.All(r=>!string.IsNullOrEmpty(r.ConfirmedUtc)),"all applicable/branched steps confirmed "+id);
                 Check(FocusMissionPolicy.NextOrder(course.Snapshot,program)==order+1,"ordered curriculum progress "+id);
             }
-            Check(FocusMissionPolicy.CompletedCount(course.Snapshot,program)==count && course.Snapshot.Nutrient==count*5,"complete curriculum "+program);
+            Check(FocusMissionPolicy.CompletedCount(course.Snapshot,program)==count && course.Snapshot.Nutrient==count*50,"complete curriculum "+program);
             course=Open(courseStore,courseClock);
             Check(FocusMissionPolicy.CompletedCount(course.Snapshot,program)==count && FocusMissionPolicy.MissionAt(count+1,program)==null,"complete curriculum persisted "+program);
         }
@@ -336,16 +345,20 @@ static class FocusMissionStateTests
         Check(service.SelectMbctProgram("2w"),"reset fixture retains selected program");
         foreach(var record in new[]{new[]{"retired-course","course:P01"},new[]{"retired-mbct","course:MBCT01"},new[]{"retired-short","course:MBCT2W01"}})
         {
-            if(record[0]=="retired-short"){clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"advance retired course fixture day");}
+            if(record[0]!="retired-course"){clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"advance retired course fixture day");}
             if(MbctPolicy.IsMbct(record[1]))Check(service.SelectMbctProgram(MbctPolicy.ProgramForMission(record[1])),"select retired course fixture");
-            Check(service.BeginSession(record[0],record[1],1)&&service.StartSession(record[0])&&service.CompleteSession(record[0],"중립","synthetic retired note"),"seed retired history "+record[0]+": "+service.LastError);
+            Check(service.BeginSession(record[0],record[1],1)&&service.StartSession(record[0]),"start retired history "+record[0]);
+            if(MbctPolicy.IsMbct(record[1])) Check(service.SavePracticeStep(record[0],CapstoneDesign.Runtime.MbctContent.Find(record[1]).steps.Length),"finish legacy MBCT practice steps");
+            Check(service.CompleteSession(record[0],"중립","synthetic retired note"),"seed retired history "+record[0]+": "+service.LastError);
         }
+        clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"advance to reset focus fixture day");
         Complete(service,"reset-basic","P23",1);Complete(service,"reset-extra","M03",0);
         Check(service.SavePreference("food","synthetic preference")&&service.SaveExperience("reset-experience","중립","synthetic event","synthetic body","synthetic emotion","synthetic thought"),"seed detailed practice records");
-        Check(service.GrowPlant("reset-growth","plant:P06","reset-basic")&&service.PurchaseEnvironment("reset-environment","environment:E01","left"),"seed permanent garden purchases");
+        store.Save(WithLegacyPaidGrowth(service.Snapshot,clock,"reset-growth","reset-basic")); service=Open(store,clock);
+        Check(service.GrowPlant("reset-growth","plant:P06","reset-basic")&&service.PurchaseEnvironment("reset-environment","environment:E01","left"),"reopen existing historical growth receipt and purchase scenery with preserved coins");
         Start(service,"reset-review-draft","P23",1,true);ConfirmAll(service,"reset-review-draft");
         Check(service.SaveFocusReflection("reset-review-draft","편안함","synthetic draft",1),"seed optional draft reflection");
-        Start(service,"reset-additional-draft","M03");
+        Start(service,"reset-additional-draft","M03",0,true);
         var before=service.Snapshot;string beforeXml=StateCodec.Encode(before),recipe=CapstoneDesign.Plants.PlantCodec.Encode(before.PlantAppearance.Recipe);
         var oldXml=new XmlDocument();oldXml.LoadXml(beforeXml);oldXml.DocumentElement.RemoveChild(oldXml.DocumentElement["PreviewDayOffset"]);
         var oldArchive=oldXml.DocumentElement["PlantAppearance"]["ArchivedCredits"];oldArchive.ParentNode.RemoveChild(oldArchive);
@@ -358,7 +371,7 @@ static class FocusMissionStateTests
         Check(service.ResetMissionHistory(),"mission reset commits");var reset=service.Snapshot;
         Check(reset.Sessions.Count==0&&reset.PracticePreferences.Count==0&&reset.Experiences.Count==0,"mission sessions, input preferences and experience detail are removed");
         Check(reset.NextCourseOrder==1&&reset.CompletedCourseIds.Count==0&&reset.MbctNextOrder==1&&reset.MbctCompletedIds.Count==0&&reset.MbctPrograms.Count==0,"all course progress resets to the beginning");
-        Check(reset.RewardReceipts.Count==0&&reset.LegacyCompletedUnknownDate.Count==0,"mission reward and imported completion flags clear");
+        Check(reset.RewardReceipts.SequenceEqual(before.RewardReceipts)&&reset.LegacyCompletedUnknownDate.SequenceEqual(before.LegacyCompletedUnknownDate),"Reset retains durable paid and imported completion evidence");
         Check(reset.Nutrient==before.Nutrient&&reset.GardenXp==before.GardenXp&&reset.LastUnlock==before.LastUnlock&&reset.UnlockIds.SequenceEqual(before.UnlockIds),"reset does not change the wallet or unlocks");
         Check(reset.PurchaseReceipts.SequenceEqual(before.PurchaseReceipts)&&reset.PurchaseCommands.Count==before.PurchaseCommands.Count&&reset.Environments.Single().EnvironmentId==before.Environments.Single().EnvironmentId,"reset preserves purchases and scenery");
         Check(reset.GrowthHistory.Single().LinkedSessionId==""&&reset.GrowthHistory.Single().AfterGrowth==before.GrowthHistory.Single().AfterGrowth&&reset.Plants.Single().Growth==before.Plants.Single().Growth,"reset detaches removed mission references but preserves paid growth");
@@ -370,7 +383,7 @@ static class FocusMissionStateTests
         string resetXml=StateCodec.Encode(reset);Check(service.ResetMissionHistory()&&StateCodec.Encode(service.Snapshot)==resetXml,"a repeated empty reset is stable");
         Complete(service,"replayed-basic","P23",1);Complete(service,"replayed-extra","M03",0);
         Check(CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,"same-day replay does not duplicate appearance credits");
-        Check(service.Snapshot.Nutrient==before.Nutrient+10,"only explicitly completed replay missions receive new rewards");
+        Check(service.Snapshot.Nutrient==before.Nutrient,"replayed missions never mint coins");
         var physicalNow=clock.Time;int decisions=service.Snapshot.DailyDecisions.Count;var dayBefore=service.CurrentCycleId;
         Check(service.AdvancePreviewDay(),"next app day commits");
         Check(clock.Time==physicalNow&&service.CurrentUtc==physicalNow.AddDays(1)&&service.Snapshot.PreviewDayOffset==1,"date button changes only the app clock");
@@ -393,10 +406,11 @@ static class FocusMissionStateTests
         var directory=Path.Combine(Path.GetTempPath(),"capstone-reset-date-"+Guid.NewGuid().ToString("N"));Directory.CreateDirectory(directory);var path=Path.Combine(directory,"state.xml");var clock=new FocusClock();string recipe;int nutrient;
         try
         {
+            using(var seededFile=new FileStateStore(path)) seededFile.Save(WithLegacyPaidGrowth(new GardenState{MigrationCompleted=true},clock,"persist-reset-growth"));
             using(var service=Open(new FileStateStore(path),clock))
             {
                 Complete(service,"persist-reset-basic","P23",1);Complete(service,"persist-reset-extra","M03",0);
-                Check(service.GrowPlant("persist-reset-growth","plant:P06","persist-reset-basic"),"seed linked paid growth before reset persistence");
+                Check(service.GrowPlant("persist-reset-growth","plant:P06"),"historical paid receipt remains acknowledgeable before reset persistence");
                 Check(service.AdvancePreviewDay(),"persist advanced app date");
                 recipe=CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);nutrient=service.Snapshot.Nutrient;string saved=StateCodec.Encode(service.Snapshot);
                 Directory.CreateDirectory(path+".tmp");Check(!service.ResetMissionHistory()&&StateCodec.Encode(service.Snapshot)==saved,"real staging-write failure retains all mission history and app date");Directory.Delete(path+".tmp");
@@ -404,7 +418,7 @@ static class FocusMissionStateTests
             }
             using(var service=Open(new FileStateStore(path),clock))
             {
-                Check(service.Snapshot.Sessions.Count==0&&service.Snapshot.RewardReceipts.Count==0&&FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==1,"file restart keeps mission history reset");
+                Check(service.Snapshot.Sessions.Count==0&&service.Snapshot.RewardReceipts.Count==2&&FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==1,"file restart keeps mission history reset");
                 Check(service.Snapshot.PreviewDayOffset==1&&service.CurrentUtc==clock.Time.AddDays(1),"file restart restores the app date offset");
                 Check(service.Snapshot.Nutrient==nutrient&&CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&service.Snapshot.GrowthHistory.Single().LinkedSessionId=="","file restart preserves garden growth and detached appearance accounting");
                 Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"file restart after reset offers unfinished missions");
@@ -436,7 +450,7 @@ static class FocusMissionStateTests
             using(var live=Open(new FileStateStore(livePath),clock))
             {
                 Complete(live,"synthetic-live-basic","P23",1);Complete(live,"synthetic-live-extra","M03",0);
-                Check(FocusMissionPolicy.HasPendingToday(live.Snapshot),"other additional missions remain available after legacy example completion");
+                Check(FocusMissionPolicy.AdditionalAvailability(live.Snapshot)!=null,"completed additional slot remains claimed after file reload");
             }
             string originalLive=File.ReadAllText(livePath);
             using(var editor=Open(new FileStateStore(editorPath),clock))
@@ -448,7 +462,7 @@ static class FocusMissionStateTests
             }
             using(var editor=Open(new FileStateStore(editorPath),clock))
             {
-                Check(FocusMissionPolicy.CompletedCount(editor.Snapshot,"legacy")==1 && editor.Snapshot.Nutrient==5,"editor replay preserves explicitly completed practice");
+                Check(FocusMissionPolicy.CompletedCount(editor.Snapshot,"legacy")==1 && editor.Snapshot.Nutrient==50,"editor replay preserves explicitly completed practice");
                 Check(Get(editor,"synthetic-editor-basic").Status==ParticipationState.RewardCommitted,"editor restart restores its own completion");
                 Check(!FocusMissionPolicy.AdditionalCompletedToday(editor.Snapshot),"editor restart keeps untouched additional mission available");
             }
@@ -489,7 +503,7 @@ static class FocusMissionStateTests
                 Check(service.CompleteFocusSession("file-draft","평온함","synthetic file note"),"real disk retry");
             }
             using(var service=Open(new FileStateStore(path),clock))
-                Check(service.CompleteFocusSession("file-draft") && service.Snapshot.Nutrient==5 && Get(service,"file-draft").Note=="synthetic file note","file restart retry no duplicate or data overwrite");
+                Check(service.CompleteFocusSession("file-draft") && service.Snapshot.Nutrient==50 && Get(service,"file-draft").Note=="synthetic file note","file restart retry no duplicate or data overwrite");
         }
         finally {Directory.Delete(directory,true);}
     }

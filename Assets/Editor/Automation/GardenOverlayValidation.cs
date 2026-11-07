@@ -117,8 +117,8 @@ namespace CapstoneDesign.EditorTools
             string expectedDate=TimeZoneInfo.ConvertTime(f.Service.CurrentUtc,f.Service.CurrentTimeZone).ToString("M월 d일",System.Globalization.CultureInfo.InvariantCulture);
             Require(home.date.text==expectedDate,"The restored date does not match the app's effective local date.");
             Require(home.title.fontSize>home.date.fontSize&&home.title.rectTransform.parent==content,"The plant name is not the primary upper label.");
-            Require(home.guide.text.Contains("영양제")&&home.guide.text.Contains("37"),"The nutrient count is not shown.");
-            Require(home.guide.fontSize<home.title.fontSize,"The nutrient count is not visually secondary.");
+            Require(home.guide.text.Contains("코인")&&home.guide.text.Contains("37")&&!home.guide.text.Contains("영양제"),"The preserved balance is not shown as coins.");
+            Require(home.guide.fontSize<home.title.fontSize,"The coin count is not visually secondary.");
             Require(home.stage.text==new[]{"작은 씨앗","새싹","봉오리","꽃이 피었어요"}[GardenHomePresenter.StageForGrowth(GardenPlantVisuals.TotalGrowth(f.State))],"Growth text does not describe the actual plant state.");
             Require(home.NavigationBar!=null&&home.TemporarySettingsButton!=null&&home.TemporarySettingsButton.gameObject.activeInHierarchy,"Home navigation or temporary settings entry disappeared.");
             Require(home.OverlayTopBoundary!=null,"Transparent camera-framing boundary is missing.");

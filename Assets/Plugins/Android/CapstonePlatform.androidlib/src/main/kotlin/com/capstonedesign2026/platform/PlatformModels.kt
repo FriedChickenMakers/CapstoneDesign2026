@@ -20,15 +20,15 @@ internal object PermissionState {
     private const val PREFERENCES = "capstone_platform_permission_state"
     private const val HEALTH_REQUEST_COMPLETED = "health_request_completed"
 
-    fun markRuntimeRequested(context: Context, permission: String) {
-        preferences(context).edit().putBoolean(runtimeKey(permission), true).apply()
+    fun markRuntimeRequested(context: Context, permission: String, expectedEpoch: String = NativeLocalReset.epoch(context)) {
+        NativeLocalReset.write(context, expectedEpoch) { check(preferences(context).edit().putBoolean(runtimeKey(permission), true).commit()) }
     }
 
     fun wasRuntimeRequested(context: Context, permission: String): Boolean =
         preferences(context).getBoolean(runtimeKey(permission), false)
 
-    fun markHealthRequestCompleted(context: Context) {
-        preferences(context).edit().putBoolean(HEALTH_REQUEST_COMPLETED, true).apply()
+    fun markHealthRequestCompleted(context: Context, expectedEpoch: String = NativeLocalReset.epoch(context)) {
+        NativeLocalReset.write(context, expectedEpoch) { check(preferences(context).edit().putBoolean(HEALTH_REQUEST_COMPLETED, true).commit()) }
     }
 
     fun wasHealthRequestCompleted(context: Context): Boolean =

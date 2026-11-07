@@ -59,6 +59,7 @@ namespace CapstoneDesign.Runtime
         }
         IEnumerator SynchronizeMeasurements()
         {
+            int generation=localResetGeneration;
             if(!MeasurementConsented || !SynchronizeMeasurementConsent())yield break;
             string binding=MeasurementBinding;
             string body=MeasurementCall("getMeasurementBatch",binding);
@@ -71,6 +72,7 @@ namespace CapstoneDesign.Runtime
             using(var request=Request("POST","/measurements/batch",body))
             {
                 yield return request.SendWebRequest();
+                if(generation!=localResetGeneration || localResetBlocked)yield break;
                 if(!MeasurementConsented || binding!=MeasurementBinding)yield break;
                 if(request.result!=UnityWebRequest.Result.Success) {status="알림·활동 측정 전송 대기";yield break;}
                 try

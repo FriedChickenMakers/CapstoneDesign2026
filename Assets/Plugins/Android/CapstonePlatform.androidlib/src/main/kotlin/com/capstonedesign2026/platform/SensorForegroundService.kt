@@ -44,6 +44,7 @@ class SensorForegroundService : Service(), SensorEventListener {
     private val disk = Executors.newSingleThreadExecutor()
     private var writeError = false
     private var rows = 0
+    private var dataEpoch = ""
     private val matrix = FloatArray(9)
     private val angles = FloatArray(3)
     private val ticker = object : Runnable {
@@ -56,10 +57,12 @@ class SensorForegroundService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
+        dataEpoch = NativeLocalReset.epoch(this)
+        if (!NativeLocalReset.current(this, dataEpoch)) { stopSelf(); return }
         try {
             SensorRepository.initialize(applicationContext)
             createNotificationChannel()
-            promoteToForeground(buildNotification())
+            if (!NativeLocalReset.write(this,dataEpoch) { promoteToForeground(buildNotification()) }) { stopSelf(); return }
 
             Log.i(TAG, "Foreground sensor service started")
         } catch (exception: Exception) {
@@ -70,6 +73,7 @@ class SensorForegroundService : Service(), SensorEventListener {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!NativeLocalReset.current(this, dataEpoch)) { stopSelf(); return START_NOT_STICKY }
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
@@ -79,11 +83,13 @@ class SensorForegroundService : Service(), SensorEventListener {
             val interval = if (requested == 5_000L || requested == 600_000L) requested else 600_000L
             durationMs = intent?.getLongExtra("summaryDurationMs", 0L)?.coerceIn(0L, 3_600_000L) ?: 0L
             runId = (intent?.getStringExtra("summaryRunId") ?: UUID.randomUUID().toString()).replace(Regex("[^A-Za-z0-9_-]"), "_").take(80)
-            val directory = File(filesDir,"platform/summaries").also { it.mkdirs() }
-            summaryFile = File(directory,"$runId.jsonl")
+            if (!NativeLocalReset.write(this, dataEpoch) {
+                val directory = File(filesDir,"platform/summaries").also { it.mkdirs() }
+                summaryFile = File(directory,"$runId.jsonl")
+            }) { stopSelf(); return START_NOT_STICKY }
             if (summaryFile!!.exists()) { stopSelf(); return START_NOT_STICKY }
             accumulator = SensorWindowAccumulator(interval, SystemClock.elapsedRealtime()+2_000L, System.currentTimeMillis()+2_000L)
-            SensorRepository.onServiceStarted()
+            SensorRepository.onServiceStarted(expectedEpoch=dataEpoch)
             acceptingEvents = true
             startSensors()
             sensorHandler?.post(ticker)
@@ -102,9 +108,9 @@ class SensorForegroundService : Service(), SensorEventListener {
         sensorThread?.quitSafely()
         sensorThread = null
         disk.execute {
-            File(filesDir,"platform/summaries/$runId.finished.json").writeText(JSONObject()
+            NativeLocalReset.write(this, dataEpoch) { if (runId.isNotEmpty()) File(filesDir,"platform/summaries/$runId.finished.json").writeText(JSONObject()
                 .put("runId",runId).put("rows",rows).put("writeError",writeError)
-                .put("stoppedAtEpochMs",System.currentTimeMillis()).put("rawPersisted",false).toString())
+                .put("stoppedAtEpochMs",System.currentTimeMillis()).put("rawPersisted",false).toString()) }
         }
         disk.shutdown()
         Log.i(TAG, "Foreground sensor service stopped")
@@ -161,11 +167,11 @@ class SensorForegroundService : Service(), SensorEventListener {
                 .put("wakeUp",sensor.isWakeUpSensor).put("reportingMode",sensor.reportingMode))
             Log.i(TAG, "register type=${sensor.type} name=${sensor.name} result=$registered")
         }
-        disk.execute { File(filesDir,"platform/summaries/$runId.meta.json").writeText(JSONObject()
+        disk.execute { NativeLocalReset.write(this, dataEpoch) { File(filesDir,"platform/summaries/$runId.meta.json").writeText(JSONObject()
             .put("runId",runId).put("windowMs",accumulator!!.windowMs).put("durationMs",durationMs)
             .put("startElapsedMs",accumulator!!.startElapsedMs).put("startEpochMs",accumulator!!.startEpochMs)
             .put("purpose","DEVICE_BACKGROUND_SENSOR_EXPERIMENT_ONLY").put("healthConnectUsed",false)
-            .put("rawPersisted",false).put("wakeLockUsed",false).put("sensors",registrations).toString()) }
+            .put("rawPersisted",false).put("wakeLockUsed",false).put("sensors",registrations).toString()) } }
     }
 
     private fun closeWindows(now:Long) {
@@ -190,9 +196,9 @@ class SensorForegroundService : Service(), SensorEventListener {
                 .put("status",if(row.accelerationCount+row.gyroCount+row.orientationCount==0L)"NO_SAMPLES" else "OBSERVED")
             val line=json.toString()+"\n"
             disk.execute {
-                try { val file=requireNotNull(summaryFile)
+                try { NativeLocalReset.write(this, dataEpoch) { val file=requireNotNull(summaryFile)
                     check(file.length()+line.toByteArray().size <= 1024*1024) { "Summary log limit reached" }
-                    file.appendText(line); rows++
+                    file.appendText(line); rows++ }
                 } catch (_:Exception) {writeError=true;stopSelf()}
             }
         }

@@ -1,12 +1,19 @@
 using UnityEngine;
 using UnityEngine.UI;
+using System;
+using System.Collections.Generic;
+using UnityEngine.EventSystems;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
 
 namespace CapstoneDesign.Prototype
 {
     // Fit the island between UI surfaces; the integrated home can extend its sky
     // beyond that composition area to every edge of the canvas.
     [ExecuteAlways, DefaultExecutionOrder(-20), RequireComponent(typeof(RawImage))]
-    public sealed class PrototypeGardenPreviewLayout : MonoBehaviour
+    public sealed class PrototypeGardenPreviewLayout : MonoBehaviour, IPointerDownHandler, IPointerUpHandler,
+        IBeginDragHandler, IDragHandler, IEndDragHandler, IScrollHandler
     {
         public RectTransform upperBoundary, lowerBoundary;
         public PrototypeIslandDrag orbit;
@@ -31,6 +38,11 @@ namespace CapstoneDesign.Prototype
         private Transform subject, subjectBase;
         private Vector3 overviewFocus;
         private bool hasOverviewFocus;
+        readonly PrototypeTapGesture memoTap=new PrototypeTapGesture();
+        public Func<Ray,string> MemoRayPicker {get;set;}
+        public Func<bool> MemoPickingAllowed {get;set;}
+        public Func<bool> InputBlocked {get;set;}
+        public event Action<string> MemoClicked;
 
         // View-only state: switching/zooming never changes a saved plant recipe.
         public void SetSubject(Transform plant, Transform planter)
@@ -77,8 +89,51 @@ namespace CapstoneDesign.Prototype
         // SRP can rebuild canvases inside Camera.Render. Camera projection and
         // target textures must never change in preWillRenderCanvases callbacks.
         // Run before the sky's LateUpdate; it owns the periodic render request.
-        private void LateUpdate() => Apply();
+        private void LateUpdate() {memoTap.Poll();if(InputBlocked?.Invoke()==true)memoTap.Cancel();Apply();}
         private void OnValidate() => boundsReady = false;
+        private void OnDisable()=>memoTap.Clear();
+        private void OnApplicationFocus(bool focused){if(!focused)memoTap.Clear();}
+        private void OnApplicationPause(bool paused){if(paused)memoTap.Clear();}
+
+        bool CanPick=>isActiveAndEnabled && gameObject.activeInHierarchy && InputBlocked?.Invoke()!=true
+            && MemoRayPicker!=null && MemoPickingAllowed?.Invoke()==true
+            && orbit!=null && orbit.enabled && orbit.previewCamera!=null;
+        bool OwnsSurface(RaycastResult hit)=>hit.gameObject==null || hit.gameObject==gameObject;
+        bool Inside(PointerEventData data)
+        {
+            if(image==null)image=GetComponent<RawImage>();
+            return data!=null && RectTransformUtility.RectangleContainsScreenPoint((RectTransform)transform,data.position,data.pressEventCamera)
+                && image.Raycast(data.position,data.pressEventCamera);
+        }
+        public void OnPointerDown(PointerEventData data)
+        {if(CanPick && data!=null && OwnsSurface(data.pointerPressRaycast) && Inside(data))memoTap.Down(data);}
+        public void OnPointerUp(PointerEventData data)
+        {
+            bool tap=memoTap.Up(data);
+            if(tap && CanPick && OwnsSurface(data.pointerCurrentRaycast) && Inside(data)
+                && TryPickMemo(data.position,data.pressEventCamera,out var id))MemoClicked?.Invoke(id);
+        }
+        public void OnBeginDrag(PointerEventData data)=>memoTap.Cancel();
+        public void OnDrag(PointerEventData data)=>memoTap.Cancel();
+        public void OnEndDrag(PointerEventData data)=>memoTap.Cancel();
+        public void OnScroll(PointerEventData data)=>memoTap.Cancel();
+
+        public bool TryPickMemo(Vector2 screenPoint,Camera eventCamera,out string memoId)
+        {
+            memoId=null;
+            if(!CanPick || !RectTransformUtility.ScreenPointToLocalPointInRectangle((RectTransform)transform,screenPoint,eventCamera,out var local))return false;
+            var rect=((RectTransform)transform).rect;
+            if(!rect.Contains(local) || rect.width<=0 || rect.height<=0)return false;
+            if(image==null)image=GetComponent<RawImage>();
+            if(!image.Raycast(screenPoint,eventCamera))return false;
+            var uv=image.uvRect;
+            var point=new Vector2(uv.x+(local.x-rect.xMin)/rect.width*uv.width,uv.y+(local.y-rect.yMin)/rect.height*uv.height);
+            if(point.x<0 || point.x>1 || point.y<0 || point.y>1)return false;
+            // ViewportPointToRay respects the home's shifted projection matrix.
+            var ray=orbit.previewCamera.ViewportPointToRay(point);
+            memoId=MemoRayPicker(ray);
+            return !string.IsNullOrEmpty(memoId);
+        }
 
         public void UseFullScreenBackground(Canvas canvas)
         {
@@ -257,6 +312,46 @@ namespace CapstoneDesign.Prototype
             size = fitted * display.height / visible.height;
             projectionCenter = (display.center - visible.center) * (2 * size / display.height);
             return true;
+        }
+    }
+    // Shared tap discrimination for the garden and saved-photo surfaces. Once a
+    // gesture becomes drag/pinch/scroll it cannot turn into a tap on finger-up.
+    public sealed class PrototypeTapGesture
+    {
+        sealed class Press {public Vector2 Start;public bool Cancelled;}
+        readonly Dictionary<int,Press> presses=new Dictionary<int,Press>();
+        public void Down(PointerEventData data)
+        {
+            if(data==null || data.button!=PointerEventData.InputButton.Left)return;
+            bool multiple=presses.Count>0 || ActiveTouches()>1;if(multiple)Cancel();
+            presses[data.pointerId]=new Press {Start=data.position,Cancelled=multiple};
+        }
+        public void Move(PointerEventData data)
+        {
+            if(data==null || !presses.TryGetValue(data.pointerId,out var press))return;
+            float threshold=EventSystem.current==null?10:Mathf.Max(1,EventSystem.current.pixelDragThreshold);
+            if((data.position-press.Start).sqrMagnitude>threshold*threshold)press.Cancelled=true;
+            Poll();
+        }
+        public bool Up(PointerEventData data)
+        {
+            Move(data);
+            if(data==null || !presses.TryGetValue(data.pointerId,out var press))return false;
+            presses.Remove(data.pointerId);return !press.Cancelled && data.button==PointerEventData.InputButton.Left;
+        }
+        public void Poll(){if(ActiveTouches()>1)Cancel();}
+        public void Cancel(){foreach(var press in presses.Values)press.Cancelled=true;}
+        public void Clear()=>presses.Clear();
+        static int ActiveTouches()
+        {
+            int count=0;
+#if ENABLE_INPUT_SYSTEM
+            if(Touchscreen.current!=null)foreach(var touch in Touchscreen.current.touches)if(touch.press.isPressed)count++;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+            count=Mathf.Max(count,UnityEngine.Input.touchCount);
+#endif
+            return count;
         }
     }
 }

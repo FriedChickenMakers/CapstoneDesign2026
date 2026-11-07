@@ -109,8 +109,18 @@ namespace CapstoneDesign.Runtime
 
         public PlatformInputMode Mode => PlatformInputMode.Replay;
 
+        internal void ClearForFullReset()
+        {
+            // Discard loaded records without deleting the caller's source file or
+            // silently switching the garden to a different save/input mode.
+            snapshots.Clear();
+            index = 0;
+        }
+
         public AndroidPlatformSnapshot GetSnapshot()
         {
+            if (snapshots.Count == 0)
+                return new AndroidPlatformSnapshot { inputMode = "REPLAY", message = "재생 기록을 초기화했어요." };
             AndroidPlatformSnapshot snapshot = snapshots[index];
             snapshot.inputMode = "REPLAY";
             if (index < snapshots.Count - 1)

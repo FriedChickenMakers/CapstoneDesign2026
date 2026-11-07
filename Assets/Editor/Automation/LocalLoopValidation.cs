@@ -33,14 +33,16 @@ namespace CapstoneDesign.EditorTools
             var report = new Report { utc = DateTimeOffset.UtcNow.ToString("O"), unityVersion = Application.unityVersion };
             Check(report, "Serialized scene retains runtime component and control bindings", SceneBindings);
             Check(report, "Integrated home restores growth, preserves cancellation and links navigation", IntegratedHome);
+            Check(report, "Final mission growth explains plant completion and offers the album after reflection", PlantCompletionAfterPractice);
+            Check(report, "Reserved basic-practice quota explains tomorrow and permits the next day", ReservedPracticeDayGuidance);
             Check(report, "Catalog typed IDs, order and candidate references", Catalog);
             Check(report, "Course duration choice confirms, retries failed saves and selects every program", ProgramSelection);
             Check(report, "Every course connects completed activity, growth and original reflection without duplicate spending", GrowthRecordFlow);
             Check(report, "Empty and unlinked growth records never invent an activity association", GrowthRecordOptional);
             Check(report, "Weekly and cumulative summaries count actual participation without changing records", RecordSummaryFlow);
-            Check(report, "UI completion without notes commits one reward and survives reopen", Completion);
-            Check(report, "M15 debug steps, direct completion and garden purchase form one demo flow", M15DemoFlow);
-            Check(report, "Walking auto-completion preserves reflection after leaving the panel and retries failed saves", WalkingReflectionAutoCompletion);
+            Check(report, "UI completion without notes preserves one practice growth and survives reopen", Completion);
+            Check(report, "M15 debug coins stay separate from automatic practice growth", M15DemoFlow);
+            Check(report, "Walking practice commits in background and awaits explicit reflection completion", WalkingReflectionAutoCompletion);
             Check(report, "Walking baseline refresh gates start, updates only its introduction and freezes started goals", WalkingBaselineUiRefresh);
             Check(report, "UI active session survives navigation and pause", Navigation);
             Check(report, "Activity home follows the selected and paused review, and records distinguish completion from rewards", ActivityPresentation);
@@ -59,7 +61,7 @@ namespace CapstoneDesign.EditorTools
             Check(report, "External navigation cancels environment and growth previews", ExternalNavigationPreview);
             Check(report, "Active navigation refreshes dates while activity panel is inactive", InactivePanelCycle);
             Check(report, "Failed completion retains optional draft for successful retry", OptionalDraftRetry);
-            Check(report, "MBCT guided steps reward five and reviews preserve quota", MbctGuidedFlow);
+            Check(report, "MBCT guided steps grow once without coins and reviews preserve quota", MbctGuidedFlow);
             Check(report, "MBCT routine draft, failure retry and reuse stay connected", MbctRoutineFlow);
             Check(report, "Experience journal reuses design emotions and personal plans are editable", MbctJournalFlow);
             Check(report, "Free activity recommendation preferences persist without changing course, rewards or records", RecommendationPreferencesFlow);
@@ -131,10 +133,14 @@ namespace CapstoneDesign.EditorTools
             GardenStateService service = null;
             try
             {
-                scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+                // A preview scene is a separate instance even when the user's
+                // MockupMain is already open. Closing the last normal scene is
+                // refused by Unity and would silently reuse its disposed service.
+                scene = EditorSceneManager.OpenPreviewScene(path);
                 var nav = scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<MockupNavigation>(true)).Single();
                 var home = nav.home;
                 var loop = nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
+                Assert(loop.Service == null, "Integrated fixture did not open an independent scene instance.");
                 Assert(home != null && home.plant != null && home.gardenRoot != null && home.homeCanvas != null
                     && home.missionButton == null && home.shopButton != null && home.activityTab != null && home.settingsTab != null,
                     "Imported home references are incomplete.");
@@ -142,11 +148,14 @@ namespace CapstoneDesign.EditorTools
                     "Temporary prototype controller is running in the app scene.");
                 service = new GardenStateService(store, clock, balance, new LegacySnapshot { Nutrient = 50 });
                 loop.Balance = balance; loop.Initialize(service, true);
+                // Runtime navigation Awake starts on Home. Preview-scene fixtures
+                // do not receive it, so establish the same initial tab history.
+                nav.ShowIsland();
                 Assert(service.SelectMbctProgram("8w"), service.LastError);
                 ShowLegacy(loop, "Home");
                 home.RefreshFromState();
                 Assert(home.ProceduralPlant != null && home.RenderedRecipe.GrowthStep == 0
-                    && home.guide.text.Contains("영양제 50개"), "Fresh saved state did not show a generated seed and nutrient.");
+                    && home.guide.text.Contains("코인 50개"), "Fresh saved state did not show a generated seed and nutrient.");
                 GardenProceduralValidation.AssertGeneratedView(home);
                 string seed = home.RenderedRecipe.BaseSeed;
                 string beforeMesh = GardenProceduralValidation.MeshSignature(home.ProceduralPlant);
@@ -154,52 +163,48 @@ namespace CapstoneDesign.EditorTools
                 home.RefreshFromState();
                 Assert(home.ProceduralPlant.GetComponent<MeshFilter>().sharedMesh == originalMesh,
                     "Refreshing unchanged state needlessly rebuilt the generated mesh.");
-                loop.ShowShop(); loop.PreviewGrowth();
-                Assert(home.RenderedRecipe.GrowthStep == 3
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) != beforeMesh
-                    && service.Snapshot.Nutrient == 50, "Seed preview did not generate the next stage without spending.");
-                Click(loop, "취소");
+                nav.ShowActivities(); loop.ShowShop(); loop.PreviewGrowth();
                 Assert(home.RenderedRecipe.GrowthStep == 0
                     && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && service.Snapshot.Nutrient == 50, "Cancelling the seed preview did not restore the committed generated mesh.");
-                for (int i = 1; i <= 3; i++)
+                    && service.CoinBalance == 50, "Mission-growth guidance changed the current plant or coins.");
+                Click(loop, "정원으로");
+                int maximum = service.Snapshot.PlantAppearance.Recipe.MaxGrowthSteps;
+                for (int i = 1; i <= maximum; i++)
                 {
-                    Assert(service.GrowPlant("home-growth-" + i, "plant:P06"), "Growth purchase failed.");
+                    clock.UtcNow = clock.UtcNow.AddDays(1);
+                    Assert(service.RefreshCycle(Array.Empty<string>()), service.LastError);
+                    string id = "home-practice-" + i;
+                    Assert(service.BeginSession(id, "free-mission:M01") && service.StartSession(id), service.LastError);
+                    if (i == maximum)
+                    {
+                        string pending = StateCodec.Encode(service.Snapshot);
+                        store.FailSave = true;
+                        Assert(!service.CommitPracticeGrowth(id) && StateCodec.Encode(service.Snapshot) == pending,
+                            "Failed final practice changed the plant, completion or coins.");
+                        store.FailSave = false;
+                    }
+                    Assert(service.CommitPracticeGrowth(id) && service.CompleteSession(id), service.LastError);
                     loop.UpdateGarden();
-                    Assert(GardenHomePresenter.StageForGrowth(service.Snapshot.Plants.Single().Growth) == i,
-                        "Saved growth did not advance exactly one visible stage.");
-                    Assert(home.RenderedRecipe.GrowthStep == new[] { 0, 3, 4, 12 }[i]
-                        && home.RenderedRecipe.BaseSeed == seed, "Generated stage or stable seed disagrees with committed growth.");
-                    string afterMesh = GardenProceduralValidation.MeshSignature(home.ProceduralPlant);
-                    Assert(afterMesh != beforeMesh, "Growth purchase did not change the visible generated geometry.");
-                    beforeMesh = afterMesh;
+                    Assert(home.RenderedRecipe.GrowthStep == i && home.RenderedRecipe.BaseSeed == seed,
+                        "One practice did not advance exactly one stable plant step.");
                     GardenProceduralValidation.AssertGeneratedView(home);
                 }
-                Assert(home.RenderedRecipe.Mature && home.RenderedRecipe.SpeciesId == "species:chamomile"
-                    && home.guide.text.Contains("영양제 20개"),
-                    "Bloom or persisted nutrient disagrees with the garden state.");
+                beforeMesh = GardenProceduralValidation.MeshSignature(home.ProceduralPlant);
+                Assert(home.RenderedRecipe.Mature && home.guide.text.Contains("코인 50개"),
+                    "Completed mission growth changed the existing coin balance.");
                 float beforeScale = home.ProceduralPlant.transform.localScale.x;
-                loop.ShowShop(); loop.PreviewGrowth();
-                Assert(home.gardenVisuals.activeSelf && loop.GetComponentInChildren<RawImage>(true)?.texture==home.gardenCamera.targetTexture,
-                    "Purchase preview does not use the integrated garden texture.");
-                Assert(home.ProceduralPlant.transform.localScale.x>beforeScale && service.Snapshot.Nutrient==20,
-                    "Purchase preview either lacks the next growth or spends saved nutrient.");
-                Click(loop, "취소");
-                Assert(Mathf.Approximately(home.ProceduralPlant.transform.localScale.x, beforeScale)
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && service.Snapshot.Nutrient == 20, "Cancelled purchase changed the generated home plant.");
-                store.FailSave = true;
-                Assert(!service.GrowPlant("home-failed-save", "plant:P06"), "Injected save failure was not exercised.");
-                loop.UpdateGarden();
-                Assert(Mathf.Approximately(home.ProceduralPlant.transform.localScale.x, beforeScale)
-                    && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && service.Snapshot.Nutrient == 20, "Failed purchase changed the generated home plant.");
-                store.FailSave = false;
-                Assert(service.GrowPlant("home-growth-4", "plant:P06"), "Later growth purchase failed.");
-                loop.UpdateGarden();
-                Assert(home.ProceduralPlant.transform.localScale.x > beforeScale, "Growth after bloom had no visible change.");
+                string finished = StateCodec.Encode(service.Snapshot);
+                Assert(service.Snapshot.PlantAppearance.IsCompleted && !GardenPlantVisuals.CanGrow(service.Snapshot)
+                    && service.CommitPracticeGrowth("home-practice-" + maximum)
+                    && !service.GrowPlant("retired-paid-growth", "plant:P06")
+                    && StateCodec.Encode(service.Snapshot) == finished,
+                    "Repeated practice or retired paid growth changed completed state.");
+                nav.ShowActivities(); loop.ShowShop(); Click(loop, "사진첩으로 이동");
+                Assert(loop.CurrentScreen == "plant-album" && StateCodec.Encode(service.Snapshot) == finished,
+                    "Completed growth did not route to the album without another charge.");
+                nav.ShowIsland();
 
-                home.SendMessage("Awake", SendMessageOptions.RequireReceiver);
+                InvokeFixtureMethod(home,"Awake");
                 nav.ShowIsland();
                 home.activityTab.onClick.Invoke();
                 var missionNavigation = loop.GetComponentsInChildren<MissionBottomNavigation>().Single();
@@ -212,26 +217,101 @@ namespace CapstoneDesign.EditorTools
                 VerifyTabBack(nav, loop);
                 nav.ShowIsland(); home.shopButton.onClick.Invoke();
                 Assert(nav.activitiesPanel.activeSelf && loop.CurrentScreen == "shop", "Garden entry did not open the existing shop.");
-                home.SendMessage("OnDestroy", SendMessageOptions.RequireReceiver);
+                InvokeFixtureMethod(home,"OnDestroy");
                 service.Dispose(); service = null;
-                EditorSceneManager.CloseScene(scene, true); scene = default;
+                EditorSceneManager.ClosePreviewScene(scene); scene = default;
 
-                scene = EditorSceneManager.OpenScene(path, OpenSceneMode.Additive);
+                scene = EditorSceneManager.OpenPreviewScene(path);
                 nav = scene.GetRootGameObjects().SelectMany(r => r.GetComponentsInChildren<MockupNavigation>(true)).Single();
                 home = nav.home; loop = nav.activitiesPanel.GetComponent<WeekOneQuestDemo>();
+                Assert(loop.Service == null, "Reopened integrated fixture retained its disposed state service.");
                 service = new GardenStateService(store, clock, balance);
                 loop.Balance = balance; loop.Initialize(service, true); home.RefreshFromState();
                 Assert(home.RenderedRecipe.Mature && home.RenderedRecipe.BaseSeed == seed
                     && GardenProceduralValidation.MeshSignature(home.ProceduralPlant) == beforeMesh
-                    && home.guide.text.Contains("영양제 10개")
-                    && home.ProceduralPlant.transform.localScale.x > beforeScale,
+                    && home.guide.text.Contains("코인 50개") && service.Snapshot.PlantAppearance.IsCompleted
+                    && Mathf.Approximately(home.ProceduralPlant.transform.localScale.x, beforeScale),
                     "Reopened saved growth did not restore the same generated home plant.");
                 GardenProceduralValidation.AssertGeneratedView(home);
             }
             finally
             {
                 service?.Dispose();
-                if (scene.IsValid() && scene.isLoaded) EditorSceneManager.CloseScene(scene, true);
+                if (scene.IsValid() && scene.isLoaded) EditorSceneManager.ClosePreviewScene(scene);
+            }
+        }
+
+        static void PlantCompletionAfterPractice()
+        {
+            using(var f=new Fixture())
+            {
+                int maximum=f.Service.Snapshot.PlantAppearance.Recipe.MaxGrowthSteps;
+                for(int step=1;step<maximum;step++)
+                {
+                    f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);Assert(f.Ui.RefreshCycle(),f.Service.LastError);
+                    string id="synthetic-before-final-"+step;
+                    Assert(f.Service.BeginSession(id,"free-mission:M01") && f.Service.StartSession(id)
+                        && f.Service.CompleteSession(id),f.Service.LastError);
+                }
+                var mission=FocusMissionCatalog.Find("M03");
+                f.Ui.StartFocusAdditionalMission(mission.Id);
+                string final=f.Service.Snapshot.Sessions.Last().SessionId;
+                Assert(f.Service.StartSession(final),f.Service.LastError);
+                ConfirmSyntheticFocus(f.Service,final);
+                f.Ui.SelectFocusSession(final);
+                Assert(f.Ui.CurrentScreen=="focus-emotion" && f.Service.Snapshot.PlantAppearance.IsCompleted
+                    && f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.name=="PlantGrowth.CompletedNotice"),
+                    "Last automatic growth did not explain completion while preserving reflection.");
+                Click(f.Ui,"Focus.SkipReflection");
+                Assert(f.Ui.CurrentScreen=="focus-complete" && Button(f.Ui,"Focus.PlantAlbum").interactable
+                    && f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.name=="Focus.GrowthResult" && text.text.Contains("식물이 완성됐어요")),
+                    "Final reflection completion lacks its plant result and album action.");
+                Click(f.Ui,"Focus.PlantAlbum");
+                Assert(f.Ui.CurrentScreen=="plant-album" && Button(f.Ui,"PlantAlbum.SaveCurrent").interactable
+                    && f.Service.Snapshot.PlantPhotos.Count==0,"Completion action failed to open the album or saved without consent.");
+                f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);Assert(f.Ui.RefreshCycle(),f.Service.LastError);
+                f.Ui.StartFocusAdditionalMission(mission.Id);
+                string stored=f.Service.Snapshot.Sessions.Last().SessionId;
+                Assert(f.Service.StartSession(stored),f.Service.LastError);ConfirmSyntheticFocus(f.Service,stored);
+                f.Ui.SelectFocusSession(stored);
+                Assert(f.Ui.CurrentScreen=="focus-emotion" && f.Service.Snapshot.StoredGrowthSteps==1
+                    && f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.text=="보관한 성장 1회"),
+                    "A completed plant lost its stored-growth explanation before reflection.");
+                Click(f.Ui,"Focus.SkipReflection");
+                Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.name=="Focus.GrowthResult"
+                    && text.text.Contains("식물이 완성됐어요") && text.text.Contains("보관한 성장 1회")),
+                    "Final result did not retain both completion and stored growth.");
+            }
+        }
+
+        static void ReservedPracticeDayGuidance()
+        {
+            using(var f=new Fixture())
+            {
+                Assert(f.Service.SelectMbctProgram("2w"),f.Service.LastError);
+                var mission=FocusMissionPolicy.MissionAt(1,"2w");const string id="synthetic-reserved-basic";
+                Assert(f.Service.BeginFocusSession(id,mission.Id,1,program:"2w") && f.Service.StartSession(id),f.Service.LastError);
+                ConfirmSyntheticFocus(f.Service,id);
+                Assert(f.Service.CommitPracticeGrowth(id) && f.Service.EndParticipation(id),f.Service.LastError);
+                f.Ui.ShowFocusHome();
+                Assert(!Button(f.Ui,"내일 이어가요").interactable
+                    && !f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.text.Contains("다음 주")),
+                    "Today's reserved practice incorrectly told the user to wait until next week.");
+                f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);Assert(f.Ui.RefreshCycle(),f.Service.LastError);f.Ui.ShowFocusHome();
+                Assert(Button(f.Ui,"기본 미션 시작하기").interactable,"Reserved practice did not permit the next day.");
+            }
+        }
+
+        static void ConfirmSyntheticFocus(GardenStateService service,string id)
+        {
+            var definition=FocusMissionCatalog.FindForSession(service.Snapshot.Sessions.First(session=>session.SessionId==id));
+            for(int index=0;index<definition.Steps.Length;index++)
+            {
+                var session=service.Snapshot.Sessions.First(item=>item.SessionId==id);
+                if(session.InstructionStep>=definition.Steps.Length)break;
+                int step=session.InstructionStep;var instruction=definition.Steps[step];
+                string answer=instruction.Options.FirstOrDefault()??(instruction.RequiredAnswer?"합성 검증":"");
+                Assert(service.ConfirmFocusStep(id,step,answer,answer.Length==0),service.LastError);
             }
         }
 
@@ -261,7 +341,7 @@ namespace CapstoneDesign.EditorTools
                 System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(sensor);
             summary.text = "Synthetic stale visible status";
             long reads = loop.Service.SnapshotReads;
-            sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
+            InvokeFixtureMethod(sensor,"RefreshText");
             Assert(sensor.output.text == "Synthetic unchanged diagnostic text" && loop.Service.SnapshotReads == reads,
                 "Closed diagnostics still format raw output or clone the garden state.");
             Assert(summary.text != "Synthetic stale visible status", "Visible status stopped refreshing with diagnostics closed.");
@@ -273,7 +353,7 @@ namespace CapstoneDesign.EditorTools
             sensor.ToggleDiagnostics();
             string previous = sensor.output.text;
             reads = loop.Service.SnapshotReads;
-            sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
+            InvokeFixtureMethod(sensor,"RefreshText");
             Assert(sensor.output.text == previous && loop.Service.SnapshotReads == reads,
                 "Closing diagnostics did not suspend its formatting and state reads.");
             VerifyStableCollectorSummary(sensor);
@@ -414,57 +494,26 @@ namespace CapstoneDesign.EditorTools
             using(var f=new Fixture(0,5))
             {
                 Assert(f.Service.SelectMbctProgram(program),f.Service.LastError);
-                string remembered=null;
-                var course=MbctContent.ForProgram(program);
-                for(int index=0;index<2;index++)
-                {
-                    if(index>0){f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);Assert(f.Ui.RefreshCycle(),"Could not advance the synthetic course day.");}
-                    ShowLegacy(f.Ui, "Course");Click(f.Ui,(index+1)+"일차  ");Click(f.Ui,"시작");
-                    string session=f.Service.Snapshot.Sessions.Last().SessionId;
-                    if(index==0)remembered=session;
-                    for(int step=0;step<course[index].steps.Length;step++)f.Ui.AdvancePractice(false);
-                    Assert(f.Ui.CurrentScreen=="reflection",program+" guided activity did not reach its reflection.");
-                    f.Ui.Finish("차분해요","합성 성장 연결 기록 "+index);
-                    Assert(f.Ui.CurrentScreen=="complete" && f.Service.Snapshot.Nutrient==(index+1)*5,
-                        program+" completion did not commit the ordinary five nutrient reward.");
-                }
-                ShowLegacy(f.Ui, "Home");f.Ui.ShowShop();f.Ui.PreviewGrowth();
-                string before=StateCodec.Encode(f.Service.Snapshot);
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
-                Assert(f.Ui.CurrentScreen=="growth" && StateCodec.Encode(f.Service.Snapshot)==before,
-                    "Selecting a remembered activity prematurely saved growth or changed activity history.");
-                Click(f.Ui,"취소");f.Ui.PreviewGrowth();
-                Assert(Button(f.Ui,"함께 기억할 활동").GetComponentsInChildren<Text>(true).Any(text=>text.text=="선택하지 않아도 괜찮아요"),
-                    "Cancelling a purchase leaked its remembered activity into the next purchase.");
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
-                Click(f.Ui,"함께 기억할 활동");
-                Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth"
-                    && Button(f.Ui,"함께 기억할 활동").GetComponentsInChildren<Text>(true).Any(text=>text.text==course[0].title),
-                    "Back from the activity picker lost the current preview's explicit selection.");
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,"연결하지 않고 계속");
-                Assert(Button(f.Ui,"함께 기억할 활동").GetComponentsInChildren<Text>(true).Any(text=>text.text=="선택하지 않아도 괜찮아요"),
-                    "Choosing no link retained the previous association.");
-                Click(f.Ui,"함께 기억할 활동");Click(f.Ui,course[0].title);
-                f.Store.FailNextSaves=1;Click(f.Ui,"확정");
-                Assert(f.Ui.CurrentScreen=="growth" && StateCodec.Encode(f.Service.Snapshot)==before,
-                    "A failed linked growth save changed nutrient, recipe, or history.");
-                Click(f.Ui,"확정");
-                var state=f.Service.Snapshot;
-                Assert(state.Nutrient==0 && state.GrowthHistory.Count==1 && state.GrowthHistory[0].LinkedSessionId==remembered
-                    && state.PurchaseReceipts.Count==1 && MbctPolicy.NextOrder(state)==3,
-                    "Retry did not atomically commit one growth purchase linked to the chosen original activity.");
-                string committed=StateCodec.Encode(state);
-                ShowLegacy(f.Ui, "Records");Click(f.Ui,"식물 성장 기록");Click(f.Ui,"씨앗 → 새싹");
-                Assert(f.Ui.CurrentScreen=="growth-record","Growth list did not open its detail.");
+                var mission=MbctContent.ForProgram(program)[0];
+                ShowLegacy(f.Ui,"Course");Click(f.Ui,"1일차  ");Click(f.Ui,"시작");
+                string id=f.Service.Snapshot.Sessions.Last().SessionId;
+                for(int step=0;step<mission.steps.Length;step++)f.Ui.AdvancePractice(false);
+                Assert(f.Ui.CurrentScreen=="reflection" && f.Service.GetPracticeGrowth(id)!=null,
+                    "Guided practice did not save growth before reflection.");
+                f.Ui.Finish("차분해요","합성 성장 연결 기록");
+                Assert(f.Service.CoinBalance==0 && f.Service.Snapshot.PracticeGrowthRecords.Count==1,
+                    "Mission completion granted coins or duplicated practice growth.");
+                ImportLegacyGrowth(f,"historical-linked",id);
+                string committed=StateCodec.Encode(f.Ui.Service.Snapshot);
+                ShowLegacy(f.Ui,"Records");Click(f.Ui,"식물 성장 기록");Click(f.Ui,"씨앗 → 새싹");
                 Click(f.Ui,"그때의 활동과 감정 보기");
-                string recordText=string.Join("\n",f.Ui.GetComponentsInChildren<Text>(true).Select(text=>text.text));
-                Assert(f.Ui.CurrentScreen=="record" && recordText.Contains(course[0].title)
-                    && recordText.Contains("차분해요") && recordText.Contains("합성 성장 연결 기록 0"),
-                    "Growth detail did not navigate to the exact selected activity and its stored reflection.");
+                string labels=string.Join("\n",f.Ui.GetComponentsInChildren<Text>(true).Select(text=>text.text));
+                Assert(f.Ui.CurrentScreen=="record" && labels.Contains(mission.title)
+                    && labels.Contains("차분해요") && labels.Contains("합성 성장 연결 기록"),
+                    "Historical growth lost its original activity/reflection link.");
                 Assert(f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth-record"
-                    && f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth-history",
-                    "Back from a linked record lost the growth detail or history.");
-                Assert(StateCodec.Encode(f.Service.Snapshot)==committed,"Reading a linked record changed saved data.");
+                    && f.Ui.TryNavigateBack() && f.Ui.CurrentScreen=="growth-history", "Historical record Back lost its context.");
+                Assert(StateCodec.Encode(f.Ui.Service.Snapshot)==committed,"Reading historical growth mutated state.");
             }
         }
 
@@ -472,24 +521,36 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(30))
             {
-                ShowLegacy(f.Ui, "Records");Click(f.Ui,"식물 성장 기록");
-                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("다음에 식물을 키우면")),
-                    "Empty growth history did not explain how it is created.");
-                f.Ui.ShowShop();f.Ui.PreviewGrowth();Click(f.Ui,"함께 기억할 활동");
-                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("아직 연결할 활동 기록이 없어요")),
-                    "An empty activity picker did not offer a clear optional path.");
+                f.Ui.ShowGrowthHistory();
+                Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("이전에 남긴 성장 기록이 없어요")),
+                    "Empty historical growth has no explanation.");
                 string before=StateCodec.Encode(f.Service.Snapshot);
-                Assert(f.Ui.LeaveActivityPanel() && f.Ui.CurrentScreen=="shop" && StateCodec.Encode(f.Service.Snapshot)==before,
-                    "Leaving the growth picker retained an unpaid purchase or changed persistent data.");
-                f.Ui.PreviewGrowth();Click(f.Ui,"함께 기억할 활동");
-                Click(f.Ui,"연결하지 않고 계속");Click(f.Ui,"확정");
-                Assert(f.Service.Snapshot.GrowthHistory.Single().LinkedSessionId=="", "Optional growth invented an activity association.");
+                f.Ui.PreviewGrowth();
+                Assert(!f.Ui.GetComponentsInChildren<Button>(true).Any(button=>button.name=="함께 기억할 활동" || button.name=="확정")
+                    && StateCodec.Encode(f.Service.Snapshot)==before,"Retired manual growth remains actionable.");
+                ImportLegacyGrowth(f,"historical-unlinked","");
                 f.Ui.ShowGrowthHistory();Click(f.Ui,"씨앗 → 새싹");
                 Assert(f.Ui.CurrentScreen=="growth-record"
                     && f.Ui.GetComponentsInChildren<Text>(true).Any(text=>text.text.Contains("연결한 활동 기록이 없어요"))
                     && !f.Ui.GetComponentsInChildren<Button>(true).Any(button=>button.name=="그때의 활동과 감정 보기"),
-                    "An unlinked growth showed a fabricated source record or broken navigation.");
+                    "Historical unlinked growth invented a source activity.");
             }
+        }
+
+        static void ImportLegacyGrowth(Fixture fixture,string request,string linked)
+        {
+            var state=fixture.Service.Snapshot;
+            state.PurchaseReceipts.Add(request);
+            state.PurchaseCommands.Add(new PurchaseCommand {RequestId=request,Command="growth|plant:P06"});
+            state.GrowthHistory.Add(new GardenGrowthRecord {RequestId=request,PlantId="plant:P06",LinkedSessionId=linked,
+                CreatedUtc=fixture.Clock.UtcNow.ToString("O"),BeforeGrowth=0,AfterGrowth=.1f});
+            fixture.Store.Save(state);
+            fixture.Service.Dispose();
+            fixture.Service=new GardenStateService(fixture.Store,fixture.Clock,fixture.Balance);
+            Assert(fixture.Service.Open(),fixture.Service.LastError);
+            typeof(WeekOneQuestDemo).GetProperty(nameof(WeekOneQuestDemo.Service)).SetValue(fixture.Ui,fixture.Service);
+            fixture.Ui.UpdateGarden();
+            Assert(fixture.Ui.HasOpenState,"Historical synthetic store did not reopen.");
         }
 
         static void RecordSummaryFlow()
@@ -500,11 +561,11 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Ui.GetComponentsInChildren<Text>(true).Count(text=>text.text=="활동 완료 0회 · 참여 종료 0회")==2,
                     "Empty summaries did not show explicit zero participation.");
                 Assert(f.Service.BeginSession("summary-older",MbctPolicy.MissionId(1),1)
-                    && f.Service.StartSession("summary-older") && f.Service.CompleteSession("summary-older")
+                    && f.Service.StartSession("summary-older") && CompleteSyntheticPractice(f.Service, "summary-older")
                     && f.Service.SaveExperience("summary-old-experience","즐거움","합성 장면",null,null,null),f.Service.LastError);
                 f.Clock.UtcNow=f.Clock.UtcNow.AddDays(7);Assert(f.Ui.RefreshCycle(),"Could not advance the synthetic summary week.");
                 Assert(f.Service.BeginSession("summary-current",MbctPolicy.MissionId(2),2)
-                    && f.Service.StartSession("summary-current") && f.Service.CompleteSession("summary-current")
+                    && f.Service.StartSession("summary-current") && CompleteSyntheticPractice(f.Service, "summary-current")
                     && f.Service.BeginSession("summary-ended",MbctPolicy.MissionId(1),1)
                     && f.Service.StartSession("summary-ended") && f.Service.EndParticipation("summary-ended")
                     && f.Service.SaveExperience("summary-current-a","불편함",null,null,null,null)
@@ -532,10 +593,10 @@ namespace CapstoneDesign.EditorTools
                 Click(f.Ui, "시작"); f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(2);
                 f.Ui.ShowReflection(); Click(f.Ui, "기록 건너뛰고 완료");
                 var snapshot = f.Service.Snapshot; string session = snapshot.Sessions.Single().SessionId;
-                Assert(f.Ui.CurrentScreen == "complete" && snapshot.Nutrient == f.Balance.CompletionNutrient && snapshot.NextCourseOrder == 2, "UI did not commit completion, nutrient and course together.");
+                Assert(f.Ui.CurrentScreen == "complete" && snapshot.Coins == 0 && snapshot.PracticeGrowthRecords.Count == 1 && snapshot.NextCourseOrder == 2, "UI did not commit completion, nutrient and course together.");
                 Assert(snapshot.Sessions[0].Status == ParticipationState.RewardCommitted && snapshot.Sessions[0].Mood == null && snapshot.Sessions[0].Note == null, "Optional record skipping changed completion semantics.");
-                Assert(f.Service.CompleteSession(session), "Duplicate completion should be idempotent.");
-                Assert(f.Service.Snapshot.Nutrient == snapshot.Nutrient && f.Service.Snapshot.RewardReceipts.Count == 1, "Duplicate reward granted.");
+                Assert(CompleteSyntheticPractice(f.Service, session), "Duplicate completion should be idempotent.");
+                Assert(f.Service.Snapshot.Nutrient == snapshot.Nutrient && f.Service.Snapshot.RewardReceipts.Count == 1 && f.Service.Snapshot.PracticeGrowthRecords.Count == 1, "Duplicate reward granted.");
                 using (var reopened = new GardenStateService(f.Store, f.Clock, f.Balance))
                 { Assert(reopened.Open() && reopened.Snapshot.NextCourseOrder == 2 && reopened.Snapshot.Nutrient == snapshot.Nutrient, "Reopen lost committed progress."); }
             }
@@ -780,32 +841,29 @@ namespace CapstoneDesign.EditorTools
             {
                 f.Ui.SelectMission(MindfulnessContent.FindMission("free-mission:M15"));Click(f.Ui,"시작");
                 string id=f.Service.Snapshot.Sessions.Single().SessionId;
-                f.Ui.ShowReflection();Click(f.Ui,"기뻐요");
-                f.Ui.GetComponentInChildren<InputField>(true).text="합성 걷기 회고 초안";
-                Assert(f.Ui.LeaveActivityPanel(),"Could not leave reflection panel.");
-                ShowLegacy(f.Ui, "Home"); // The reflection field is now gone; the session draft must survive.
                 Assert(f.Service.ObserveMissionSteps(id,5000,WalkingPersonalization.AggregateSource),f.Service.LastError);
-                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+                ShowLegacy(f.Ui,"Home");
+                const System.Reflection.BindingFlags hidden=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
                 var complete=typeof(WeekOneQuestDemo).GetMethod("CompleteWalkingGoal",hidden);
-                var draft=typeof(WeekOneQuestDemo).GetField("draftNote",hidden);
-                var activeId=typeof(WeekOneQuestDemo).GetField("sessionId",hidden);
+                string before=StateCodec.Encode(f.Service.Snapshot);
                 f.Store.FailNextSaves=1;complete.Invoke(f.Ui,new object[]{id});
-                Assert(f.Service.Snapshot.Sessions.Single().Status==ParticipationState.InProgress &&
-                    (string)draft.GetValue(f.Ui)=="합성 걷기 회고 초안" && f.Service.Snapshot.Nutrient==0,
-                    "Failed automatic completion lost the reflection draft or committed a reward.");
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before,"Failed background practice save partially committed.");
                 complete.Invoke(f.Ui,new object[]{id});
+                Assert(f.Ui.CurrentScreen=="home" && f.Service.Snapshot.Sessions.Single().Status==ParticipationState.InProgress
+                    && f.Service.GetPracticeGrowth(id)!=null && f.Service.CoinBalance==0,
+                    "Background walking stole UI, submitted reflection or granted coins.");
+                f.Ui.ShowSession();
+                Assert(f.Ui.CurrentScreen=="reflection","Returning to saved walking practice did not open reflection.");
+                Click(f.Ui,"기뻐요");f.Ui.GetComponentInChildren<InputField>(true).text="합성 걷기 회고 초안";
+                string grown=StateCodec.Encode(f.Service.Snapshot);complete.Invoke(f.Ui,new object[]{id});
+                Assert(StateCodec.Encode(f.Service.Snapshot)==grown,"Repeated walking callback changed its saved growth.");
+                Click(f.Ui,"이 기록으로 완료");
                 var saved=f.Service.Snapshot.Sessions.Single();
-                Assert(saved.Status==ParticipationState.RewardCommitted && saved.Mood=="기뻐요" &&
-                    saved.Note=="합성 걷기 회고 초안" && f.Service.Snapshot.Nutrient==5,
-                    "Leaving the activity panel caused automatic completion to drop its reflection.");
-                Assert(activeId.GetValue(f.Ui)==null && draft.GetValue(f.Ui)==null,
-                    "Successful automatic completion did not clear its stale UI session.");
-                complete.Invoke(f.Ui,new object[]{id});
-                Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.Sessions.Single().Note=="합성 걷기 회고 초안",
-                    "Repeated completion erased reflection or duplicated its reward.");
+                Assert(saved.Status==ParticipationState.RewardCommitted && saved.Note=="합성 걷기 회고 초안"
+                    && f.Service.CoinBalance==0 && f.Service.Snapshot.PracticeGrowthRecords.Count==1,
+                    "Explicit walking reflection lost its draft or duplicated growth.");
                 using(var reopened=new GardenStateService(f.Store,f.Clock,f.Balance))
-                    Assert(reopened.Open() && reopened.Snapshot.Sessions.Single().Note=="합성 걷기 회고 초안",
-                        "Auto-completed reflection did not survive a garden reload.");
+                    Assert(reopened.Open() && reopened.Snapshot.Sessions.Single().Note==saved.Note,"Walking reflection did not survive reopen.");
             }
         }
 
@@ -824,12 +882,13 @@ namespace CapstoneDesign.EditorTools
                     "M15 screen did not show debug goal and virtual progress.");
                 Click(f.Ui, "직접 완료"); f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(2);
                 Click(f.Ui, "기록 건너뛰고 완료");
-                Assert(f.Service.Snapshot.Nutrient == 11 && f.Service.Snapshot.RewardReceipts.Count == 1,
-                    "M15 direct completion did not add its separate reward once.");
-                f.Ui.ShowShop(); Click(f.Ui, "식물 성장"); Click(f.Ui, "확정");
+                Assert(f.Service.CoinBalance == 1 && f.Service.Snapshot.RewardReceipts.Count == 1 && f.Service.Snapshot.PracticeGrowthRecords.Count == 1,
+                    "M15 practice must grow once without granting mission coins.");
+                CreateNavigation(f); // Open the real active surface before clicking its guarded purchase action.
+                f.Ui.ShowShop(); Click(f.Ui, "미션으로 식물 키우기");
                 var garden = f.Service.Snapshot;
-                Assert(garden.Nutrient == 1 && garden.Plants.Any(p => p.PlantId == "plant:P06"),
-                    "M15 reward could not be spent on garden growth.");
+                Assert(garden.Coins == 1 && garden.PlantAppearance.Recipe.GrowthStep == 1 && garden.PurchaseReceipts.Count == 0,
+                    "M15 practice did not grow once without spending debug coins.");
             }
         }
 
@@ -852,10 +911,10 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.SelectMission(MindfulnessContent.Course[0]); Click(f.Ui, "시작");
                 string before = StateCodec.Encode(f.Service.Snapshot); f.Store.FailSave = true;
                 f.Ui.Finish(null, null);
-                Assert(f.Ui.CurrentScreen == "reflection" && StateCodec.Encode(f.Service.Snapshot) == before, "Failed save partially changed game/UI state.");
+                Assert(f.Ui.CurrentScreen == "practice-growth-error" && StateCodec.Encode(f.Service.Snapshot) == before, "Failed save partially changed game/UI state.");
                 Assert(f.Ui.GetComponentsInChildren<Text>(true).Any(t => t.text.Contains("저장하지 못했어요")), "Save failure was not visible.");
                 f.Store.FailSave = false; f.Ui.Finish(null, null);
-                Assert(f.Ui.CurrentScreen == "complete" && f.Service.Snapshot.Nutrient == f.Balance.CompletionNutrient, "Retry did not commit once.");
+                Assert(f.Ui.CurrentScreen == "complete" && f.Service.Snapshot.Coins == 0 && f.Service.Snapshot.PracticeGrowthRecords.Count == 1, "Retry did not commit once.");
             }
         }
 
@@ -873,7 +932,7 @@ namespace CapstoneDesign.EditorTools
                 var state = f.Service.Snapshot;
                 Assert(state.Nutrient == 30 - f.Balance.EnvironmentCost && state.Environments.Count == 1 && state.PurchaseReceipts.Count == 1, "Placement not committed atomically.");
                 Assert(f.Service.PurchaseEnvironment(state.PurchaseReceipts.Single(), "environment:E01", "left") && f.Service.Snapshot.Nutrient == state.Nutrient, "Purchase replay spent twice.");
-                f.Ui.ShowShop(); f.Ui.PreviewGrowth(); Click(f.Ui, "취소");
+                f.Ui.ShowShop(); f.Ui.PreviewGrowth(); Click(f.Ui, "정원으로");
                 Assert(f.Service.Snapshot.Nutrient == state.Nutrient && f.Service.Snapshot.Plants.Count == 0, "Growth cancellation modified state.");
             }
         }
@@ -885,7 +944,7 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.SelectMission(MindfulnessContent.Course[0]); Click(f.Ui, "시작"); f.Ui.Finish(null, null);
                 f.Clock.UtcNow = f.Clock.UtcNow.AddDays(12); f.Ui.RefreshCycle(); f.Ui.RefreshCycle();
                 var state = f.Service.Snapshot;
-                Assert(state.DailyDecisions.Count == 2 && state.NextCourseOrder == 2 && state.Nutrient == f.Balance.CompletionNutrient, "Missed dates generated catch-up decisions or rewards.");
+                Assert(state.DailyDecisions.Count == 2 && state.NextCourseOrder == 2 && state.Coins == 0 && state.PracticeGrowthRecords.Count == 1, "Missed dates generated catch-up decisions or rewards.");
                 f.Clock.UtcNow = f.Clock.UtcNow.AddDays(-20); f.Ui.RefreshCycle();
                 Assert(f.Service.Snapshot.DailyDecisions.Count == 2, "Clock rollback generated an extra decision.");
             }
@@ -1093,7 +1152,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(GameObject.Find("PREVIEW environment:E01") == null && !f.Ui.gameObject.activeSelf, "External settings navigation left an environment ghost visible.");
                 Assert(StateCodec.Encode(f.Service.Snapshot) == before, "Leaving an environment preview changed permanent progress.");
                 nav.ShowActivities(); f.Ui.PreviewGrowth();
-                Assert(plant.transform.localScale != committedScale, "Growth preview did not change the temporary visual.");
+                Assert(plant.transform.localScale == committedScale, "Mission growth guidance changed the saved visual.");
                 nav.ShowIsland();
                 Assert(plant.transform.localScale == committedScale && StateCodec.Encode(f.Service.Snapshot) == before, "External island navigation did not cancel temporary growth without spending.");
             }
@@ -1106,13 +1165,13 @@ namespace CapstoneDesign.EditorTools
                 var nav = CreateNavigation(f); nav.ShowIsland();
                 Assert(nav.gameObject.activeInHierarchy && !f.Ui.gameObject.activeInHierarchy, "Fixture must keep navigation active while activity is inactive.");
                 f.Clock.UtcNow = f.Clock.UtcNow.AddDays(3);
-                nav.SendMessage("Update", SendMessageOptions.RequireReceiver);
+                InvokeFixtureMethod(nav,"Update");
                 Assert(f.Service.Snapshot.DailyDecisions.Count == 2, "Always-active navigation did not apply the current cycle while activity was hidden.");
                 f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1);
-                nav.SendMessage("OnApplicationFocus", false, SendMessageOptions.RequireReceiver);
+                InvokeFixtureMethod(nav,"OnApplicationFocus",false);
                 Assert(f.Service.Snapshot.DailyDecisions.Count == 2, "Losing focus should not refresh the daily cycle.");
-                nav.SendMessage("OnApplicationFocus", true, SendMessageOptions.RequireReceiver);
-                nav.SendMessage("OnApplicationFocus", true, SendMessageOptions.RequireReceiver);
+                InvokeFixtureMethod(nav,"OnApplicationFocus",true);
+                InvokeFixtureMethod(nav,"OnApplicationFocus",true);
                 var state = f.Service.Snapshot;
                 Assert(state.DailyDecisions.Count == 3 && state.NextCourseOrder == 1 && state.Nutrient == 0, "Focus refresh either missed the cycle, duplicated it or generated progress/reward.");
             }
@@ -1130,10 +1189,12 @@ namespace CapstoneDesign.EditorTools
                 Click(f.Ui, "이 기록으로 완료");
                 Assert(f.Ui.CurrentScreen == "reflection" && StateCodec.Encode(f.Service.Snapshot) == before, "Failed note completion partially committed state.");
                 Assert(f.Ui.GetComponentInChildren<InputField>(true).text == draft, "Rebuilt reflection page discarded the optional draft.");
+                Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.text.Contains("저장하지 못했어요")),
+                    "Reusing the practice-growth receipt hid the failed final reflection save.");
                 Click(f.Ui, "이 기록으로 완료");
                 var state = f.Service.Snapshot;
                 Assert(state.Sessions.Single().Note == draft && state.Sessions.Single().Mood == "잘 모르겠어요", "Retry without retyping lost note or selected mood.");
-                Assert(state.RewardReceipts.Count == 1 && state.Nutrient == f.Balance.CompletionNutrient, "Draft retry failed to commit one reward.");
+                Assert(state.RewardReceipts.Count == 1 && state.Coins == 0 && state.PracticeGrowthRecords.Count == 1, "Draft retry lost or duplicated its existing practice growth.");
             }
         }
 
@@ -1144,13 +1205,13 @@ namespace CapstoneDesign.EditorTools
                 ShowLegacy(f.Ui, "Course");Click(f.Ui,"1일차  ");Click(f.Ui,"시작");Click(f.Ui,"물");
                 Click(f.Ui,"다음");Click(f.Ui,"다음");Click(f.Ui,"다음");Click(f.Ui,"실습 마치기");
                 Click(f.Ui,"기록 건너뛰고 완료");
-                Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.MbctNextOrder==2,"Guided completion did not reward five/advance.");
+                Assert(f.Service.Snapshot.Coins==0 && f.Service.Snapshot.MbctNextOrder==2,"Guided completion did not advance without mission coins.");
                 ShowLegacy(f.Ui, "Course");Assert(!Button(f.Ui,"2일차  ").interactable,"Daily quota bypass through course UI.");
                 Click(f.Ui,"1일차  ");Click(f.Ui,"시작");
                 Assert(f.Ui.GetComponentInChildren<InputField>(true).text=="물","Eating choice did not persist for reuse.");
                 f.Ui.AdvancePractice(false);f.Ui.AdvancePractice(false);f.Ui.AdvancePractice(false);f.Ui.AdvancePractice(false);
                 Click(f.Ui,"기록 건너뛰고 완료");
-                Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.MbctNextOrder==2,"Review advanced/rewarded twice.");
+                Assert(f.Service.Snapshot.Coins==0 && f.Service.Snapshot.MbctNextOrder==2,"Review advanced/rewarded twice.");
             }
         }
         static void MbctRoutineFlow()
@@ -1160,7 +1221,7 @@ namespace CapstoneDesign.EditorTools
                 for(int i=1;i<=3;i++)
                 {
                     f.Service.BeginSession("seed-"+i,MbctPolicy.MissionId(i),i);f.Service.StartSession("seed-"+i);
-                    Assert(f.Service.CompleteSession("seed-"+i),"Seed course step failed.");
+                    Assert(CompleteSyntheticPractice(f.Service, "seed-"+i),"Seed course step failed.");
                     f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);f.Ui.RefreshCycle();
                 }
                 Assert(f.Service.SavePreference("routine","손 씻기"),"Routine preference seed failed.");
@@ -1172,7 +1233,7 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.LeaveActivityPanel();
                 Click(f.Ui,"다음");Click(f.Ui,"실습 마치기");Click(f.Ui,"기록 건너뛰고 완료");
                 Assert(f.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="routine").Value=="창가에서 물 마시기","Custom routine not reusable.");
-                Assert(f.Service.Snapshot.MbctNextOrder==5 && f.Service.Snapshot.Nutrient==20,"Routine completion incorrect.");
+                Assert(f.Service.Snapshot.MbctNextOrder==5 && f.Service.Snapshot.Coins==0 && f.Service.Snapshot.PracticeGrowthRecords.Count==4,"Routine completion incorrect.");
             }
         }
         static void MbctJournalFlow()
@@ -1204,7 +1265,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.SelectMbctProgram(program), f.Service.LastError);
                 string mission = MbctPolicy.MissionId(program, 1);
                 Assert(f.Service.BeginSession("preference-learned", mission, 1) &&
-                    f.Service.StartSession("preference-learned") && f.Service.CompleteSession("preference-learned"),
+                    f.Service.StartSession("preference-learned") && CompleteSyntheticPractice(f.Service, "preference-learned"),
                     "Could not seed a learned activity for recommendation preferences.");
                 var before = f.Service.Snapshot;
                 ShowLegacy(f.Ui, "Free");
@@ -1263,9 +1324,9 @@ namespace CapstoneDesign.EditorTools
             {
                 string before=StateCodec.Encode(f.Service.Snapshot);
                 f.Ui.PreviewGrowth();
-                Assert(!Button(f.Ui,"확정").interactable,"Growth can be confirmed without nutrient");
-                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("영양제가 10개 더 필요해요")),"Missing visible growth availability explanation");
-                Click(f.Ui,"취소");f.Ui.PreviewEnvironment("environment:E01");
+                Assert(!f.Ui.GetComponentsInChildren<Button>().Any(button=>button.name=="확정"),"Manual growth is still actionable");
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("미션을 완료하면 식물이 자라요")),"Missing mission growth guidance");
+                Click(f.Ui,"정원으로");f.Ui.PreviewEnvironment("environment:E01");
                 Assert(!Button(f.Ui,"확정").interactable,"Placement can be confirmed without nutrient");
                 Click(f.Ui,"취소");
                 Assert(StateCodec.Encode(f.Service.Snapshot)==before,"Unavailable previews changed saved state");
@@ -1277,10 +1338,11 @@ namespace CapstoneDesign.EditorTools
                 Assert(!Button(f.Ui,"확정").interactable,"Owned environment remains purchasable");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("이미 배치한 환경")),"Missing owned environment explanation");
                 Click(f.Ui,"취소");f.Ui.PreviewGrowth();
-                Assert(Button(f.Ui,"확정").interactable,"Affordable growth was disabled");
-                Assert(Button(f.Ui,"확정").transform.parent==Button(f.Ui,"취소").transform.parent
-                    && Button(f.Ui,"확정").transform.GetSiblingIndex()<Button(f.Ui,"취소").transform.GetSiblingIndex(),
-                    "Growth confirmation must be the first full-width action in the shared dock");
+                Assert(!f.Ui.GetComponentsInChildren<Button>().Any(button=>button.name=="확정")
+                    && Button(f.Ui,"미션으로 이동").interactable,"Coin balance exposed retired paid growth controls");
+                Assert(Button(f.Ui,"미션으로 이동").transform.parent==Button(f.Ui,"정원으로").transform.parent
+                    && Button(f.Ui,"미션으로 이동").transform.GetSiblingIndex()<Button(f.Ui,"정원으로").transform.GetSiblingIndex(),
+                    "Mission navigation must be the first full-width growth action");
             }
         }
         static void PracticeInputFeedback()
@@ -1304,7 +1366,7 @@ namespace CapstoneDesign.EditorTools
             using(var f=new Fixture(0,5))
             {
                 var mission=MbctContent.Course[0];
-                f.Ui.SelectMission(mission);Click(f.Ui,"시작");f.Ui.Finish(null,null);
+                f.Ui.SelectMission(mission);Click(f.Ui,"시작");FinishSyntheticMbctUi(f);
                 var first=f.Service.Snapshot.Sessions.Last();
                 f.Clock.UtcNow=f.Clock.UtcNow.AddMinutes(5);
                 f.Ui.SelectMission(mission);ShowLegacy(f.Ui, "Home");
@@ -1316,8 +1378,8 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.PauseSession(review.SessionId),f.Service.LastError);ShowLegacy(f.Ui, "Home");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text==mission.title) &&
                     f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text=="잠시 쉬는 활동"),"Paused review card lost its mission or state.");
-                Click(f.Ui,"진행하던 활동으로");Click(f.Ui,"이어서 하기");f.Ui.Finish(null,null);
-                Assert(f.Service.Snapshot.Nutrient==5 && f.Service.Snapshot.Sessions.Count==2,"Presenting or completing a review changed the reward or cloned a session.");
+                Click(f.Ui,"진행하던 활동으로");Click(f.Ui,"이어서 하기");FinishSyntheticMbctUi(f);
+                Assert(f.Service.Snapshot.Coins==0 && f.Service.Snapshot.Sessions.Count==2,"Presenting or completing a review changed the reward or cloned a session.");
                 string before=StateCodec.Encode(f.Service.Snapshot);ShowLegacy(f.Ui, "Records");
                 var labels=f.Ui.GetComponentsInChildren<Text>().Select(t=>t.text).ToArray();
                 string firstDate=DateTimeOffset.Parse(first.EndedUtc).ToLocalTime().ToString("MM/dd HH:mm");
@@ -1344,7 +1406,7 @@ namespace CapstoneDesign.EditorTools
             for(int i=1;i<=count;i++)
             {
                 while(MbctPolicy.Availability(f.Service.Snapshot)!=null){f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);f.Ui.RefreshCycle();}
-                string id="layout-seed-"+i;Assert(f.Service.BeginSession(id,MbctPolicy.MissionId(i),i)&&f.Service.StartSession(id)&&f.Service.CompleteSession(id),"Layout seed failed");
+                string id="layout-seed-"+i;Assert(f.Service.BeginSession(id,MbctPolicy.MissionId(i),i)&&f.Service.StartSession(id)&&CompleteSyntheticPractice(f.Service, id),"Layout seed failed");
                 f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);f.Ui.RefreshCycle();
             }
         }
@@ -1435,7 +1497,7 @@ namespace CapstoneDesign.EditorTools
                 Click(f.Ui,"입력 건너뛰기");
                 Assert(f.Service.Snapshot.Sessions.Last().InstructionStep==1 && !f.Service.Snapshot.Sessions.Last().Answers.Any(a=>a.Key==key),
                     "Skipping retained the auto-saved answer.");
-                f.Ui.Finish(null,null);
+                FinishSyntheticMbctUi(f);
                 Assert(f.Service.Snapshot.PracticePreferences.Single(a=>a.Key==key).Value=="이전 합성 선호",
                     "Skipped input overwrote a previous completed preference.");
             }
@@ -1494,6 +1556,18 @@ namespace CapstoneDesign.EditorTools
             { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw(); throw; }
         }
 
+        // These synthetic edit-mode fixtures deliberately invoke runtime entry
+        // points; SendMessage asserts ShouldRunBehaviour before dispatching them.
+        static void InvokeFixtureMethod(Component target,string name,params object[] arguments)
+        {
+            var method=target.GetType().GetMethod(name,System.Reflection.BindingFlags.Instance
+                | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            Assert(method!=null,"Missing fixture entry: "+target.GetType().Name+"."+name);
+            try { method.Invoke(target,arguments); }
+            catch(System.Reflection.TargetInvocationException error) when(error.InnerException!=null)
+            { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error.InnerException).Throw(); throw; }
+        }
+
         static Button Button(WeekOneQuestDemo ui, string prefix)
         {
             var matches = ui.GetComponentsInChildren<Button>(true).Where(b => b.gameObject.name.StartsWith(prefix, StringComparison.Ordinal)).ToArray();
@@ -1517,12 +1591,30 @@ namespace CapstoneDesign.EditorTools
                 data = StateCodec.Encode(state);
             }
         }
+        static bool CompleteSyntheticPractice(GardenStateService service,string id)
+        {
+            var session=service.Snapshot.Sessions.First(item=>item.SessionId==id);
+            if(session.Status!=ParticipationState.RewardCommitted && MbctPolicy.IsMbct(session.MissionId))
+                if(!service.SavePracticeStep(id,MbctContent.Find(session.MissionId).steps.Length))return false;
+            return service.CompleteSession(id);
+        }
+        static void FinishSyntheticMbctUi(Fixture fixture)
+        {
+            var current=fixture.Service.Snapshot.Sessions.Last();
+            var mission=MbctContent.Find(current.MissionId);
+            for(int step=current.InstructionStep;step<mission.steps.Length;step++)
+            {
+                fixture.Ui.AdvancePractice(false);
+                Assert(fixture.Service.Snapshot.Sessions.Last().InstructionStep>step,fixture.Service.LastError??"Synthetic practice failed to advance.");
+            }
+            fixture.Ui.Finish(null,null);
+        }
         sealed class Fixture : IDisposable
         {
             public readonly MemoryStore Store = new MemoryStore();
             public readonly FakeClock Clock = new FakeClock();
             public readonly DemoBalanceConfig Balance = new DemoBalanceConfig { CompletionNutrient=10, VisitorChancePercent = 0 };
-            public readonly GardenStateService Service;
+            public GardenStateService Service;
             public readonly WeekOneQuestDemo Ui;
             readonly Scene scene, previous;
             readonly HashSet<int> previousRootIds;
@@ -1545,6 +1637,7 @@ namespace CapstoneDesign.EditorTools
                         Assert(Service.SelectMbctProgram("8w"), Service.LastError);
                         ShowLegacy(Ui, "Home");
                     }
+                    root.SetActive(true);
                     Assert(ReferenceEquals(Ui.Service, Service), "Fixture did not use injected memory service.");
                 }
                 catch { Dispose(); throw; }

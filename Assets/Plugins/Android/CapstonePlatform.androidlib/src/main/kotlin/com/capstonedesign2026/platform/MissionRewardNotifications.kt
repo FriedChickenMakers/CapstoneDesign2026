@@ -17,6 +17,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.Data
 import java.time.Instant
 import java.util.concurrent.TimeUnit
 
@@ -32,6 +33,7 @@ internal object MissionRewardNotifications {
 
     fun schedule(context: Context, sessionId: String, startEpochMs: Long, goalSteps: Int, virtualSteps: Long, endEpochMs: Long = Long.MAX_VALUE, aggregate: Boolean = false): String {
         synchronized(notificationLock) {
+            if(NativeLocalReset.pending(context))return resultJson(PlatformStatus.ERROR,"Local reset is pending")
             val requested = WalkingAchievementPolicy.Window(sessionId, startEpochMs, goalSteps, virtualSteps, endEpochMs, aggregate)
             if (!WalkingAchievementPolicy.valid(requested))
                 return resultJson(PlatformStatus.ERROR, "Invalid M15 reminder", "INVALID_REMINDER")
@@ -50,7 +52,8 @@ internal object MissionRewardNotifications {
                 if (previousSession.isNotEmpty() && previousSession != sessionId)
                     context.getSystemService(NotificationManager::class.java)
                         .cancel("m15:$previousSession", NOTIFICATION_ID)
-                val work = PeriodicWorkRequestBuilder<MissionRewardWorker>(15, TimeUnit.MINUTES).build()
+                val work = PeriodicWorkRequestBuilder<MissionRewardWorker>(15, TimeUnit.MINUTES)
+                    .setInputData(Data.Builder().putString("localDataEpoch",NativeLocalReset.epoch(context)).build()).build()
                 // Re-enqueue even for identical preferences. A process may have exited after
                 // committing the target but before WorkManager persisted the first request.
                 WorkManager.getInstance(context).enqueueUniquePeriodicWork(WORK,
@@ -70,6 +73,7 @@ internal object MissionRewardNotifications {
 
     private fun finish(context: Context, sessionId: String, dismiss: Boolean): String {
         synchronized(notificationLock) {
+            if(NativeLocalReset.pending(context))return resultJson(PlatformStatus.ERROR,"Local reset is pending")
             val prefs = state(context)
             if (prefs.getString("sessionId", "") == sessionId) {
                 if (!prefs.edit().remove("sessionId").remove("startEpochMs").remove("goalSteps")
@@ -88,7 +92,8 @@ internal object MissionRewardNotifications {
     }
 
     fun recordReady(context: Context, sessionId: String, steps: Long, source: String,
-                    expected: WalkingAchievementPolicy.Window? = null): Boolean = synchronized(notificationLock) {
+                    expected: WalkingAchievementPolicy.Window? = null, expectedEpoch: String = NativeLocalReset.epoch(context)): Boolean = synchronized(notificationLock) {
+        if(!NativeLocalReset.current(context,expectedEpoch))return@synchronized false
         val prefs = state(context)
         val current = storedWindow(context) ?: return false
         if (current.sessionId != sessionId || source.isBlank() ||
@@ -100,8 +105,9 @@ internal object MissionRewardNotifications {
         prefs.edit().putString("achievement", value.toString()).commit()
     }
 
-    fun postIfReady(context: Context, sessionId: String): String {
+    fun postIfReady(context: Context, sessionId: String, expectedEpoch: String = NativeLocalReset.epoch(context)): String {
         synchronized(notificationLock) {
+            if(!NativeLocalReset.current(context,expectedEpoch))return resultJson(PlatformStatus.NO_DATA,"Local reset invalidated this reminder")
             val prefs = state(context)
             if (prefs.getString("sessionId", "") != sessionId)
                 return resultJson(PlatformStatus.NO_DATA, "M15 session is no longer active")
@@ -150,11 +156,19 @@ internal object MissionRewardNotifications {
         }
     }
 
-    fun permissionPromptNeeded(context: Context): Boolean {
+    fun permissionPromptNeeded(context: Context): Boolean = synchronized(notificationLock) {
+        if(NativeLocalReset.pending(context))return@synchronized false
         val prefs = state(context)
         if (prefs.getBoolean("prompted", false)) return false
         prefs.edit().putBoolean("prompted", true).apply()
-        return true
+        true
+    }
+
+    fun resetLocalData(context: Context) = synchronized(notificationLock) {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK).result.get(250,TimeUnit.MILLISECONDS)
+        val manager=context.getSystemService(NotificationManager::class.java)
+        manager.activeNotifications.filter { it.id==NOTIFICATION_ID }.forEach { manager.cancel(it.tag,it.id) }
+        check(state(context).edit().clear().commit()) { "Walking reminder cleanup failed" }
     }
 
     private fun storedWindow(context: Context): WalkingAchievementPolicy.Window? {
@@ -185,20 +199,22 @@ internal object MissionRewardNotifications {
 
 class MissionRewardWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result {
+        val epoch=inputData.getString("localDataEpoch") ?: ""
+        if(!NativeLocalReset.current(applicationContext,epoch))return Result.success()
         val active = MissionRewardNotifications.active(applicationContext) ?: return Result.success()
         val (sessionId, startEpochMs, goalSteps, virtualSteps, endEpochMs, aggregate) = active
         // A notification permission/channel may have been disabled when evidence arrived.
         // Retry the existing achievement without requiring a second health query or permission.
         if (MissionRewardNotifications.hasReady(applicationContext, sessionId)) {
-            MissionRewardNotifications.postIfReady(applicationContext, sessionId)
+            MissionRewardNotifications.postIfReady(applicationContext, sessionId, epoch)
             return Result.success()
         }
         if (startEpochMs <= 0L || goalSteps <= 0 || startEpochMs >= System.currentTimeMillis()) return Result.success()
         // Virtual steps are persisted by the foreground app and can independently satisfy
         // the target; a background Health Connect permission is only needed for actual steps.
         if (virtualSteps >= goalSteps.toLong()) {
-            if (MissionRewardNotifications.recordReady(applicationContext, sessionId, 0, "DEBUG_VIRTUAL", active))
-                MissionRewardNotifications.postIfReady(applicationContext, sessionId)
+            if (MissionRewardNotifications.recordReady(applicationContext, sessionId, 0, "DEBUG_VIRTUAL", active, epoch))
+                MissionRewardNotifications.postIfReady(applicationContext, sessionId, epoch)
             return Result.success()
         }
         return try {
@@ -225,8 +241,8 @@ class MissionRewardWorker(context: Context, parameters: WorkerParameters) : Coro
                 count = query.total?.count ?: return Result.success(); source = "HEALTH_CONNECT_PREFERRED"
             }
             if (count >= goalSteps.toLong() - virtualSteps &&
-                MissionRewardNotifications.recordReady(applicationContext, sessionId, count, source, active))
-                MissionRewardNotifications.postIfReady(applicationContext, sessionId)
+                MissionRewardNotifications.recordReady(applicationContext, sessionId, count, source, active, epoch))
+                MissionRewardNotifications.postIfReady(applicationContext, sessionId, epoch)
             Result.success()
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled

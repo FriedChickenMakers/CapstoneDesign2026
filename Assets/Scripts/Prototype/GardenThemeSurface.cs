@@ -5,7 +5,8 @@ using UnityEngine.UI;
 namespace CapstoneDesign.Prototype
 {
     /// <summary>
-    /// Original scalable garden UI art: warm paper, timber and botanical edges.
+    /// Original scalable garden UI art: calm surfaces and botanical edges.
+    /// Timber is reserved for the bottom navigation shelf and its tab buttons.
     /// Meshes use only vertex colour; no textures, downloaded artwork or per-frame animation.
     /// The surface is decoration only and never changes gameplay, layout or hit testing.
     /// </summary>
@@ -13,18 +14,25 @@ namespace CapstoneDesign.Prototype
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class GardenThemeSurface : MaskableGraphic
     {
-        public enum Style { Paper, Wood, Primary, Selected, Backdrop, Header, Shelf, Input, ProgressTrack, ProgressFill }
+        // Keep existing values stable. Wood is the legacy general-button name;
+        // it now draws a plain surface. Only navigation explicitly opts into TabWood.
+        public enum Style { Paper, Wood, Primary, Selected, Backdrop, Header, Shelf, Input, ProgressTrack, ProgressFill, TabWood }
+        // Plain controls follow the surrounding panel, not their destination.
+        // Keep legacy category values stable; they now share the neutral tone.
+        public enum Tone { Default, Growth, Additional, Reflection, Utility }
         public Style style = Style.Paper;
+        public Tone tone = Tone.Default;
         const string SurfaceName = "Garden theme surface";
         Selectable ownerSelectable;
         GardenThemePointerState pointer;
         int lastState = -1;
         Style lastStyle;
+        Tone lastTone;
         bool disabled;
         bool pressed;
         bool highlighted;
 
-        public static GardenThemeSurface Apply(GameObject owner, Style style)
+        public static GardenThemeSurface Apply(GameObject owner, Style style, Tone tone = Tone.Default)
         {
             if (owner == null) return null;
             Transform child = owner.transform.Find(SurfaceName);
@@ -37,8 +45,9 @@ namespace CapstoneDesign.Prototype
                 go.GetComponent<LayoutElement>().ignoreLayout = true;
                 surface = go.AddComponent<GardenThemeSurface>();
             }
-            bool changed=created || surface.style!=style || surface.ownerSelectable!=owner.GetComponent<Selectable>();
+            bool changed=created || surface.style!=style || surface.tone!=tone || surface.ownerSelectable!=owner.GetComponent<Selectable>();
             surface.style = style;
+            surface.tone = tone;
             surface.raycastTarget = false;
             surface.color = Color.white;
             RectTransform rect = surface.rectTransform;
@@ -77,9 +86,10 @@ namespace CapstoneDesign.Prototype
         void LateUpdate()
         {
             int state = State();
-            if (state == lastState && style == lastStyle) return;
+            if (state == lastState && style == lastStyle && tone == lastTone) return;
             lastState = state;
             lastStyle = style;
+            lastTone = tone;
             SetVerticesDirty();
         }
 
@@ -106,8 +116,9 @@ namespace CapstoneDesign.Prototype
             {
                 case Style.Backdrop: Backdrop(mesh, r); break;
                 case Style.Primary: Primary(mesh, r, unit); break;
-                case Style.Wood: Timber(mesh, r, unit, false); break;
-                case Style.Header: Timber(mesh, r, unit, true); break;
+                case Style.Wood: PlainSurface(mesh, r, unit, false); break;
+                case Style.Header: PlainSurface(mesh, r, unit, true); break;
+                case Style.TabWood: Timber(mesh, r, unit); break;
                 case Style.Shelf: Shelf(mesh, r, unit); break;
                 case Style.Selected: Paper(mesh, r, unit, true, false); break;
                 case Style.Input: Paper(mesh, r, unit, false, true); break;
@@ -147,9 +158,21 @@ namespace CapstoneDesign.Prototype
             }
         }
 
-        void Timber(VertexHelper mesh, Rect r, float u, bool header)
+        void PlainSurface(VertexHelper mesh, Rect r, float u, bool header)
         {
+            Color tint = tone == Tone.Growth ? GardenThemePalette.GrowthSurface
+                : header ? GardenThemePalette.HeaderSurface : GardenThemePalette.SecondarySurface;
             float radius = Mathf.Min(header ? 11 : 14, r.height * .2f) * u;
+            Shadow(mesh, r, radius, (pressed ? 1 : 2) * u);
+            Rounded(mesh, r, radius, Color.Lerp(tint, GardenThemePalette.Ink, .28f));
+            Rect face = Inset(r, 1.5f * u);
+            if (pressed) face = Offset(face, 0, -u);
+            Gradient(mesh, face, Mathf.Max(1, radius - 1.5f * u), Color.Lerp(tint, Color.white, .12f), tint);
+        }
+
+        void Timber(VertexHelper mesh, Rect r, float u)
+        {
+            float radius = Mathf.Min(14, r.height * .2f) * u;
             Shadow(mesh, r, radius, (pressed ? 1 : 4) * u);
             Rounded(mesh, r, radius, GardenThemePalette.WoodDark);
             Rect face = Inset(r, 2 * u);
@@ -158,11 +181,6 @@ namespace CapstoneDesign.Prototype
             Border(mesh, Inset(face, 3f * u), Mathf.Max(1, radius - 5f * u), .8f * u,
                 Alpha(new Color32(255, 246, 206, 255), .8f));
             WoodGrain(mesh, face, u);
-            if (header && r.width >= 170)
-            {
-                Circle(mesh, new Vector2(r.xMin + 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
-                Circle(mesh, new Vector2(r.xMax - 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
-            }
         }
 
         void Primary(VertexHelper mesh, Rect r, float u)
@@ -195,9 +213,11 @@ namespace CapstoneDesign.Prototype
 
         void Shelf(VertexHelper mesh, Rect r, float u)
         {
-            Shadow(mesh, r, 15 * u, 4 * u);
-            Rounded(mesh, r, 15 * u, GardenThemePalette.WoodDark);
-            Gradient(mesh, Inset(r, 2f * u), 13 * u, GardenThemePalette.WoodLight, GardenThemePalette.Wood);
+            // The navigation plank meets the screen edges. Both its outer rim
+            // and timber face are rectangular at every canvas scale.
+            Shadow(mesh, r, 0, 4 * u);
+            Rounded(mesh, r, 0, GardenThemePalette.WoodDark);
+            Gradient(mesh, Inset(r, 2f * u), 0, GardenThemePalette.WoodLight, GardenThemePalette.Wood);
             // Horizontal plank ledges remain legible behind the navigation icons.
             Line(mesh, new Vector2(r.xMin + 12 * u, r.yMax - 6 * u),
                 new Vector2(r.xMax - 12 * u, r.yMax - 6 * u), 2f * u, Alpha(GardenThemePalette.Paper, .65f));

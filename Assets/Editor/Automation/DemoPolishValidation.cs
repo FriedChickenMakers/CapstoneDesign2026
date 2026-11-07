@@ -193,7 +193,7 @@ namespace CapstoneDesign.EditorTools
                     var mission = MbctContent.Course[0];
                     f.Ui.SelectMission(mission); Click(f.Ui.transform, "시작");
                     f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(3);
-                    f.Ui.Finish(null, null);
+                    FinishSyntheticPractice(f);
                     var original = f.Service.Snapshot.Sessions.Single();
                     NextSyntheticDay(f);
                     f.Ui.SelectMission(mission); f.Ui.ShowHome();
@@ -209,9 +209,9 @@ namespace CapstoneDesign.EditorTools
                     UiImage(size, output, "activity-paused-review");
                     Click(f.Ui.transform, "진행하던 활동으로"); Click(f.Ui.transform, "이어서 하기");
                     f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(3);
-                    f.Ui.Finish(null, null);
+                    FinishSyntheticPractice(f);
                     var completed = f.Service.Snapshot;
-                    Require(completed.Nutrient == 5 && completed.Sessions.Count == 2 && completed.MbctNextOrder == 2,
+                    Require(completed.Coins == 0 && completed.PracticeGrowthRecords.Count == 2 && completed.Sessions.Count == 2 && completed.MbctNextOrder == 2,
                         "Review completion unexpectedly granted another reward or advanced the course");
                     string saved = f.Store.Saved;
                     f.Ui.ShowRecords();
@@ -232,7 +232,7 @@ namespace CapstoneDesign.EditorTools
                         Require(MbctPolicy.Availability(f.Service.Snapshot) == null, "Synthetic MBCT week did not become available");
                         string id = "synthetic-demo-course-" + order;
                         Require(f.Service.BeginSession(id, MbctPolicy.MissionId(order), order)
-                            && f.Service.StartSession(id) && f.Service.CompleteSession(id), "Synthetic course progress failed");
+                            && f.Service.StartSession(id) && CompleteSyntheticPractice(f.Service,id), "Synthetic course progress failed");
                     }
                     NextSyntheticDay(f);
                     // No earlier ShowCourse call: this exercises first entry.
@@ -333,57 +333,39 @@ namespace CapstoneDesign.EditorTools
             string saved = f.Store.Saved, snapshot = StateCodec.Encode(f.Service.Snapshot);
             string recipe = PlantCodec.Encode(f.Service.Snapshot.PlantAppearance.Recipe);
             string seed = f.Service.Snapshot.PlantAppearance.Recipe.BaseSeed;
+            int coins = f.Service.CoinBalance;
             f.Ui.PreviewGrowth();
-            Require(f.Ui.CurrentScreen == "growth", "Growth preview did not open");
-            var frame = new CameraFrame(f.Home.gardenCamera);
-            Require(f.Home.RenderedRecipe.BaseSeed == seed && PlantCodec.Encode(f.Home.RenderedRecipe) != recipe,
-                "Growth preview must initially show this plant after growth");
-            Click(f.Ui.transform, "현재");
-            Require(frame.Matches(f.Home.gardenCamera) && PlantCodec.Encode(f.Home.RenderedRecipe) == recipe,
-                "Current button must show the saved plant at the same camera");
-            UiImage(size, output, "growth-current");
-            for (int i = 0; i < 2; i++)
-            {
-                Click(f.Ui.transform, "성장 후");
-                Require(frame.Matches(f.Home.gardenCamera), "Future view changed camera framing");
-                Require(f.Home.RenderedRecipe.BaseSeed == seed && PlantCodec.Encode(f.Home.RenderedRecipe) != recipe,
-                    "Future view must advance this plant, preserving its seed");
-                if (i == 0) UiImage(size, output, "growth-future");
-                Click(f.Ui.transform, "현재");
-                Require(frame.Matches(f.Home.gardenCamera) && PlantCodec.Encode(f.Home.RenderedRecipe) == recipe,
-                    "Current view did not restore the original plant at the same camera");
-            }
+            Require(f.Ui.CurrentScreen == "growth" && PlantCodec.Encode(f.Home.RenderedRecipe) == recipe,
+                "Growth guidance must show this plant at its saved stage");
+            Require(HasLabel(f.Ui,"미션을 완료하면 식물이 자라요.")
+                && !f.Ui.GetComponentsInChildren<Button>(false).Any(button=>button.name=="확정" || button.name=="성장 후"),
+                "Growth guidance still exposes a paid or manual growth action");
+            UiImage(size, output, "growth-mission-guidance");
             Require(f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot,
-                "Toggling growth preview mutated the save, balance, or recipe");
-            Click(f.Ui.transform, "취소");
-            Require(f.Ui.CurrentScreen == "shop" && f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot,
-                "Cancelling growth changed state or failed to return to the shop");
-            Require(PlantCodec.Encode(f.Home.RenderedRecipe) == recipe, "Cancel left the future plant rendered");
+                "Viewing mission growth guidance mutated coins or recipe");
+            Click(f.Ui.transform, "정원으로");
+            Require(f.Home.IsGardenVisible && f.Store.Saved == saved && PlantCodec.Encode(f.Home.RenderedRecipe) == recipe,
+                "Returning from guidance changed the garden");
 
-            f.Ui.PreviewGrowth();
+            const string id="synthetic-polish-practice-growth";
+            Require(f.Service.BeginSession(id,"free-mission:M01") && f.Service.StartSession(id),f.Service.LastError);
+            saved=f.Store.Saved;snapshot=StateCodec.Encode(f.Service.Snapshot);
             f.Store.FailNextSave = true;
-            var confirm = Button(f.Ui.transform, "영양제 10개로 성장");
-            confirm.onClick.Invoke();
-            Require(f.Store.Saved == saved && StateCodec.Encode(f.Service.Snapshot) == snapshot && !f.Home.IsGardenVisible,
-                "Failed purchase changed state or navigated as success");
-            Require(f.Ui.GetComponentsInChildren<Text>().Any(t => t.text.Contains("영양제는 그대로예요")),
-                "Storage failure lacks the unchanged-balance explanation");
-            UiImage(size, output, "growth-save-failure");
-            // Retain the same actual UI event/request to simulate duplicate delivery.
-            var confirmEvent = confirm.onClick;
-            confirmEvent.Invoke();
-            var purchased = f.Service.Snapshot;
-            Require(f.Home.IsGardenVisible && purchased.Nutrient == 90 && purchased.PurchaseReceipts.Count == 1,
-                "Confirmed growth must spend exactly once and return to the garden");
-            Require(f.Home.guide.text == "성장 완료 · 영양제 10개 사용", "Growth confirmation is missing");
-            string committed = StateCodec.Encode(purchased), committedSave = f.Store.Saved;
-            confirmEvent.Invoke();
-            Require(StateCodec.Encode(f.Service.Snapshot) == committed && f.Store.Saved == committedSave,
-                "Duplicate confirmation charged twice");
-            Require(f.Service.Snapshot.PlantAppearance.Recipe.BaseSeed == seed, "Purchase replaced the plant seed");
+            Require(!f.Service.CommitPracticeGrowth(id) && f.Store.Saved==saved && StateCodec.Encode(f.Service.Snapshot)==snapshot,
+                "Failed practice growth changed coins, recipe or its receipt");
+            Require(f.Service.CommitPracticeGrowth(id),f.Service.LastError);
+            var grown=f.Service.Snapshot;
+            Require(grown.Coins==coins && grown.PracticeGrowthRecords.Count==1 && grown.PurchaseReceipts.Count==0
+                && grown.PlantAppearance.Recipe.BaseSeed==seed && PlantCodec.Encode(grown.PlantAppearance.Recipe)!=recipe,
+                "Practice growth must advance this plant once without spending or granting coins");
+            string committed=StateCodec.Encode(grown);saved=f.Store.Saved;
+            Require(f.Service.CommitPracticeGrowth(id) && StateCodec.Encode(f.Service.Snapshot)==committed && f.Store.Saved==saved,
+                "Duplicate practice growth changed saved state");
+            f.Ui.UpdateGarden();
+            Require(f.Home.guide.text.Contains("코인 "+coins+"개"),"Garden did not display unchanged coins");
             using var capture = new GardenLightingValidation.HomeCapture(f.Home, f.Sky, size);
-            HomeImage(f, capture, output, "growth-confirmed", size, report);
-            report.Add(size + " current/future camera lock, unchanged preview/cancel, failed-save rollback, single purchase PASS");
+            HomeImage(f, capture, output, "growth-practice-saved", size, report);
+            report.Add(size + " mission growth guidance, unchanged balance, failed-save rollback and idempotent practice growth PASS");
         }
 
         static void GrowthUnavailable(string output, List<string> report)
@@ -395,10 +377,14 @@ namespace CapstoneDesign.EditorTools
                     f.Home.navigation.ShowActivities();
                     string saved = f.Store.Saved;
                     f.Ui.PreviewGrowth();
-                    Require(!Button(f.Ui.transform, "성장을 마쳤어요").interactable
-                        && !Button(f.Ui.transform, "성장 후").interactable, "Mature garden must disable unavailable growth");
+                    Require(f.Service.Snapshot.PlantAppearance.IsCompleted
+                        && Button(f.Ui.transform, "사진첩으로 이동").interactable
+                        && !f.Ui.GetComponentsInChildren<Button>(false).Any(button => button.name == "확정"),
+                        "Completed garden must replace unavailable growth with its album action");
                     UiImage(size, output, "growth-limit");
-                    Click(f.Ui.transform, "취소");
+                    Click(f.Ui.transform, "사진첩으로 이동");
+                    Require(f.Ui.CurrentScreen == "plant-album" && Button(f.Ui.transform, "PlantAlbum.SaveCurrent").interactable,
+                        "Completed garden cannot enter its album save flow");
                     Require(f.Store.Saved == saved, "Viewing a mature garden changed its save");
                 }
                 using (var f = new Fixture(.1f, 0))
@@ -406,14 +392,33 @@ namespace CapstoneDesign.EditorTools
                     f.Home.navigation.ShowActivities();
                     string saved = f.Store.Saved;
                     f.Ui.PreviewGrowth();
-                    Require(!Button(f.Ui.transform, "영양제 10개로 성장").interactable,
-                        "Insufficient balance must disable confirmation");
-                    Click(f.Ui.transform, "성장 후");
-                    Require(f.Store.Saved == saved, "Free preview with insufficient balance mutated state");
-                    UiImage(size, output, "growth-insufficient");
+                    Require(Button(f.Ui.transform,"미션으로 이동").interactable
+                        && !f.Ui.GetComponentsInChildren<Button>(false).Any(button=>button.name=="확정"),
+                        "A zero coin balance must still offer mission growth without payment");
+                    Require(f.Store.Saved == saved, "Mission guidance with zero coins mutated state");
+                    UiImage(size, output, "growth-zero-coins");
                 }
-                report.Add(size + " growth limit and insufficient balance: disabled purchase, preview without charge PASS");
+                report.Add(size + " completed album routing and zero-coin mission guidance without charge PASS");
             }
+        }
+
+        static bool CompleteSyntheticPractice(GardenStateService service,string id)
+        {
+            var session=service.Snapshot.Sessions.First(item=>item.SessionId==id);
+            if(MbctPolicy.IsMbct(session.MissionId))
+                if(!service.SavePracticeStep(id,MbctContent.Find(session.MissionId).steps.Length))return false;
+            return service.CompleteSession(id);
+        }
+        static void FinishSyntheticPractice(Fixture fixture)
+        {
+            var session=fixture.Service.Snapshot.Sessions.Last();
+            var mission=MbctContent.Find(session.MissionId);
+            for(int step=session.InstructionStep;step<mission.steps.Length;step++)
+            {
+                fixture.Ui.AdvancePractice(false);
+                Require(fixture.Service.Snapshot.Sessions.Last().InstructionStep>step,fixture.Service.LastError??"Synthetic practice failed to advance");
+            }
+            fixture.Ui.Finish(null,null);
         }
 
         static void HomeImage(Fixture f, GardenLightingValidation.HomeCapture capture, string output,

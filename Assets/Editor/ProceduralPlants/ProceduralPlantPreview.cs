@@ -53,8 +53,8 @@ namespace CapstoneDesign.PlantEditor
         void OnGUI()
         {
             EditorGUILayout.LabelField("절차적 식물 생성 — 격리된 합성 데이터 미리보기",EditorStyles.boldLabel);
-            EditorGUILayout.HelpBox("기존 정원 저장·영양제는 변경하지 않는 미리보기입니다. 종류는 목표의 약 1/3에서 확정되고 줄기는 개화 전 길이 성장을 끝냅니다. 아래 활동 수는 외형 계산용 합성 데이터입니다.",MessageType.Info);
-            growthMode=(PlantGrowthMode)EditorGUILayout.Popup("성장 기준",(int)growthMode,new[]{"영양제 구매 1회","인정 미션 완료 1회"});
+            EditorGUILayout.HelpBox("기존 정원 저장·코인은 변경하지 않는 미리보기입니다. 종류는 목표의 약 1/3에서 확정되고 줄기는 개화 전 길이 성장을 끝냅니다. 아래 활동 수는 외형 계산용 합성 데이터입니다.",MessageType.Info);
+            growthMode=(PlantGrowthMode)EditorGUILayout.Popup("성장 기준",(int)growthMode,new[]{"이전 저장의 구매 성장","인정 실습 종료 1회"});
             int nextPreset=EditorGUILayout.Popup("프로그램 목표",growthPreset,new[]{"기존 12회","4주 · 매일 1회 = 28회","8주 · 주 6회 = 48회","8주 · 매일 1회 = 56회","직접 입력"});
             if(nextPreset!=growthPreset) { growthPreset=nextPreset;if(growthPreset<4) maxGrowthSteps=new[]{12,28,48,56}[growthPreset]; }
             using(new EditorGUI.DisabledScope(growthPreset!=4)) maxGrowthSteps=EditorGUILayout.IntField("최대 성장 횟수 (6~1000)",maxGrowthSteps);

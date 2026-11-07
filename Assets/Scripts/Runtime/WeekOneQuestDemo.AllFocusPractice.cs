@@ -18,6 +18,7 @@ namespace CapstoneDesign.Runtime
             if(!opened||screen!="focus-practice"||focusInteractionSession!=sessionId)return true;
             var active=ActiveSession();
             if(active==null||active.InstructionStep!=focusInteractionStep||active.Status==ParticipationState.Selected||active.Status==ParticipationState.RewardCommitted)return true;
+            if(UsesBasicFocusSlides(active))return SaveBasicFocusActivity(active);
             if(focusDrawing!=null){focusAnswer=focusDrawing.Value;focusDirty=true;}
             return focusPracticeClock==null||focusPracticeClock.Flush();
         }
@@ -37,7 +38,7 @@ namespace CapstoneDesign.Runtime
             var finish=FigmaMissionUi.Find<Button>(root,"Focus.Action");
             if(finish!=null)
             {
-                var rect=(RectTransform)finish.transform;rect.anchoredPosition=new Vector2(45,-714);rect.sizeDelta=new Vector2(300,48);
+                var rect=(RectTransform)finish.transform;FigmaMissionUi.SetRect(rect,45,714,300,48);
                 finish.targetGraphic.color=Color.clear;
                 var text=finish.GetComponentInChildren<Text>();text.text="실습 마치기";text.color=FocusAccent(mission);text.fontSize=16;text.rectTransform.sizeDelta=new Vector2(284,48);
             }
@@ -160,7 +161,7 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.Label(card,ready?"목표 "+session.WalkingGoalSteps.ToString("N0")+"걸음":"목표를 저장하지 못했어요",20,20,260,28,18,FocusAccent(mission),true);
             var count=FigmaMissionUi.Label(card,"",20,58,260,36,24,FocusInk(mission),true);var counter=card.gameObject.AddComponent<FocusWalkingCounter>();counter.Label=count;
             counter.Read=()=>{var saved=Service.Snapshot.Sessions.FirstOrDefault(s=>s.SessionId==id);return saved!=null&&!string.IsNullOrEmpty(saved.StepSource)?saved.RealStepHighWater.ToString("N0")+"걸음":"동기화된 걸음 없음";};counter.Refresh();
-            FigmaMissionUi.Button(card,"걸음 새로고침",20,108,260,48,()=>{if(!SaveFocusDraft())return;AndroidPlatformBridge.RefreshHealthData();RequestStepSyncSoon();TickStepSync();ShowFocusPractice();},FigmaMissionUi.Hex(mission.BackgroundHex),FocusAccent(mission),14).name="Focus.RefreshSteps";
+            FigmaMissionUi.Button(card,"걸음 새로고침",20,108,260,48,()=>{if(!SaveFocusDraft())return;if(!IsMissionDebugActive){AndroidPlatformBridge.RefreshHealthData();RequestStepSyncSoon();TickStepSync();}ShowFocusPractice();},FigmaMissionUi.Hex(mission.BackgroundHex),FocusAccent(mission),14).name="Focus.RefreshSteps";
             FigmaMissionUi.Label(root,"움직일 때는 화면을 보지 마세요.\n기록이 늦으면 직접 걸음을 확인해요.",45,560,300,44,14,FocusMuted(mission),false,TextAnchor.MiddleCenter);
             return ready;
         }

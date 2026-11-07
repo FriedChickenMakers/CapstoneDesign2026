@@ -24,10 +24,16 @@ namespace CapstoneDesign.Runtime
     {
         public static string CompletedCalendarDay(GardenState state,DateTimeOffset now,TimeZoneInfo zone)
         {
+            // Finishing P and M unlocks reflection; it must not suppress the
+            // reminder while that day's emotion mission is still unfinished.
+            if(DailyEmotionPolicy.Availability(state)==null)return "";
             var today=TimeZoneInfo.ConvertTime(now,zone).Date;
             return state.Sessions.Any(s=>s.Status==ParticipationState.RewardCommitted &&
                 DateTimeOffset.TryParse(s.EndedUtc,out var ended) && ended<=now &&
-                TimeZoneInfo.ConvertTime(ended,zone).Date==today)?today.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture):"";
+                TimeZoneInfo.ConvertTime(ended,zone).Date==today)
+                || state.DailyEmotionRecords.Any(record=>record.IsCompleted && DateTimeOffset.TryParse(record.CompletedUtc,out var completed)
+                    && completed<=now && TimeZoneInfo.ConvertTime(completed,zone).Date==today)
+                ?today.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture):"";
         }
     }
 

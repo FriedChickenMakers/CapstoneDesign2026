@@ -19,6 +19,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.Data
 import org.json.JSONObject
 import org.json.JSONArray
 import java.io.IOException
@@ -84,6 +85,7 @@ internal object ActivityNotifications {
     }.toString()
 
     fun initialize(context: Context, live: Boolean) = synchronized(lock) {
+        if(NativeLocalReset.pending(context))return@synchronized
         val p = prefs(context)
         ensureLearningState(p)
         val edit = p.edit().putBoolean("live", live)
@@ -111,9 +113,11 @@ internal object ActivityNotifications {
         // Periodic work survives reboot and checks local time after a timezone/clock change.
         // Android may defer it in Doze; this is intentionally not an exact alarm.
         work.enqueueUniquePeriodicWork(WORK, ExistingPeriodicWorkPolicy.KEEP,
-            PeriodicWorkRequestBuilder<ActivityReminderWorker>(15, TimeUnit.MINUTES).build())
+            PeriodicWorkRequestBuilder<ActivityReminderWorker>(15, TimeUnit.MINUTES)
+                .setInputData(Data.Builder().putString("localDataEpoch",NativeLocalReset.epoch(context)).build()).build())
     }
     fun settings(context: Context): JSONObject = synchronized(lock) {
+        if(NativeLocalReset.pending(context))return@synchronized JSONObject().put("status",PlatformStatus.NO_DATA)
         val p = prefs(context)
         ensureLearningState(p)
         val minute = effectiveMinute(p)
@@ -131,7 +135,8 @@ internal object ActivityNotifications {
             .put("permissionStatus", permissionStatus(context, CHANNEL))
             .put("nextReminderEpochMs", ActivityReminderPolicy.nextEpoch(clock(), ZoneId.systemDefault(), minute))
     }
-    fun configure(context: Context, enabled: Boolean, minute: Int, adaptive: Boolean, resetLearning: Boolean = false): String = synchronized(lock) {
+    fun configure(context: Context, enabled: Boolean, minute: Int, adaptive: Boolean, resetLearning: Boolean = false, expectedEpoch: String = NativeLocalReset.epoch(context)): String = synchronized(lock) {
+        if(!NativeLocalReset.current(context,expectedEpoch))return@synchronized resultJson(PlatformStatus.ERROR,"Local reset invalidated this setting")
         try {
             val p = prefs(context)
             ensureLearningState(p)
@@ -149,6 +154,7 @@ internal object ActivityNotifications {
         } catch (_: IOException) { resultJson(PlatformStatus.ERROR, "Notification preferences could not be saved") }
     }
     fun sync(context: Context, completedDay: String, title: String, active: Boolean): String = synchronized(lock) {
+        if(NativeLocalReset.pending(context))return@synchronized resultJson(PlatformStatus.ERROR,"Local reset is pending")
         // Unity supplies only a content title and completion day, never a user's private note.
         val p = prefs(context)
         if (!preferenceCommit(p.edit().putString("completedDay", completedDay).putString("title", title.take(100))
@@ -217,7 +223,8 @@ internal object ActivityNotifications {
         }
         else clearPending(p)
     }
-    fun postIfDue(context: Context, now: Long = clock()): Boolean = synchronized(lock) {
+    fun postIfDue(context: Context, now: Long = clock(), expectedEpoch: String = NativeLocalReset.epoch(context)): Boolean = synchronized(lock) {
+        if(!NativeLocalReset.current(context,expectedEpoch))return@synchronized false
         val p = prefs(context)
         ensureLearningState(p)
         reconcilePending(context)
@@ -269,10 +276,12 @@ internal object ActivityNotifications {
     fun openIntent(context: Context, kind: String, session: String, postedAt: Long, measurement: String = ""): PendingIntent = PendingIntent.getActivity(context,
         if (kind == "daily") ID else 2615,
         Intent(context, NotificationEntryActivity::class.java).setData(Uri.parse("garden-notification://$kind/$postedAt"))
-            .putExtra("kind", kind).putExtra("sessionId", session).putExtra("postedAt", postedAt).putExtra("measurement", measurement),
+            .putExtra("kind", kind).putExtra("sessionId", session).putExtra("postedAt", postedAt).putExtra("measurement", measurement)
+            .putExtra("localDataEpoch",NativeLocalReset.epoch(context)),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
-    fun opened(context: Context, kind: String, session: String, postedAt: Long, now: Long = clock(), measurement: String = ""): Unit = synchronized(lock) {
+    fun opened(context: Context, kind: String, session: String, postedAt: Long, now: Long = clock(), measurement: String = "", expectedEpoch: String = NativeLocalReset.epoch(context)): Unit = synchronized(lock) {
+        if(!NativeLocalReset.current(context,expectedEpoch))return@synchronized
         if (kind != "daily" && kind != "walking") return
         MeasurementTelemetry.notification(context, measurement, "notification_opened", now)
         val p = prefs(context)
@@ -299,16 +308,23 @@ internal object ActivityNotifications {
         save(edit)
     }
     fun consumeOpen(context: Context): String = synchronized(lock) {
+        if(NativeLocalReset.pending(context))return@synchronized "{}"
         val p = prefs(context)
         val result = JSONObject().put("kind", p.getString("pendingKind", "")).put("sessionId", p.getString("pendingSession", ""))
         if (!preferenceCommit(p.edit().remove("pendingKind").remove("pendingSession"))) return "{}"
         result.toString()
     }
+    fun resetLocalData(context: Context) = synchronized(lock) {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK).result.get(250,TimeUnit.MILLISECONDS)
+        context.getSystemService(NotificationManager::class.java).cancel(ID)
+        save(prefs(context).edit().clear())
+        acceptedPendingKey=null
+    }
 }
 
 class ActivityReminderWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = try {
-        ActivityNotifications.postIfDue(applicationContext); Result.success()
+        ActivityNotifications.postIfDue(applicationContext,expectedEpoch=inputData.getString("localDataEpoch") ?: ""); Result.success()
     } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
       catch (_: Exception) { Result.retry() }
 }
@@ -321,7 +337,7 @@ class NotificationEntryActivity : Activity() {
         if (kind == "daily" || kind == "walking") try {
             ActivityNotifications.opened(this, kind,
                 intent.getStringExtra("sessionId") ?: "", intent.getLongExtra("postedAt", 0),
-                measurement = intent.getStringExtra("measurement") ?: "")
+                measurement = intent.getStringExtra("measurement") ?: "", expectedEpoch=intent.getStringExtra("localDataEpoch") ?: "")
         } catch (_: IOException) {
             // A failed local write must not crash the notification's app entry point.
             android.util.Log.w("GardenReminders", "Could not persist notification open")

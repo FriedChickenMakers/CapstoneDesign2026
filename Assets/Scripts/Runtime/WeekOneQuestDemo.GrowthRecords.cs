@@ -54,7 +54,7 @@ namespace CapstoneDesign.Runtime
             EnterPage("growth-history",ShowGrowthHistory);var p=FocusPage("식물 성장 기록","나의 정원");
             var state=Service.Snapshot;var records=state.GrowthHistory.AsEnumerable().Reverse().ToArray();
             int pages=Math.Max(1,(records.Length+3)/4);growthHistoryPage=Mathf.Clamp(growthHistoryPage,0,pages-1);
-            if(records.Length==0)Guidance(p,"다음에 식물을 키우면 이곳에 성장 기록이 남아요.");
+            if(records.Length==0)Guidance(p,"이전에 남긴 성장 기록이 없어요. 새 활동은 참여 기록에서 돌아볼 수 있어요.");
             if(state.PurchaseCommands.Any(command=>command.Command.StartsWith("growth|",StringComparison.Ordinal) && !records.Any(record=>record.RequestId==command.RequestId)))
                 GardenUi.FlowLabel(p,"이전 버전의 성장은 정원에 그대로 남아 있어요. 당시의 상세 연결 기록은 없어요.",GardenUi.BodySize,GardenUi.Muted);
             if(records.Length>0)

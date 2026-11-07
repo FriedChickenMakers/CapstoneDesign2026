@@ -112,7 +112,7 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("allcourse-03-additional-catalog", capture);
                 foreach (string program in new[] { "2w", "4w", "8w" })
                 {
-                    Pick(f, program); f.Click("내 과정"); f.Click("Focus.CourseRecords." + program);
+                    Pick(f, program); f.Click("기록"); f.Click("Focus.CourseRecords." + program);
                     int total = FocusMissionPolicy.TotalPracticesFor(program);
                     Assert(f.VisibleText.Contains("완료한 실습 0 / " + total), "Course total is wrong.");
                     Assert(!f.VisibleText.Contains("1주차 미션"), "History retained weekly groups.");
@@ -120,7 +120,7 @@ namespace CapstoneDesign.EditorTools
                     Assert(f.Ui.GetComponentsInChildren<Button>(false).Count(b => b.name.StartsWith("Focus.Occurrence." + program + ".", StringComparison.Ordinal)) == total, "Not all course occurrences are listed.");
                     f.Click("Focus.Occurrence." + program + "." + total);
                     Assert(f.VisibleText.Contains(FocusMissionPolicy.MissionAt(total, program).Title) && f.VisibleText.Contains("아직 저장된 수행 기록이 없어요"), "Future occurrence information is inaccessible.");
-                    f.Click("코스 기록으로 돌아가기"); f.Capture("allcourse-04-" + program + "-records", capture); f.Click("내 과정으로 돌아가기");
+                    f.Click("코스 기록으로 돌아가기"); f.Capture("allcourse-04-" + program + "-records", capture); f.Click("기록으로 돌아가기");
                 }
             }
         }

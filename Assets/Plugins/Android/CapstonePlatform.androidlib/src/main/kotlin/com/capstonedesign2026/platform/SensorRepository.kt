@@ -79,6 +79,8 @@ internal object SensorRepository {
     private var droppedPendingSamples = 0L
     private var malformedTailLines = 0L
     private var diagnosticThread: HandlerThread? = null
+    private var diagnosticStop: (() -> Unit)? = null
+    private var dataEpoch = ""
     @Volatile private var captureSessionId = "not-started"
     // Exactly one drain task may be queued/running. Idle worker expires after 30 s.
     private val writer = ThreadPoolExecutor(0, 1, 30, TimeUnit.SECONDS, LinkedBlockingQueue<Runnable>())
@@ -88,6 +90,8 @@ internal object SensorRepository {
         synchronized(lock) {
             if (initialized) return
             appContext = context.applicationContext
+            dataEpoch = NativeLocalReset.epoch(context)
+            if (!NativeLocalReset.current(context,dataEpoch)) return
             val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
             manager.getSensorList(Sensor.TYPE_ALL).forEach { sensor ->
                 Log.i(
@@ -118,7 +122,12 @@ internal object SensorRepository {
             PackageManager.PERMISSION_GRANTED
     }
 
-    fun onServiceStarted(message: String = "Foreground sensor service is collecting") = synchronized(lock) {
+    fun onServiceStarted(message: String = "Foreground sensor service is collecting", expectedEpoch: String? = null) = synchronized(lock) {
+        val context = appContext ?: return@synchronized
+        val epoch = expectedEpoch ?: NativeLocalReset.epoch(context)
+        if (!NativeLocalReset.current(context,epoch)) return@synchronized
+        if (dataEpoch != epoch) resetLocalData()
+        dataEpoch = epoch
         running = true
         captureSessionId = UUID.randomUUID().toString()
         receivedIntervalByType.clear()
@@ -148,6 +157,8 @@ internal object SensorRepository {
     fun captureDebugBurst(): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Sensors are not initialized")
+        val epoch=NativeLocalReset.epoch(context)
+        if(!NativeLocalReset.current(context,epoch))return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
         val thread = synchronized(lock) {
             if (diagnosticThread != null)
                 return resultJson(PlatformStatus.AVAILABLE, "Debug sensor capture is already running")
@@ -156,11 +167,12 @@ internal object SensorRepository {
         val manager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
         val handler = Handler(thread.looper)
         val listener = object : SensorEventListener {
-            override fun onSensorChanged(event: SensorEvent) = record(event)
+            override fun onSensorChanged(event: SensorEvent) { if(NativeLocalReset.current(context,epoch))record(event) }
             override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
         }
+        synchronized(lock) { diagnosticStop = { manager.unregisterListener(listener); handler.removeCallbacksAndMessages(null); thread.quitSafely() } }
         return try {
-            onServiceStarted("Brief debug sensor capture is collecting")
+            onServiceStarted("Brief debug sensor capture is collecting",epoch)
             val registered = requestedSensors().count { sensor ->
                 shouldRegister(sensor) && manager.registerListener(
                     listener, sensor, SensorManager.SENSOR_DELAY_NORMAL, handler
@@ -174,8 +186,9 @@ internal object SensorRepository {
             } else {
                 handler.postDelayed({
                     manager.unregisterListener(listener)
-                    onServiceStopped("2-second debug sensor capture complete")
-                    synchronized(lock) { if (diagnosticThread === thread) diagnosticThread = null }
+                    synchronized(lock) { if (diagnosticThread === thread) {
+                        onServiceStopped("2-second debug sensor capture complete"); diagnosticThread = null; diagnosticStop=null
+                    } }
                     thread.quitSafely()
                 }, 2_000L)
                 resultJson(PlatformStatus.AVAILABLE, "2-second debug sensor capture started")
@@ -320,9 +333,11 @@ internal object SensorRepository {
         val now = System.currentTimeMillis()
         if (!force && pendingLines.size < FLUSH_SAMPLE_COUNT && now - lastFlushEpochMs < FLUSH_INTERVAL_MS) return
         flushScheduled = true
+        val epoch = dataEpoch
         writer.execute {
             while (true) {
                 val lines = synchronized(lock) {
+                    if(epoch!=dataEpoch)return@execute
                     if (pendingLines.isEmpty() || persistenceDisabled) {
                         flushScheduled = false
                         return@execute
@@ -331,13 +346,17 @@ internal object SensorRepository {
                 }
                 try {
                     // File I/O is isolated from sensor callbacks and the Unity snapshot lock.
-                    BoundedSensorLog(storageFileLocked(), MAX_FILE_BYTES).append(lines)
+                    if (!NativeLocalReset.write(requireNotNull(appContext), epoch) {
+                        BoundedSensorLog(storageFileLocked(), MAX_FILE_BYTES).append(lines)
+                    }) return@execute
                     synchronized(lock) {
+                        if(epoch!=dataEpoch)return@execute
                         persistedSampleCount += lines.size
                         lastFlushEpochMs = System.currentTimeMillis()
                     }
                 } catch (_: Exception) {
                     synchronized(lock) {
+                        if(epoch!=dataEpoch)return@execute
                         serviceErrorCode = "SENSOR_PERSISTENCE_FAILED"
                         serviceMessage = "Sensor log could not be saved; existing data retained"
                         droppedPendingSamples += lines.size + pendingLines.size
@@ -350,6 +369,15 @@ internal object SensorRepository {
                 }
             }
         }
+    }
+
+    fun resetLocalData() = synchronized(lock) {
+        appContext?.let { dataEpoch=NativeLocalReset.epoch(it) }
+        diagnosticStop?.invoke(); diagnosticStop=null; diagnosticThread=null
+        running=false; pendingLines.clear(); recentSamples.clear(); latestByType.clear(); receivedIntervalByType.clear()
+        persistedSampleCount=0; lastFlushEpochMs=0; flushScheduled=false; persistenceDisabled=false
+        droppedPendingSamples=0; malformedTailLines=0; captureSessionId="not-started"
+        serviceMessage="Service has not been started"; serviceErrorCode=""
     }
 
     private fun loadPersistedTailLocked() {

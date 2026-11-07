@@ -9,6 +9,7 @@ namespace CapstoneDesign.Runtime
         public bool ResetMissionProgress()
         {
             if(!opened || !Apply(Service.ResetMissionHistory()))return false;
+            ResetDailyEmotionUiDraft();
             // Clear detached UI drafts only after the saved reset succeeds.
             ClearPracticeDraft();planDrafts.Clear();recordsPage=0;sessionId=null;mood=null;draftNote=null;note=null;
             focusDraftSession=null;focusDraftStep=-1;focusAnswer="";focusMood="";focusNote="";focusDirty=false;

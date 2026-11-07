@@ -110,7 +110,21 @@ internal object MeasurementTelemetry {
         elapsed = SystemClock.elapsedRealtime(), boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1),
         offset = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).offset.totalSeconds / 60,
         appVersion = version(context), dataset = dataset)
+    /** Called only after the application's durable reset transaction has started.
+     * AtomicFile.openRead restores legacy .bak, so delete every generation instead
+     * of decoding/replacing a possibly corrupt outbox via the withdrawal protocol. */
+    fun resetLocalData(context: Context) = synchronized(this) {
+        suspended=true; buffer=null; location=""; error=false
+        listOf(stateFile(context),healthFile(context)).forEach { file ->
+            AtomicFile(file).delete()
+            listOf("", ".bak", ".new", ".tmp").forEach { suffix ->
+                val part=File(file.path+suffix)
+                check(!part.exists() || part.delete()) { "Measurement record could not be removed" }
+            }
+        }
+    }
     fun configure(context: Context, binding: String, enabled: Boolean, since: Long): String = synchronized(this) {
+        if(enabled && NativeLocalReset.pending(context))return@synchronized "{\"ok\":false}"
         if (!enabled) suspended = true // Stop in memory even if the disk rejects withdrawal.
         try {
             if (!enabled) {
@@ -172,6 +186,7 @@ internal object MeasurementTelemetry {
         } catch (_: Exception) { latchError(context); "{}" }
     }
     fun acknowledge(context: Context, binding: String, collection: String, accepted: String, sent: String): String = synchronized(this) {
+        if(suspended || NativeLocalReset.pending(context))return@synchronized "{\"ok\":false}"
         try {
             fun ids(s: String): Set<String> { val a = JSONArray(s); return (0 until a.length()).map { a.getString(it) }.toSet() }
             get(context).acknowledge(binding, collection, ids(accepted), ids(sent)); "{\"ok\":true}"

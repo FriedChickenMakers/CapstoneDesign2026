@@ -124,10 +124,16 @@ namespace CapstoneDesign.EditorTools
                     var settings = assembly.MainModule.Types.FirstOrDefault(type => type.FullName == "CapstoneDesign.Runtime.SensorRawDisplay");
                     if (settings == null) throw new InvalidOperationException("Release runtime omits SensorRawDisplay.");
                     string[] developmentOnly = { "StartService", "StopService", "RequestMissionReset", "CancelMissionReset",
-                        "ResetMissionRecords", "AdvanceMissionDate", "ToggleDebugWalk", "AddVirtualStep" };
+                        "ResetMissionRecords", "AdvanceMissionDate", "ToggleDebugWalk", "AddVirtualStep", "AddTestCoins", "AddTestNutrients" };
                     foreach (string method in developmentOnly)
                         if (settings.Methods.Any(item => item.Name == method))
                             throw new InvalidOperationException("Development-only settings action remains in release: " + method);
+                    foreach (string typeName in new[] { "CapstoneDesign.Runtime.WeekOneQuestDemo", "CapstoneDesign.Runtime.LocalState.GardenStateService" })
+                    {
+                        var type = assembly.MainModule.Types.Single(item => item.FullName == typeName);
+                        if (type.Methods.Any(item => item.Name == "AddTestCoins" || item.Name == "AddTestNutrients"))
+                            throw new InvalidOperationException("Development-only coin grant remains in release: " + typeName);
+                    }
                     var opened = settings.Methods.Single(item => item.Name == "OnSettingsOpened");
                     if (opened.Body.Instructions.Any(instruction => instruction.Operand is MethodReference call && call.Name == "CaptureDebugSensors"))
                         throw new InvalidOperationException("Release settings still trigger debug sensor capture.");
