@@ -74,7 +74,7 @@ namespace CapstoneDesign.Runtime
                     focusAnswerInput=FigmaMissionUi.Input(root,instruction.InputHint??"짧게 적어주세요",45,labelY+36,300,92,500);
                     focusAnswerInput.name="Focus.AnswerInput";focusAnswerInput.SetTextWithoutNotify(focusAnswer);
                     var helper=FigmaMissionUi.Label(root,instruction.RequiredAnswer?"한 단어 이상 적거나 위에서 골라주세요.":"적지 않아도 계속할 수 있어요.",45,labelY+136,300,42,14,FocusMuted(mission));helper.name="Focus.InputHelp";
-                    focusAnswerInput.onValueChanged.AddListener(value=>{focusAnswer=value;focusDirty=true;if(!string.IsNullOrWhiteSpace(value))MarkFocusPracticeStarted();var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null&&instruction.RequiredAnswer)action.interactable=!string.IsNullOrWhiteSpace(value);if(instruction.RequiredAnswer)helper.text=string.IsNullOrWhiteSpace(value)?(instruction.Options.Length>0?"한 단어 이상 적거나 위에서 골라주세요.":"완료하려면 한 단어 이상 적어주세요."):"입력했어요. 계속할 수 있어요.";});
+                    focusAnswerInput.onValueChanged.AddListener(value=>{focusAnswer=value;focusDirty=true;RefreshAllFocusOptions(root,mission,instruction);if(!string.IsNullOrWhiteSpace(value))MarkFocusPracticeStarted();var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null&&instruction.RequiredAnswer)action.interactable=!string.IsNullOrWhiteSpace(value);if(instruction.RequiredAnswer)helper.text=string.IsNullOrWhiteSpace(value)?(instruction.Options.Length>0?"한 단어 이상 적거나 위에서 골라주세요.":"완료하려면 한 단어 이상 적어주세요."):"입력했어요. 계속할 수 있어요.";});
                     if(instruction.RequiredAnswer&&instruction.Options.Length==0)helper.text=string.IsNullOrWhiteSpace(focusAnswer)?"완료하려면 한 단어 이상 적어주세요.":"입력했어요. 계속할 수 있어요.";
                     focusAnswerInput.onEndEdit.AddListener(value=>SaveFocusDraft());AttachFocusKeyboard(root,focusAnswerInput,instruction.Title,FigmaMissionUi.Hex(mission.BackgroundHex),accent);
                 }
@@ -124,6 +124,19 @@ namespace CapstoneDesign.Runtime
                     focusAnswer=focusAnswer==option?"":option;if(focusAnswerInput!=null)focusAnswerInput.SetTextWithoutNotify(focusAnswer);focusDirty=true;
                     if(SaveFocusDraft()){if(!string.IsNullOrEmpty(focusAnswer))MarkFocusPracticeStarted();ShowFocusPractice();if(resumeClock&&focusPracticeClock!=null)focusPracticeClock.ToggleRunning();}
                 },selected?accent:FocusAlpha(Color.white,.82f),selected?Color.white:accent,14);button.name="Focus.Option."+option;
+            }
+        }
+        void RefreshAllFocusOptions(Transform root,FocusMissionDefinition mission,FocusMissionStep step)
+        {
+            var accent=FocusAccent(mission);
+            foreach(string option in step.Options)
+            {
+                var button=FigmaMissionUi.Find<Button>(root,"Focus.Option."+option);
+                if(button==null)continue;
+                bool selected=focusAnswer==option;
+                button.GetComponent<Image>().color=selected?accent:FocusAlpha(Color.white,.82f);
+                foreach(var label in button.GetComponentsInChildren<Text>(true))
+                    if(label.transform.parent==button.transform)label.color=selected?Color.white:accent;
             }
         }
         void BuildFocusDrawing(Transform root,FocusMissionDefinition mission)

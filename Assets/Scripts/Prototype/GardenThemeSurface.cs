@@ -6,7 +6,7 @@ namespace CapstoneDesign.Prototype
 {
     /// <summary>
     /// Original scalable garden UI art: warm paper, timber and botanical edges.
-    /// Timber faces use FreeStylized Wood 02; other surfaces use vertex colour.
+    /// Wood and foliage use attributed ambientCG atlases; borders use vertex colour.
     /// The surface is decoration only and never changes gameplay, layout or hit testing.
     /// </summary>
     [AddComponentMenu("UI/Garden Theme Surface")]

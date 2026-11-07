@@ -140,6 +140,7 @@ namespace CapstoneDesign.EditorTools
                     // Editor captures; repopulate clouds after the final layout.
                     var sky=GardenSkyEnvironment.Ensure(home.gardenCamera,home.gardenVisuals.transform);
                     sky.UpdateClouds(0);
+                    home.RefreshOverlayTextColor();
                     home.gardenCamera.Render();
                 }
                 camera.Render();

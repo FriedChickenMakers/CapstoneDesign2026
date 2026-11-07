@@ -807,7 +807,8 @@ namespace CapstoneDesign.Runtime
                 if(virtualStepButton!=null)
                 {
                     virtualStepButton.interactable=enabled;
-                    virtualStepButton.GetComponentInChildren<Text>(true).color=enabled?GardenUi.Green:GardenUi.Muted;
+                    virtualStepButton.GetComponentInChildren<Text>(true).color=
+                        GardenThemeSurface.Foreground(virtualStepButton.transform,enabled?GardenUi.Green:GardenUi.Muted);
                 }
             }
             AndroidDeviceSnapshot device = snapshot.device ?? new AndroidDeviceSnapshot();

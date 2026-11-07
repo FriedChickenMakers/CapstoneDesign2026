@@ -444,7 +444,8 @@ namespace CapstoneDesign.Runtime
         void SetPurchaseAvailability(Transform parent,Button confirm,string unavailable)
         {
             confirm.interactable=unavailable==null;
-            if(unavailable!=null)confirm.GetComponentInChildren<Text>().color=GardenUi.Muted;
+            if(unavailable!=null)confirm.GetComponentInChildren<Text>().color=
+                GardenThemeSurface.Foreground(confirm.transform,GardenUi.Muted);
             var explanation=GardenUi.Label(parent,unavailable??"확정할 때만 영양제가 차감돼요.",.07f,.10f,.86f,.10f,25);
             explanation.color=unavailable==null?GardenUi.Muted:GardenUi.Warning;
         }

@@ -19,9 +19,18 @@ namespace CapstoneDesign.Runtime
             if(audio!=null)audio.PausePlayback();
             if(clock!=null)clock.Pause();
             if(!SaveFocusDraft())return;
-            var overlay=FigmaMissionUi.Box(root,"Focus.AdjustmentModal",0,0,390,844,new Color(0,0,0,.38f),0);
-            overlay.GetComponent<Image>().raycastTarget=true;
+            var overlay=FigmaMissionUi.Rect(root,"Focus.AdjustmentModal",0,0,390,844);
+            // Width-fitted phone/tablet frames do not all have an 844-point height.
+            overlay.anchorMin=Vector2.zero;overlay.anchorMax=Vector2.one;
+            overlay.offsetMin=overlay.offsetMax=Vector2.zero;
+            // The panel stays inside the safe-area design frame; the dimmer
+            // also covers the visible canvas beneath Android's system inset.
+            var dim=FigmaMissionUi.Box(overlay,"Full canvas dim",0,0,390,844,new Color(0,0,0,.38f),0);
+            dim.GetComponent<Image>().raycastTarget=true;
+            dim.gameObject.AddComponent<FocusAdjustmentDimmerLayout>().Fit();
             var panel=FigmaMissionUi.Box(overlay,"선택 확인",24,260,342,284,FigmaMissionUi.Background,20);
+            panel.anchorMin=panel.anchorMax=new Vector2(.5f,.5f);
+            panel.pivot=new Vector2(.5f,.5f);panel.anchoredPosition=Vector2.zero;
             FigmaMissionUi.Label(panel,title,24,24,294,60,22,FigmaMissionUi.Ink,true);
             FigmaMissionUi.Label(panel,detail,24,96,294,80,16,FigmaMissionUi.Muted);
             Action cancel=()=>{focusAdjustmentCancel=null;overlay.gameObject.SetActive(false);Destroy(overlay.gameObject);if(resume&&clock!=null&&!clock.Running)clock.ToggleRunning();if(resumeAudio&&audio!=null)audio.ResumePlayback();};
@@ -104,6 +113,36 @@ namespace CapstoneDesign.Runtime
             input.name="Focus.PlanNote";input.SetTextWithoutNotify(note);
             input.onValueChanged.AddListener(value=>{note=value;focusAnswer=FocusMissionAdjustmentPolicy.ComposePlan(activity,period,note);focusDirty=true;var action=FigmaMissionUi.Find<Button>(root,"Focus.Action");if(action!=null)action.interactable=!string.IsNullOrWhiteSpace(focusAnswer);});
             input.onEndEdit.AddListener(value=>save());AttachFocusKeyboard(root,input,"작은 계획",FigmaMissionUi.Hex(mission.BackgroundHex),accent);
+        }
+    }
+
+    [ExecuteAlways]
+    public sealed class FocusAdjustmentDimmerLayout : MonoBehaviour
+    {
+        readonly Vector3[] corners = new Vector3[4];
+
+        void OnEnable() { Canvas.preWillRenderCanvases += Fit; Fit(); }
+        void OnDisable() { Canvas.preWillRenderCanvases -= Fit; }
+
+        public void Fit()
+        {
+            var parent = transform.parent as RectTransform;
+            var canvas = GetComponentInParent<Canvas>();
+            if (parent == null || canvas == null) return;
+            var canvasRect = canvas.rootCanvas.transform as RectTransform;
+            if (canvasRect == null) return;
+            canvasRect.GetWorldCorners(corners);
+            Vector2 min = parent.InverseTransformPoint(corners[0]), max = min;
+            for (int i = 1; i < corners.Length; i++)
+            {
+                Vector2 point = parent.InverseTransformPoint(corners[i]);
+                min = Vector2.Min(min, point); max = Vector2.Max(max, point);
+            }
+            var rect = (RectTransform)transform;
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
+            rect.sizeDelta = max - min;
+            Vector2 center = (min + max) * .5f;
+            rect.localPosition = new Vector3(center.x, center.y, 0);
         }
     }
 }

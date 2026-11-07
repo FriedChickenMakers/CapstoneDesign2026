@@ -91,7 +91,7 @@ namespace CapstoneDesign.EditorTools
         private sealed class ReleaseScriptReport
         {
             public string status = "FAIL", target = "Android", options = "None", error;
-            public string[] assemblies = Array.Empty<string>(), excludedMethods = Array.Empty<string>();
+            public string[] assemblies = Array.Empty<string>(), excludedMethods = Array.Empty<string>(), excludedTypes = Array.Empty<string>();
         }
 
         [MenuItem("Capstone Mockup/Validate Android Release Scripts")]
@@ -132,10 +132,17 @@ namespace CapstoneDesign.EditorTools
                     if (opened.Body.Instructions.Any(instruction => instruction.Operand is MethodReference call && call.Name == "CaptureDebugSensors"))
                         throw new InvalidOperationException("Release settings still trigger debug sensor capture.");
                     evidence.excludedMethods = developmentOnly;
+                    string[] auditTypes = { "VisualAuditBootstrap", "VisualAuditTraversal", "VisualAuditShellCases",
+                        "VisualAuditSupplementCases", "VisualAuditFormCases" };
+                    foreach (string name in auditTypes)
+                        if (assembly.MainModule.Types.Any(type => type.FullName == "CapstoneDesign.Runtime." + name))
+                            throw new InvalidOperationException("Visual audit helper remains in release: " + name);
+                    evidence.excludedTypes = auditTypes;
                 }
                 evidence.status = "PASS";
                 Debug.Log("ANDROID_RELEASE_SCRIPTS_PASS assemblies=" + evidence.assemblies.Length
-                    + " developmentOnlyMethodsExcluded=" + evidence.excludedMethods.Length);
+                    + " developmentOnlyMethodsExcluded=" + evidence.excludedMethods.Length
+                    + " visualAuditTypesExcluded=" + evidence.excludedTypes.Length);
             }
             catch (Exception error) { evidence.error = error.ToString(); throw; }
             finally { File.WriteAllText(Path.Combine(artifacts, "release-scripts-report.json"), JsonUtility.ToJson(evidence, true)); }

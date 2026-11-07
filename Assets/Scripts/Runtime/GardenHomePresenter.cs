@@ -117,8 +117,16 @@ namespace CapstoneDesign.Runtime
                     // One actual TMP brand stays mounted in the same canvas on
                     // every tab, so font metrics and safe-area placement cannot drift.
                     EnsureSharedHeader(content);
-                    content.Find("Shared header background").gameObject.SetActive(!visible);
-                    if(content.Find("Brand")!=null)content.Find("Brand").gameObject.SetActive(!visible);
+                    var sharedHeader=content.Find("Shared header background");
+                    sharedHeader.gameObject.SetActive(!visible);
+                    var brand=content.Find("Brand");
+                    if(brand!=null)
+                    {
+                        brand.gameObject.SetActive(!visible);
+                        var label=brand.GetComponent<TMP_Text>();
+                        if(label!=null)label.color=sharedHeader.gameObject.activeInHierarchy
+                            ?GardenThemeSurface.WoodInk:GardenUi.Green;
+                    }
                     if(content.Find("GardenAndGrowth")!=null)content.Find("GardenAndGrowth").gameObject.SetActive(visible);
                     foreach(var label in new[]{title,date,stage,guide})if(label!=null)label.gameObject.SetActive(visible);
                 }
