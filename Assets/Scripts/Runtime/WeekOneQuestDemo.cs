@@ -160,6 +160,7 @@ namespace CapstoneDesign.Runtime
             var titleBoard=GardenUi.Box(content,"Page title board",32f/720f,0,656f/720f,0);
             GardenThemeSurface.Apply(titleBoard,GardenThemeSurface.Style.Header);
             var heading=GardenUi.Label(content,title,48f/720f,.87f,624f/720f,.09f,GardenUi.TitleSize);GardenTypography.SetWeight(heading,true);
+            heading.color=GardenThemeSurface.WoodInk;
             bool longTitle=heading.preferredWidth>624;
             PlacePageHeader(heading,118,longTitle?138:78);
             GardenUi.FromTop(titleBoard.transform,108,longTitle?158:98);

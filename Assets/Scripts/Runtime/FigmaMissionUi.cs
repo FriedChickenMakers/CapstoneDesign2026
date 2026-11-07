@@ -53,12 +53,14 @@ namespace CapstoneDesign.Runtime
         {
             button.GetComponent<Image>().color=selected?Soft:Color.white;
             GardenThemeSurface.Apply(button.gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Wood);
+            foreach(var label in button.GetComponentsInChildren<Text>(true))
+                if(label.transform.parent==button.transform)label.color=selected?Green:GardenThemeSurface.WoodInk;
         }
         public static Text Label(Transform p,string text,float x,float y,float w,float h,int size=16,Color? color=null,bool bold=false,TextAnchor align=TextAnchor.UpperLeft)
         {
-            var rt=Rect(p,text.Length>40?text.Substring(0,40):text,x,y,w,h);var t=rt.gameObject.AddComponent<Text>();
+            var rt=Rect(p,text.Length>40?text.Substring(0,40):text,x,y,w,h);var t=rt.gameObject.AddComponent<ScreenDensityText>();
             t.font=bold?GardenTypography.Semibold:GardenTypography.Body;if(t.font==null)t.font=GardenUi.ResolveFont();
-            t.text=text;t.fontSize=size;t.color=color??Ink;t.alignment=align;t.supportRichText=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;t.verticalOverflow=VerticalWrapMode.Overflow;t.lineSpacing=1.2f;t.raycastTarget=false;return t;
+            t.text=text;t.fontSize=size;t.color=GardenThemeSurface.Foreground(p,color??Ink);t.alignment=align;t.supportRichText=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;t.verticalOverflow=VerticalWrapMode.Overflow;t.lineSpacing=1.2f;t.raycastTarget=false;return t;
         }
         public static Button Button(Transform p,string label,float x,float y,float w,float h,Action action,Color? fill=null,Color? ink=null,int size=16)
         {

@@ -136,6 +136,10 @@ namespace CapstoneDesign.EditorTools
                     // Edit mode has no intervening LateUpdate after navigation.
                     foreach(var layout in home.homeCanvas.GetComponentsInChildren<CapstoneDesign.Prototype.PrototypeGardenPreviewLayout>())
                         layout.Apply();
+                    // Reactivated particle systems have no player LateUpdate in
+                    // Editor captures; repopulate clouds after the final layout.
+                    var sky=GardenSkyEnvironment.Ensure(home.gardenCamera,home.gardenVisuals.transform);
+                    sky.UpdateClouds(0);
                     home.gardenCamera.Render();
                 }
                 camera.Render();

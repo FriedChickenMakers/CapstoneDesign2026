@@ -144,7 +144,25 @@ namespace CapstoneDesign.EditorTools
 
         static void Prepare(string name, MockupNavigation nav, WeekOneQuestDemo ui, GardenStateService service, Clock clock)
         {
-            if (name.StartsWith("home-", StringComparison.Ordinal)) { nav.ShowIsland(); nav.home.RefreshFromState(); return; }
+            if (name.StartsWith("home-", StringComparison.Ordinal))
+            {
+                nav.ShowIsland();
+                var sky = GardenSkyEnvironment.Ensure(nav.home.gardenCamera, nav.home.gardenVisuals.transform);
+                sky.SetTimeForPreview(name == "home-night" ? 0 : 12);
+                nav.home.RefreshFromState();
+                var cloudRenderer=sky.Clouds.GetComponent<ParticleSystemRenderer>();
+                var cloudMesh=new Mesh();
+                cloudRenderer.BakeMesh(cloudMesh,nav.home.gardenCamera,true);
+                bool restored=sky.Clouds.particleCount==24 && cloudMesh.vertexCount>=96
+                    && cloudRenderer.gameObject.activeInHierarchy && cloudRenderer.enabled
+                    && (nav.home.gardenCamera.cullingMask&(1<<cloudRenderer.gameObject.layer))!=0;
+                Debug.Log("HOME_CLOUD_VALIDATION particles="+sky.Clouds.particleCount+" vertices="+cloudMesh.vertexCount
+                    +" active="+cloudRenderer.gameObject.activeInHierarchy+" enabled="+cloudRenderer.enabled
+                    +" layerVisible="+((nav.home.gardenCamera.cullingMask&(1<<cloudRenderer.gameObject.layer))!=0));
+                UnityEngine.Object.DestroyImmediate(cloudMesh);
+                Require(restored,"Returning from activities must restore visible mist particles.");
+                return;
+            }
             if (name.StartsWith("activities", StringComparison.Ordinal))
             {
                 ui.ShowHome();

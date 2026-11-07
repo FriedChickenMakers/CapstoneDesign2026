@@ -14,6 +14,7 @@ namespace CapstoneDesign.Runtime
             var panel=GetComponent<Image>();if(panel!=null)panel.color=background;
             activityFrame=GardenUi.Box(transform,"Figma mission surface",0,0,1,1,background);
             if(navigation)FigmaMissionUi.UseGardenShell(activityFrame);
+            else GardenThemeSurface.Apply(activityFrame,GardenThemeSurface.Style.Backdrop);
             var design=FigmaMissionUi.Rect(activityFrame.transform,"Figma 390 x 844",0,0,390,844);
             var fit=activityFrame.AddComponent<FigmaMissionCanvasFit>();fit.Design=design;fit.Fit();view=design.gameObject;
             if(navigation)FigmaNavigation(design,activeTab);
@@ -27,7 +28,7 @@ namespace CapstoneDesign.Runtime
         {
             var plaque=FigmaMissionUi.Box(p,"정원 제목표",12,42,366,48,FigmaMissionUi.Warm,10);
             GardenThemeSurface.Apply(plaque.gameObject,GardenThemeSurface.Style.Header);
-            FigmaMissionUi.Label(p,title,24,52,342,38,28,null,true);
+            FigmaMissionUi.Label(p,title,24,52,342,38,28,GardenThemeSurface.WoodInk,true);
             FigmaMissionUi.Label(p,subtitle,24,98,342,30,14,FigmaMissionUi.Muted);
         }
         void FigmaNavigation(Transform p,string active)

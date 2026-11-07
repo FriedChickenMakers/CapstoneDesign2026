@@ -1,0 +1,10 @@
+Wood096 by ambientCG
+Source: https://ambientcg.com/view?id=Wood096
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+Derivative: 2K color map with slight (0.45px) smoothing of fine details.
+UI uses an aspect-preserving central crop, without stretching or repetition.
+
+Background color blended 74% toward ivory #FFFBEA, retaining faint grain.
+
+Contrast increased with sigmoidal curve 3x50% before ivory blending.

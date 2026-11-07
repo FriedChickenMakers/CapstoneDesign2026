@@ -149,7 +149,14 @@ namespace CapstoneDesign.Runtime
                     if(garden.Find(name)!=null)garden.Find(name).gameObject.SetActive(false);
             if(NavigationBar==null)
             {
-                var frame=GardenUi.Box(content,"Shared mission navigation",0,0,1,1);
+                // Navigation uses the same width-based safe area as the mission pages.
+                // Keep the garden's height-fitted scene composition independent.
+                var navigationCanvas=GardenUi.Box(homeCanvas.transform,"Navigation safe area",0,0,1,1);
+                var frame=GardenUi.Box(navigationCanvas.transform,"Shared mission navigation",0,0,1,1);
+                var safeLayout=navigationCanvas.AddComponent<PrototypePortraitLayout>();
+                safeLayout.designFrame=(RectTransform)frame.transform;
+                safeLayout.fitByWidth=true;
+                safeLayout.Apply();
                 var design=FigmaMissionUi.Rect(frame.transform,"Figma 390 x 844",0,0,390,844);
                 var fit=frame.AddComponent<FigmaMissionCanvasFit>();fit.Design=design;fit.Fit();
                 NavigationBar=MissionBottomNavigation.Create(design,"홈",OpenHome,OpenActivity,OpenCourse,null);
@@ -164,7 +171,8 @@ namespace CapstoneDesign.Runtime
             if(TemporarySettingsButton!=null)return;
             TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",552,4,120,96,OpenSettings,GardenUi.Pale,GardenUi.Green,28);
             TemporarySettingsButton.name="TemporarySettingsButton";
-            GardenThemeSurface.Apply(TemporarySettingsButton.gameObject,GardenThemeSurface.Style.Wood);
+            GardenThemeSurface.Apply(TemporarySettingsButton.gameObject,GardenThemeSurface.Style.Paper);
+            TemporarySettingsButton.GetComponentInChildren<Text>().color=GardenUi.Green;
             var rect=(RectTransform)TemporarySettingsButton.transform;
             rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(1,1);rect.anchoredPosition=new Vector2(-48,-4);
             if(date!=null && backgroundPreview==null)
@@ -230,7 +238,7 @@ namespace CapstoneDesign.Runtime
             var plantButton=growth.GetComponent<Button>()??growth.gameObject.AddComponent<Button>();
             plantButton.onClick.RemoveAllListeners();plantButton.onClick.AddListener(()=>{navigation?.ShowActivities();activity?.ShowPlantCollection();});
             growth.anchorMin=growth.anchorMax=Vector2.zero;growth.pivot=new Vector2(0,1);
-            growth.anchoredPosition=new Vector2(48,328);growth.sizeDelta=new Vector2(624,64);growth.SetAsFirstSibling();
+            growth.anchoredPosition=new Vector2(48,280);growth.sizeDelta=new Vector2(624,64);growth.SetAsFirstSibling();
             if(stage!=null)
             {
                 var rect=stage.rectTransform;rect.SetParent(growth,false);

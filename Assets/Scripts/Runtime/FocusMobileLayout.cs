@@ -42,8 +42,8 @@ namespace CapstoneDesign.Runtime
             if(!built){if(transform.childCount<2)return;Build();}
             float h=design.rect.height;
             float message=Notice!=null&&Notice.gameObject.activeSelf?64:0;
-            float bottom=Navigation?84:footerHeight;
-            if(navigation!=null)navigation.anchoredPosition=new Vector2(0,-(h-84));
+            float bottom=Navigation?96:footerHeight;
+            if(navigation!=null)navigation.anchoredPosition=new Vector2(12,-(h-96));
             if(footer!=null)footer.anchoredPosition=new Vector2(0,-(h-footerHeight));
             if(Notice!=null){Notice.rectTransform.anchoredPosition=new Vector2(24,-(h-bottom-message));Notice.rectTransform.sizeDelta=new Vector2(342,56);Notice.transform.SetAsLastSibling();}
             if(body!=null)body.sizeDelta=new Vector2(390,Mathf.Max(48,h-bottom-message-bodyTop));
@@ -80,7 +80,7 @@ namespace CapstoneDesign.Runtime
             var actions=children.Where(c=>c!=navigation&&-c.anchoredPosition.y>=650).ToArray();
             if(!Navigation)MoveFooter(actions);
             var items=children.Where(c=>c!=navigation&&c.parent==transform&&-c.anchoredPosition.y>=bodyTop).ToArray();
-            body=FigmaMissionUi.Box(transform,"Mobile.Viewport",0,bodyTop,390,Mathf.Max(48,design.rect.height-bodyTop-(Navigation?84:footerHeight)),Color.clear);
+            body=FigmaMissionUi.Box(transform,"Mobile.Viewport",0,bodyTop,390,Mathf.Max(48,design.rect.height-bodyTop-(Navigation?96:footerHeight)),Color.clear);
             body.GetComponent<Image>().raycastTarget=true;body.gameObject.AddComponent<RectMask2D>();
             float height=items.Length==0?1:Mathf.Max(1,items.Max(c=>-c.anchoredPosition.y+c.sizeDelta.y)-bodyTop+16);
             content=FigmaMissionUi.Rect(body,"Mobile.Content",0,0,390,height);

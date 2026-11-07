@@ -437,7 +437,7 @@ namespace CapstoneDesign.Runtime
         private static Text Copy(Transform parent, string text, int size, Color? color = null)
         {
             var label = GardenUi.Label(parent, text, 0, 0, 1, 1, size);
-            ConfigureCopy(label, size, color ?? GardenUi.Ink);
+            ConfigureCopy(label, size, GardenThemeSurface.Foreground(parent, color ?? GardenUi.Ink));
             return label;
         }
 

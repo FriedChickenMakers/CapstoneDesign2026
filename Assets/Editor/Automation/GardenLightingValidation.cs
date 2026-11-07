@@ -300,6 +300,7 @@ namespace CapstoneDesign.EditorTools
             }
             void Draw()
             {
+                home.RefreshOverlayTextColor();
                 // Edit-mode captures do not receive the normal player-frame
                 // lifecycle after tabs are reactivated. Rebuild every active
                 // home graphic, not only text, before accepting rendered evidence.
@@ -423,27 +424,32 @@ namespace CapstoneDesign.EditorTools
             foreach (var label in new[] { home.title, home.guide, home.stage,
                 home.homeTabLabel, home.activityTabLabel, home.settingsTabLabel })
             {
+                if(label==null || !label.gameObject.activeInHierarchy || string.IsNullOrEmpty(label.text))continue;
                 label.ForceMeshUpdate(true, true);
                 var bounds = GlyphBounds(label);
                 var min = camera.WorldToViewportPoint(label.transform.TransformPoint(bounds.min));
                 var max = camera.WorldToViewportPoint(label.transform.TransformPoint(bounds.max));
-                // Full visible glyph bounds plus two pixels stay within the
-                // opaque card, avoiding its rounded transparent corners.
+                // Home titles now overlay the sky and change black/white with
+                // time. Compare solid glyph cores, not the changing sky between
+                // letters. HomeCapture separately proves visible glyph coverage
+                // using a frame with the labels hidden.
                 int x0 = Mathf.Clamp(Mathf.FloorToInt(min.x * size.x) - 2, 0, size.x);
                 int x1 = Mathf.Clamp(Mathf.CeilToInt(max.x * size.x) + 2, 0, size.x);
                 int y0 = Mathf.Clamp(Mathf.FloorToInt(min.y * size.y) - 2, 0, size.y);
                 int y1 = Mathf.Clamp(Mathf.CeilToInt(max.y * size.y) + 2, 0, size.y);
                 Require(x1 > x0 && y1 > y0, "UI comparison rectangle is outside the image: " + label.name);
                 int changed = 0, ink = 0;
+                Color32 expected=label.color;
                 for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++)
                 {
                     int i = y * size.x + x;
-                    if (on[i].r != off[i].r || on[i].g != off[i].g || on[i].b != off[i].b) changed++;
-                    if (off[i].g < 180 && off[i].g > off[i].r && off[i].g > off[i].b) ink++;
+                    if(Mathf.Abs(off[i].r-expected.r)>2 || Mathf.Abs(off[i].g-expected.g)>2 || Mathf.Abs(off[i].b-expected.b)>2)continue;
+                    ink++;
+                    if(Mathf.Abs(on[i].r-off[i].r)>2 || Mathf.Abs(on[i].g-off[i].g)>2 || Mathf.Abs(on[i].b-off[i].b)>2)changed++;
                 }
                 Require(ink > 20, "Baseline UI glyphs were not actually rendered: " + label.name);
                 Require(changed == 0, "Bloom changed overlay UI pixels: " + label.name + " count=" + changed);
-                report.Add("Bloom leaves UI " + label.name + " unchanged: " + (x1 - x0) * (y1 - y0) + " pixels PASS");
+                report.Add("Bloom leaves UI " + label.name + " unchanged: " + ink + " solid glyph pixels PASS");
             }
         }
         static Bounds GlyphBounds(TMP_Text label)

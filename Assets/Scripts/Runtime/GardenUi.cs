@@ -81,7 +81,7 @@ namespace CapstoneDesign.Runtime
             var text=button.GetComponentInChildren<Text>(true);
             if(text!=null)
             {
-                text.color=primary?Color.white:Green;
+                text.color=primary?Color.white:selected?Green:GardenThemeSurface.WoodInk;
                 GardenTypography.ApplyButton(text,primary||selected);
                 // New page labels can rebuild the shared dynamic font atlas.
                 // Resubmit unchanged tab labels as well as changed selections.
@@ -109,9 +109,9 @@ namespace CapstoneDesign.Runtime
         }
         public static Text Label(Transform parent, string text, float x, float y, float w, float h, int size = 28)
         {
-            var t = Box(parent,"Label",x,y,w,h).AddComponent<Text>();
+            var t = Box(parent,"Label",x,y,w,h).AddComponent<ScreenDensityText>();
             t.font = ResolveFont() ?? Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            t.text = text; t.color = Ink; t.fontSize=Mathf.Max(CaptionSize,size); t.alignment=TextAnchor.MiddleLeft;
+            t.text = text; t.color = GardenThemeSurface.Foreground(parent, Ink); t.fontSize=Mathf.Max(CaptionSize,size); t.alignment=TextAnchor.MiddleLeft;
             t.horizontalOverflow=HorizontalWrapMode.Wrap; t.verticalOverflow=VerticalWrapMode.Truncate;
             t.raycastTarget=false;
             return t;
@@ -272,7 +272,7 @@ namespace CapstoneDesign.Runtime
         {
             var label=Label(parent,text,0,0,1,0,size);
             label.alignment=TextAnchor.UpperLeft;
-            if(color.HasValue)label.color=color.Value;
+            if(color.HasValue)label.color=GardenThemeSurface.Foreground(parent,color.Value);
             return label;
         }
         public static InputField FlowInput(Transform parent,string hint,float height=224)
