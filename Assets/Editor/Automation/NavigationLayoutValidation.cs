@@ -20,6 +20,7 @@ namespace CapstoneDesign.EditorTools
                 f.Resize(size.x,size.y);Settle(f.Ui.transform.root);
                 var bar=f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
                 var launcher=f.Ui.GetComponentsInChildren<Button>(false).Single(b=>b.name=="Focus.DebugLauncher");
+                CheckBadgeStates(f,bar,check,capture && size==new Vector2Int(390,844));
                 CheckBar(bar,Bounds,check,"Initial course picker "+size);
                 check(Bounds((RectTransform)launcher.transform).yMin>=Bounds((RectTransform)bar.transform).yMax+1,
                     "Initial course-picker development control stays entirely above the inset shelf.");
@@ -72,6 +73,52 @@ namespace CapstoneDesign.EditorTools
                 Inspect(Active(),"mission-return");
                 check(StateCodec.Encode(f.Service.Snapshot)==before,"Navigation and layout checks never change saved progress or rewards.");
             }
+        }
+
+        static void CheckBadgeStates(FocusMissionValidation.Fixture fixture,MissionBottomNavigation bar,Action<bool,string> check,bool capture)
+        {
+            var badge=bar.MissionBadge.transform.parent.GetComponent<Image>();
+            string originalTab=bar.ActiveTab,originalGlyph=bar.MissionBadge.text;
+            bool originalVisible=badge.gameObject.activeSelf;
+            bool? originalPending=originalVisible?(bool?)(originalGlyph=="!"):null;
+            bool originalOptional=originalGlyph=="·";
+            string before=StateCodec.Encode(fixture.Service.Snapshot);
+            try
+            {
+                foreach(string tab in new[]{"홈","미션","기록"})
+                {
+                    void Inspect(bool? pending,bool optional,string glyph,string label,bool snapshot=false)
+                    {
+                        bar.Refresh(tab,pending,optional);Settle(fixture.Ui.transform.root);
+                        string context="Navigation badge "+tab+" / "+label;
+                        check(bar.ActiveTab==tab,context+": status does not change the selected tab.");
+                        check(badge.gameObject.activeSelf==pending.HasValue,context+": missing status hides the badge.");
+                        check(!badge.raycastTarget&&!bar.MissionBadge.raycastTarget,context+": status graphics do not intercept navigation.");
+                        if(!pending.HasValue)return;
+                        Color32 background=pending.Value?new Color32(142,93,58,255):new Color32(49,91,72,255);
+                        check(((Color32)badge.color).Equals(background),context+": the established opaque brown/green background remains visible on leaf tabs.");
+                        check(((Color32)bar.MissionBadge.color).Equals(new Color32(255,255,255,255)),context+": the glyph retains white ink on the dark status background.");
+                        check(bar.MissionBadge.text==glyph,context+": status meaning is preserved without an invented count.");
+                        check(FigmaMissionUi.Contrast(badge.color,bar.MissionBadge.color)>=4.5f,context+": small status text has readable contrast.");
+                        if(snapshot&&tab=="미션")fixture.Capture("qa-navigation-badge-"+label,capture);
+                    }
+                    Inspect(true,false,"!","pending",true);
+                    Inspect(true,true,"!","pending-before-optional");
+                    Inspect(false,true,"·","optional",true);
+                    Inspect(false,false,"✓","complete",true);
+                    Inspect(null,true,null,"hidden");
+                }
+            }
+            finally
+            {
+                bar.Refresh(originalTab,originalPending,originalOptional);
+                // Hidden badges have no status update, so retain their prior text too.
+                if(!originalVisible)bar.MissionBadge.text=originalGlyph;
+                Settle(fixture.Ui.transform.root);
+            }
+            check(bar.ActiveTab==originalTab&&badge.gameObject.activeSelf==originalVisible&&bar.MissionBadge.text==originalGlyph,
+                "Badge palette inspection restores the original navigation display.");
+            check(StateCodec.Encode(fixture.Service.Snapshot)==before,"Badge appearance checks never change progress, rewards or mission availability.");
         }
 
         internal static void CheckBar(MissionBottomNavigation bar,Func<RectTransform,Rect> bounds,Action<bool,string> check,string context)

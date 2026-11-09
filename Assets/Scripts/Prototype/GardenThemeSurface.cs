@@ -53,6 +53,7 @@ namespace CapstoneDesign.Prototype
         const string ShelfTexturePath = "UI/Textures/Wood062LitUI";
         static readonly Color TimberBorder = new Color32(76, 65, 52, 255);
         static readonly Color TimberWash = new Color32(92, 81, 68, 72);
+        static readonly Color ButtonWash = new Color32(92, 81, 68, 38);
         static readonly Color ShelfWash = new Color32(64, 59, 51, 82);
         static readonly Color LeafWash = new Color32(52, 74, 57, 72);
         static readonly Color SelectedLeafWash = new Color32(199, 213, 193, 68);
@@ -224,6 +225,14 @@ namespace CapstoneDesign.Prototype
             Rect face = header ? Inset(r, 2 * u) : r;
             if (pressed) face = Offset(face, 0, -1.5f * u);
             TimberFace(mesh, face, header ? Mathf.Max(1, radius - 2 * u) : radius);
+            if (!header && SurfaceTexture != null)
+            {
+                // Fixed bevel illumination complements the offline normal-map bake.
+                // It follows each button's shape instead of stretching a painted rim.
+                Border(mesh, Inset(face, .6f * u), Mathf.Max(0, radius - .6f * u),
+                    (pressed ? 1.3f : 2.3f) * u,
+                    new Color32(255, 238, 197, 150), new Color32(37, 25, 17, 165));
+            }
             if (SurfaceTexture == null) WoodGrain(mesh, face, u);
             if (header && r.width >= 170)
             {
@@ -297,7 +306,8 @@ namespace CapstoneDesign.Prototype
                 style == Style.Shelf ? new Color(.53f, .52f, .48f) : new Color(.92f, .93f, .90f),
                 style == Style.Shelf ? new Color(.46f, .45f, .42f) : new Color(.85f, .87f, .83f));
             texturedFace = false;
-            TextureWash(mesh, face, radius, style == Style.Shelf ? ShelfWash : TimberWash);
+            TextureWash(mesh, face, radius, style == Style.Shelf ? ShelfWash :
+                style == Style.Wood || style == Style.TabWood ? ButtonWash : TimberWash);
         }
 
         void TextureWash(VertexHelper mesh, Rect face, float radius, Color tint)
@@ -427,6 +437,9 @@ namespace CapstoneDesign.Prototype
         }
 
         void Border(VertexHelper mesh, Rect r, float radius, float thickness, Color tint)
+            => Border(mesh, r, radius, thickness, tint, tint);
+
+        void Border(VertexHelper mesh, Rect r, float radius, float thickness, Color top, Color bottom)
         {
             if (r.width <= 0 || r.height <= 0 || thickness <= 0) return;
             radius = Mathf.Clamp(radius, 0, Mathf.Min(r.width, r.height) * .5f);
@@ -442,8 +455,10 @@ namespace CapstoneDesign.Prototype
                 {
                     float angle = (corner * 90f + i * 90f / segments) * Mathf.Deg2Rad;
                     Vector2 unit = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
-                    Vertex(mesh, Corner(r, radius, corner) + unit * radius, tint);
-                    Vertex(mesh, Corner(inner, innerRadius, corner) + unit * innerRadius, tint);
+                    Vector2 outerPoint = Corner(r, radius, corner) + unit * radius;
+                    Vector2 innerPoint = Corner(inner, innerRadius, corner) + unit * innerRadius;
+                    Vertex(mesh, outerPoint, Color.Lerp(bottom, top, Mathf.InverseLerp(r.yMin, r.yMax, outerPoint.y)));
+                    Vertex(mesh, innerPoint, Color.Lerp(bottom, top, Mathf.InverseLerp(r.yMin, r.yMax, innerPoint.y)));
                 }
             }
             for (int i = 0; i < count; i++)
@@ -528,7 +543,9 @@ namespace CapstoneDesign.Prototype
                 // into a wide button. The top atlas strip is reserved for white.
                 // Keep wood grain at a consistent UI-space size: wide buttons reveal
                 // more of the source instead of enlarging the same small crop.
-                float coverage = style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
+                // Enlarge only the shelf grain 2.5x; the approved shelf geometry,
+                // icon positions, button gaps and all other texture crops stay fixed.
+                float coverage = style == Style.Shelf ? .94f / 2.5f : style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
                 float scale = coverage / Mathf.Max(textureFaceRect.width, textureFaceRect.height);
                 if (style == Style.Wood || style == Style.TabWood || style == Style.Header)
                     scale = Mathf.Min(1f / 480f, .94f / Mathf.Max(textureFaceRect.width, textureFaceRect.height));

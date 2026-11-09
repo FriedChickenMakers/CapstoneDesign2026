@@ -66,8 +66,10 @@ namespace CapstoneDesign.Runtime
             badge.gameObject.SetActive(hasPending.HasValue);
             if(hasPending.HasValue)
             {
-                badge.color=hasPending.Value?FigmaMissionUi.Brown:hasOptional?FigmaMissionUi.Soft:FigmaMissionUi.Green;
-                MissionBadge.color=hasPending.Value||!hasOptional?Color.white:FigmaMissionUi.Green;
+                // Keep the established brown/green status palette opaque against
+                // both leaf tab faces; the former pale optional badge blended in.
+                badge.color=hasPending.Value?FigmaMissionUi.Brown:FigmaMissionUi.Green;
+                MissionBadge.color=Color.white;
                 MissionBadge.text=hasPending.Value?"!":hasOptional?"·":"✓";
             }
         }
