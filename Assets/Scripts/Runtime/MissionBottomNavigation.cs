@@ -9,6 +9,11 @@ namespace CapstoneDesign.Runtime
     [ExecuteAlways]
     public sealed class MissionBottomNavigation : MonoBehaviour
     {
+        // Preserve the inset shelf approved before integration. All page layouts
+        // reserve its full height, including the space below the visible shelf.
+        public const float SideInset=12, BottomInset=12, BarWidth=366, BarHeight=84;
+        public const float ReservedHeight=BarHeight+BottomInset;
+        const float ButtonWidth=108, ButtonGap=12, ButtonInset=9, IconSize=22;
         public Button HomeButton, MissionButton, CourseButton;
         public Text MissionBadge;
         public string ActiveTab { get; private set; }
@@ -20,7 +25,8 @@ namespace CapstoneDesign.Runtime
 
         public static MissionBottomNavigation Create(Transform design,string active,Action home,Action missions,Action course,bool? hasPending,bool hasOptional=false)
         {
-            var rect=FigmaMissionUi.Box(design,"하단 탐색",0,760,390,84,GardenThemePalette.WoodDark);
+            var rect=FigmaMissionUi.Box(design,"하단 탐색",SideInset,844-ReservedHeight,BarWidth,BarHeight,Color.clear);
+            rect.GetComponent<Image>().raycastTarget=true;
             GardenThemeSurface.Apply(rect.gameObject,GardenThemeSurface.Style.Shelf);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
             bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);return bar;
@@ -31,12 +37,12 @@ namespace CapstoneDesign.Runtime
             var actions=new[]{home,missions,course};buttons=new Button[3];captions=new Text[3];icons=new RawImage[3];
             for(int i=0;i<3;i++)
             {
-                var button=FigmaMissionUi.Button(transform,labels[i],12+122*i,8,122,64,actions[i],Color.white,FigmaMissionUi.Green,14);
+                var button=FigmaMissionUi.Button(transform,labels[i],ButtonInset+(ButtonWidth+ButtonGap)*i,8,ButtonWidth,64,actions[i],Color.white,FigmaMissionUi.Green,14);
                 // The themed face owns the corners; avoid a white sprite beneath it.
                 button.GetComponent<Image>().color=Color.clear;
                 button.GetComponentInChildren<Text>().gameObject.SetActive(false);buttons[i]=button;
-                icons[i]=FigmaMissionUi.Asset(button.transform,"FocusMissions/Main/"+new[]{"home","leaf-muted","book"}[i],43,7,22,22);
-                captions[i]=FigmaMissionUi.Label(button.transform,labels[i],8,33,92,24,14,FigmaMissionUi.Muted,true,TextAnchor.MiddleCenter);
+                icons[i]=FigmaMissionUi.Asset(button.transform,"FocusMissions/Main/"+new[]{"home","leaf-muted","book"}[i],(ButtonWidth-IconSize)/2,7,IconSize,IconSize);
+                captions[i]=FigmaMissionUi.Label(button.transform,labels[i],8,33,ButtonWidth-16,24,14,FigmaMissionUi.Muted,true,TextAnchor.MiddleCenter);
             }
             HomeButton=buttons[0];MissionButton=buttons[1];CourseButton=buttons[2];
             var marker=FigmaMissionUi.Box(MissionButton.transform,"미션 상태",60,0,16,16,FigmaMissionUi.Brown,8);
@@ -70,7 +76,11 @@ namespace CapstoneDesign.Runtime
         void Fit()
         {
             var parent=transform.parent as RectTransform;if(parent==null)return;
-            ((RectTransform)transform).anchoredPosition=new Vector2(0,-(parent.rect.height-84));
+            FitRect((RectTransform)transform,parent.rect.height);
+        }
+        public static void FitRect(RectTransform rect,float parentHeight)
+        {
+            if(rect!=null)FigmaMissionUi.SetRect(rect,SideInset,parentHeight-ReservedHeight,BarWidth,BarHeight);
         }
     }
 }

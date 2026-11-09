@@ -90,17 +90,6 @@ namespace CapstoneDesign.Runtime
             return FocusSaved(Service.StartFocusPracticeStep(session.SessionId,step));
         }
 
-        void AttachFocusPracticeStart(Transform root,FocusMissionDefinition mission,int step)
-        {
-            if(step<0||focusPracticeClock!=null||!GardenStateService.IsActualFocusPractice(mission.Steps[step])||new[]{"draw","input","plan","choice"}.Contains(mission.Steps[step].Kind))return;
-            var record=ActiveSession().FocusStepRecords[step];
-            var start=FigmaMissionUi.Button(root,string.IsNullOrEmpty(record.PracticeStartedUtc)?"실습 시작":"실습 중",45,714,300,48,()=>
-            {
-                if(FocusSaved(Service.StartFocusPracticeStep(sessionId,step)))ShowFocusPractice();
-            },FigmaMissionUi.Warm,FigmaMissionUi.Brown,15);
-            start.name="Focus.PracticeStart";start.interactable=string.IsNullOrEmpty(record.PracticeStartedUtc)&&string.IsNullOrEmpty(record.ConfirmedUtc);
-        }
-
         void BuildFocusPlan(Transform root,FocusMissionDefinition mission)
         {
             var session=ActiveSession();int step=session.InstructionStep;var record=session.FocusStepRecords[step];

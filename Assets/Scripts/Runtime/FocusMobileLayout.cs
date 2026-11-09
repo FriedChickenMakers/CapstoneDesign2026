@@ -49,8 +49,8 @@ namespace CapstoneDesign.Runtime
             if(!built){if(transform.childCount<2)return;Build();}
             float h=design.rect.height;
             float message=Notice!=null&&Notice.gameObject.activeSelf?64:0;
-            float bottom=(Navigation?84:footerHeight)+BottomInset;
-            if(navigation!=null)navigation.anchoredPosition=new Vector2(0,-(h-84));
+            float bottom=(Navigation?MissionBottomNavigation.ReservedHeight:footerHeight)+BottomInset;
+            MissionBottomNavigation.FitRect(navigation,h);
             if(footer!=null)footer.anchoredPosition=new Vector2(0,-(h-footerHeight));
             if(Notice!=null){Notice.rectTransform.anchoredPosition=new Vector2(24,-(h-bottom-message));Notice.rectTransform.sizeDelta=new Vector2(342,56);Notice.transform.SetAsLastSibling();}
             if(body!=null)body.sizeDelta=new Vector2(390,Mathf.Max(48,h-bottom-message-bodyTop));
@@ -87,7 +87,7 @@ namespace CapstoneDesign.Runtime
             var actions=children.Where(c=>c!=navigation&&Top(c)>=650).ToArray();
             if(!Navigation)MoveFooter(actions);
             var items=children.Where(c=>c!=navigation&&c.parent==transform&&Top(c)>=bodyTop).ToArray();
-            body=FigmaMissionUi.Box(transform,"Mobile.Viewport",0,bodyTop,390,Mathf.Max(48,design.rect.height-bodyTop-(Navigation?84:footerHeight)),Color.clear);
+            body=FigmaMissionUi.Box(transform,"Mobile.Viewport",0,bodyTop,390,Mathf.Max(48,design.rect.height-bodyTop-(Navigation?MissionBottomNavigation.ReservedHeight:footerHeight)),Color.clear);
             body.GetComponent<Image>().raycastTarget=true;body.gameObject.AddComponent<RectMask2D>();
             float height=items.Length==0?1:Mathf.Max(1,items.Max(Bottom)-bodyTop+16);
             content=FigmaMissionUi.Rect(body,"Mobile.Content",0,0,390,height);
@@ -170,9 +170,9 @@ namespace CapstoneDesign.Runtime
             float noticeWidth = debug ? 236 : 342;
             float noticeHeight = message ? TextHeight(Notice, noticeWidth) : 0;
             // Error guidance and the development entry share a row, while the
-            // navigation bar keeps its existing 84-point region below them.
+            // navigation bar keeps its inset shelf and bottom margin below them.
             float footer = Mathf.Max(debug ? 52 : 0, message ? noticeHeight + 12 : 0);
-            float footerTop = height - 84 - footer;
+            float footerTop = height - MissionBottomNavigation.ReservedHeight - footer;
             if (debug)
             {
                 DebugLauncher.anchorMin = DebugLauncher.anchorMax = new Vector2(0, 1);

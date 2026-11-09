@@ -98,7 +98,9 @@ def sources():
             if folder == 'Assets' and rel.parts[1] in ('Editor', 'Editor.meta', 'Tests', 'Tests.meta', 'Plugins', 'Plugins.meta'): continue
             if rel.as_posix() == 'ProjectSettings/ProjectSettings.asset': continue
             found.add(rel.as_posix())
-    editor = {item['source'] for item in CASES.values()} | {'Automation/SolidIslandValidation', 'Automation/ScreenDensityTextValidation', 'Automation/KenneyGardenBuilder'}
+    editor = {item['source'] for item in CASES.values()} | {
+        'Automation/SolidIslandValidation', 'Automation/ScreenDensityTextValidation', 'Automation/KenneyGardenBuilder',
+        'Automation/NavigationLayoutValidation', 'Automation/FocusMissionValidation'}
     for name in editor:
         for suffix in ('.cs', '.cs.meta'):
             found.add('Assets/Editor/' + name + suffix)

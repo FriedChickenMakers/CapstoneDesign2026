@@ -17,7 +17,6 @@ namespace CapstoneDesign.Runtime
         const float IdentityHeight = 48;
         const float HeadingHeight = 24;
         const float BackHeight = 48;
-        const float NavigationHeight = 84;
         const float NoticeHeight = 56;
         const float MinimumRecordHeight = 144;
         RectTransform design;
@@ -36,13 +35,13 @@ namespace CapstoneDesign.Runtime
             if (design == null) design = transform as RectTransform;
             if (design == null) return;
             float height = design.rect.height;
-            float navigationTop = height - NavigationHeight;
+            float navigationTop = height - MissionBottomNavigation.ReservedHeight;
             float backTop = navigationTop - BackHeight;
             bool showNotice = Notice != null && Notice.gameObject.activeSelf;
             float recordBottom = backTop - (showNotice ? NoticeHeight : 0);
 
-            // The removed button row gives its 48 points to the photo. At
-            // 360x640, preview is 204 and records 145; at 390x844, 288 and 212.
+            // The removed button row gives its room to the photo. The bottom
+            // shelf keeps the same inset and spacing as home and mission pages.
             // Reserve readable records first when a notice or short window needs room.
             float free = Mathf.Max(0, recordBottom - HeaderHeight - IdentityHeight
                 - HeadingHeight - 8);
@@ -70,7 +69,7 @@ namespace CapstoneDesign.Runtime
                     Mathf.Clamp(RecordContent.anchoredPosition.y, 0, contentHeight - recordHeight));
             }
             Place(Back, 24, backTop, 342, BackHeight);
-            Place(Navigation, 0, navigationTop, 390, NavigationHeight);
+            MissionBottomNavigation.FitRect(Navigation,height);
             if (showNotice)
             {
                 Place(Notice.rectTransform, 24, recordBottom, 342, NoticeHeight);

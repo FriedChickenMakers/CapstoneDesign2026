@@ -53,6 +53,9 @@ namespace CapstoneDesign.EditorTools
                 Run("Reviewed purpose copy overrides old static prose only for new content", PurposeCopy);
                 Run("P21/P28 pause choices retain a v5 observation anchor and preserve v4", PauseChoicePurpose);
                 Run("P19/P26 alternatives are labeled additional and consume only the additional slot", SupportActivityRole);
+                Run("Navigation preserves inset shelf, centered labels/icons and separated touch targets", () => NavigationLayoutValidation.Run(report,Check,capture));
+                Run("Untimed practice retains one completion action without fabricated start times", () => FocusPracticeActionValidation.Untimed(report,Check,capture));
+                Run("Timed start and shortening hooks survive untimed UI correction", () => FocusPracticeActionValidation.Timed(report,Check));
                 Run("Writer-lock failure recreates service after Retry", () => LoadRecovery(true));
                 Run("Allocated service retries failed Open and restores active session/photos", () => LoadRecovery(false));
             }

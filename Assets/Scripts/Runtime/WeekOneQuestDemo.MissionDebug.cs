@@ -30,7 +30,7 @@ namespace CapstoneDesign.Runtime
             var rect = (RectTransform)button.transform;
             rect.anchorMin = rect.anchorMax = new Vector2(1, 0);
             rect.pivot = new Vector2(.5f, .5f);
-            rect.anchoredPosition = new Vector2(-71, 108);
+            rect.anchoredPosition = new Vector2(-71, MissionBottomNavigation.ReservedHeight + 24);
 #endif
         }
 

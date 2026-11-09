@@ -165,7 +165,9 @@ namespace CapstoneDesign.Runtime
             AttachAllFocusClock(root, mission, step);
             if (step >= 0) FigmaMissionUi.Button(root, "이전 단계", 24, 776, 164, 48, () => TryFocusBack(), Color.clear, FocusMuted(mission), 14).name = "Focus.Back";
             FigmaMissionUi.Button(root,"이번 미션 넘기기",202,776,164,48,()=>ShowFocusEndPrompt(root,mission,id),Color.clear,FocusMuted(mission),14).name="Focus.EndParticipation";
-            AttachFocusPracticeStart(root,mission,step);
+            // Untimed actions already have their completion control. Keep the
+            // optional step-start marker unset unless a real input/audio/timer
+            // interaction records it; rendering is not evidence of practice.
             FocusEnter(root);
         }
 

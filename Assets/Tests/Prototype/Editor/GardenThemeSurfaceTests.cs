@@ -78,11 +78,11 @@ namespace CapstoneDesign.Tests
             finally { Object.DestroyImmediate(owner); }
         }
 
-        [TestCase(390f, 84f)]
+        [TestCase(366f, 84f)]
         [TestCase(768f, 84f)]
-        public void NavigationShelfCoversEveryCornerWithAnOpaqueFace(float width, float height)
+        public void NavigationShelfHasTransparentRoundedCornersAndAnOpaqueFace(float width, float height)
         {
-            var owner = new GameObject("Synthetic full-width shelf", typeof(RectTransform));
+            var owner = new GameObject("Synthetic floating shelf", typeof(RectTransform));
             var mesh = new Mesh();
             try
             {
@@ -96,15 +96,33 @@ namespace CapstoneDesign.Tests
                     vertices.FillMesh(mesh);
                 }
                 var r = surface.rectTransform.rect;
-                var positions = mesh.vertices;
-                var colors = mesh.colors32;
-                foreach (var corner in new[] { new Vector2(r.xMin, r.yMin), new Vector2(r.xMax, r.yMin),
-                    new Vector2(r.xMin, r.yMax), new Vector2(r.xMax, r.yMax) })
-                    Assert.That(Enumerable.Range(0, positions.Length).Any(i =>
-                        Vector2.Distance(positions[i], corner) < .01f && colors[i].a == 255), Is.True,
-                        "Rounded or translucent corner geometry must not expose the page behind the bottom bar.");
+                foreach (var corner in new[] { new Vector2(r.xMin+.5f, r.yMin+.5f), new Vector2(r.xMax-.5f, r.yMin+.5f),
+                    new Vector2(r.xMin+.5f, r.yMax-.5f), new Vector2(r.xMax-.5f, r.yMax-.5f) })
+                    Assert.That(CoveredBy(mesh,corner,1), Is.False,
+                        "The rounded floating shelf leaves its outer corner transparent rather than filling a square.");
+                foreach (var face in new[] { r.center, new Vector2(r.xMin+20,r.center.y),
+                    new Vector2(r.xMax-20,r.center.y), new Vector2(r.center.x,r.yMin+8), new Vector2(r.center.x,r.yMax-8) })
+                    Assert.That(CoveredBy(mesh,face,255), Is.True,
+                        "The reading face remains opaque; transparent corners must not make the whole shelf translucent.");
+                Assert.That(surface.raycastTarget, Is.False, "The rounded decoration never becomes a touch target.");
             }
             finally { Object.DestroyImmediate(mesh); Object.DestroyImmediate(owner); }
+        }
+
+        static bool CoveredBy(Mesh mesh,Vector2 point,byte minimumAlpha)
+        {
+            var vertices=mesh.vertices;var colors=mesh.colors32;var triangles=mesh.triangles;
+            float Cross(Vector2 a,Vector2 b)=>a.x*b.y-a.y*b.x;
+            for(int i=0;i<triangles.Length;i+=3)
+            {
+                int a=triangles[i],b=triangles[i+1],c=triangles[i+2];
+                if(colors[a].a<minimumAlpha||colors[b].a<minimumAlpha||colors[c].a<minimumAlpha)continue;
+                Vector2 va=vertices[a],vb=vertices[b],vc=vertices[c];
+                if(Mathf.Abs(Cross(vb-va,vc-va))<.0001f)continue;
+                float ab=Cross(vb-va,point-va),bc=Cross(vc-vb,point-vb),ca=Cross(va-vc,point-vc);
+                if((ab>=-.001f&&bc>=-.001f&&ca>=-.001f)||(ab<=.001f&&bc<=.001f&&ca<=.001f))return true;
+            }
+            return false;
         }
 
         [Test]

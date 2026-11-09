@@ -395,9 +395,7 @@ namespace CapstoneDesign.EditorTools
             Assert(cards.Distinct().Count()==3,"Each mission action belongs to its own card");
             var bar=f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
             var nav=f.Bounds((RectTransform)bar.transform);f.AssertFullyVisible((RectTransform)bar.transform,"Bottom navigation");
-            var parent=f.Bounds((RectTransform)bar.transform.parent);
-            Assert(Mathf.Abs(nav.xMin-parent.xMin)<.5f&&Mathf.Abs(nav.xMax-parent.xMax)<.5f&&Mathf.Abs(nav.yMin-parent.yMin)<.5f,
-                "Bottom navigation stays flush with its parent left, right and bottom edges after layout");
+            NavigationLayoutValidation.CheckBar(bar,f.Bounds,Assert,"Mission home");
             var launcher=f.Button("Focus.DebugLauncher");var debug=f.Bounds((RectTransform)launcher.transform);
             f.AssertFullyVisible((RectTransform)launcher.transform,"Development launcher");
             Assert(!Overlaps(nav,debug),"Development launcher does not cover bottom navigation");

@@ -277,10 +277,10 @@ namespace CapstoneDesign.Prototype
 
         void Shelf(VertexHelper mesh, Rect r, float u)
         {
-            // The navigation meets every screen edge. Keep its wood face rectangular
-            // at every canvas scale; the opaque owner also covers edge sampling.
-            Shadow(mesh, r, 0, 4 * u);
-            TimberFace(mesh, r, 0);
+            // The inset navigation shelf has transparent rounded corners; the
+            // parent keeps the touch rectangle separate from this decoration.
+            Shadow(mesh, r, 15 * u, 4 * u);
+            TimberFace(mesh, r, 15 * u);
             if (SurfaceTexture == null) WoodGrain(mesh, r, u);
         }
 
