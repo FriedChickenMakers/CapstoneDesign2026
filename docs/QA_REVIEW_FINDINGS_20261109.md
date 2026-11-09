@@ -6,6 +6,8 @@ GitHub Copilot의 `claude-opus-5.5`를 읽기 전용 독립 리뷰어로 실행�
 P3 세 건이 확인됐고 수정·재검증했다. 초기 다른 범위에서 P1/P2가 없었다는 뜻은 아니다. 원문·요청 범위·모델 사용 기록은
 저장소 밖의 비공개 `~/.local/state/opus-review/`에 보관한다.
 
+현재 UI 수정 기준은 일반 push·원격 SHA 일치를 확인한 commit `37a4076`이다. 905는 사용자가 하단 메뉴 회귀를 확인하여 **UI HOLD·대체됨**으로 처리했다. 906은 빌드·오프라인 검사와 최종 Unity 회귀 15/15가 통과했고 **A7 업데이트·등록/정원 보존, 실제 화면 조작과 새 버전 HTTPS 사건 수신을 확인**했다. 이전 후보의 HTTPS 성공과 UI 배포 판단을 구분한다.
+
 큰 UI 요청 두 건은 모델 입력 한도에서 거부되어 결과가 없었다. 성공으로
 세지 않고 범위를 나눈 별도 요청으로 화면 코드를 검토했다. 서버 전체와
 개인화 큐는 최초 커밋을 기준으로 별도 검토해 변경되지 않은 구현도 포함했다.
@@ -18,7 +20,7 @@ P3 세 건이 확인됐고 수정·재검증했다. 초기 다른 범위에서 P
 | P1 서버 삭제 대기 중 전체 초기화 | durable DeletePending을 먼저 읽는다. 삭제가 대기 중이면 등록·큐·요청을 보존하고 PENDING을 반환하여 네트워크 삭제를 계속한다. 읽기 실패도 보존한다. 서버 확인 후 로컬 초기화를 마친다. | 실제 Editor HTTP 업로드 → 철회 → 초기화 보류 → 서버 삭제 확인 → 초기화 완료 검사 |
 | P2 노출 로그 재시도 | JNI 결과에서 영구 거부와 일시 실패를 구분한다. 원본 결정 ID·노출 시각을 보존하며 지수 backoff, 시도·회당 처리 한도를 적용한다. 용량 초과를 반복 손실로 누적하지 않는다. | native host 거부/저장 오류, Editor 클라이언트 검사. HTTP/event/file schema 변경 없음 |
 | P2 초기화 대기 중 foreground service | bridge에서 새 요청을 차단하고, 이미 시작된 서비스는 foreground 계약을 충족한 뒤 demote·종료한다. | host에서 promotion·종료·상태 재생성 방지를 확인. 실제 Android deadline crash를 재현했다고 주장하지 않음 |
-| P2 하단 탐색 위치 | 새 390×84 선반과 이전 Fit의 12pt inset이 충돌했다. Fit도 화면 양끝과 하단에 맞춘다. | 실제 렌더·raycast를 사용하는 Daily UI의 경계 검사 |
+| 초기 P2 하단 탐색 위치 / 후속 사용자 회귀 확인 | 처음에는 새 390×84 선반과 이전 Fit을 화면 양끝에 맞추었지만 이 대응이 승인된 로컬 스타일을 보존하지 못했다. 실제 905에서 122pt 버튼과 옛 108pt 내부 좌표가 섞여 간격 0·중앙 7pt 왼쪽 이동도 확인했다. **현재 `37a4076`은 원래 108pt 폭·12pt 간격·12pt 외곽 여백과 둥근 선반을 복원**한다. | 이전 flush 기대값은 폐기. 최종15개 회귀에서 실제 화면 좌표를 검사하고 별도 Daily/정원·앨범 통합도 PASS. 906 A7 화면에서 복원한 중앙·간격과 실제 탐색 조작 확인 |
 | P2 사진 기록 중복 | `ShowFocusRecord`의 두 번째 `BuildMissionPhotoRecord` 호출을 제거한다. | Unity 추가 회귀: 이미지 1개·삭제 조작 1개·삭제 효과 1회 확인 |
 | P2 실습 종료 경로 부재 | 최신 안내 UI에서 담당자의 기존 중단·넘김 계약이 빠진 것이 확인됐다. 사용자 후속 지시에 따라 안내 화면에 복원한다. 하루 1+1·코인·부분 성장 제거는 유지한다. | v5 도메인 adjustments 967·contracts 135 PASS. Unity 팝업 pause/cancel·미루기·M10·목적 문구 검사 PASS |
 | P3 불러오기 재시도 | 서비스 생성 전에 writer lock 확보가 실패한 경우에도 재시도에서 서비스를 다시 만든다. 정상 재열기 시 세션·알림·사진 정리 연결을 초기 진입과 맞춘다. | Unity preview에서 실제 파일 잠금 해제 재시도와 실패한 Open 재시도를 각각 검사. 활성 세션 복원·사진 prune 1회 확인 |
@@ -44,6 +46,18 @@ P3 세 건이 확인됐고 수정·재검증했다. 초기 다른 범위에서 P
 | P24 오디오 자연 종료 뒤 글 보기/복귀 시 0:00 가능성 | 정적 검토에서 제기된 가정이며 실제 재현은 미수행이다. 현재 저장·보상·수집 blocker로 확인하지 않았고, 별도 UX 재현 항목으로 남긴다. |
 | 비활성 모드 초기화의 4시 경계 상수 | 현행 제품의 ResetHourLocal은 4이며 scene/prefab override가 없다. 사용자 설정으로 경계를 바꾸는 기능은 현재 없으므로 제품 오류로 재현되지 않았다. 향후 reset hour를 변경하면 이 API도 함께 수정해야 한다. |
 
+## 사용자 화면 지적 후 Opus 5.5 UI 재검토
+
+`17c1978` 대비 공개 UI 소스의 동결 snapshot을 GitHub Copilot **`claude-opus-5.5`**로 추가 검토했다. 아래는 실제 정적 리뷰 결과를 코드와 별도 실행 결과에 대조한 disposition이다. 리뷰어가 Unity·단말 테스트를 실행했다고 기록하지 않는다.
+
+| 지적 | 실제 판단과 처리 | 확인 근거 |
+| --- | --- | --- |
+| P2: 기존 Daily UI의 부모 모서리 flush 단정은 복원한 inset 배치에서 실패 | **수용·이미 수정.** `DailyMissionValidation`의 flush 기대를 없애고 실제 rendered bounds에서 12pt inset·108pt 버튼·12pt 간격·아이콘/라벨 중심을 검사한다. runtime 상수를 그대로 공유하지 않고 고정 기대값을 써서 양쪽에 같은 오류가 생기는 것을 잡는다. | Daily **23/23, 4,627 assertions**, 신규 탐색 포함 최종 Unity **15/15, 1,283 assertions**. 기존 비겹침·실제 클릭 검사는 유지 |
+| P3: `focus-programs`의 개발용 P/M 런처가 복원한 선반과 10pt 겹침 | **수용·수정.** 높이 44, 중심 y=108이던 런처를 `MissionBottomNavigation.ReservedHeight + 24`로 옮긴다. 하단 98이 선반 상단 96보다 위에 오며 중앙 pivot을 유지한다. | 마지막 위치 수정 후 최종15개 회귀에서 360×640·390×844·1200×2000의 실제 경계·raycast 확인. Daily/combined 큰 suite는 이 마지막 위치 수정 전 실행임을 구분 |
+| 확인 필요: 비타이머 단계의 시작 marker 부재로 참여 성장 미지급 가능 | **새 결함으로 채택하지 않음.** 현재 정책은 미완료 부분 성장을 지급하지 않으며, 화면을 열기만 했다는 이유로 수행 시작 시각을 만들지 않는다. 중복 시작 버튼만 제거하고 실제 타이머·입력·그림·오디오 시작 hook 및 기존 session 시작은 보존한다. | 최종15개 회귀에서 비타이머의 단일 완료 동작·조작하지 않은 단계의 시작 시각 부재, timed start/shortening 보존 검사. 관측하지 않은 시간으로 측정값을 채우지 않음 |
+
+비교 기준은 `255fb98`의 **108pt 폭·12pt 간격·12pt 외곽 여백** → `17c1978`의 **122pt 폭·간격 0·내부 중앙 7 디자인 pt 왼쪽** → `37a4076`의 원래 형상 복원이다. 7pt는 디자인 좌표이며 A7 1200px 화면에서 약 21.5px이다. 최신 기록 탭 라우팅·눌림 pivot·하루 기본/추가 한도·저장 계약은 유지했다. 실제 정원·사진 상세의 하단 영역 회귀는 `combined-memory` **19/19**로 별도 검사했다. 906의 A7 결과는 별도 실기기·서버 증거로 기록하며 아래 Editor 결과로 대신하지 않는다.
+
 ## 실행 검증과 남은 범위
 
 - 최종 v5 host gate: **39/39 PASS, FAIL 0, SKIP 0**. Python harness 66 tests 및 서버 58 tests를 포함한다. 근거: `artifacts/qa-release-20261109/host/v5-final02/results.json`.
@@ -52,10 +66,15 @@ P3 세 건이 확인됐고 수정·재검증했다. 초기 다른 범위에서 P
 - v5 도메인 수정: adjustments 967 / contracts 135 / 원본 저장 호환 95 / guided 437 / 카메라·추천 326 PASS. 원본 `3ac0c80`과 `a05634c` writer로 생성한 합성 저장을 사용한다.
 - 7종 통합 UI/Play는 **617,024 assertions·PNG 717개, 7/7 PASS**다. 직접 확인한 근거는 `artifacts/qa-release-20261109/unity/integrated-ui-v5-reviewed-final/final-seven-summary.json`이다. 이는 P25 hint 수정 후·P21/P28 마지막 문구 보완 전의 동일 동결 소스 결과다.
 - 마지막 표시 보완 후 Unity 추가 회귀는 **12/12 PASS, 256 assertions, 버튼 27회·raycast 27회**다. P21/P28의 관찰 기준점과 v4 문구 보존, P19/P26→P02의 추가 활동 표기·추가 슬롯만 점유·원 회차 유지가 포함된다. 근거: `artifacts/qa-release-20261109/unity/qa-regression-final12/qa-integration-validation/report.json`.
-- 최종 **non-debug `.2`/2026110903 APK**의 오프라인 검사와 A7/API29 인플레이스 교체가 PASS다. 기존 정원 파일 6개·등록 hash·큐 binding·수집 시작 경계 보존, 원래 기기 설정 복원을 확인했고 기존 제품 앱은 건드리지 않았다. 근거: `artifacts/qa-release-20261109/candidate-apk-preflight-final/result.json`, `device-qa/final-verified/result.json`. 최초 verifier의 Android parser 오류는 검증 도구에서만 수정했으며 제품 APK는 변경하지 않았다. 임시 bootstrap 화면이나 잠금화면 캡처를 기능 PASS로 확대하지 않는다.
-- 최신 사용자 지시로 서버 접속 조사를 추가했으나 지정 계정의 SSH 공개키 인증이 거부되어 원격 조사·전용 디렉터리 생성은 미실행이다. 정확한 로그인 계정·공개키 등록 확인 후 진행하며, 외부 HTTPS 수집 검증은 아직 미수행이다. 실제 참가자 수집 전 검증은 여전히 필요하며 실제 A/B 시험은 미수행이다.
+- 이전 후보 **non-debug `.2`/2026110903 APK**의 오프라인 검사와 A7/API29 인플레이스 교체가 PASS다. 기존 정원 파일 6개·등록 hash·큐 binding·수집 시작 경계 보존, 원래 기기 설정 복원을 확인했고 기존 제품 앱은 건드리지 않았다. 근거: `artifacts/qa-release-20261109/candidate-apk-preflight-final/result.json`, `device-qa/final-verified/result.json`. 최초 verifier의 Android parser 오류는 검증 도구에서만 수정했으며 제품 APK는 변경하지 않았다. 임시 bootstrap 화면이나 잠금화면 캡처를 기능 PASS로 확대하지 않는다.
+- 지정 로그인 계정으로 서버 접속을 재개하여 전용 API/HTTPS 서비스를 배포했다. 원격 서버 단위 58/58, 외부 HTTPS 18/18, API 재시작·DB/백업 10/10, 재시작 후 HTTPS 4/4 PASS다. A7의 `.3-bootstrap`/2026110904에서 Wi-Fi 단절 중 생성한 활동 사건 2개의 ID·시각·내용이 앱 재시작 후 보존됐고, 연결 복구 뒤 서버의 유일 행과 일치하며 단말 큐가 비워졌다. dropped/expired=0, health clean 및 화면·Wi-Fi 원복을 확인했다. 실제 참가자 A/B는 미수행이다.
+- UI 수정 최종 Unity 회귀: **15/15 PASS, 1,283 assertions, 버튼 84회·raycast 84회**. 근거: `artifacts/qa-release-20261109/unity/ui-navigation-fix02/qa-integration-validation/report.json`. 개발 런처 마지막 위치 보완까지 포함한다.
+- UI 수정 Daily UI: **23/23 PASS, 4,627 assertions, 버튼 391회·raycast 926회**. 실제 정원·앨범 통합: **19/19 PASS, 583,078 assertions, 버튼 94회·raycast 288회**. 근거: `artifacts/qa-release-20261109/unity/ui-navigation-integrated/runs/{daily,combined-memory}/renders/report.json`. 두 실행은 마지막 P/M 런처 위치 보완 전이며 해당 후속 수정은 위 최종15개 회귀에서 확인했다.
+- 둥근 선반 투명 코너·불투명 본체·장식 입력 비간섭 등의 EditMode **24/24 PASS**, Python runner harness **8/8 PASS**. 근거: `artifacts/qa-release-20261109/unity/ui-theme-unit/results.xml` 및 `artifacts/qa-release-20261109/host/integrated-runner-tests/output-opus-fix-final.log`. Python 결과를 Unity 실행으로 계산하지 않는다.
+- `.4`/2026110906 non-debug APK 빌드·오프라인 preflight **PASS**. 근거: `artifacts/qa-release-20261109/ui-candidate906-preflight/result.json`. A7 905→906 정상 업데이트, 등록 exact hash/수집 경계·정원 파일 6개 보존, 실제 화면의 중앙·간격과 탐색 조작, `.4` 선택·시작·미루기에 따른 종료 사건 3건의 HTTPS 수신도 별도로 확인했다. 이전 서버 3개 행은 변경 없이 유지되어 총 6개다. 905는 UI HOLD·대체됨 상태다.
+- 906 기기 근거는 `artifacts/qa-release-20261109/device-qa/https/final906/result.json`, 후속 화면은 `final-live906/`, 실제 `.4` 사건 3건 수신은 `final906-https-ui-result.json`이다. 업데이트 세션의 임시 verifier 제거·화면 설정 복원과 후속 `final-live906/restoration-result.json`의 설정 복원·QA 앱 종료 모두 PASS다. 원래 제품 앱은 건드리지 않았다. 906 private outbox를 직접 열람한 검사는 아니며 오프라인·재시작 후 재전송 근거는 904 bootstrap 결과다. non-debug 905→906에서 새 전체 private 백업을 만든 것으로 보고하지 않으며, 보존한 904 백업·등록 verifier·외부 정원 파일 비교 범위를 구분한다.
 
-이 값들은 서로 다른 검사 단위이며 합쳐서 참가자 수나 사용자 효과 크기로 제시하지 않는다. 7종 통합 UI는 마지막 표시 보완 전 동결 소스, 최종 12개 회귀는 보완 후 소스, APK/단말 검사는 `.2`/2026110903을 대상으로 한다. 이전 snapshot 성공을 최종 변경 전체의 재실행으로 확대하지 않는다. Git은 `misssion` 로컬 merge 중으로 commit/push하지 않았다. 게시에는 현재 AGENTS의 별도 명시적 요청 규칙이 적용된다.
+이 값들은 서로 다른 검사 단위이며 합쳐서 참가자 수나 사용자 효과 크기로 제시하지 않는다. 7종 통합 UI는 마지막 표시 보완 전 동결 소스, 12개 회귀는 그 표시 보완 후 소스, 이전 APK/단말 보존 검사는 `.2`/2026110903을 대상으로 한다. HTTPS 후속 검사는 같은 `17c1978` runtime의 `.3-bootstrap`/2026110904와 `.3`/2026110905다. **최신 UI 수정 `37a4076`은 최종15개 회귀·906 APK의 작업 소스 기준이며 실기기 업데이트·화면·새 버전 전송은 별도 확인**했다. APK manifest에 소스 SHA를 넣지는 않았으므로 binary attestation으로 주장하지 않는다. 이전 snapshot 성공을 최종 변경 전체의 재실행으로 확대하지 않는다. `17c1978`과 후속 UI 수정 `37a4076` 모두 일반 push·원격 SHA 일치를 확인했다.
 
 ## 평가 해석
 
@@ -73,3 +92,9 @@ HTTPS 전송 검증과 구분한다.
 
 최종 배포 판단, 정확한 후보 APK·소스 기준 및 후속 검증은
 [QA 배포 준비 기록](QA_RELEASE_READINESS_20261109.md)에 합친다.
+
+## 외부 서버 운영 문서 독립 검토
+
+Copilot의 실제 `claude-opus-5.5` 사용을 확인한 추가 검토에서 P3 두 건을 수용했다. README의 Android 검증 상태를 실제 결과로 명시하고, 운영 문서에 `POST /events/batch`, `POST /measurements/batch`, `GET /policy/current`, `DELETE /participant` 네 경로를 직접 나열했다. 단위·실기기 실행은 별도 수행했으며 리뷰어가 테스트를 실행한 것으로 계산하지 않는다.
+
+리뷰에는 `17c1978` 기반의 동일한 공개 server 파일 12개만 있는 별도 snapshot을 사용했다. private 운영 경로·SSH 키·등록 토큰·원격 식별자·실기기 기록은 전달하지 않았다. native와 Behavior 큐의 서로 다른 event 한도와 같은 receipt 한도는 실제 소스 대조로 확인했다. 공개 운영 문서는 [server/OPERATIONS.md](../server/OPERATIONS.md)에 있다.

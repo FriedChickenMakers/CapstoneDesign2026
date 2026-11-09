@@ -5,10 +5,15 @@ evaluation command. The Android app remains usable without either service. A
 missing, invalid or expired model falls back to the local recommendation rules;
 the required course order, rewards and garden state stay local.
 
-The repository does **not** deploy a public service, provision participant
-credentials, enable collection without registration, or demonstrate that a learned policy
-outperforms the baseline with real participants. Synthetic tests verify the
-implementation. A real deployment and prospective evaluation are separate work.
+An isolated external HTTPS QA service has now been deployed and verified with
+synthetic registrations. Deployment does **not** provision real participants,
+enable collection without registration, or demonstrate that a learned policy
+outperforms the baseline. See [OPERATIONS.md](OPERATIONS.md) for the source
+baseline, test boundaries, deployment isolation and operator procedures. The
+actual A7/API29 bootstrap-to-final path and external HTTPS upload have
+also passed with a controlled QA identity; prospective participant evaluation
+remains separate. APK/UI release approval is recorded in
+[QA release readiness](../docs/QA_RELEASE_READINESS_20261109.md).
 
 ## Run locally
 
@@ -85,13 +90,19 @@ enrolling participants. The standard-library HTTP adapter is a development
 server. It intentionally suppresses request logging. Reverse proxies must also
 avoid logging bearer headers or behavioral request bodies.
 
-The Python API runs separately from the app. No external production deployment has
-been performed; previous end-to-end validation used a local QA server. The user is
-preparing the external server and explicitly excluded its connection validation
-from the current app-release work. Run that follow-up QA after the server is ready
-and before actual participant collection; it is not a blocker to continuing this
-app candidate preparation. The
-analysis PNG is also generated outside the app, not added as a new in-app chart.
+The Python API runs separately from the app. The isolated external QA service
+passed 18 actual HTTPS checks plus 10 database/restart/backup checks with synthetic
+data; four further HTTPS checks passed after the dedicated API restart. A separate
+synthetic device registration remains active. These checks do not establish an
+Android app upload, real-participant collection, or an A/B effect; the device
+bootstrap-to-final flow was verified on A7/API29, including an actual Wi-Fi
+outage, process restart and exact event replay over HTTPS in the bootstrap,
+then a new event from the non-debuggable final. These controlled QA identities
+are excluded from participant results. UI distribution approval is tracked
+separately in the [release record](../docs/QA_RELEASE_READINESS_20261109.md).
+See [OPERATIONS.md](OPERATIONS.md)
+for details. The analysis PNG is generated outside the app, not added as a new
+in-app chart.
 
 ## API contract
 
