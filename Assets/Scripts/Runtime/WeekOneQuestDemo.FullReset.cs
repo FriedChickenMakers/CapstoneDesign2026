@@ -140,6 +140,7 @@ namespace CapstoneDesign.Runtime
             guidedResumeClock = false; guidedSlide = guidedHelpReturn = GuidedSlide.Overview;
             guidedHelpIndex = 0; guidedViewRevision++;
             ResetBasicFocusSlides();
+            ResetM01LightGuide();
             focusExpandedCurricula.Clear(); focusExpandedRecordSteps.Clear();
             focusVisibleRecommendation = null; focusRecommendationSignature = null;
             photoService = null; photoRenderedStatus = null; nextPhotoPoll = 0;

@@ -202,6 +202,7 @@ namespace CapstoneDesign.Runtime
             guidedResumeClock = false; guidedSlide = guidedHelpReturn = GuidedSlide.Overview;
             guidedHelpIndex = 0; guidedViewRevision++;
             ResetBasicFocusSlides();
+            ResetM01LightGuide();
             mood = draftNote = null;
             note = null;
             presentingPracticeGrowthSession = null;
