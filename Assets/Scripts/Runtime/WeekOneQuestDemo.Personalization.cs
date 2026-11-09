@@ -38,7 +38,7 @@ namespace CapstoneDesign.Runtime
             if(!opened || preview || !Application.isPlaying || (!force && Time.unscaledTime<nextOptionalObservation))return;
             nextOptionalObservation=Time.unscaledTime+3;
             var client=PersonalizationClient.Instance;
-            if(!client.Consented)return;
+            if(!client.Consented && !client.MeasurementConsented)return;
             foreach(var session in Service.Snapshot.Sessions)
             {
                 client.RecordSession(session);
@@ -62,7 +62,7 @@ namespace CapstoneDesign.Runtime
                 Guidance(p,"이전에 완료한 마음챙김 활동이 있으면 복습을 추천해 드려요.");
             ActivityListItem(choices,"배운 활동 모두 보기",null,ShowLegacyFree,PrototypeUiIcon.Symbol.Journal);
             ActivityListItem(choices,"추가 활동 추천 설정",null,ShowRecommendationPreferences,PrototypeUiIcon.Symbol.Gear);
-            DockAction("내 과정으로",ShowFocusCourse);
+            DockAction("기록으로",ShowFocusCourse);
         }
         public void ShowRecommendationPreferences()
         {

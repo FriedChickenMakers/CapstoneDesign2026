@@ -15,7 +15,7 @@ namespace CapstoneDesign.Runtime
         public Func<bool> StartPractice;public Action StateChanged;public bool PreviouslyStarted;
         float fraction,sinceSave;bool running,started;
         public bool Running=>running;public bool HasStarted=>started;
-        public void Initialize(){started=PreviouslyStarted;if(Toggle!=null)Toggle.onClick.AddListener(ToggleRunning);Refresh();}
+        public void Initialize(){started=PreviouslyStarted||StartPractice==null&&ElapsedSeconds>0;if(Toggle!=null)Toggle.onClick.AddListener(ToggleRunning);Refresh();}
         void Update()
         {
             if(!running)return;fraction+=Time.unscaledDeltaTime;sinceSave+=Time.unscaledDeltaTime;
@@ -42,7 +42,7 @@ namespace CapstoneDesign.Runtime
     public sealed class FocusBreathingPulse:MonoBehaviour
     {
         Vector3 scale;float elapsed;
-        void Awake(){scale=transform.localScale;}
+        void Awake(){FigmaMissionUi.CenterPivot(transform as RectTransform);scale=transform.localScale;}
         void Update(){if(FigmaMissionUi.ReducedMotion){transform.localScale=scale;return;}elapsed+=Time.unscaledDeltaTime;transform.localScale=scale*(1+Mathf.Sin(elapsed*Mathf.PI/4)*.04f);}
     }
     public sealed class FocusWalkingCounter:MonoBehaviour
@@ -104,20 +104,39 @@ namespace CapstoneDesign.Runtime
     public sealed class FocusAudioPlayer:MonoBehaviour
     {
         public AudioSource Source;public Text Status,Duration;public Image Progress;public Button Toggle,Replay;public string Transcript;
+        bool paused,started,wasPlaying,resumeStoredPosition;float nextRefresh,storedPosition;
+        public bool HasStarted=>started;
         public Func<bool> StartPractice;
-        bool paused,started,wasPlaying;float nextRefresh;
+        public bool Playing=>Source!=null&&Source.isPlaying;
+        public void ResumePlayback(){if(paused&&Source!=null&&Source.clip!=null)TogglePlayback();}
+        public float PlaybackPosition=>resumeStoredPosition?storedPosition:Source==null?0:Source.time;
+        // Used by the basic-mission reading slides; existing players keep their default lifecycle.
+        public void PausePlayback(){if(Source!=null&&Source.isPlaying){Source.Pause();paused=true;}Refresh();}
+        public void RestorePaused(float position)
+        {
+            if(Source==null||Source.clip==null)return;
+            // A replacement source has no paused voice yet. Retain the seek until
+            // Play creates one; setting time on a stopped source can reset to zero.
+            storedPosition=Mathf.Clamp(position,0,Mathf.Max(0,Source.clip.length-.01f));
+            started=true;paused=true;resumeStoredPosition=true;Refresh();
+        }
         public void Initialize()
         {
             if(Toggle!=null)Toggle.onClick.AddListener(TogglePlayback);
-            if(Replay!=null)Replay.onClick.AddListener(()=>{if(Source==null||Source.clip==null||StartPractice!=null&&!StartPractice())return;Source.Stop();Source.Play();paused=false;started=true;Refresh();});Refresh();
+            if(Replay!=null)Replay.onClick.AddListener(()=>{if(Source==null||Source.clip==null||StartPractice!=null&&!StartPractice())return;Source.Stop();Source.Play();paused=false;resumeStoredPosition=false;started=true;Refresh();});Refresh();
         }
-        public bool Playing=>Source!=null&&Source.isPlaying;
-        public void PausePlayback(){if(Playing){Source.Pause();paused=true;Refresh();}}
-        public void ResumePlayback(){if(paused&&Source!=null&&Source.clip!=null){Source.UnPause();paused=false;Refresh();}}
         void TogglePlayback()
         {
             if(Source==null||Source.clip==null)return;
-            if(Source.isPlaying){Source.Pause();paused=true;}else{if(StartPractice!=null&&!StartPractice())return;if(paused)Source.UnPause();else Source.Play();paused=false;started=true;}Refresh();
+            if(Source.isPlaying){Source.Pause();paused=true;}
+            else
+            {
+                if(StartPractice!=null&&!StartPractice())return;
+                if(paused&&!resumeStoredPosition)Source.UnPause();
+                else {Source.Play();if(resumeStoredPosition)Source.time=storedPosition;}
+                paused=false;resumeStoredPosition=false;started=true;
+            }
+            Refresh();
         }
         void Update(){if(Time.unscaledTime<nextRefresh)return;nextRefresh=Time.unscaledTime+.15f;Refresh();}
         void OnApplicationPause(bool pause){if(pause&&Source!=null&&Source.isPlaying){Source.Pause();paused=true;Refresh();}}
@@ -126,7 +145,7 @@ namespace CapstoneDesign.Runtime
         {
             bool available=Source!=null&&Source.clip!=null,playing=available&&Source.isPlaying;
             bool finished=available&&started&&!playing&&!paused&&(wasPlaying||Source.time<=.01f);
-            float total=available?Source.clip.length:0,elapsed=available?(finished?total:Source.time):0;
+            float total=available?Source.clip.length:0,elapsed=available?(finished?total:PlaybackPosition):0;
             if(Status!=null)Status.text=!available?"음성 대신 아래에서 글을 읽어주세요.":playing?"이야기를 듣고 있어요":paused?"잠시 멈췄어요":finished?"이야기를 모두 들었어요":"재생 버튼을 눌러 들어보세요";
             if(Duration!=null)Duration.text=available?Format(elapsed)+" / "+Format(total):"";
             if(Progress!=null)Progress.rectTransform.sizeDelta=new Vector2(total>0?268*Mathf.Clamp01(elapsed/total):0,4);

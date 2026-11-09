@@ -25,7 +25,7 @@ import java.time.Instant
 
 /** Host Android runtime tests use only this test application's synthetic preferences. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [33])
+@Config(sdk = [33], shadows=[AtomicFileRenameShadow::class])
 class ActivityNotificationSettingsTest {
     private val context get() = RuntimeEnvironment.getApplication() as Context
     private val prefs get() = context.getSharedPreferences("garden_activity_notifications", Context.MODE_PRIVATE)

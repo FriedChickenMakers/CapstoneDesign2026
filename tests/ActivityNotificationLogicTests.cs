@@ -63,19 +63,50 @@ class NotificationLogicTests
         service.ObserveMissionSteps("walk",5000,receipt.source);
         Check(WalkingEvidence.CanAutomaticallyComplete(service.Snapshot.Sessions.Single(),false),"valid observed target can retry completion without another sensor read");
         Check(!WalkingEvidence.CanAutomaticallyComplete(service.Snapshot.Sessions.Single(),true),"debug virtual completion never becomes automatic");
-        store.Fail=true;Check(!service.TryCompleteWalkingGoal("walk","synthetic mood","synthetic reflection draft") && service.Snapshot.Nutrient==0,"automatic completion save failure remains uncommitted");
+        string beforeGrowth=StateCodec.Encode(service.Snapshot);store.Fail=true;
+        Check(!service.TryCommitWalkingPracticeGrowth("walk") && StateCodec.Encode(service.Snapshot)==beforeGrowth,"automatic practice-end save failure leaves the stage, ledger and wallet uncommitted");
+        store.Fail=false;
+        Check(service.TryCommitWalkingPracticeGrowth("walk") && service.Snapshot.Coins==0
+            && service.Snapshot.Sessions.Single().Status==ParticipationState.InProgress
+            && service.GetPracticeGrowth("walk").Outcome==PracticeGrowthOutcome.Grown,"walking goal grows once before optional reflection without coins or final completion");
+        string grown=CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
+        Check(service.TryCommitWalkingPracticeGrowth("walk") && CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==grown,
+            "repeated native goal receipt cannot grow the same practice twice");
+        store.Fail=true;Check(!service.TryCompleteWalkingGoal("walk","synthetic mood","synthetic reflection draft") && service.Snapshot.Nutrient==0,"final completion save failure remains uncommitted");
         Check(service.Snapshot.Sessions.Single().Mood==null && service.Snapshot.Sessions.Single().Note==null,"failed reward save does not partially publish reflection");
-        store.Fail=false;Check(service.TryCompleteWalkingGoal("walk","synthetic mood","synthetic reflection draft") && service.Snapshot.Nutrient==5,"retry commits reward once");
+        store.Fail=false;Check(service.TryCompleteWalkingGoal("walk","synthetic mood","synthetic reflection draft") && service.Snapshot.Coins==50
+            && service.Snapshot.Sessions.Single().RewardAmount==50
+            && CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==grown,"retry atomically saves reflection and 50 coins without another growth");
         Check(service.Snapshot.Sessions.Single().Mood=="synthetic mood" && service.Snapshot.Sessions.Single().Note=="synthetic reflection draft","automatic completion atomically retains the drafted reflection");
-        Check(service.TryCompleteWalkingGoal("walk") && service.Snapshot.Nutrient==5,"duplicate receipt does not duplicate reward");
+        Check(service.TryCompleteWalkingGoal("walk") && service.Snapshot.Coins==50,"duplicate receipt does not grant more coins");
         Check(service.Snapshot.Sessions.Single().Note=="synthetic reflection draft","duplicate completion with no draft cannot erase saved reflection");
         var reopened=new GardenStateService(store,clock,new DemoBalanceConfig());
-        Check(reopened.Open() && reopened.Snapshot.Sessions.Single().Note=="synthetic reflection draft" && reopened.Snapshot.Sessions.Single().Mood=="synthetic mood","auto-completed reflection survives restart");
+        Check(reopened.Open() && reopened.Snapshot.Coins==50 && reopened.Snapshot.Sessions.Single().Note=="synthetic reflection draft" && reopened.Snapshot.Sessions.Single().Mood=="synthetic mood","auto-completed reflection and coin award survive restart");
         reopened.Dispose();
         Check(!WalkingEvidence.AcceptsAchievement(service.Snapshot.Sessions.Single(),receipt,false,now),"completed session rejects stale receipt");
         Check(ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now,zone)=="2026-10-12","calendar completion suppresses reminder even before 4am cycle reset");
         Check(ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now.AddDays(1),zone)=="","previous-day completion does not suppress following day");
         Check(ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now.AddSeconds(-1),zone)=="","future completion not treated as current evidence after clock rollback");
+        Check(service.BeginSession("daily-basic","course:P01",1)&&service.StartSession("daily-basic")&&service.CompletePracticeSession("daily-basic"),"Complete independent basic after additional walking mission");
+        Check(service.Snapshot.Coins==100,"Independent basic completion adds another 50 coins");
+        Check(DailyEmotionPolicy.Availability(service.Snapshot)==null&&ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now,zone)=="",
+            "P/M completion does not suppress a reminder while the unlocked daily emotion mission remains unfinished");
+        string emotionId=DailyEmotionPolicy.RecordId(service.CurrentCycleId);
+        Check(service.BeginDailyEmotion(service.CurrentCycleId)&&service.SaveDailyEmotionDraft(emotionId,"평온함","synthetic reminder draft",0),"Prepare daily reminder draft");
+        Check(ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now,zone)=="","An unfinished daily emotion draft still permits the reminder");
+        string beforeEmotion=StateCodec.Encode(service.Snapshot);
+        string emotionPlant=CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
+        store.Fail=true;Check(!service.CompleteDailyEmotion(emotionId,"평온함","synthetic reminder draft")&&ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now,zone)==""
+            && StateCodec.Encode(service.Snapshot)==beforeEmotion,
+            "Failed daily completion cannot suppress a pending reminder");store.Fail=false;
+        Check(service.CompleteDailyEmotion(emotionId,"평온함","synthetic reminder draft")&&ActivityNotificationLogic.CompletedCalendarDay(service.Snapshot,now,zone)=="2026-10-12",
+            "Successful third completion suppresses the current calendar-day reminder even before 04:00");
+        Check(service.Snapshot.Coins==200 && service.Snapshot.PlantAppearance.Memos.Count==1 && service.GetPracticeGrowth(emotionId)==null
+            && CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==emotionPlant,
+            "Third completion adds 100 coins and one memo without growth");
+        string afterEmotion=StateCodec.Encode(service.Snapshot);
+        Check(service.CompleteDailyEmotion(emotionId,"ignored","ignored") && StateCodec.Encode(service.Snapshot)==afterEmotion,
+            "Repeated completion retains the reminder and exact memo/coin award");
         Console.WriteLine("PASS "+checks+" activity notification integration assertions (synthetic data)");
     }
     class Clock:IClock {public DateTimeOffset UtcNow=>now;public TimeZoneInfo TimeZone=>zone;}

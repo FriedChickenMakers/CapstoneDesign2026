@@ -124,10 +124,16 @@ namespace CapstoneDesign.EditorTools
                     var settings = assembly.MainModule.Types.FirstOrDefault(type => type.FullName == "CapstoneDesign.Runtime.SensorRawDisplay");
                     if (settings == null) throw new InvalidOperationException("Release runtime omits SensorRawDisplay.");
                     string[] developmentOnly = { "StartService", "StopService", "RequestMissionReset", "CancelMissionReset",
-                        "ResetMissionRecords", "AdvanceMissionDate", "ToggleDebugWalk", "AddVirtualStep" };
+                        "ResetMissionRecords", "AdvanceMissionDate", "ToggleDebugWalk", "AddVirtualStep", "AddTestCoins", "AddTestNutrients" };
                     foreach (string method in developmentOnly)
                         if (settings.Methods.Any(item => item.Name == method))
                             throw new InvalidOperationException("Development-only settings action remains in release: " + method);
+                    foreach (string typeName in new[] { "CapstoneDesign.Runtime.WeekOneQuestDemo", "CapstoneDesign.Runtime.LocalState.GardenStateService" })
+                    {
+                        var type = assembly.MainModule.Types.Single(item => item.FullName == typeName);
+                        if (type.Methods.Any(item => item.Name == "AddTestCoins" || item.Name == "AddTestNutrients"))
+                            throw new InvalidOperationException("Development-only coin grant remains in release: " + typeName);
+                    }
                     var opened = settings.Methods.Single(item => item.Name == "OnSettingsOpened");
                     if (opened.Body.Instructions.Any(instruction => instruction.Operand is MethodReference call && call.Name == "CaptureDebugSensors"))
                         throw new InvalidOperationException("Release settings still trigger debug sensor capture.");
@@ -192,6 +198,74 @@ namespace CapstoneDesign.EditorTools
                 BuildAndroid();
             }
             finally { PlayerSettings.SetApplicationIdentifier(target,original); }
+        }
+
+        // Closed QA enrollment is provisioned by an operator over USB into the
+        // bootstrap's private storage. Replace it in-place with the release
+        // candidate before handing the device to a participant. Both builds
+        // deliberately share an isolated package; never replace product data.
+        public static void BuildQaEnrollmentBootstrap() => BuildQaPackage(true);
+        public static void BuildQaCandidate() => BuildQaPackage(false);
+
+        [Serializable]
+        private sealed class QaBuildEvidence
+        {
+            public string package, version, apk, sha256;
+            public int versionCode;
+            public bool development;
+            public ulong bytes;
+        }
+
+        private static void BuildQaPackage(bool bootstrap)
+        {
+            const string qaPackage = "com.capstonedesign2026.qa";
+            string artifacts = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS");
+            string version = Environment.GetEnvironmentVariable("CAPSTONE_QA_VERSION");
+            if (string.IsNullOrWhiteSpace(artifacts) || !Path.IsPathRooted(artifacts)
+                || string.IsNullOrWhiteSpace(version)
+                || !int.TryParse(Environment.GetEnvironmentVariable("CAPSTONE_QA_VERSION_CODE"), out int code)
+                || code <= 0 || code > 2100000000)
+                throw new InvalidOperationException("Explicit absolute CAPSTONE_ARTIFACTS, CAPSTONE_QA_VERSION and a positive Android version code are required.");
+            string directory = Path.Combine(artifacts, "build");
+            string output = Path.Combine(directory, bootstrap ? "qa-enrollment-bootstrap.apk" : "qa-candidate.apk");
+            if (File.Exists(output))
+                throw new InvalidOperationException("Use a fresh output directory; existing QA artifacts must not be overwritten.");
+            ValidateProject();
+            var target = UnityEditor.Build.NamedBuildTarget.Android;
+            string originalPackage = PlayerSettings.GetApplicationIdentifier(target);
+            string originalVersion = PlayerSettings.bundleVersion;
+            int originalCode = PlayerSettings.Android.bundleVersionCode;
+            try
+            {
+                PlayerSettings.SetApplicationIdentifier(target, qaPackage);
+                PlayerSettings.bundleVersion = version;
+                PlayerSettings.Android.bundleVersionCode = code;
+                Directory.CreateDirectory(directory);
+                var report = BuildPipeline.BuildPlayer(new BuildPlayerOptions
+                {
+                    scenes = new[] { ScenePath }, locationPathName = output,
+                    target = BuildTarget.Android,
+                    options = bootstrap ? BuildOptions.Development : BuildOptions.None
+                });
+                if (report.summary.result != BuildResult.Succeeded)
+                    throw new InvalidOperationException("QA Android build failed: " + report.summary.result);
+                string digest;
+                using (var hash = System.Security.Cryptography.SHA256.Create())
+                using (var stream = File.OpenRead(output))
+                    digest = BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "").ToLowerInvariant();
+                var evidence = new QaBuildEvidence { package = qaPackage, version = version,
+                    versionCode = code, development = bootstrap, apk = Path.GetFileName(output),
+                    sha256 = digest, bytes = (ulong)new FileInfo(output).Length };
+                File.WriteAllText(output + ".json", JsonUtility.ToJson(evidence, true));
+                Debug.Log("QA_ANDROID_BUILD_PASS " + evidence.apk + " code=" + code + " development=" + bootstrap);
+            }
+            finally
+            {
+                PlayerSettings.SetApplicationIdentifier(target, originalPackage);
+                PlayerSettings.bundleVersion = originalVersion;
+                PlayerSettings.Android.bundleVersionCode = originalCode;
+                AssetDatabase.SaveAssets();
+            }
         }
 
         [MenuItem("Capstone Mockup/Run Validation")]

@@ -48,6 +48,20 @@ class MeasurementTests(unittest.TestCase):
         with self.assertRaises(ApiError) as caught:
             self.post(dict(self.body([item]),collection_id=uuid.uuid4().hex))
         self.assertEqual(caught.exception.status,409)
+    def test_future_clock_event_is_atomic_rejection_and_can_be_deferred_without_loss(self):
+        future=event(at=NOW+DAY);valid=event(at=NOW-1000)
+        with self.assertRaises(ApiError) as caught:
+            self.post(dict(self.body([future,valid]),complete_through_utc_ms=0))
+        self.assertEqual(caught.exception.status,400)
+        with self.service.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM measurements").fetchone()[0],0)
+        self.assertEqual(self.post(dict(self.body([valid]),complete_through_utc_ms=0))["accepted_event_ids"],[valid["event_id"]])
+        with self.service.connect() as db:
+            self.assertEqual(db.execute("SELECT complete_through FROM measurement_quality").fetchone()[0],0)
+        self.service.clock=lambda:(NOW+DAY)/1000
+        self.assertEqual(self.post(dict(self.body([future]),complete_through_utc_ms=NOW+DAY))["accepted_event_ids"],[future["event_id"]])
+        with self.service.connect() as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM measurements").fetchone()[0],2)
     def test_extra_fields_types_and_old_consent_rejected(self):
         for key,value in [("note","synthetic text"),("occurred_utc_ms",True),("elapsed_ms",-2),("kind",[]),("reason",{}),
                           ("dataset",[]),("notification_id","invalid"),("activity_id","private note"),("utc_offset_minutes",999)]:

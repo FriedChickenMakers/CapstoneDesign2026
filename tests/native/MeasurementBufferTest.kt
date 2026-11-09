@@ -43,5 +43,19 @@ fun main() {
     q.acknowledge(binding,collection,setOf(event(2).eventId),setOf(event(2).eventId));check(q.state.events.size==1)
     q.batch(now+91L*86400000);check(q.state.events.isEmpty() && q.state.expired==1L)
     check(!q.add(event(3,now+92L*86400000),now))
+    val skewStore=Store();val skew=MeasurementBuffer(skewStore){"f".repeat(32)}
+    skew.configure(binding,true,now-1000)
+    check(skew.add(event(21,now+86400000),now+86400000)) // forward clock before correction
+    check(skew.add(event(22,now),now))
+    val corrected=skew.batchSnapshot(now)
+    check(corrected.events.map{it.eventId}==listOf(event(22).eventId))
+    check(corrected.completeThrough==0L && skew.state.events.size==2) // retained, not silently discarded
+    val correctedIds=corrected.events.map{it.eventId}.toSet()
+    skew.acknowledge(binding,skew.state.collection,correctedIds,correctedIds)
+    check(skew.batchSnapshot(now).events.isEmpty() && skew.batchSnapshot(now).completeThrough==0L)
+    val catchup=skew.batchSnapshot(now+86400000)
+    check(catchup.events.single().eventId==event(21).eventId && catchup.completeThrough==now+86400000)
+    val reloaded=MeasurementBuffer(skewStore){"e".repeat(32)}
+    check(reloaded.batchSnapshot(now).events.isEmpty() && reloaded.state.events.size==1)
     println("Measurement outbox consent/restart/idempotency/failure/capacity/expiry contracts PASS")
 }

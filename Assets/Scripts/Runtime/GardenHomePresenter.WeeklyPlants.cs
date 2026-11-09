@@ -1,46 +1,48 @@
+using System;
 using System.Linq;
-using CapstoneDesign.Runtime.LocalState;
 using CapstoneDesign.Plants;
+using CapstoneDesign.Runtime.LocalState;
 using UnityEngine;
 
 namespace CapstoneDesign.Runtime
 {
     public sealed partial class GardenHomePresenter
     {
-        public string SelectedPlantId { get; private set; }
-        public int MemoryPage { get; private set; }
-        Vector2? rememberedAngles;
         PlantInstanceState shownPlant;
-        bool pendingGrowthPulse;
-        float growthPulseStart=-1,renderedScale=1;
-        void TickGrowthPulse()
+        public string ShownPlantId => shownPlant?.Id;
+        public int MemoryPage { get; private set; }
+        public int MemoryPageCount => Math.Max(1, ((shownPlant?.Memories.Count ?? 0) + PlantMemoryGeometry.PageSize - 1) / PlantMemoryGeometry.PageSize);
+        PlantMemoryLeaf[] VisibleMemoryInputs = Array.Empty<PlantMemoryLeaf>();
+
+        void BindCurrentPlant(GardenState state)
         {
-            if(!IsGardenVisible || ProceduralPlant==null)return;
-            if(pendingGrowthPulse){growthPulseStart=Time.unscaledTime;pendingGrowthPulse=false;}
-            if(growthPulseStart<0)return;
-            float t=(Time.unscaledTime-growthPulseStart)/.4f;
-            float pulse=FigmaMissionUi.ReducedMotion||t>=1?1:1+.035f*Mathf.Sin(Mathf.PI*t);
-            ProceduralPlant.transform.localScale=Vector3.one*(renderedScale*pulse);
-            if(gardenCamera!=null&&gardenVisuals.activeInHierarchy)gardenCamera.Render();
-            if(t>=1||FigmaMissionUi.ReducedMotion)growthPulseStart=-1;
+            var current = WeeklyPlants.Active(state);
+            var nextLeaves=PlantAlbumHistory.Leaves(state,current?.Id);
+            int latest=nextLeaves.Where(m=>m.Linked).Select(m=>m.Slot).DefaultIfEmpty(-1).Max();
+            int previous=VisibleMemoryInputs.Where(m=>m.Linked).Select(m=>m.Slot).DefaultIfEmpty(-1).Max();
+            // A newly added record should have its leaf in the visible batch.
+            // This is view state only; existing records remain in the full list.
+            if(shownPlant?.Id!=current?.Id || latest>previous)
+                MemoryPage=latest<0?0:latest/PlantMemoryGeometry.PageSize;
+            shownPlant = current;
+            MemoryPage = Mathf.Clamp(MemoryPage, 0, MemoryPageCount - 1);
+            VisibleMemoryInputs = nextLeaves;
         }
-        public void SelectPlant(string id,int page=0)
+
+        public void SetMemoryPage(int page)
         {
-            SelectedPlantId=id;MemoryPage=Mathf.Max(0,page);RefreshFromState();
+            MemoryPage = Mathf.Clamp(page, 0, MemoryPageCount - 1);
+            RefreshFromState();
         }
-        public void OpenMemories(string[] ids)
+
+        // Cinematics may display the new individual's seed before its first committed
+        // growth. This never changes the active individual, records, or saved recipe.
+        public void RenderGrowthAppearance(PlantRecipe recipe, float scale)
         {
-            if(activity==null || shownPlant==null)return;
-            string plantId=shownPlant.Id;
-            navigation?.ShowActivities();activity.ShowMemoryChoices(plantId,ids);
-        }
-        string MemorySignature => shownPlant==null?"":MemoryPage+":"+string.Join(",",shownPlant.Memories.Select(m=>m.OrganId+":"+m.Kind));
-        PlantMemoryLeaf[] VisibleMemoryInputs => shownPlant?.Memories.Select(m=>new PlantMemoryLeaf {
-            OrganId=m.OrganId,Slot=m.SlotIndex,Linked=m.Kind!=MemoryRecordKind.None }).ToArray();
-        void SelectSavedPlant(GardenState saved)
-        {
-            shownPlant=saved.PlantCollection?.Plants.FirstOrDefault(p=>p.Id==SelectedPlantId)??WeeklyPlants.Active(saved);
-            if(shownPlant!=null)MemoryPage=Mathf.Clamp(MemoryPage,0,Mathf.Max(0,(shownPlant.Memories.Count-1)/WeeklyPlants.PageSize));
+            if (recipe == null || float.IsNaN(scale) || float.IsInfinity(scale) || scale <= 0) return;
+            var memories = recipe.InstanceId == shownPlant?.Id ? VisibleMemoryInputs : null;
+            RenderPlant(recipe, 0, scale, memories, memories == null ? 0 : MemoryPage);
+            if (Application.isPlaying && gardenCamera != null && IsGardenVisible) gardenCamera.Render();
         }
     }
 }

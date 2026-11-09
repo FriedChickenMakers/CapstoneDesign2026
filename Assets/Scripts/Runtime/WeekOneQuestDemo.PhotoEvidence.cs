@@ -38,7 +38,7 @@ namespace CapstoneDesign.Runtime
             string intro=target=="book"?"종이책을 읽었다면 표지나 펼친 책을 찍어보세요.\n화면이나 다른 글을 읽었다면 건너뛰어도 괜찮아요.":"함께한 컵이나 병을 찍어보세요.\n사진을 남기지 않아도 미션은 완료돼요.";
             FigmaMissionUi.Label(body,intro,24,8,342,68,16,FigmaMissionUi.Ink);
             bool bonus=CameraMissionPolicy.BonusAvailable(Service.Snapshot,s,Balance.PhotoVerificationNutrient,Balance.PhotoVerificationDailyLimit);
-            FigmaMissionUi.Label(body,bonus?"자동 또는 직접 확인 후 완료하면 영양제 +"+Balance.PhotoVerificationNutrient+"\n하루 "+Balance.PhotoVerificationDailyLimit+"회 · 기본 완료 보상과 별도":"사진은 보상과 관계없이 기록으로 남길 수 있어요.",24,88,342,48,14,FigmaMissionUi.Green);
+            FigmaMissionUi.Label(body,bonus?"자동 또는 직접 확인 후 완료하면 코인 +"+Balance.PhotoVerificationNutrient+"\n하루 "+Balance.PhotoVerificationDailyLimit+"회 · 기본 완료 보상과 별도":"사진은 보상과 관계없이 기록으로 남길 수 있어요.",24,88,342,48,14,FigmaMissionUi.Green);
             string photoId=result?.id??s.Photo?.Id;
             bool visible=BuildMissionPhotoPreview(body,photoId,24,204,342,230);
             if(!visible)FigmaMissionUi.Label(body,result?.status=="capturing"?"카메라에서 사진을 찍고 돌아오세요.":result?.status=="processing"?"사진을 준비하고 있어요…":"함께한 대상을 사진 한 장으로 남겨요.",40,272,310,70,16,FigmaMissionUi.Muted,false,TextAnchor.MiddleCenter);

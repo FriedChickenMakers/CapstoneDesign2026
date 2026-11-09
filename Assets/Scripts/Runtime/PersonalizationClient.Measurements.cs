@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 using CapstoneDesign.Runtime.LocalState;
 using CapstoneDesign.Runtime.Personalization;
@@ -10,15 +11,28 @@ namespace CapstoneDesign.Runtime
 {
     public sealed partial class PersonalizationClient
     {
-        [Serializable] sealed class MeasurementResult { public bool ok; }
+        [Serializable] sealed class MeasurementResult { public bool ok; public string failure; }
         [Serializable] sealed class MeasurementId { public string event_id; }
         [Serializable] sealed class MeasurementUpload { public string collection_id; public MeasurementId[] events; }
         float nextMeasurementSync;
         string measurementSyncKey;
+        sealed class PendingFocusExposure
+        {
+            public string Binding; public FocusRecommendationExposure Exposure;
+            public int Attempts; public float NextAttempt; public bool Terminal;
+        }
+        readonly Dictionary<string,PendingFocusExposure> pendingFocusExposures = new Dictionary<string,PendingFocusExposure>();
+#if UNITY_EDITOR
+        // Editor-only fault injection for the real client lifecycle validation.
+        static Func<string,object[],string> measurementCallOverride;
+#endif
         public bool MeasurementConsented => Consented && queue.MeasurementConsentUtcMs>0;
         string MeasurementBinding => enrollment==null?"":EventQueue.Fingerprint(enrollment.endpoint,enrollment.token);
         static string MeasurementCall(string method,params object[] args)
         {
+#if UNITY_EDITOR
+            if(measurementCallOverride!=null)return measurementCallOverride(method,args);
+#endif
 #if UNITY_ANDROID && !UNITY_EDITOR
             try { using(var bridge=new AndroidJavaClass("com.capstonedesign2026.platform.AndroidPlatformBridge"))return bridge.CallStatic<string>(method,args); }
             catch(Exception) {return "{}";}
@@ -31,12 +45,17 @@ namespace CapstoneDesign.Runtime
             bool enabled=!forceDisable && MeasurementConsented && CollectionContextAllowed;
             string binding=enabled?MeasurementBinding:"";
             long since=enabled?queue.MeasurementConsentUtcMs:0;
-            string key=binding+":"+since;
+            // Failed/unavailable enrollment is not withdrawal. Stop collection in
+            // memory while preserving the durable outbox for the same registration.
+            bool suspend=!forceDisable && !enabled;
+            string key=suspend?"suspended":forceDisable?"withdrawn":binding+":"+since;
             if(key==measurementSyncKey)return true;
             try
             {
-                var result=JsonUtility.FromJson<MeasurementResult>(MeasurementCall("configureMeasurements",binding,enabled,since));
+                var result=JsonUtility.FromJson<MeasurementResult>(suspend?MeasurementCall("suspendMeasurements"):
+                    MeasurementCall("configureMeasurements",binding,enabled,since));
                 if(result==null || !result.ok) {status="측정 등록 저장 확인 필요 · 다시 시도해 주세요";return false;}
+                if(forceDisable)pendingFocusExposures.Clear();
                 measurementSyncKey=key;return true;
             }
             catch(Exception) {return false;}
@@ -52,20 +71,56 @@ namespace CapstoneDesign.Runtime
                 && DateTimeOffset.TryParse(session.EndedUtc,out var ended))
                 RecordMeasuredActivity(session,session.Status==ParticipationState.RewardCommitted?"activity_completed":"activity_ended",ended);
         }
-        public void RecordMeasuredFocusExposure(FocusRecommendationExposure exposure)
+        public bool RecordMeasuredFocusExposure(FocusRecommendationExposure exposure)
         {
             if(exposure==null || !MeasurementConsented || !CollectionContextAllowed
                 || !DateTimeOffset.TryParse(exposure.ShownUtc,out var shown)
-                || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs || !SynchronizeMeasurementConsent())return;
-            RecordMeasuredFocus(exposure,"focus_recommendation_shown","",exposure.MissionId,shown);
+                || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs)return false;
+            if(pendingFocusExposures.TryGetValue(exposure.DecisionId,out var pending))
+            {
+                if(pending.Binding!=MeasurementBinding)pendingFocusExposures.Remove(exposure.DecisionId);
+                else if(pending.Terminal || Time.unscaledTime<pending.NextAttempt)return false;
+                // Keep the first observed timestamp across rerenders/caller mutation.
+                else {exposure=pending.Exposure;shown=DateTimeOffset.Parse(exposure.ShownUtc);}
+            }
+            else if(pendingFocusExposures.Count>=1024)return false;
+            var result=SynchronizeMeasurementConsent()?
+                RecordMeasuredFocus(exposure,"focus_recommendation_shown","",exposure.MissionId,shown):null;
+            if(result?.ok==true) { pendingFocusExposures.Remove(exposure.DecisionId); return true; }
+            if(pending==null || pending.Binding!=MeasurementBinding)
+                pending=new PendingFocusExposure {Binding=MeasurementBinding,Exposure=exposure.Copy()};
+            pending.Attempts++;
+            // Capacity/validation rejection cannot recover through a rapid retry.
+            // Retain a bounded tombstone so rerenders/session replay do not inflate
+            // native dropped-attempt counters. Other failures back off, at most 12 attempts.
+            pending.Terminal=result?.failure=="capacity" || result?.failure=="invalid"
+                || result?.failure=="outside-window" || pending.Attempts>=12;
+            pending.NextAttempt=Time.unscaledTime+Math.Min(300,3*(1<<Math.Min(pending.Attempts-1,7)));
+            pendingFocusExposures[exposure.DecisionId]=pending;
+            return false;
+        }
+        void RetryMeasuredFocusExposures()
+        {
+            if(!MeasurementConsented || !CollectionContextAllowed)return;
+            int attempted=0;
+            foreach(var item in pendingFocusExposures.ToArray())
+            {
+                if(item.Value.Binding!=MeasurementBinding || !DateTimeOffset.TryParse(item.Value.Exposure.ShownUtc,out var shown)
+                    || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs || shown<DateTimeOffset.UtcNow.AddDays(-90))
+                {pendingFocusExposures.Remove(item.Key);continue;}
+                if(item.Value.Terminal || Time.unscaledTime<item.Value.NextAttempt)continue;
+                if(attempted++>=8)break; // Bound main-thread JNI/disk work per update.
+                RecordMeasuredFocusExposure(item.Value.Exposure);
+            }
         }
         void RecordMeasuredFocusSession(ActivitySession session)
         {
             var exposure=session.FocusRecommendationExposure;
-            // Never reconstruct a missing exposure from a later selection. The exposure
-            // event itself is written only while its card is actually visible.
+            // This snapshot was stored only after an actual visible card. Replaying
+            // that exact evidence is safe; never substitute selection/start time.
             if(exposure==null || !DateTimeOffset.TryParse(exposure.ShownUtc,out var shown)
                 || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs)return;
+            RecordMeasuredFocusExposure(exposure);
             string key=EventQueue.Fingerprint(session.SessionId,"measurement").Substring(0,32);
             if(DateTimeOffset.TryParse(session.SelectedUtc,out var selected))RecordMeasuredFocus(exposure,"focus_recommendation_selected",key,session.MissionId,selected);
             if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredFocus(exposure,"focus_recommendation_started",key,session.MissionId,started);
@@ -73,10 +128,14 @@ namespace CapstoneDesign.Runtime
                 && DateTimeOffset.TryParse(session.EndedUtc,out var ended))
                 RecordMeasuredFocus(exposure,session.Status==ParticipationState.RewardCommitted?"focus_recommendation_completed":"focus_recommendation_ended",key,session.MissionId,ended);
         }
-        void RecordMeasuredFocus(FocusRecommendationExposure exposure,string kind,string session,string actual,DateTimeOffset at)
+        MeasurementResult RecordMeasuredFocus(FocusRecommendationExposure exposure,string kind,string session,string actual,DateTimeOffset at)
         {
-            MeasurementCall("recordMeasuredFocusRecommendation",kind,exposure.DecisionId,session,exposure.MissionId,actual,
-                exposure.PolicyId,exposure.Reason,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes);
+            try
+            {
+                return JsonUtility.FromJson<MeasurementResult>(MeasurementCall("recordMeasuredFocusRecommendation",kind,exposure.DecisionId,session,exposure.MissionId,actual,
+                    exposure.PolicyId,exposure.Reason,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes));
+            }
+            catch(Exception) {return null;}
         }
         void RecordMeasuredActivity(ActivitySession session,string kind,DateTimeOffset at)
         {
@@ -86,6 +145,7 @@ namespace CapstoneDesign.Runtime
         }
         IEnumerator SynchronizeMeasurements()
         {
+            int generation=localResetGeneration;
             if(!MeasurementConsented || !SynchronizeMeasurementConsent())yield break;
             string binding=MeasurementBinding;
             string body=MeasurementCall("getMeasurementBatch",binding);
@@ -98,6 +158,7 @@ namespace CapstoneDesign.Runtime
             using(var request=Request("POST","/measurements/batch",body))
             {
                 yield return request.SendWebRequest();
+                if(generation!=localResetGeneration || localResetBlocked)yield break;
                 if(!MeasurementConsented || binding!=MeasurementBinding)yield break;
                 if(request.result!=UnityWebRequest.Result.Success) {status="알림·활동 측정 전송 대기";yield break;}
                 try

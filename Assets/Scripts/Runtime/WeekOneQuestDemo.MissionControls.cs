@@ -13,6 +13,7 @@ namespace CapstoneDesign.Runtime
             if(!opened || !Apply(Service.ResetMissionHistory()))return false;
             foreach(var photoId in photoIds)Photos.Delete(photoId);
             Photos.Prune(Service.Snapshot);
+            ResetDailyEmotionUiDraft();
             // Clear detached UI drafts only after the saved reset succeeds.
             ClearPracticeDraft();planDrafts.Clear();recordsPage=0;sessionId=null;mood=null;draftNote=null;note=null;
             focusDraftSession=null;focusDraftStep=-1;focusAnswer="";focusMood="";focusNote="";focusDirty=false;

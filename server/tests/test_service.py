@@ -88,6 +88,21 @@ class ServiceTests(unittest.TestCase):
             with self.assertRaises(ApiError):
                 self.post([dict(event(), occurred_utc_ms=timestamp)])
 
+    def test_future_behavior_row_is_atomic_then_can_be_retried_unchanged_after_catchup(self):
+        future = dict(event(), occurred_utc_ms=(NOW + 86400) * 1000)
+        current = event()
+        with self.assertRaises(ApiError) as caught:
+            self.post([future, current])
+        self.assertEqual(caught.exception.status, 400)
+        self.assertEqual(self.count(), 0)
+        self.assertEqual(self.post([current])["accepted_event_ids"], [current["event_id"]])
+        self.service.clock = lambda: NOW + 86400
+        self.assertEqual(self.post([future])["accepted_event_ids"], [future["event_id"]])
+        self.assertEqual(self.count(), 2)
+        with sqlite3.connect(self.db) as db:
+            payload = db.execute("SELECT payload FROM events WHERE event_id=?", (future["event_id"],)).fetchone()[0]
+        self.assertEqual(json.loads(payload), future)
+
     def test_malformed_event_types_are_validation_errors_and_do_not_write(self):
         for field, value in [("kind", []), ("kind", {}), ("kind", None),
                              ("features", [10 ** 400, 0, 0, 0]),

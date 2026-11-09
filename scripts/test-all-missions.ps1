@@ -6,10 +6,12 @@ $testDirectory = Join-Path ([IO.Path]::GetTempPath()) ('capstone-all-mission-tes
 $testBinary = Join-Path $testDirectory 'all-mission-tests.exe'
 $mono = Join-Path $UnityMonoRoot 'bin/mono.exe'
 $compiler = Join-Path $UnityMonoRoot 'lib/mono/4.5/mcs.exe'
-$sources = @('Assets/Scripts/Runtime/LocalGardenState.cs', 'Assets/Scripts/Runtime/CameraMissionPolicy.cs', 'Assets/Scripts/Runtime/FocusMissionCatalog.cs', 'Assets/Scripts/Runtime/FocusDrawingData.cs', 'Assets/Scripts/Runtime/GardenPlantAppearance.cs', 'Assets/Scripts/Runtime/WeeklyPlantState.cs')
-$sources += @('Catalog', 'Math', 'Recipe', 'Generator', 'Geometry', 'MemoryGeometry', 'FlowerLayout') | ForEach-Object { 'Assets/Scripts/ProceduralPlants/Plant' + $_ + '.cs' }
+$sources = @('Assets/Scripts/Runtime/LocalGardenState.cs', 'Assets/Scripts/Runtime/FocusMissionCatalog.cs', 'Assets/Scripts/Runtime/FocusDrawingData.cs', 'Assets/Scripts/Runtime/GardenPlantAppearance.cs')
+$sources += @('Assets/Scripts/Runtime/MindfulnessContent.cs', 'Assets/Scripts/Runtime/MbctContent.cs')
+$sources += @('Catalog', 'Math', 'Recipe', 'Generator', 'Geometry') | ForEach-Object { 'Assets/Scripts/ProceduralPlants/Plant' + $_ + '.cs' }
 $sources += 'tests/AllMissionFlowTests.cs'
 $sources = $sources | ForEach-Object { Join-Path $projectRoot $_ }
+$sources = @($sources + (& (Join-Path $PSScriptRoot 'garden-domain-sources.ps1') -ProjectRoot $projectRoot)) | Select-Object -Unique
 New-Item -ItemType Directory -Path $testDirectory | Out-Null
 try {
     & $mono $compiler -langversion:latest -r:System.Xml.dll -r:System.Core.dll "-out:$testBinary" @sources

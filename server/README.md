@@ -46,9 +46,38 @@ remain local and do not export these records. A token is never bundled in the AP
 Existing authorized queues and collection-start boundaries are preserved. A newly
 activated measurement scope starts at activation time and excludes earlier selected
 sessions. Once enrollment is bound, transient activation-state writes retry every
-three seconds without moving an established collection boundary. This is not a
-claim that failed initial enrollment reads/binding automatically recover.
-Delete-pending and revoked registrations must not auto-enable.
+three seconds without moving an established collection boundary. Failed initial
+enrollment reads or queue binding also retry in the same running client; collection
+is suspended while the existing native outbox remains intact. Explicit withdrawal
+still clears the authorized queues. Delete-pending and revoked registrations must
+not auto-enable.
+
+Before an operator-managed QA install, run `scripts/check-qa-apk.py` to inspect
+package identity, version, signing certificate, debuggability and bundled private
+material without connecting to a device. `--distribution bootstrap-final` requires
+both `--previous-apk` pointing to the debuggable enrollment bootstrap and
+`--verifier-apk` pointing to the fixed-target QA registration verifier. It verifies
+a same-package, same-signer, higher-version-code non-debuggable final APK and a
+verifier signed by the same certificate for the fixed QA target package. The
+operator must provision and verify the app-private registration before the in-place
+update; this offline gate does not perform enrollment or establish server connectivity.
+The separate device verifier checks the registration file hash, queue enrollment
+fingerprint and consent boundary without launching the app or changing its data.
+A verifier pass is not evidence of HTTPS upload, server ACK or withdrawal success.
+Its `expectedSha256` is the SHA-256 of the exact registration-file bytes, not the
+APK hash; `expectedMeasurementConsentUtcMs` is the bootstrap collection-activation
+boundary, not the time a participant signed a form. The verifier is active-only
+(`expectedEnabled=true`) and cannot validate withdrawal. Re-enrolling after a
+non-debuggable final install requires a newer bootstrap followed by a still newer
+same-package, same-signer final APK; do not downgrade or clear participant data.
+Server `DELETE /participant` revokes server access but does not itself stop device
+collection. The operator must separately confirm local collection shutdown and
+local/export/backup cleanup; this does not add an in-app consent screen.
+The final APK requires HTTPS, including during QA: debug-only HTTP loopback
+registrations are rejected after switching to a non-development build. Final
+non-debuggable apps also reject `run-as`, so take the authorized private backup
+before replacement; the existing development deployment helper's post-install
+backup/launch sequence is not a non-debuggable deployment workflow.
 
 For any remote deployment, terminate TLS in a reviewed service configuration,
 keep the Python listener private, and configure storage and backup access before
@@ -57,7 +86,11 @@ server. It intentionally suppresses request logging. Reverse proxies must also
 avoid logging bearer headers or behavioral request bodies.
 
 The Python API runs separately from the app. No external production deployment has
-been performed; previous end-to-end validation used a local QA server. The
+been performed; previous end-to-end validation used a local QA server. The user is
+preparing the external server and explicitly excluded its connection validation
+from the current app-release work. Run that follow-up QA after the server is ready
+and before actual participant collection; it is not a blocker to continuing this
+app candidate preparation. The
 analysis PNG is also generated outside the app, not added as a new in-app chart.
 
 ## API contract
@@ -94,6 +127,21 @@ return 400; oversized bodies return 413; non-JSON POSTs return 415. Authenticati
 fails with 401; a withdrawn enrollment returns 403. A malformed, expired or
 unready configured model returns 503, so clients retain local fallback behavior.
 The maximum HTTP body is 128 KiB.
+
+Both native measurement and C# behavior outboxes preserve future-dated rows when
+the device clock is corrected, defer those rows and send other valid events. They
+never rewrite observed timestamps to obtain acceptance. If the device clock is
+still more than five minutes ahead of the server, the existing atomic API can
+reject the whole batch; local filtering cannot establish trusted server time.
+No server-Date synchronization or automatic clock correction has been implemented.
+Native measurement completeness remains 0 while any row is deferred. The separate
+behavior API has no completeness watermark or queue-loss counter: its 256-event
+queue and 8,192 receipts are bounded, and a full queue rejects new events. Do not
+treat absent behavior outcomes during clock/overflow incidents as verified
+nonresponses or personalization improvement. Resolve time settings and verify
+queue drainage before including such observations; unverified windows remain
+excluded from presentation claims. The behavior evaluator does not perform this
+operational exclusion automatically.
 
 Deletion removes that participant's event rows and keeps a minimal revocation
 tombstone. This prevents a delayed upload from recreating withdrawn records.

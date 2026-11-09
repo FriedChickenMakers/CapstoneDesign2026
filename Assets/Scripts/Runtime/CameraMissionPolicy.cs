@@ -25,7 +25,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public const string ModelVersion="efficientdet-lite0-int8-v1";
         public const double Threshold=.60; // Pilot default; not a calibrated probability of participation.
         public static bool ValidId(string id) => id!=null && id==id.ToLowerInvariant() && Guid.TryParseExact(id,"N",out _);
-        public static string Target(ActivitySession s) => s==null||(s.FocusVersion!=2&&s.FocusVersion!=3)?null:
+        public static string Target(ActivitySession s) => s==null||(s.FocusVersion!=2&&s.FocusVersion!=3&&s.FocusVersion!=FocusMissionCatalog.GuidedVersion&&s.FocusVersion!=FocusMissionCatalog.Version)?null:
             s.MissionId=="free-mission:M03"||s.MissionId=="course:P04"?"container":s.MissionId=="free-mission:M14"?"book":null;
         public static string TargetName(string target) => target=="book"?"종이책":"컵이나 병";
         public static bool AllowedLabel(string target,string label) => target=="container"?(label=="cup"||label=="bottle"):target=="book"&&label=="book";

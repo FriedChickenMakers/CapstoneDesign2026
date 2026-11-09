@@ -33,21 +33,43 @@ namespace CapstoneDesign.Runtime
             panel.pivot=new Vector2(.5f,.5f);panel.anchoredPosition=Vector2.zero;
             FigmaMissionUi.Label(panel,title,24,24,294,60,22,FigmaMissionUi.Ink,true);
             FigmaMissionUi.Label(panel,detail,24,96,294,80,16,FigmaMissionUi.Muted);
-            Action cancel=()=>{focusAdjustmentCancel=null;overlay.gameObject.SetActive(false);Destroy(overlay.gameObject);if(resume&&clock!=null&&!clock.Running)clock.ToggleRunning();if(resumeAudio&&audio!=null)audio.ResumePlayback();};
+            Action cancel=()=>{focusAdjustmentCancel=null;if(overlay!=null){overlay.gameObject.SetActive(false);if(Application.isPlaying)Destroy(overlay.gameObject);else DestroyImmediate(overlay.gameObject);}if(resume&&clock!=null&&!clock.Running)clock.ToggleRunning();if(resumeAudio&&audio!=null)audio.ResumePlayback();};
             focusAdjustmentCancel=cancel;
             FigmaMissionUi.Button(panel,"취소",24,204,140,56,cancel,Color.white,FigmaMissionUi.Brown).name="Focus.AdjustmentCancel";
-            FigmaMissionUi.Button(panel,confirm,178,204,140,56,()=>{focusAdjustmentCancel=null;if(!apply()){focusAdjustmentCancel=cancel;return;}if(overlay!=null){overlay.gameObject.SetActive(false);Destroy(overlay.gameObject);}},FocusAccent(mission)).name="Focus.AdjustmentConfirm";
+            FigmaMissionUi.Button(panel,confirm,178,204,140,56,()=>{focusAdjustmentCancel=null;if(!apply()){focusAdjustmentCancel=cancel;return;}if(overlay!=null){overlay.gameObject.SetActive(false);if(Application.isPlaying)Destroy(overlay.gameObject);else DestroyImmediate(overlay.gameObject);}},FocusAccent(mission)).name="Focus.AdjustmentConfirm";
             overlay.SetAsLastSibling();
         }
 
         void ShowFocusShortenPrompt(Transform root,FocusMissionDefinition mission,string id,int step)
         {
             var clock=focusPracticeClock;if(clock==null||!clock.HasStarted)return;
-            ShowFocusAdjustmentPrompt(root,mission,"여기까지만 진행할까요?","현재 실습 구간을 마치고 다음 안내로 이어가요.","여기까지 하기",()=>
+            ShowFocusAdjustmentPrompt(root,mission,"여기까지만 진행할까요?","여기까지 수행한 시간을 기록해요. 남은 필수 안내가 있으면 이어서 확인해요.","여기까지 하기",()=>
             {
+                var session=ActiveSession();
+                if(session?.SessionId!=id)return false;
+                if(FocusMissionCatalog.IsGuided(session))
+                {
+                    if(!FocusSaved(Service.ShortenGuidedFocusPractice(id,guidedChoice,guidedReflection,clock.ElapsedSeconds)))return false;
+                    guidedResumeClock=false;focusDirty=false;FinishFocusMission();return true;
+                }
                 if(!FocusSaved(Service.ShortenFocusStep(id,step,clock.ElapsedSeconds,focusAnswer)))return false;
-                focusDirty=false;ShowFocusPractice();return true;
+                basicResumeClock=false;focusDirty=false;ShowFocusPractice();return true;
             });
+        }
+
+        void BindFocusAdjustmentClock(Transform root,FocusMissionDefinition mission,string id,int step,Button shorten)
+        {
+            var clock=focusPracticeClock;
+            var record=ActiveSession().FocusStepRecords[step];
+            clock.RecommendedSeconds=Service.RecommendedFocusSeconds(id,step);
+            clock.PreviouslyStarted=!string.IsNullOrEmpty(record.PracticeStartedUtc);
+            clock.StartPractice=()=>FocusSaved(Service.StartFocusPracticeStep(id,step));
+            clock.StateChanged=()=>
+            {
+                var current=ActiveSession();
+                shorten.interactable=clock.HasStarted && current?.SessionId==id
+                    && current.InstructionStep==step && string.IsNullOrEmpty(current.FocusStepRecords[step].ConfirmedUtc);
+            };
         }
 
         void ShowFocusEndPrompt(Transform root,FocusMissionDefinition mission,string id)

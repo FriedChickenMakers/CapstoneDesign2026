@@ -33,8 +33,18 @@ CLIENT_CHECKS = frozenset({"unregistered-install-does-not-collect", "unregistere
                            "measurement-write-failure-keeps-measurements-disabled",
                            "measurement-activation-retries-preserving-original-boundary",
                            "first-activation-boundaries-persisted", "client-recreation-preserves-activation-boundaries",
+                           "queue-read-failure-suspends-registration", "failed-queue-is-preserved-for-recovery",
+                           "queue-read-retry-preserves-collection-boundary", "invalid-registration-suspends-collection",
+                           "invalid-registration-does-not-clear-durable-queue", "registration-retry-preserves-collection-boundary",
+                           "shown-write-failure-not-acknowledged", "shown-retry-retains-original-decision-and-observed-time",
+                           "acknowledged-shown-stops-client-retries", "saved-visible-snapshot-restores-shown-without-fabricating-selection-time",
+                           "shown-capacity-not-acknowledged", "shown-capacity-does-not-loop-or-inflate-drop-counter",
+                           "shown-invalid-not-acknowledged", "shown-invalid-does-not-loop-or-inflate-drop-counter",
+                           "shown-transient-retry-respects-first-backoff", "shown-repeated-storage-failure-backs-off-exponentially",
                            "synthetic-event-queued", "upload-acknowledged", "server-upload-confirmed",
                            "operator-withdrawal-immediate-local-clear", "pending-deletion-reload-cannot-reactivate",
+                           "local-reset-preserves-pending-server-deletion", "pending-deletion-credentials-preserved",
+                           "local-reset-finishes-after-server-deletion",
                            "server-deletion-acknowledged", "revoked-enrollment-reload-cannot-reactivate",
                            "revoked-enrollment-cannot-record"})
 

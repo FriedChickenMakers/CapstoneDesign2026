@@ -53,7 +53,7 @@ namespace CapstoneDesign.Runtime
                 "같은 원리를 다양한 상황에서 반복하며 익혀요. 8주 동안 몸과 생각을 관찰하고 나를 돌보는 계획을 이어가요.");
             GardenUi.FlowLabel(p,MbctPolicy.PracticeCount(program)+"개 활동 · 주 최대 6개\n기간은 권장 일정이에요. 놓친 날에도 진도는 그대로예요.");
             GardenUi.FlowLabel(p,"기간을 바꿔도 지금까지의 기록과 정원은 남아요. 돌아오면 멈춘 진도부터 이어갈 수 있어요.",GardenUi.BodySize,GardenUi.Muted);
-            GardenUi.FlowLabel(p,"처음 마친 활동마다 영양제 "+Balance.CompletionNutrient+"개를 받아요. 기간 변경과 복습에는 추가 보상이 없어요.",GardenUi.BodySize,GardenUi.Muted);
+            GardenUi.FlowLabel(p,"미션을 완료하면 식물이 자라요. 코스 기간을 바꿔도 기록은 유지돼요.",GardenUi.BodySize,GardenUi.Muted);
             DockAction(completed>=MbctPolicy.PracticeCount(program)?"완료한 코스 보기":completed>0?"이어서 하기":"이 기간으로 시작",()=>
             {
                 if(Apply(Service.SelectMbctProgram(program))) { coursePageInitialized=false;freeIndex=0;ShowLegacyHome(); }
@@ -68,6 +68,8 @@ namespace CapstoneDesign.Runtime
         }
         bool SaveActivePracticeDraft()
         {
+            if(HasPendingFullReset)return false;
+            if(!SaveDailyEmotionUiDraft())return false;
             if(!SaveFocusDraft())return false;
             if(practiceInput==null || practiceKey==null || practiceSession==null)return true;
             var session=Service.Snapshot.Sessions.FirstOrDefault(s=>s.SessionId==practiceSession);
@@ -187,7 +189,7 @@ namespace CapstoneDesign.Runtime
         {
             if(skip)experienceValues[experienceStep]="";
             if(experienceStep<3){experienceStep++;ShowExperienceStep();return;}
-            ShowExperiencePlantConfirmation();
+            if(Apply(Service.SaveExperience(experienceId,experienceType,experienceValues[0],experienceValues[1],experienceValues[2],experienceValues[3])))FinishExperienceNavigation();
         }
         public void ShowExperienceHistory()
         {
@@ -216,9 +218,6 @@ namespace CapstoneDesign.Runtime
         {
             EnterPage("experience-record",()=>ShowExperienceRecord(id),id);var e=Service.Snapshot.Experiences.First(r=>r.Id==id);var p=FocusPage("경험 · "+e.Type,"나의 기록");
             GardenUi.FlowLabel(p,"사건\n"+e.Event+"\n\n몸 감각\n"+e.Body+"\n\n감정\n"+e.Emotion+"\n\n생각\n"+e.Thought);
-            DockAction("기록 수정",()=>EditPlantExperience(id));
-            var memory=WeeklyPlants.FindMemory(Service.Snapshot,MemoryRecordKind.Experience,id);
-            if(memory!=null)DockAction("기억 잎 보기",()=>{var plant=Service.Snapshot.PlantCollection.Plants.First(x=>x.Memories.Any(m=>m.OrganId==memory.OrganId));ShowMemory(plant.Id,memory.OrganId);});
             DockAction("경험 목록",ShowExperienceHistory);
         }
         public void ShowPersonalPlan()

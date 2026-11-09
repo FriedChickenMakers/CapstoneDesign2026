@@ -89,7 +89,7 @@ namespace CapstoneDesign.EditorTools
             loop.ShowPersonalPlan(); CaptureView("plan-empty", "empty", "no personal plan");
             loop.ShowDiscoveries(); CaptureView("discoveries-empty", "empty", "no animal discovery");
             loop.ShowShop(); CaptureView("shop-empty", "shop", "insufficient nutrients");
-            loop.ShowPlantCollection(); CaptureView("plants-new", "plants", "activity-grown seed; nutrients are not a growth cost");
+            loop.ShowPlantAlbum(); CaptureView("plants-new", "plants", "activity-grown seed; nutrients are not a growth cost");
             loop.ShowShop(); loop.PreviewEnvironment("environment:E01"); CaptureView("placement-flower-insufficient", "shop", "flower preview no nutrients");
             bool flowerClicked = InvokeButton(loop, "확정");
             CaptureView("placement-flower-error", "error", flowerClicked ? "flower insufficient nutrients" : "purchase disabled; click has no effect");
@@ -171,7 +171,7 @@ namespace CapstoneDesign.EditorTools
             loop.ShowShop(); CaptureView("shop-with-nutrients", "shop", "earned nutrients");
 
             // Supplemental states added after the original baseline capture.
-            loop.ShowPlantCollection(); CaptureView("plants-after-course", "plants", "activity-grown plant collection after course completion");
+            loop.ShowPlantAlbum(); CaptureView("plants-after-course", "plants", "activity-grown plant collection after course completion");
             loop.ShowPlantMemories(WeeklyPlants.Active(service.Snapshot).Id, 0);
             CaptureView("plant-memories-after-course", "plants", "optional records linked to the active plant");
             nav.ShowActivities(); loop.ShowShop(); loop.PreviewEnvironment("environment:E01");

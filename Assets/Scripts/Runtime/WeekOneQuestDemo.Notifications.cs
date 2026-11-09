@@ -74,30 +74,39 @@ namespace CapstoneDesign.Runtime
 
         void CompleteWalkingGoal(string id)
         {
+            if(presentingPracticeGrowthSession!=null)return;
             var beforeState=Service.Snapshot;
             var before=beforeState.Sessions.FirstOrDefault(s=>s.SessionId==id);
-            // Focus missions finish through their own guidance and reflection transaction.
+            // Focus missions finish through their own guidance transaction.
             // A step notification must not submit or discard the user's editable focus draft.
             if(FocusMissionPolicy.IsFocus(before))return;
             if(!WalkingEvidence.CanAutomaticallyComplete(before,DebugWalkEnabled))return;
-            // Do not discard a reflection the user is currently composing. Its explicit Finish
-            // uses the same atomic completion; leaving the form lets the verified goal finish.
-            if(screen=="reflection" && sessionId==id && isActiveAndEnabled)return;
-            // Leaving the reflection page may destroy its InputField, while these session-owned
-            // drafts remain in memory. Commit them with the reward before clearing UI state.
-            string reflectionMood=sessionId==id?mood:null;
-            string reflectionNote=sessionId==id?draftNote:null;
-            if(!Apply(Service.TryCompleteWalkingGoal(id,reflectionMood,reflectionNote)))return;
-            AndroidPlatformBridge.AcknowledgeMissionAchievement(id);
-            reminderSync.Invalidate();
-            bool showingParticipation=(screen=="session" || screen=="reflection") && sessionId==id;
-            if(sessionId==id) {sessionId=null;mood=null;draftNote=null;ClearPracticeDraft();}
+            // A visible failure waits for an explicit retry. An older growth
+            // receipt must not prevent the remaining completion from being saved.
+            if(screen=="practice-complete-error" && sessionId==id && isActiveAndEnabled)return;
+            bool showingParticipation=screen=="session" && sessionId==id && isActiveAndEnabled;
             if(showingParticipation)
             {
-                ResetCompletedNavigation();
-                ShowCompletion(Service.Snapshot.Nutrient>beforeState.Nutrient);
+                HandlePracticeCompletion(id,()=>
+                {
+                    AndroidPlatformBridge.AcknowledgeMissionAchievement(id);
+                    reminderSync.Invalidate();
+                    sessionId=null;
+                    ResetCompletedNavigation();
+                    ShowCompletion(id);
+                });
+                return;
             }
-            else pageHistory.RemoveAll(page=>page.Key=="session" || page.Key=="reflection");
+            // Complete in the background without opening another page.
+            if(!Service.CompletePracticeSession(id))return;
+            AndroidPlatformBridge.AcknowledgeMissionAchievement(id);
+            reminderSync.Invalidate();
+            UpdateGarden();
+            if(isActiveAndEnabled)
+            {
+                if(screen=="home")ShowHome();
+                else if(screen=="focus-recommendation")ShowFocusRecommendation();
+            }
         }
     }
 }

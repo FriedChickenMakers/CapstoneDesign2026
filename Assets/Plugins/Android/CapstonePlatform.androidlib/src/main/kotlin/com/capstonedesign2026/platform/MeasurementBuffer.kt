@@ -47,7 +47,14 @@ internal class MeasurementBuffer(private val store: MeasurementStore, private va
         commit(state.copy(events = state.events + record, receipts = state.receipts + (record.eventId to record.occurred)))
         return true
     }
-    fun batch(now: Long): List<MeasurementRecord> { prune(now); return if (state.enabled) state.events.take(100) else emptyList() }
+    fun batch(now: Long): List<MeasurementRecord> {
+        prune(now)
+        // A corrected device clock may leave an earlier future-dated event at the
+        // head. Keep it for later, but do not let it poison every valid batch.
+        return if (state.enabled) state.events.filter {
+            it.occurred <= now + 300000 && it.scheduled <= now + 86400000
+        }.take(100) else emptyList()
+    }
     fun batchSnapshot(now: Long): MeasurementBatch {
         val events = batch(now)
         // A partial upload says nothing about clicks still waiting later in the outbox.

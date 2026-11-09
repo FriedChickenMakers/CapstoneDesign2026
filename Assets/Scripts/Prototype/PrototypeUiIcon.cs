@@ -11,7 +11,7 @@ namespace CapstoneDesign.Prototype
         public enum Symbol
         {
             Leaf = 0, Journal = 1, Check = 2, Arrow = 3, Gear = 4, Lock = 5,
-            Pot = 6, Nutrient = 7, Flower = 8, Bell = 9, Music = 10, Heart = 11,
+            Pot = 6, Coin = 7, Nutrient = Coin, Flower = 8, Bell = 9, Music = 10, Heart = 11,
             ZoomIn = 12, ZoomOut = 13, Garden = 14, Seed = 15, BookMark = 16, Sparkle = 17
         }
         public Symbol symbol;
@@ -84,14 +84,12 @@ namespace CapstoneDesign.Prototype
                     DrawLeaf(mesh,new Vector2(.50f,.68f),new Vector2(.78f,.88f),.12f,LightLeaf);
                     DrawPot(mesh);
                     break;
-                case Symbol.Nutrient:
-                    Box(mesh,.37f,.73f,.26f,.14f,.025f,Ink);
-                    Box(mesh,.40f,.77f,.20f,.07f,.01f,Wood);
-                    Box(mesh,.24f,.13f,.52f,.63f,.12f,Ink);
-                    Box(mesh,.28f,.17f,.44f,.55f,.09f,Sage);
-                    Box(mesh,.30f,.28f,.40f,.31f,.035f,Paper);
-                    DrawLeaf(mesh,new Vector2(.40f,.33f),new Vector2(.62f,.54f),.08f,Sage);
-                    Stroke(mesh,.018f,Paper,new Vector2(.33f,.62f),new Vector2(.37f,.68f));
+                case Symbol.Coin:
+                    Disc(mesh,Vector2.one*.5f,Vector2.one*.37f,Ink);
+                    Disc(mesh,Vector2.one*.5f,Vector2.one*.33f,Gold);
+                    Disc(mesh,Vector2.one*.5f,Vector2.one*.25f,Wood);
+                    Disc(mesh,Vector2.one*.5f,Vector2.one*.22f,Gold);
+                    DrawLeaf(mesh,new Vector2(.39f,.35f),new Vector2(.65f,.66f),.10f,Paper);
                     break;
                 case Symbol.Flower:
                     Stroke(mesh,.03f,Ink,new Vector2(.5f,.13f),new Vector2(.5f,.63f));

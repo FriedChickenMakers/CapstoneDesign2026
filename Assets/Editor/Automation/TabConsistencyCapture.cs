@@ -507,10 +507,10 @@ namespace CapstoneDesign.EditorTools
                 }
                 else if(!empty)SeedRememberedActivities(service,clock);
                 var plant=WeeklyPlants.Active(service.Snapshot);
-                if(name.StartsWith("weekly-collection",StringComparison.Ordinal)||name=="weekly-growth-committed")loop.ShowPlantCollection();
+                if(name.StartsWith("weekly-collection",StringComparison.Ordinal)||name=="weekly-growth-committed")loop.ShowPlantAlbum();
                 else if(name.StartsWith("weekly-memory-",StringComparison.Ordinal))
                 {
-                    loop.ShowMemoryChoices(plant.Id,new[]{plant.Memories.First().OrganId});
+                    loop.ShowPlantMemories(plant.Id,0);
                     if(name=="weekly-memory-source")Click(loop.transform,"원래 활동 기록");
                     else if(name.StartsWith("weekly-memory-delete",StringComparison.Ordinal))Click(loop.transform,"이 기록 삭제");
                 }

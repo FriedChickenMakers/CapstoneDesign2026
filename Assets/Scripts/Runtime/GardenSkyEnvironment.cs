@@ -112,43 +112,68 @@ namespace CapstoneDesign.Runtime
             return new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), .35f * Mathf.Sin(angle)).normalized;
         }
 
+        // Shared presentation values keep the garden and archived-plant meadow on
+        // the same clock without sharing cameras or changing persistent state.
+        public struct SkyTime
+        {
+            public Vector3 SunDirection, LightDirection;
+            public float Daylight, Twilight, LightIntensity, ReflectionIntensity;
+            public Color LightColor, AmbientSky, AmbientEquator, AmbientGround, Background;
+        }
+        public static SkyTime EvaluateTime(double hour)
+        {
+            var sun = SolarDirection(hour);
+            float daylight = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(-.14f, .24f, sun.y));
+            float twilight = (1 - Mathf.Clamp01(Mathf.Abs(sun.y) / .32f)) * daylight;
+            return new SkyTime {
+                SunDirection = sun, LightDirection = sun.y >= 0 ? sun : -sun,
+                Daylight = daylight, Twilight = twilight,
+                LightColor = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1.015f,.995f,.92f), new Color(1,.61f,.34f), twilight), daylight),
+                LightIntensity = Mathf.Lerp(1.0f, 1.28f, daylight),
+                AmbientSky = Color.Lerp(new Color(.25f,.28f,.38f), new Color(.57f,.69f,.77f), daylight),
+                AmbientEquator = Color.Lerp(new Color(.20f,.24f,.27f), new Color(.41f,.44f,.39f), daylight),
+                AmbientGround = Color.Lerp(new Color(.14f,.14f,.18f), new Color(.27f,.26f,.24f), daylight),
+                ReflectionIntensity = Mathf.Lerp(.06f,.25f,daylight),
+                Background = Color.Lerp(new Color(.009f,.018f,.043f), new Color(.46f,.70f,.88f), daylight)
+            };
+        }
+        public static void ConfigureSkyMaterial(Material material, SkyTime time, float aspect)
+        {
+            if (material == null) return;
+            material.SetVector("_SunDirection", time.SunDirection);
+            material.SetFloat("_Daylight", time.Daylight);
+            material.SetFloat("_Twilight", time.Twilight);
+            material.SetFloat("_SkyAspect", aspect);
+        }
+
         void ApplyTime(double hour)
         {
             if (key == null) return;
-            SunDirection = SolarDirection(hour);
-            float elevation = SunDirection.y;
-            Daylight = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(-.14f, .24f, elevation));
-            float twilight = (1 - Mathf.Clamp01(Mathf.Abs(elevation) / .32f)) * Daylight;
-            Vector3 direction = elevation >= 0 ? SunDirection : MoonDirection;
+            var time = EvaluateTime(hour);
+            SunDirection = time.SunDirection; Daylight = time.Daylight;
             // The sky disc and shadow light use exactly the same world direction.
-            key.transform.rotation = Quaternion.LookRotation(-direction.normalized, Vector3.up);
-            key.color = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1.015f,.995f,.92f),
-                new Color(1,.61f,.34f), twilight), Daylight);
+            key.transform.rotation = Quaternion.LookRotation(-time.LightDirection.normalized, Vector3.up);
+            key.color = time.LightColor;
             // Moonlight reaches the raised flowers as well as the ground. It is
             // a real directional source, independent of the warm low lanterns.
-            key.intensity = Mathf.Lerp(.85f, 1.28f, Daylight);
+            key.intensity = time.LightIntensity;
             RenderSettings.sun = key;
             RenderSettings.ambientMode = AmbientMode.Trilight;
             // Broad sky and ground bounce retain the faceted silhouette without
             // crushing unlit cliff faces to black. Warm pools remain local lamps.
-            RenderSettings.ambientSkyColor = Color.Lerp(new Color(.17f,.20f,.32f), new Color(.57f,.69f,.77f), Daylight);
-            RenderSettings.ambientEquatorColor = Color.Lerp(new Color(.12f,.14f,.21f), new Color(.41f,.44f,.39f), Daylight);
-            RenderSettings.ambientGroundColor = Color.Lerp(new Color(.09f,.085f,.12f), new Color(.27f,.26f,.24f), Daylight);
-            RenderSettings.reflectionIntensity = Mathf.Lerp(.06f,.25f,Daylight);
-            if (sky != null)
-            {
-                sky.SetVector("_SunDirection", SunDirection);
-                sky.SetFloat("_Daylight", Daylight);
-                sky.SetFloat("_Twilight", twilight);
-            }
+            RenderSettings.ambientSkyColor = time.AmbientSky;
+            RenderSettings.ambientEquatorColor = time.AmbientEquator;
+            RenderSettings.ambientGroundColor = time.AmbientGround;
+            RenderSettings.reflectionIntensity = time.ReflectionIntensity;
+            ConfigureSkyMaterial(sky, time, view.aspect);
             if (cloudMaterial != null)
             {
                 cloudMaterial.SetFloat("_Daylight", Daylight);
-                cloudMaterial.SetFloat("_Twilight", twilight);
+                cloudMaterial.SetFloat("_Twilight", time.Twilight);
             }
             StreetLighting?.ApplyTime(hour);
             StreetLighting?.ApplyToMist(cloudMaterial);
-            view.backgroundColor = Color.Lerp(new Color(.009f,.018f,.043f), new Color(.46f,.70f,.88f), Daylight);
+            view.backgroundColor = time.Background;
         }
 
         void CreateClouds()

@@ -42,9 +42,20 @@ namespace CapstoneDesign.Runtime
         public Button MissionRefreshButton => refreshHealthButton;
         public Button AdvanceMissionDayButton { get; private set; }
         public Text MissionDateStatus { get; private set; }
+        public Button AddTestCoinsButton { get; private set; }
+        public Text TestCoinStatus { get; private set; }
+        // Retain callers of the previous development-only controls while the
+        // product and service now expose the same saved wallet as coins.
+        public Button AddTestNutrientsButton => AddTestCoinsButton;
+        public Text TestNutrientStatus => TestCoinStatus;
+        private Text coinActionStatus;
         public Button TestToolsToggleButton { get; private set; }
         public Button MissionResetConfirmButton { get; private set; }
         private GameObject missionResetConfirmation;
+        private string fullResetRequestId, fullResetSourceId;
+        private Button fullResetCancelButton;
+        private readonly System.Collections.Generic.Dictionary<Selectable,bool> resetBlockedControls
+            = new System.Collections.Generic.Dictionary<Selectable,bool>();
         private Disclosure testToolsDisclosure, diagnosticsDisclosure;
         private sealed class Disclosure
         {
@@ -162,21 +173,30 @@ namespace CapstoneDesign.Runtime
             Transform testTools = testToolsDisclosure.Content;
             Copy(testTools, "개발·테스트용 · 출시 버전에는 표시되지 않아요.", GardenUi.CaptionSize, GardenUi.Muted);
             Transform missions = Section(testTools, "Mission controls", "미션 테스트");
-            if (refreshHealthButton == null) refreshHealthButton = RowControl(missions, "미션 기록 초기화", null);
-            else PlaceRow(refreshHealthButton, missions, "미션 기록 초기화", false);
-            refreshHealthButton.name = "Settings.ResetMissionRecords";
+            if (refreshHealthButton == null) refreshHealthButton = RowControl(missions, "전체 초기화", () => { });
+            else PlaceRow(refreshHealthButton, missions, "전체 초기화", false);
+            refreshHealthButton.name = "Settings.ResetAllData";
             refreshHealthButton.GetComponentInChildren<Text>(true).color = GardenUi.Warning;
-            missionResetConfirmation = Section(missions, "Reset confirmation", "미션 기록을 초기화할까요?", new Color(1f, .95f, .90f)).gameObject;
-            Copy(missionResetConfirmation.transform, "완료 기록·작성한 내용·진행 중인 미션을 지워요.\n식물·정원·보유 영양제는 그대로 남아요.", GardenUi.BodySize, GardenUi.Ink);
-            MissionResetConfirmButton = Control(missionResetConfirmation.transform, "기록 초기화하기", ResetMissionRecords, true);
-            MissionResetConfirmButton.name = "Settings.ConfirmMissionReset";
+            missionResetConfirmation = Section(missions, "Reset confirmation", "모든 내용을 초기화할까요?", new Color(1f, .95f, .90f)).gameObject;
+            Copy(missionResetConfirmation.transform, "미션·감정·건강 수집 기록, 코인, 식물·사진첩·메모, 정원 가구와 앱 설정을 모두 초기 상태로 되돌려요.\n초기화한 내용은 되돌릴 수 없어요.", GardenUi.BodySize, GardenUi.Ink);
+            Copy(missionResetConfirmation.transform, "휴대폰 건강 앱의 원본 기록과 시스템 권한은 변경하지 않아요.", GardenUi.CaptionSize, GardenUi.Muted);
+            MissionResetConfirmButton = Control(missionResetConfirmation.transform, "전체 초기화하기", () => { }, true);
+            MissionResetConfirmButton.name = "Settings.ConfirmFullReset";
             GardenUi.Round(MissionResetConfirmButton.GetComponent<Image>(), GardenUi.Warning);
-            Control(missionResetConfirmation.transform, "취소", CancelMissionReset);
+            fullResetCancelButton = Control(missionResetConfirmation.transform, "취소", CancelMissionReset);
+            fullResetCancelButton.name = "Settings.CancelFullReset";
             missionResetConfirmation.SetActive(false);
             Divider(missions);
             MissionDateStatus = Copy(missions, "", GardenUi.BodySize, GardenUi.Muted);
             AdvanceMissionDayButton = RowControl(missions, "다음 날로 넘기기", AdvanceMissionDate);
             missionActionStatus = ActionLine(missions);
+            missionActionStatus.name = "Settings.FullResetStatus";
+
+            Transform gardenTests = Section(testTools, "Garden test controls", "정원 테스트");
+            TestCoinStatus = Copy(gardenTests, "", GardenUi.BodySize, GardenUi.Muted);
+            AddTestCoinsButton = RowControl(gardenTests, "코인 100개 추가", AddTestCoins);
+            AddTestCoinsButton.name = "Settings.AddTestCoins";
+            coinActionStatus = ActionLine(gardenTests);
             RefreshMissionControls();
 
             diagnosticsButton = RowControl(testTools, "상세 진단  +", ToggleDiagnostics);
@@ -609,6 +629,15 @@ namespace CapstoneDesign.Runtime
 
         private void Update()
         {
+            if (Loop != null && Loop.HasPendingFullReset)
+            {
+                if (Time.unscaledTime >= nextRefresh)
+                {
+                    nextRefresh = Time.unscaledTime + RefreshSeconds;
+                    RefreshMissionControls();
+                }
+                return;
+            }
             if (Time.unscaledTime >= nextHealthRefresh)
             {
                 nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
@@ -632,6 +661,7 @@ namespace CapstoneDesign.Runtime
 
         public void OnSettingsOpened()
         {
+            if (Loop != null && Loop.HasPendingFullReset) { RefreshMissionControls(); return; }
             Loop?.RequestStepSyncSoon();
             if (Application.platform != RuntimePlatform.Android ||
                 AndroidPlatformBridge.InputMode != PlatformInputMode.Live) return;
@@ -650,6 +680,7 @@ namespace CapstoneDesign.Runtime
 
         private void OnApplicationFocus(bool focused)
         {
+            if (Loop != null && Loop.HasPendingFullReset) return;
             if (focused && Application.platform == RuntimePlatform.Android &&
                 gameObject.activeInHierarchy && AndroidPlatformBridge.InputMode == PlatformInputMode.Live)
                 AndroidPlatformBridge.RefreshHealthData();
@@ -706,6 +737,13 @@ namespace CapstoneDesign.Runtime
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
         void RequestMissionReset()
         {
+            if(Loop==null || !Loop.HasOpenState)return;
+            var state=Loop.Service.Snapshot;
+            fullResetRequestId=Loop.HasPendingFullReset?state.FullResetRequestId:Guid.NewGuid().ToString("N");
+            fullResetSourceId=Loop.HasPendingFullReset?state.FullResetSourceInstallationId:Loop.ResetSourceInstallationId;
+            string request=fullResetRequestId, source=fullResetSourceId;
+            MissionResetConfirmButton.onClick.RemoveAllListeners();
+            MissionResetConfirmButton.onClick.AddListener(()=>ResetAllRecords(request,source));
             missionResetConfirmation.SetActive(true);
             missionActionStatus.gameObject.SetActive(false);
             RefreshDisclosureSize(testToolsDisclosure);
@@ -721,18 +759,21 @@ namespace CapstoneDesign.Runtime
 
         void CancelMissionReset()
         {
+            if(Loop!=null && Loop.HasPendingFullReset)return;
+            fullResetRequestId=fullResetSourceId=null;
             if (missionResetConfirmation != null) missionResetConfirmation.SetActive(false);
             RefreshDisclosureSize(testToolsDisclosure);
             if (PrimaryScroll != null) LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
         }
 
-        void ResetMissionRecords()
+        void ResetAllRecords(string request,string source)
         {
-            if (missionResetConfirmation == null || !missionResetConfirmation.activeInHierarchy) return;
-            bool success=Loop!=null && Loop.ResetMissionProgress();
+            if (missionResetConfirmation == null || !missionResetConfirmation.activeInHierarchy
+                || request!=fullResetRequestId || source!=fullResetSourceId) return;
+            bool success=Loop!=null && Loop.ResetAllData(request,source);
             if(missionActionStatus!=null)
             {
-                missionActionStatus.text=success?"미션 기록을 초기화했어요.":"초기화하지 못했어요. 다시 시도해 주세요.";
+                missionActionStatus.text=Loop?.FullResetStatusText ?? "초기화하지 못했어요. 다시 시도해 주세요.";
                 missionActionStatus.gameObject.SetActive(true);
             }
             if (success) CancelMissionReset();
@@ -749,16 +790,60 @@ namespace CapstoneDesign.Runtime
             }
             RefreshMissionControls();
         }
+
+        void AddTestCoins()
+        {
+            bool success = Loop != null && Loop.AddTestCoins();
+            coinActionStatus.text = success ? "코인 100개를 추가했어요." : "추가하지 못했어요. 다시 시도해 주세요.";
+            coinActionStatus.gameObject.SetActive(true);
+            RefreshMissionControls();
+        }
 #endif
 
         void RefreshMissionControls()
         {
 #if UNITY_EDITOR || DEVELOPMENT_BUILD
             var loop=Loop;bool ready=loop!=null && loop.HasOpenState;
+            bool pending=ready && loop.HasPendingFullReset;
+            if(ready && !pending && fullResetRequestId!=null && loop.Service.Snapshot.FullResetRequestId==fullResetRequestId)
+            {
+                if(missionActionStatus!=null)
+                {
+                    missionActionStatus.text=loop.FullResetStatusText;
+                    missionActionStatus.gameObject.SetActive(true);
+                }
+                CancelMissionReset();
+            }
+            if(pending && missionActionStatus!=null)
+            {
+                missionActionStatus.text=loop.FullResetStatusText;
+                missionActionStatus.gameObject.SetActive(true);
+            }
             if(MissionDateStatus!=null)MissionDateStatus.text="미션 날짜 · "+(ready?loop.MissionDateLabel:"확인 중");
             if(refreshHealthButton!=null)refreshHealthButton.interactable=ready;
-            if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready;
+            if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready && !pending;
             if(MissionResetConfirmButton!=null)MissionResetConfirmButton.interactable=ready;
+            if(MissionResetConfirmButton!=null)MissionResetConfirmButton.GetComponentInChildren<Text>().text=pending?"초기화 다시 시도":"전체 초기화하기";
+            if(fullResetCancelButton!=null)fullResetCancelButton.interactable=!pending;
+            if(AddTestCoinsButton!=null)AddTestCoinsButton.interactable=ready && !pending;
+            if(TestCoinStatus!=null)TestCoinStatus.text="보유 코인 · "+(ready?loop.Service.CoinBalance+"개":"확인 중");
+            if(pending)
+            {
+                foreach(var control in GetComponentsInChildren<Selectable>(true))
+                {
+                    if(control==MissionResetConfirmButton || control is Scrollbar)continue;
+                    if(!resetBlockedControls.ContainsKey(control))resetBlockedControls.Add(control,control.interactable);
+                    control.interactable=false;
+                }
+            }
+            else if(resetBlockedControls.Count>0)
+            {
+                foreach(var item in resetBlockedControls)if(item.Key!=null)item.Key.interactable=item.Value;
+                resetBlockedControls.Clear();
+                if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready;
+                if(AddTestCoinsButton!=null)AddTestCoinsButton.interactable=ready;
+                if(fullResetCancelButton!=null)fullResetCancelButton.interactable=true;
+            }
             RefreshDisclosureSize(testToolsDisclosure);
 #endif
         }
@@ -786,6 +871,7 @@ namespace CapstoneDesign.Runtime
         private void RefreshText()
         {
             RefreshMissionControls();
+            if (Loop != null && Loop.HasPendingFullReset) return;
             RefreshMusicSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
@@ -807,8 +893,7 @@ namespace CapstoneDesign.Runtime
                 if(virtualStepButton!=null)
                 {
                     virtualStepButton.interactable=enabled;
-                    virtualStepButton.GetComponentInChildren<Text>(true).color=
-                        GardenThemeSurface.Foreground(virtualStepButton.transform,enabled?GardenUi.Green:GardenUi.Muted);
+                    virtualStepButton.GetComponentInChildren<Text>(true).color=GardenThemeSurface.Foreground(virtualStepButton.transform,enabled?GardenUi.Green:GardenUi.Muted);
                 }
             }
             AndroidDeviceSnapshot device = snapshot.device ?? new AndroidDeviceSnapshot();

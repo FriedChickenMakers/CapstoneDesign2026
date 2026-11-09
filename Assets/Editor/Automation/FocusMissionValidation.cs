@@ -127,6 +127,7 @@ namespace CapstoneDesign.EditorTools
                 Check(report, "Integrated portrait shell hides garden canvas and restores it on return", () => IntegratedShell(report, request.capture));
                 Check(report, "Fresh missions start available and weekly rest never appears as today's completion", () => InitialAndWeeklyState(report, request.capture));
                 Check(report, "Settings reset mission records atomically and advance only the app mission date", () => SettingsMissionControls(report, request.capture));
+                Check(report, "Development settings add exactly 100 coins per click and preserve all other saved data", () => SettingsTestCoins(report, request.capture));
                 Check(report, "Focused-input keyboard geometry keeps entry and done controls visible and separate", KeyboardGeometry);
                 Check(report, "Learned MBCT recommendation settings and selected candidate remain reachable", () => LearnedRecommendations(report, request.capture));
                 Check(report, "Garden shop progress and linked history preserve Focus and legacy meanings", () => GardenProgressAndRecordTitles(report, request.capture));
@@ -167,7 +168,7 @@ namespace CapstoneDesign.EditorTools
                 f.ScrollToBottomViaBar();
                 f.Invoke("ShowHome");
                 f.AssertScrollStartsAtTop("기본 미션");
-                f.Click("내 과정");
+                f.Click("기록");
                 f.AssertScrollStartsAtTop("Focus.CourseRecords.2w");
                 f.ScrollToBottomViaBar();
                 f.Invoke("ShowFocusCourse");
@@ -183,16 +184,16 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Has("추가 미션 시작하기"), "Recommendation did not expose the additional start action.");
                 f.Capture("02-recommendation", capture);
                 f.Click("미션 창으로 돌아가기");
-                f.Click("내 과정");
+                f.Click("기록");
                 Assert(f.Has("미션 창으로 돌아가기"), "Course return action is absent.");
                 Assert(f.VisibleText.Contains("완료한 실습 0 / 12"), "A fresh course does not start at zero completed practices.");
                 f.Capture("03-course", capture);
                 f.Click("Focus.CourseRecords.2w");
-                Assert(f.Has("내 과정으로 돌아가기"), "Week return action is absent.");
+                Assert(f.Has("기록으로 돌아가기"), "Week return action is absent.");
                 f.Capture("04-week-one", capture);
-                f.Click("내 과정으로 돌아가기");
+                f.Click("기록으로 돌아가기");
                 f.Click("미션 창으로 돌아가기");
-                f.Click("내 과정"); f.Click("Focus.CourseRecords.2w"); f.Click("미션");
+                f.Click("기록"); f.Click("Focus.CourseRecords.2w"); f.Click("미션");
                 f.Click("홈");
                 Assert(f.Navigation.islandPanel.activeSelf && !f.Ui.gameObject.activeSelf, "Garden tab did not return to the existing navigation panel.");
             }
@@ -225,12 +226,14 @@ namespace CapstoneDesign.EditorTools
                     Assert(f.Has("기본 미션 시작하기"), "Home did not reopen the basic mission after day rollover without navigation.");
                 }
                 Assert(FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 3, "Three scheduled completions were not counted.");
-                Assert(f.Service.Snapshot.Nutrient == 15, "Basic reward total differs from 3 × 5.");
-                f.Invoke("ShowFocusRecord", f.Latest.SessionId); f.Click("다시 연습하기 · 하루 3회까지 성장"); f.Click("시작");
+                Assert(f.Service.Snapshot.Coins == 0 && f.Service.Snapshot.PracticeGrowthRecords.Count(record => record.Outcome == PracticeGrowthOutcome.Grown) == 3
+                    && f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep == 3, "Three basic practices did not grow exactly three stages while preserving the wallet.");
+                f.Invoke("ShowFocusRecord", f.Latest.SessionId); f.Click("다시 연습하기 · 추가 보상 없음"); f.Click("시작");
                 f.CompletePractice(FocusMissionCatalog.Find("P03"), false);
                 f.CompleteReflection("", "", false);
                 Assert(f.Latest.FocusReview, "Review did not remain a separate practice.");
-                Assert(f.Service.Snapshot.Nutrient == 15, "Review granted another reward.");
+                Assert(f.Service.Snapshot.Coins == 0 && f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep == 3,
+                    "Review granted coins or another growth.");
             }
         }
 
@@ -257,7 +260,9 @@ namespace CapstoneDesign.EditorTools
                 f.SetInput("synthetic additional note");
                 f.Click("미션 완료");
                 Assert(f.Latest.Status == ParticipationState.RewardCommitted && string.IsNullOrEmpty(f.Latest.Mood), "Optional emotion/toggle-off was not persisted.");
-                Assert(f.Service.Snapshot.Nutrient == 5, "Additional completion did not reward exactly once.");
+                Assert(f.Service.Snapshot.Coins == 0 && f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep == 1
+                    && f.Service.Snapshot.PracticeGrowthRecords.Count(record => record.Outcome == PracticeGrowthOutcome.Grown) == 1,
+                    "Additional practice/back/reconfirm did not preserve exactly one growth and the coin balance.");
                 f.Capture("M03-completed", capture);
                 f.Click("정원으로");
                 Assert(f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Ui.gameObject.activeSelf, "Completion garden action failed.");
@@ -294,7 +299,9 @@ namespace CapstoneDesign.EditorTools
                 if (f.Has("입력 내용 확인하기")) f.Click("입력 내용 확인하기");
                 Assert(f.Input != null && f.Input.text == "synthetic retained note", "Failed save erased the note.");
                 f.Click("미션 완료");
-                Assert(f.Latest.Status == ParticipationState.RewardCommitted && f.Service.Snapshot.Nutrient == 5, "Retry did not commit exactly once.");
+                Assert(f.Latest.Status == ParticipationState.RewardCommitted && f.Service.Snapshot.Coins == 0
+                    && f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep == 1
+                    && f.Service.Snapshot.PracticeGrowthRecords.Count == 1, "Final reflection retry duplicated the earlier practice growth or changed coins.");
                 f.Invoke("ShowHome");
                 Assert(!f.Has("기본 미션 시작하기") && f.Has("추천 미션 보기"), "Basic-only done home has incorrect CTA state.");
                 f.AssertMissionBadge("·");
@@ -357,7 +364,7 @@ namespace CapstoneDesign.EditorTools
                 var missionGeometry = NavigationGeometry(missionBar);
                 f.Capture("12-integrated-shell-home", capture);
                 f.Click("기본 미션 시작하기");
-                Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Has("내 과정"), "Focused practice retained garden or main tab controls.");
+                Assert(!f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Has("기록"), "Focused practice retained garden or main tab controls.");
                 f.Capture("13-integrated-shell-practice", capture);
                 f.Click("닫기"); f.Click("홈");
                 Assert(f.Navigation.home.homeCanvas.gameObject.activeSelf && !f.Ui.gameObject.activeSelf, "Garden return did not restore its canvas.");
@@ -367,7 +374,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(NavigationGeometry(gardenBar).SequenceEqual(missionGeometry), "Garden icon, label or button geometry differs from the shared mission tabs.");
                 Assert(gardenBar.HomeButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "홈")
                     && gardenBar.MissionButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "미션")
-                    && gardenBar.CourseButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "내 과정"),
+                    && gardenBar.CourseButton.GetComponentsInChildren<Text>(false).Any(t => t.text == "기록"),
                     "Garden bottom destinations do not match the unified three tabs.");
                 home.RefreshMissionStatus(); Assert(gardenBar.MissionBadge.text == "!", "Garden does not show outstanding missions.");
                 var garden = home.homeCanvas.transform.Find("SafePortraitFrame/MainContent/GardenAndGrowth");
@@ -413,7 +420,7 @@ namespace CapstoneDesign.EditorTools
                 var rect = (RectTransform)button.transform;
                 result.Add(new Vector4(rect.anchoredPosition.x, rect.anchoredPosition.y, rect.sizeDelta.x, rect.sizeDelta.y));
                 var icon = button.GetComponentInChildren<RawImage>(false);
-                var label = button.GetComponentsInChildren<Text>(false).Single(t => t.text == "홈" || t.text == "미션" || t.text == "내 과정");
+                var label = button.GetComponentsInChildren<Text>(false).Single(t => t.text == "홈" || t.text == "미션" || t.text == "기록");
                 Assert(icon != null && icon.rectTransform.anchoredPosition.y > label.rectTransform.anchoredPosition.y,
                     "Tab icon must sit above its label.");
                 result.Add(new Vector4(icon.rectTransform.anchoredPosition.x, icon.rectTransform.anchoredPosition.y, icon.rectTransform.sizeDelta.x, icon.rectTransform.sizeDelta.y));
@@ -526,6 +533,69 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
+        static void SettingsTestCoins(Report report, bool capture)
+        {
+            foreach (var size in new[] { new Vector2Int(360, 640), new Vector2Int(390, 844) })
+            {
+                var seeded = new GardenState { MigrationCompleted = true, MbctProgramSelectionVersion = 1,
+                    InstallationId = "synthetic-test-nutrient-ui", Nutrient = 35, GardenXp = 9, LegacyGrowth = .2f };
+                GardenPlantVisuals.Sync(seeded);
+                var store = new MemoryStore(); store.Save(seeded);
+                using (var f = new Fixture(report, true, seededStore: store))
+                {
+                    f.Resize(size.x, size.y);
+                    Assert(f.Service.BeginSession("synthetic-test-credit-record", "free-mission:M01", 0)
+                        && f.Service.StartSession("synthetic-test-credit-record")
+                        && f.Service.CompleteSession("synthetic-test-credit-record"), "Synthetic test-credit record could not be prepared.");
+                    string plantId = f.Service.Snapshot.PlantAppearance.Recipe.InstanceId;
+                    Assert(f.Service.SetPlantCompleted(plantId, true) && f.Service.SavePlantPhoto("synthetic-test-credit-photo", plantId),
+                        "Synthetic album photo could not be prepared.");
+                    var settings = f.OpenMissionSettings();
+                    var button = settings.AddTestCoinsButton;
+                    Assert(button != null && button.name == "Settings.AddTestCoins" && !button.gameObject.activeInHierarchy,
+                        "Test coin action is absent or visible outside the collapsed test-tools disclosure.");
+                    f.ClickControl(settings.TestToolsToggleButton);
+                    Assert(button.GetComponentsInChildren<Text>(false).Any(text => text.text == "코인 100개 추가"),
+                        "Test coin button does not have the requested label.");
+                    var before = f.Service.Snapshot; string encoded = StateCodec.Encode(before);
+                    Assert(settings.TestCoinStatus != null && settings.TestCoinStatus.text == "보유 코인 · " + before.Coins + "개",
+                        "Test tools do not show the existing committed balance.");
+                    f.Store.FailNextSaves = 1; f.ClickControl(button);
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == encoded && StateCodec.Encode(f.Store.Load()) == encoded,
+                        "Failed test credit changed the wallet, current plant, saved photo, growth or activity record.");
+                    Assert(settings.TestCoinStatus.text == "보유 코인 · " + before.Coins + "개"
+                        && settings.GetComponentsInChildren<Text>(false).Any(text => text.text == "추가하지 못했어요. 다시 시도해 주세요."),
+                        "Failed test credit did not retain the balance and show a retry message.");
+                    f.Capture("settings-test-coins-failed-" + size.x + "x" + size.y, capture);
+                    for (int click = 1; click <= 2; click++)
+                    {
+                        f.ClickControl(button);
+                        var after = f.Service.Snapshot;
+                        Assert(after.Coins == before.Coins + 100 * click
+                            && settings.TestCoinStatus.text == "보유 코인 · " + after.Coins + "개",
+                            "Each deliberate test-tool click must credit exactly 100 and refresh the balance.");
+                        Assert(StateCodec.Encode(f.Store.Load()) == StateCodec.Encode(after), "Test credit was not persisted.");
+                        after.Coins = before.Coins;
+                        Assert(StateCodec.Encode(after) == encoded, "Test credit changed data other than the coin balance.");
+                    }
+                    Assert(settings.GetComponentsInChildren<Text>(false).Any(text => text.text == "코인 100개를 추가했어요."),
+                        "Successful test credit does not show its confirmation.");
+                    string credited = StateCodec.Encode(f.Service.Snapshot);
+                    f.Navigation.ShowActivities(); f.Invoke("ShowHome");
+                    f.OpenMissionSettings();
+                    Assert(ReferenceEquals(settings.AddTestCoinsButton, button)
+                        && settings.GetComponentsInChildren<Button>(true).Count(item => item.name == "Settings.AddTestCoins") == 1
+                        && StateCodec.Encode(f.Service.Snapshot) == credited,
+                        "Returning to settings recreated the credit action or granted another 100.");
+                    using (var reopened = new GardenStateService(f.Store, f.Clock, new DemoBalanceConfig()))
+                        Assert(reopened.Open() && StateCodec.Encode(reopened.Snapshot) == credited,
+                            "Reopening the synthetic saved state did not preserve the test balance and existing records.");
+                    f.RevealGraphic(button.GetComponent<Image>());
+                    f.Capture("settings-test-coins-saved-" + size.x + "x" + size.y, capture);
+                }
+            }
+        }
+
         static void LearnedRecommendations(Report report, bool capture)
         {
             using (var f = new Fixture(report))
@@ -533,7 +603,7 @@ namespace CapstoneDesign.EditorTools
                 var learned = MbctContent.ForProgram("2w").First();
                 f.Ui.SelectMission(learned);
                 string id = f.Service.Snapshot.Sessions.Last().SessionId;
-                Assert(f.Service.StartSession(id), f.Service.LastError);
+                Assert(f.Service.StartSession(id) && f.Service.SavePracticeStep(id, learned.steps.Length), f.Service.LastError);
                 f.Clock.UtcNow = f.Clock.UtcNow.AddMinutes(4);
                 f.Ui.Finish(null, null);
                 Assert(MbctPolicy.AllCompletedIds(f.Service.Snapshot).Contains(learned.id), "Synthetic legacy lesson did not persist completion.");
@@ -572,7 +642,7 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("legacy-health-record", capture); // Preserve the untouched initial top/title evidence.
                 f.RevealGraphic(graph);
                 f.Capture("legacy-health-chart-scrolled", capture);
-                f.Click("기록 목록"); f.Click("돌아가기"); f.Click("내 과정");
+                f.Click("기록 목록"); f.Click("돌아가기"); f.Click("기록");
                 f.Click("이전 활동 복습·추천");
                 Assert(f.Has("다시 해볼 만한 활동") && f.Has("추가 활동 추천 설정"), "Learned recommendation entry is unreachable from the new course screen.");
                 f.Capture("learned-recommendation-hub", capture);
@@ -633,15 +703,17 @@ namespace CapstoneDesign.EditorTools
                 f.Invoke("ShowShop");
                 Assert(f.VisibleText.Contains("2주 코스 1 / 12"), "Garden shop displayed legacy zero progress after a Focus completion.");
                 f.Capture("focus-progress-in-garden-shop", capture);
-                f.Click("식물함 · 성장과 기억");
-                Assert(f.Ui.CurrentScreen=="plants" && f.VisibleText.Contains("21회"),"Weekly plant collection did not open.");
-                f.Capture("weekly-plant-collection-from-shop",capture);
+                f.Click("미션으로 식물 키우기");
+                Assert(f.Has("미션으로 이동") && !f.Has("확정")
+                    && f.Ui.GetComponentsInChildren<Text>(false).Any(text => text.name == "PlantGrowth.MissionGuidance"),
+                    "Read-only growth guidance retained a paid confirmation or omitted the mission entry.");
+                f.Capture("mission-growth-guidance", capture);
                 f.Invoke("ShowGardenJournal");
                 Assert(f.Has(savedFocusTitle) && f.Has(legacy.title) && !f.VisibleText.Contains(ignoredLegacyFocusTitle),
                     "Garden journal renamed a saved Focus or legacy record.");
                 f.Capture("garden-journal-versioned-titles", capture);
                 Assert(StateCodec.Encode(f.Service.Snapshot) == before,
-                    "Inspecting progress, picking a linked record or cancelling a preview changed persistent state.");
+                    "Inspecting progress, mission growth guidance or saved record titles changed persistent state.");
             }
         }
 

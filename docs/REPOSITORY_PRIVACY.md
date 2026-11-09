@@ -1,8 +1,10 @@
 # 저장소 개인정보·비밀정보 점검
 
-현재 파일에서 개인정보와 비밀정보를 제거하고, 검증한 변경을 커밋한 뒤 현재
-작업 브랜치의 upstream에 일반 push한다. 이 절차는 `AGENTS.md`에 상시 지침으로
-기록되어 있다. 별도 요청 없이 기존 Git history를 수정하거나 force push하지 않는다.
+현재 파일에서 개인정보와 비밀정보를 제거하고 검증한다. `AGENTS.md`의 최신
+지침에 따라 **Git 게시를 명시적으로 요청받은 경우에만** 커밋·push하며, 그 외
+완료한 변경은 로컬에 보존한다. 게시 요청 시 현재 작업 브랜치의 upstream에
+일반 push하고 원격 HEAD를 확인한다. 별도 요청 없이 기존 Git history를 수정하거나
+force push하지 않는다.
 
 ## 실행
 
@@ -20,7 +22,7 @@ python3 scripts/check-repo-privacy.py
 git diff --check
 # 검토한 파일만 명시하여 git add 후:
 python3 scripts/check-repo-privacy.py --staged
-# 적절한 기능 검증 후 commit, 현재 브랜치에 일반 push, 원격 HEAD 일치 확인
+# Git 게시가 명시적으로 요청된 경우에만: 기능 검증 후 commit / 일반 push / 원격 HEAD 확인
 ```
 
 기본 검사는 추적 파일과 ignore되지 않은 새 파일을 검사한다. `--staged`는 작업

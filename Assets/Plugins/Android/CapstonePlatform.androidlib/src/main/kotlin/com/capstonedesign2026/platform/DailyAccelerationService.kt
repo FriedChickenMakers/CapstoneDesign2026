@@ -45,6 +45,7 @@ class DailyAccelerationService : Service(), SensorEventListener {
     private var stopped = false
     private var lastSampleEpochMs = 0L
     private var lastWriteEpochMs = 0L
+    private var dataEpoch = ""
 
     private val endBurst: Runnable = Runnable {
         unregister()
@@ -77,10 +78,6 @@ class DailyAccelerationService : Service(), SensorEventListener {
 
     override fun onCreate() {
         super.onCreate()
-        val previous = DailyAccelerationStatus.read(this)
-        startedEpochMs = previous.optLong("startedEpochMs")
-        lastSampleEpochMs = previous.optLong("lastSampleEpochMs")
-        lastWriteEpochMs = previous.optLong("lastWriteEpochMs")
         val channel = NotificationChannel(CHANNEL_ID, "수집 실험 상태", NotificationManager.IMPORTANCE_LOW).apply {
             setShowBadge(false); setSound(null, null); enableVibration(false)
         }
@@ -97,12 +94,28 @@ class DailyAccelerationService : Service(), SensorEventListener {
             .setContentText("매분 5초 · 최대 48시간 · 화면이 꺼져도 수집하며 배터리를 사용해요")
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_SERVICE)
             .addAction(Notification.Action.Builder(null, "수집 중지", stop).build()).build()
+        // Foreground dispatch can race an app reset; satisfy Android's service
+        // deadline before stopping without touching the old generation's data.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
             startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH)
         else startForeground(NOTIFICATION_ID, notification)
+        dataEpoch = NativeLocalReset.epoch(this)
+        if (!NativeLocalReset.current(this, dataEpoch)) { stopped=true; stopForeground(STOP_FOREGROUND_REMOVE); stopSelf(); return }
+        // SharedPreferences caches are process-local. A service process may survive
+        // another process clearing the disk; discard its cached previous generation.
+        NativeLocalReset.write(this,dataEpoch) {
+            if (state.getString("dataEpoch", "") != dataEpoch)
+                check(state.edit().clear().putString("dataEpoch",dataEpoch).commit())
+        }
+        val previous = DailyAccelerationStatus.read(this)
+        startedEpochMs = previous.optLong("startedEpochMs")
+        lastSampleEpochMs = previous.optLong("lastSampleEpochMs")
+        lastWriteEpochMs = previous.optLong("lastWriteEpochMs")
+
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!NativeLocalReset.current(this, dataEpoch)) { stopTrial("APP_RESET", false); return START_NOT_STICKY }
         if (intent?.action == ACTION_STOP) { stopTrial("USER_STOP"); return START_NOT_STICKY }
         if (accepting) return START_STICKY
         if (stopped) return START_NOT_STICKY
@@ -116,12 +129,16 @@ class DailyAccelerationService : Service(), SensorEventListener {
         if (remaining <= 0) { stopTrial("DURATION_LIMIT"); return START_NOT_STICKY }
         if (batteryTooLow()) { stopTrial("LOW_BATTERY"); return START_NOT_STICKY }
         deadlineElapsedMs = SystemClock.elapsedRealtime() + remaining
-        if (!state.edit().putBoolean("active", true).putBoolean("userEnabled", true)
-                .putLong("startedEpochMs", startedEpochMs).commit()) {
+        var saved = false
+        NativeLocalReset.write(this, dataEpoch) { saved=state.edit().putBoolean("active", true).putBoolean("userEnabled", true)
+                .putLong("startedEpochMs", startedEpochMs).commit() }
+        if (!saved) {
             stopTrial("STATE_WRITE_FAILED"); return START_NOT_STICKY
         }
         try {
-            DailyAccelerationStore.prune(this, now)
+            if (!NativeLocalReset.write(this, dataEpoch) { DailyAccelerationStore.prune(this, now) }) {
+                stopTrial("APP_RESET", false); return START_NOT_STICKY
+            }
             val minute = now / 60_000L * 60_000L
             accumulator = SensorWindowAccumulator(60_000, SystemClock.elapsedRealtime() - (now - minute), minute)
             manager = getSystemService(SENSOR_SERVICE) as SensorManager
@@ -153,19 +170,18 @@ class DailyAccelerationService : Service(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     private fun writeClosed(elapsed: Long): Boolean = try {
-        accumulator?.closeThrough(elapsed)?.forEach {
+        val rows = accumulator?.closeThrough(elapsed).orEmpty()
+        if (rows.isEmpty()) true else NativeLocalReset.write(this, dataEpoch) { rows.forEach {
             DailyAccelerationStore.append(this, it)
             lastWriteEpochMs = System.currentTimeMillis()
-        }
-        true
+        } }
     } catch (error: Exception) { writeFailed(error); false }
 
     private fun checkpoint(): Boolean = try {
-        accumulator?.drainAcceleration()?.let {
+        NativeLocalReset.write(this, dataEpoch) { accumulator?.drainAcceleration()?.let {
             DailyAccelerationStore.append(this, it, partial = true)
             lastWriteEpochMs = System.currentTimeMillis()
-        }
-        true
+        } }
     } catch (error: Exception) { writeFailed(error); false }
 
     private fun writeFailed(error: Exception) {
@@ -186,7 +202,7 @@ class DailyAccelerationService : Service(), SensorEventListener {
     }
     private fun publish(status: String, reason: String = "") {
         try {
-            DailyAccelerationStatus.write(this, status, reason, startedEpochMs, lastSampleEpochMs, lastWriteEpochMs)
+            NativeLocalReset.write(this, dataEpoch) { DailyAccelerationStatus.write(this, status, reason, startedEpochMs, lastSampleEpochMs, lastWriteEpochMs) }
         } catch (error: Exception) { Log.e(TAG, "Trial status write failed", error) }
     }
     private fun stopTrial(reason: String, flush: Boolean = true) {
@@ -200,16 +216,18 @@ class DailyAccelerationService : Service(), SensorEventListener {
             try {
                 val end = if (deadlineElapsedMs > 0) minOf(SystemClock.elapsedRealtime(), deadlineElapsedMs)
                     else SystemClock.elapsedRealtime()
-                accumulator?.closeThrough(end)?.forEach { DailyAccelerationStore.append(this, it) }
-                accumulator?.drainAcceleration()?.let {
+                NativeLocalReset.write(this, dataEpoch) {
+                    accumulator?.closeThrough(end)?.forEach { DailyAccelerationStore.append(this, it) }
+                    accumulator?.drainAcceleration()?.let {
                     DailyAccelerationStore.append(this, it, partial = true)
                     lastWriteEpochMs = System.currentTimeMillis()
+                    }
                 }
             } catch (error: Exception) { Log.e(TAG, "Final checkpoint failed", error); finalReason = "WRITE_FAILED" }
         }
         if (wakeLock?.isHeld == true) wakeLock?.release()
-        state.edit().putBoolean("active", false).putBoolean("userEnabled", false)
-            .putString("stopReason", finalReason).putLong("stoppedEpochMs", System.currentTimeMillis()).commit()
+        NativeLocalReset.write(this, dataEpoch) { state.edit().putBoolean("active", false).putBoolean("userEnabled", false)
+            .putString("stopReason", finalReason).putLong("stoppedEpochMs", System.currentTimeMillis()).commit() }
         publish("STOPPED", finalReason)
         Log.i(TAG, "Daily acceleration stopped: $finalReason")
         stopForeground(STOP_FOREGROUND_REMOVE)

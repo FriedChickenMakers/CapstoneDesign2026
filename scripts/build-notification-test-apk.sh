@@ -40,7 +40,7 @@ gradle=gradle.replace("['src/main/kotlin']",'['+', '.join(map(quoted,[native/'sr
 gradle=gradle.replace("['src/main/res']",'['+quoted(native/'src/main/res')+']')
 gradle += "\nandroid { sourceSets { main { assets.srcDirs = ["+quoted(native/'src/main/assets')+"] } } }\n"
 if os.environ.get('NOTIFICATION_HOST_TESTS') == '1':
- gradle += "\ndependencies { testImplementation 'junit:junit:4.13.2'; testImplementation 'org.robolectric:robolectric:4.17' }\n"
+ gradle += "\ndependencies { testImplementation 'junit:junit:4.13.2'; testImplementation 'org.robolectric:robolectric:4.17'; testImplementation 'androidx.test:core:1.7.0'; testImplementation 'androidx.work:work-testing:2.11.2' }\n"
  gradle += "android { sourceSets { test { kotlin.srcDirs = ["+quoted(repo/'tests/robolectric')+"] } }; testOptions { unitTests.includeAndroidResources = true; unitTests.all { maxHeapSize = '1g'; systemProperty 'robolectric.dependency.repo.url', 'https://repo.maven.apache.org/maven2'; jvmArgs '--add-opens=java.base/java.lang=ALL-UNNAMED', '--add-opens=java.base/java.util=ALL-UNNAMED', '--add-opens=java.base/java.io=ALL-UNNAMED', '--add-opens=java.base/java.net=ALL-UNNAMED', '--add-opens=java.base/java.security=ALL-UNNAMED', '--add-opens=java.base/java.text=ALL-UNNAMED', '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED', '--add-opens=java.desktop/java.awt.font=ALL-UNNAMED', '--add-opens=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED' } } }\n"
 write('platform/build.gradle',gradle)
 write('persona/NotificationPersonaEvaluation.kt',(repo/'tests/native/NotificationPersonaEvaluation.kt').read_text())

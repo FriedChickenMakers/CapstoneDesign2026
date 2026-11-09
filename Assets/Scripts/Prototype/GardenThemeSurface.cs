@@ -5,21 +5,25 @@ using UnityEngine.UI;
 namespace CapstoneDesign.Prototype
 {
     /// <summary>
-    /// Original scalable garden UI art: warm paper, timber and botanical edges.
-    /// Wood and foliage use attributed ambientCG atlases; borders use vertex colour.
+    /// Scalable garden UI with attributed ambientCG timber and leaf textures.
+    /// Reading surfaces retain their calm paper treatment.
     /// The surface is decoration only and never changes gameplay, layout or hit testing.
     /// </summary>
     [AddComponentMenu("UI/Garden Theme Surface")]
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class GardenThemeSurface : MaskableGraphic
     {
-        public enum Style { Paper, Wood, Primary, Selected, Backdrop, Header, Shelf, Input, ProgressTrack, ProgressFill, Home, NavigationLeaf }
+        // Preserve serialized styles from the integrated branch; append new texture variants.
+        public enum Style { Paper, Wood, Primary, Selected, Backdrop, Header, Shelf, Input, ProgressTrack, ProgressFill, TabWood, Home, NavigationLeaf }
+        public enum Tone { Default, Growth, Additional, Reflection, Utility }
         public Style style = Style.Paper;
+        public Tone tone = Tone.Default;
         const string SurfaceName = "Garden theme surface";
         Selectable ownerSelectable;
         GardenThemePointerState pointer;
         int lastState = -1;
         Style lastStyle;
+        Tone lastTone;
         bool disabled;
         bool pressed;
         bool highlighted;
@@ -47,10 +51,14 @@ namespace CapstoneDesign.Prototype
             (groundTexture = Resources.Load<Texture2D>("UI/Textures/Ground048UI"));
         // Keep navigation backing independent from buttons and page headings.
         const string ShelfTexturePath = "UI/Textures/Wood062LitUI";
-        static readonly Color TimberBorder = new Color32(75, 43, 29, 255);
+        static readonly Color TimberBorder = new Color32(76, 65, 52, 255);
+        static readonly Color TimberWash = new Color32(92, 81, 68, 72);
+        static readonly Color ShelfWash = new Color32(64, 59, 51, 82);
+        static readonly Color LeafWash = new Color32(52, 74, 57, 72);
+        static readonly Color SelectedLeafWash = new Color32(199, 213, 193, 68);
         bool texturedFace;
         Rect textureFaceRect;
-        bool UsesWood => style == Style.Wood || style == Style.Header || style == Style.Shelf;
+        bool UsesWood => style == Style.Wood || style == Style.TabWood || style == Style.Header || style == Style.Shelf;
         static Texture2D WoodTexture => woodTexture != null ? woodTexture :
             (woodTexture = Resources.Load<Texture2D>(ButtonTexturePath));
         static Texture2D ShelfTexture
@@ -68,7 +76,7 @@ namespace CapstoneDesign.Prototype
         bool UsesTexture => style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
         Texture2D SurfaceTexture => style == Style.NavigationLeaf ? DenseLeafTexture : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
         public override Texture mainTexture => UsesTexture && SurfaceTexture != null ? SurfaceTexture : base.mainTexture;
-        public static readonly Color WoodInk = new Color32(255, 246, 226, 255);
+        public static readonly Color WoodInk = new Color32(249, 247, 237, 255);
         public static Color Foreground(Transform parent, Color fallback)
         {
             for (var node = parent; node != null; node = node.parent)
@@ -79,7 +87,7 @@ namespace CapstoneDesign.Prototype
             return fallback;
         }
 
-        public static GardenThemeSurface Apply(GameObject owner, Style style)
+        public static GardenThemeSurface Apply(GameObject owner, Style style, Tone tone = Tone.Default)
         {
             if (owner == null) return null;
             Transform child = owner.transform.Find(SurfaceName);
@@ -92,8 +100,9 @@ namespace CapstoneDesign.Prototype
                 go.GetComponent<LayoutElement>().ignoreLayout = true;
                 surface = go.AddComponent<GardenThemeSurface>();
             }
-            bool changed=created || surface.style!=style || surface.ownerSelectable!=owner.GetComponent<Selectable>();
+            bool changed=created || surface.style!=style || surface.tone!=tone || surface.ownerSelectable!=owner.GetComponent<Selectable>();
             surface.style = style;
+            surface.tone = tone;
             surface.raycastTarget = false;
             surface.color = Color.white;
             RectTransform rect = surface.rectTransform;
@@ -132,9 +141,10 @@ namespace CapstoneDesign.Prototype
         void LateUpdate()
         {
             int state = State();
-            if (state == lastState && style == lastStyle) return;
+            if (state == lastState && style == lastStyle && tone == lastTone) return;
             lastState = state;
             lastStyle = style;
+            lastTone = tone;
             SetMaterialDirty();
             SetVerticesDirty();
         }
@@ -164,6 +174,7 @@ namespace CapstoneDesign.Prototype
                 case Style.NavigationLeaf:
                 case Style.Home: Primary(mesh, r, unit); break;
                 case Style.Primary: Primary(mesh, r, unit); break;
+                case Style.TabWood:
                 case Style.Wood: Timber(mesh, r, unit, false); break;
                 case Style.Header: Timber(mesh, r, unit, true); break;
                 case Style.Shelf: Shelf(mesh, r, unit); break;
@@ -233,12 +244,14 @@ namespace CapstoneDesign.Prototype
             {
                 textureFaceRect = face;
                 texturedFace = true;
-                Gradient(mesh, face, navigationSelected ? radius : Mathf.Max(1, radius - 2 * u),
-                    style == Style.NavigationLeaf ? new Color(.42f, .48f, .40f) :
-                    navigationSelected ? Color.white : new Color(.58f, .64f, .55f),
-                    style == Style.NavigationLeaf ? new Color(.34f, .40f, .32f) :
-                    navigationSelected ? new Color(.96f, .98f, .93f) : new Color(.49f, .56f, .47f));
+                float faceRadius = navigationSelected ? radius : Mathf.Max(1, radius - 2 * u);
+                Gradient(mesh, face, faceRadius,
+                    style == Style.NavigationLeaf ? new Color(.59f, .65f, .56f) :
+                    navigationSelected ? new Color(.90f, .96f, .91f) : new Color(.64f, .69f, .61f),
+                    style == Style.NavigationLeaf ? new Color(.52f, .58f, .50f) :
+                    navigationSelected ? new Color(.86f, .92f, .87f) : new Color(.56f, .62f, .54f));
                 texturedFace = false;
+                TextureWash(mesh, face, faceRadius, style == Style.Home ? SelectedLeafWash : LeafWash);
                 return;
             }
             Gradient(mesh, face, Mathf.Max(1, radius - 2 * u),
@@ -264,9 +277,10 @@ namespace CapstoneDesign.Prototype
 
         void Shelf(VertexHelper mesh, Rect r, float u)
         {
-            // Floating backing has transparent corners; the page remains visible around it.
-            Shadow(mesh, r, 15 * u, 4 * u);
-            TimberFace(mesh, r, 15 * u);
+            // The navigation meets every screen edge. Keep its wood face rectangular
+            // at every canvas scale; the opaque owner also covers edge sampling.
+            Shadow(mesh, r, 0, 4 * u);
+            TimberFace(mesh, r, 0);
             if (SurfaceTexture == null) WoodGrain(mesh, r, u);
         }
 
@@ -280,11 +294,18 @@ namespace CapstoneDesign.Prototype
             textureFaceRect = face;
             texturedFace = true;
             Gradient(mesh, face, radius,
-                style == Style.Shelf ? new Color(.30f, .268f, .241f) :
-                style == Style.Wood ? Color.white : new Color(.90f, .87f, .82f),
-                style == Style.Wood ? new Color(.97f, .97f, .97f) :
-                style == Style.Shelf ? new Color(.236f, .211f, .193f) : new Color(.80f, .77f, .72f));
+                style == Style.Shelf ? new Color(.53f, .52f, .48f) : new Color(.92f, .93f, .90f),
+                style == Style.Shelf ? new Color(.46f, .45f, .42f) : new Color(.85f, .87f, .83f));
             texturedFace = false;
+            TextureWash(mesh, face, radius, style == Style.Shelf ? ShelfWash : TimberWash);
+        }
+
+        void TextureWash(VertexHelper mesh, Rect face, float radius, Color tint)
+        {
+            // The existing atlas has a white strip for solid decoration. A translucent
+            // face gently compresses photographic contrast without replacing the texture,
+            // allocating materials, or changing the opaque face and its hit rectangle.
+            Rounded(mesh, face, radius, tint);
         }
 
         void Progress(VertexHelper mesh, Rect r, bool fill)
@@ -507,9 +528,9 @@ namespace CapstoneDesign.Prototype
                 // into a wide button. The top atlas strip is reserved for white.
                 // Keep wood grain at a consistent UI-space size: wide buttons reveal
                 // more of the source instead of enlarging the same small crop.
-                float coverage = style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.Header ? .94f / 3f : .94f;
+                float coverage = style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
                 float scale = coverage / Mathf.Max(textureFaceRect.width, textureFaceRect.height);
-                if (style == Style.Wood || style == Style.Header)
+                if (style == Style.Wood || style == Style.TabWood || style == Style.Header)
                     scale = Mathf.Min(1f / 480f, .94f / Mathf.Max(textureFaceRect.width, textureFaceRect.height));
                 uv = new Vector2(.5f + (point.x - textureFaceRect.center.x) * scale,
                     (.5f + (point.y - textureFaceRect.center.y) * scale) * (style == Style.Backdrop ? 1f : 1024f / 1056f));

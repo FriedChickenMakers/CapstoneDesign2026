@@ -14,7 +14,7 @@ namespace CapstoneDesign.Runtime.LocalState
         internal FocusMissionStep Copy()
         {
             var copy=(FocusMissionStep)MemberwiseClone();
-            copy.Options=(string[])Options.Clone();copy.ConditionValues=(string[])ConditionValues.Clone();return copy;
+            copy.Options=(string[])Options.Clone(); copy.ConditionValues=(string[])ConditionValues.Clone(); return copy;
         }
     }
     public sealed class FocusMissionDefinition
@@ -25,12 +25,12 @@ namespace CapstoneDesign.Runtime.LocalState
         public string PurposeId, Purpose, EvidenceBasis, ReviewStatus;
         internal FocusMissionDefinition Copy()
         {
-            var copy=(FocusMissionDefinition)MemberwiseClone();copy.Steps=Steps.Select(step=>step.Copy()).ToArray();return copy;
+            var copy=(FocusMissionDefinition)MemberwiseClone(); copy.Steps=Steps.Select(step=>step.Copy()).ToArray(); return copy;
         }
     }
-    public static class FocusMissionCatalog
+    public static partial class FocusMissionCatalog
     {
-        public const int Version = 3;
+        public const int Version = 5, GuidedVersion = 4, TextureVersion = 3, Version2 = 2;
         public const string BasicRole = "basic", AdditionalRole = "additional";
         public const string StoryText = "아침에 창문을 열자 서늘한 바람이 방으로 들어왔습니다. 창가의 작은 화분에는 새 잎이 하나 나 있었습니다. 물을 조금 주고 잠시 바라보니, 잎 위에 남은 물방울이 빛을 받아 반짝였습니다. 밖에서는 자전거가 지나가는 소리가 들렸습니다. 나는 따뜻한 컵을 두 손으로 감싸고, 오늘 해야 할 일 중 한 가지만 천천히 시작하기로 했습니다.";
         static FocusMissionStep S(string key,string title,string body,string action="계속",string kind="observe",string[] options=null,bool input=false,string hint=null,int seconds=0,string condition=null,string[] when=null,bool required=false)
@@ -38,8 +38,8 @@ namespace CapstoneDesign.Runtime.LocalState
         static string[] O(params string[] options)=>options;
         static FocusMissionDefinition D(string code,string title,string overview,string background,string accent,string circle,params FocusMissionStep[] steps)
             =>new FocusMissionDefinition {Code=code,Id=(code[0]=='P'?"course:":"free-mission:")+code,Role=code[0]=='P'?BasicRole:AdditionalRole,Title=title,Overview=overview,BackgroundHex=background,AccentHex=accent,CircleHex=circle,TextHex=code=="P10"?"#224B49":code=="M03"?"#163D50":"#183845",IconAsset="FocusMissions/Catalog/"+code,Steps=steps};
-        // Version 2 is preserved verbatim for sessions already saved with that version.
-        public static readonly FocusMissionDefinition[] VersionTwo={
+        // Version 2 is retained verbatim for saved sessions, including their original step indexes.
+        public static readonly FocusMissionDefinition[] AllV2={
             D("M01","주변 밝히기","주변에 빛을\n조금 더해볼까요?","#FFF9E6","#8A671D","#F8E9B6",
                 S("light","빛 더하기","커튼을 열거나\n조명을 켜세요.","했어요","prepare")),
             D("M02","창밖 바라보기","창밖 풍경 하나를\n잠시 살펴봐요.","#F0F8FC","#39758C","#D7EBF3",
@@ -141,20 +141,90 @@ namespace CapstoneDesign.Runtime.LocalState
             D("P28","다음 주의 나 돌보기","편한 실습을 다시 해보고\n다음 주 계획을 세워요.","#F3F7EF","#718652","#E0EACF",
                 S("activity","편한 실습 선택","해본 실습 중\n하나를 골라요.",kind:"choice",options:O("호흡","몸의 접촉","주변 소리","잠시 멈춤")),S("practice","한 번 더 실습","선택한 실습을\n편한 만큼 해봐요.",kind:"focus",seconds:60),S("next-activity","다음 주의 활동","다음 주 다시 할\n활동을 골라요.",kind:"choice",options:O("호흡","몸의 접촉","주변 소리","잠시 멈춤")),S("time","부담 없는 시간","이어가기 편한 시간대를\n고르거나 나중에 정해요.",kind:"choice",options:O("아침","점심","저녁","생활 행동 뒤","나중에 정하기")),S("review","나의 계획 확인","고른 활동과 시간대를 확인해요.\n이전 단계에서 바꿀 수 있어요.","완료","review"))
         };
-        public static readonly FocusMissionDefinition[] All=BuildCurrentVersion();
+        static readonly FocusMissionDefinition[] GuidedV3={
+            D("P01","잠깐 멈춰보기","잠깐 멈춰\n호흡이 느껴지는 곳을 찾아요.","#EEF8F7","#357C78","#D8ECE8",
+                S("practice","숨이 느껴지는 곳","편하게 앉거나 누워요.\n숨을 바꾸지 않고 고른 곳의 감각을 살펴요.","실습 마치기","focus",O("코","가슴","배"),seconds:60),
+                S("notice","어디에서 느꼈나요?","뚜렷하지 않아도 괜찮아요.","완료","choice",O("코","가슴","배","잘 모르겠음"))),
+            D("P02","주변 소리 만나기","주변 소리 하나에\n귀 기울여봐요.","#EFF5FC","#5079A4","#DDE8F7",
+                S("practice","가까운 소리·먼 소리","편하게 앉아 들리는 소리에 귀 기울여요.\n소리가 나타나고 달라지는 것을 살펴요.","실습 마치기","focus",seconds:60),
+                S("notice","기억나는 소리","들린 소리를 골라보거나\n짧게 적어요.","완료","input",O("사람 소리","자연 소리","생활 소리","잘 모르겠음"),true,"기억나는 소리 · 선택")),
+            D("P03","몸에 안부 묻기","몸에서 느껴지는\n감각 하나를 살펴봐요.","#F2F5FC","#677DA0","#E0E7F4",
+                S("practice","몸이 닿는 곳","앉거나 누워 몸을 편하게 두어요.\n의자나 바닥에 닿는 곳의 감각을 느껴봐요.","실습 마치기","focus",seconds:60),
+                S("notice","어떤 느낌인가요?","가까운 느낌을 골라요.\n뚜렷하지 않아도 괜찮아요.","완료","choice",O("따뜻함","차가움","압박감","특별한 느낌 없음"))),
+            D("P04","한 모금 천천히","마시는 한 모금의 감각을\n차례로 살펴봐요.","#F0FAFF","#307D9A","#D9EEF6",
+                S("practice","천천히 한 모금","편한 온도의 음료를 준비해 컵의 감촉을 느껴요.\n한 모금 마시며 맛과 온도, 삼킨 뒤의 느낌을 살펴요.","실습 마치기","focus",seconds:30),
+                S("notice","눈에 띈 감각","뚜렷하지 않아도 괜찮아요.","완료","choice",O("감촉","온도","맛","뚜렷하지 않음"))),
+            D("P05","다시 돌아오기","주의가 벗어나면\n호흡으로 돌아오는 연습이에요.","#EDF7F6","#3C7F77","#D5EAE4",
+                S("practice","부드럽게 돌아오기","편한 자세에서 자연스러운 호흡을 느껴요.\n생각에 빠진 것을 알아차리면 부드럽게 돌아와요.","실습 마치기","focus",seconds:120),
+                S("notice","떠오른 생각","생각이 떠오르지 않아도\n괜찮아요.","완료","choice",O("알아차렸어요","떠오르지 않았어요","잘 모르겠음"))),
+            D("P06","익숙한 행동 새롭게","평소 하던 행동에서\n새로운 감각을 살펴봐요.","#F1F9FB","#49818A","#DCEEF1",
+                S("practice","온도·움직임·소리","고른 행동을 하면서\n물의 온도와 손의 움직임, 소리를 살펴요.","실습 마치기","focus",O("손 씻기","설거지"),seconds:60),
+                S("notice","눈에 띈 감각","처음 느낀 감각이 없어도\n괜찮아요.","완료","choice",O("온도","움직임","소리","잘 모르겠음"))),
+            D("P07","나에게 편한 실습 찾기","부담이 적었던 실습을\n한 번 더 해봐요.","#F3F8EF","#6B854D","#E2ECCF",
+                S("practice","고른 대상에 머물기","오늘 부담이 적은 대상을 골라 잠시 머물러요.\n주의가 벗어나면 선택한 대상으로 돌아와요.","실습 마치기","focus",O("호흡","몸의 접촉","주변 소리"),seconds:60),
+                S("notice","다음에도 해볼까요?","앞으로 하고 싶은 활동을\n고르거나 건너뛰어요.","완료","choice",O("호흡","몸의 접촉","주변 소리","없음","잘 모르겠음")))
+        };
+        // Version 4 is the exact incoming guided contract. Never reinterpret existing answers.
+        public static readonly FocusMissionDefinition[] AllV4=AllV2.Select(m=>(GuidedV3.FirstOrDefault(g=>g.Id==m.Id)??m).Copy()).ToArray();
+        public static readonly FocusMissionDefinition[] All=BuildConfirmedCurrentVersion();
+        static FocusMissionDefinition[] BuildConfirmedCurrentVersion()
+        {
+            // Preserve the latest guided presentation and immutable prior versions.
+            // Only user-owned allowance/alternative contracts are restored here.
+            var definitions=AllV4.Select(m=>m.Copy()).ToArray();
+            foreach(var mission in definitions)
+            {
+                mission.ContentVersion=Version;
+                mission.PurposeId="focus-purpose-v1-"+mission.Code;
+                mission.Purpose=PurposeFor(mission.Code);
+                mission.EvidenceBasis="product-purpose-review-2026-11-05";
+                mission.ReviewStatus="guided-v5-purpose-allowance-port-clinical-review-pending";
+            }
+            var plan=definitions.First(m=>m.Code=="M10").Steps.First(step=>step.Key=="plan");
+            plan.Kind="plan";plan.Title="작은 행동과 편한 시간대";
+            plan.Body="할 일과 편한 시간대를 골라요.\n정확한 시각이나 문장을 적지 않아도 돼요.";
+            plan.InputHint="직접 정하고 싶다면 적어요 · 선택";
+            var review=definitions.First(m=>m.Code=="M10").Steps.First(step=>step.Key=="review");
+            review.Body="고른 계획을 확인해요.\n알림 시각과 별개로 편할 때 실천하면 돼요.";
+            definitions.First(m=>m.Code=="P19").Steps.First(step=>step.Key=="route").Body=
+                "산을 떠올리는 실습 또는 별도 소리 실습을 골라요.\n소리 실습은 이 회차 완료로 기록하지 않아요.";
+            definitions.First(m=>m.Code=="P26").Steps.First(step=>step.Key=="route").Body=
+                "작은 도움이 있었나요? 떠오르지 않으면\n이 회차를 미뤄두고 별도 소리 실습을 고를 수 있어요.";
+            Action<string,string,string,string> text=(code,key,title,body)=>{
+                var step=definitions.First(m=>m.Code==code).Steps.First(s=>s.Key==key);
+                if(title!=null)step.Title=title;step.Body=body;
+            };
+            text("P09","prepare","지금 마음과 몸","지금 감정을 속으로 살펴요.\n이름이 떠오르지 않아도 괜찮아요.");
+            text("P09","contact","감정과 함께 느껴지는 몸","지금 마음과 함께 몸에서\n어떤 감각이 느껴지는지 살펴요.");
+            text("P09","notice",null,"감정과 함께 눈에 띈 몸의 느낌이 있나요?\n연결이 뚜렷하지 않아도 괜찮아요.");
+            foreach(string code in new[]{"P21","P28"})
+                text(code,"practice",null,"고른 대상의 감각을 살펴요.\n잠시 멈춤은 몸이 닿는 감각을 살펴요.\n편안해질 필요는 없어요.");
+            definitions.First(m=>m.Code=="P24").Overview="짧은 이야기를 들으며\n내 생각과 몸의 반응을 살펴봐요.";
+            text("P24","route",null,"상대 또는 앱 이야기를 골라요.\n듣는 동안 내 반응을 살펴봐요.");
+            text("P24","listen",null,"생각과 몸의 반응을 알아차리면\n지금 들리는 말로 돌아와요.");
+            text("P24","notice","듣는 동안의 내 반응","어떤 생각이나 몸의 반응이 있었나요?\n내용을 잘 기억할 필요는 없어요.");
+            definitions.First(m=>m.Code=="P24").Steps.Last().InputHint="생각이나 몸의 반응 · 선택";
+            text("P25","pause",null,"잠시 멈춰 마음과 몸을 살펴요.\n숨을 억지로 바꾸지는 않아요.");
+            text("P25","message",null,"전하려는 말과 이유를 살펴요.\n그대로 말할지 바꿀지 생각해봐요.");
+            var speak=definitions.First(m=>m.Code=="P25").Steps.First(step=>step.Key=="speak");
+            speak.Title="어떻게 전할지 선택";speak.Body="말하기·고치기·나중에 전하기·전하지 않기 중\n지금 선택한 방법을 실제로 해봐요.";
+            speak.Kind="choice";speak.Options=O("말하거나 보냈어요","고쳐서 전했어요","나중에 전하기","전하지 않기");speak.ActionLabel="선택 확인";speak.RequiredAnswer=true;
+            text("P25","check",null,"마음과 몸을 살핀 뒤 선택했나요?\n말하지 않기로 한 선택도 남겨요.");
+            return definitions;
+        }
         public static FocusMissionDefinition[] Basic=>All.Where(m=>m.Role==BasicRole).ToArray();
         public static FocusMissionDefinition[] Additional=>All.Where(m=>m.Role==AdditionalRole).ToArray();
         public static FocusMissionDefinition Find(string idOrCode)=>Find(idOrCode,Version);
-        public static FocusMissionDefinition Find(string idOrCode,int version)=>(version==1?Legacy:version==2?VersionTwo:version==Version?All:Array.Empty<FocusMissionDefinition>()).FirstOrDefault(m=>m.Id==idOrCode||m.Code==idOrCode);
+        public static FocusMissionDefinition Find(string idOrCode,int version)=>(version==1?Legacy:version==Version2?AllV2:version==TextureVersion?TextureV3.Value:version==GuidedVersion?AllV4:version==Version?All:Array.Empty<FocusMissionDefinition>()).FirstOrDefault(m=>m.Id==idOrCode||m.Code==idOrCode);
         public static FocusMissionDefinition FindForSession(ActivitySession session)
         {
             if(session==null)return null;
             var definition=Find(session.MissionId,session.FocusVersion);
-            if(definition==null||!session.FocusSupport)return definition;
-            // A sound practice remains P02 in the record, but is a separate support activity.
-            if(session.FocusVersion!=Version||definition.Code!="P02")return null;
-            var support=definition.Copy();support.Role=AdditionalRole;return support;
+            if(definition==null || !session.FocusSupport)return definition;
+            if((session.FocusVersion!=TextureVersion&&session.FocusVersion!=Version) || definition.Code!="P02")return null;
+            var support=definition.Copy(); support.Role=AdditionalRole; return support;
         }
+        public static bool IsGuided(ActivitySession session)=>session!=null && (session.FocusVersion==GuidedVersion||session.FocusVersion==Version) && GuidedV3.Any(m=>m.Id==session.MissionId);
         public static bool IsApplicable(FocusMissionDefinition mission,IReadOnlyList<FocusStepRecord> records,int index)
         {
             if(mission==null||index<0||index>=mission.Steps.Length)return false;
@@ -165,101 +235,6 @@ namespace CapstoneDesign.Runtime.LocalState
             return step.ConditionValues.Contains(answer);
         }
         public static bool HasOriginalLayout(string code)=>code=="M03"||code=="P10"||code=="P23"||code=="P25";
-        static FocusMissionDefinition[] BuildCurrentVersion()
-        {
-            var definitions=VersionTwo.Select(m=>m.Copy()).ToArray();
-            foreach(var definition in definitions)
-            {
-                definition.ContentVersion=Version;
-                definition.PurposeId="focus-purpose-v1-"+definition.Code;
-                definition.Purpose=PurposeFor(definition.Code);
-                definition.EvidenceBasis="product-purpose-review-2026-11-05";
-                definition.ReviewStatus="product-reviewed-clinical-review-pending";
-            }
-            Action<string,string,string,string> text=(code,key,title,body)=>{
-                var step=definitions.First(m=>m.Code==code).Steps.First(s=>s.Key==key);
-                if(title!=null)step.Title=title;step.Body=body;
-            };
-            text("P03","contact",null,"몸이 의자나 바닥에 닿는 곳의\n감각을 살펴요. 전신을 훑지 않아도 돼요.");
-            text("P09","prepare","지금 마음과 몸","지금의 감정을 속으로 살펴봐요.\n떠오르는 이름이 없어도 괜찮아요.");
-            text("P09","contact","감정과 함께 느껴지는 몸","지금 마음과 함께 몸에서\n어떤 감각이 느껴지는지 살펴요.");
-            text("P09","notice",null,"감정과 함께 눈에 띈 몸의 느낌이 있나요?\n연결이 뚜렷하지 않아도 괜찮아요.");
-            text("P12","observe",null,"고른 경험의 감각을 살펴봐요.\n편안해지거나 좋은 기분을 만들 필요는 없어요.");
-            text("P18","practice",null,"고른 대상을 살피고 주의가 벗어나면 돌아와요.\n대상을 바꾸거나 쉰 뒤에도 다시 살펴요.");
-            text("P18","notice",null,"실제로 살펴본 대상을 떠올려요.\n쉬기만 했다면 미션을 넘겨도 괜찮아요.");
-            text("P19","route",null,"산 명상을 해보거나 소리 실습으로 옮겨요.\n소리 실습은 별도 활동으로 기록해요.");
-            text("P19","mountain-change",null,"생각과 감정은 날씨처럼 달라져요.\n없애려 하지 않고 산처럼 머물러봐요.");
-            text("P21","practice",null,"고른 대상의 감각을 살펴요. 잠시 멈춤은\n몸이 닿는 곳을 느껴요. 편안해질 필요는 없어요.");
-            text("P24","route",null,"상대 또는 앱 이야기를 골라요.\n앱 이야기는 대화 대신 듣는 중 반응을 살펴요.");
-            text("P24","listen",null,"답하려는 생각과 몸의 반응을 알아차리면\n지금 들리는 말로 부드럽게 돌아와요.");
-            text("P24","notice","듣는 동안의 내 반응","듣는 중 생각이나 몸의 반응이 있었나요?\n내용을 잘 기억해야 하는 실습은 아니에요.");
-            definitions.First(m=>m.Code=="P24").Steps.Last().InputHint="떠오른 생각이나 몸의 반응 · 선택";
-            text("P25","pause",null,"잠시 멈춰 지금의 마음과 몸을 살펴요.\n숨을 억지로 바꾸지는 않아요.");
-            text("P25","message",null,"전하려는 말과 이유를 살펴요.\n그대로 말할지 바꿀지 속으로 생각해봐요.");
-            var speak=definitions.First(m=>m.Code=="P25").Steps.First(step=>step.Key=="speak");
-            speak.Title="어떻게 전할지 선택";speak.Body="말하기·고치기·나중에 전하기·전하지 않기 중\n지금 선택한 방법을 실제로 해봐요.";
-            speak.Kind="choice";speak.Options=O("말하거나 보냈어요","고쳐서 전했어요","나중에 전하기","전하지 않기");speak.ActionLabel="선택 확인";speak.RequiredAnswer=true;
-            text("P25","check",null,"마음과 몸을 살핀 뒤 방법을 선택했나요?\n말하지 않기로 한 선택도 남길 수 있어요.");
-            text("P26","route",null,"작은 도움이 있었나요? 떠오르지 않으면\n별도 소리 실습을 고를 수 있어요.");
-            text("P28","review",null,"활동과 시간대를 확인해요. 놓친 날이 있어도\n다음 편한 때 다시 시작해요. 알림 설정과는 별개예요.");
-            var plan=definitions.First(m=>m.Code=="M10").Steps.First(step=>step.Key=="plan");
-            plan.Kind="plan";plan.Title="작은 행동과 편한 시간대";
-            plan.Body="할 일과 편한 시간대를 골라요.\n정확한 시각이나 문장을 적지 않아도 돼요.";
-            plan.InputHint="직접 정하고 싶다면 적어요 · 선택";
-            text("M10","review","계획 확인","고른 계획을 확인해요.\n알림 시각과 별개로 편할 때 실천하면 돼요.");
-            return definitions;
-        }
-        static string PurposeFor(string code)
-        {
-            switch(code)
-            {
-                case "P01":return "자연스러운 호흡 감각 알아차림";
-                case "P02":return "주변 소리와 변화 알아차림";
-                case "P03":return "몸의 접촉 감각 알아차림";
-                case "P04":return "마시는 한 모금의 감각 경험";
-                case "P05":return "주의 이탈 알아차림과 부드러운 복귀";
-                case "P06":return "일상 행동 중 현재 감각 알아차림";
-                case "P07":case "P14":return "직접 실습한 방법의 선호 탐색";
-                case "P08":return "현재 감정을 알아차리고 바꾸지 않아도 되는 경험";
-                case "P09":return "현재 감정과 함께 나타나는 몸 감각 알아차림";
-                case "P10":return "현재 경험 알아차림, 호흡에 모음, 몸으로 주의 넓힘";
-                case "P11":return "생각을 정신적 사건으로 알아차리고 현재로 복귀";
-                case "P12":return "일상의 작은 경험 관찰, 편안해짐은 성공 조건 아님";
-                case "P13":return "세 단계 주의 실습과 비평가적 변화 확인";
-                case "P15":return "현재 경험에 친절한 태도";
-                case "P16":return "자세 조절 후 몸의 접촉 감각 관찰";
-                case "P17":return "현재 경험 알아차림 뒤 필요한 행동 선택과 실행";
-                case "P18":return "가능한 기준점 관찰, 이탈 인식, 복귀";
-                case "P19":return "산의 비유로 변하는 경험에 머무는 태도와 수용";
-                case "P20":return "작은 자기돌봄 시도 알아차림과 인정";
-                case "P21":return "가능한 관찰 방법을 경험하고 다시 사용할 방법 선택";
-                case "P22":return "움직임과 자세 변화의 접촉 감각 관찰";
-                case "P23":return "먹는 한입의 감각 직접 경험";
-                case "P24":return "듣는 중 자기 반응을 알아차리고 들리는 말로 복귀";
-                case "P25":return "몸과 마음 알아차림 뒤 전달 방식의 의도적 선택";
-                case "P26":return "일상에서 실제 작은 도움 알아차림";
-                case "P27":return "생활 계기와 실습 실행 연결";
-                case "P28":return "경험한 실습의 재수행과 유지 계획";
-                case "M01":return "주변 밝기를 바꾸는 일상 환경 지원";
-                case "M02":return "창밖의 색과 모양, 움직임 관찰";
-                case "M03":return "물 마시기 자기돌봄";
-                case "M04":return "얼굴 씻기 일상 행동";
-                case "M05":return "편한 범위의 몸 움직임";
-                case "M06":return "물건 하나 정리하는 행동 시작";
-                case "M07":return "현재 기분 표현";
-                case "M08":return "선호하는 음악 듣기";
-                case "M09":return "잠시 휴식하기";
-                case "M10":return "작은 실행 행동과 편한 시간대 계획";
-                case "M11":return "자유 창작과 여가";
-                case "M12":return "주변 식물의 시각적 감각 관찰";
-                case "M13":return "괜찮았던 작은 경험 회고";
-                case "M14":return "관심 있는 글 읽기";
-                case "M15":return "실제로 걷는 활동";
-                case "M16":return "공원 외출과 자연 접촉";
-                case "M17":return "자연호흡의 감각 관찰";
-                default:throw new ArgumentException("Unknown focus mission purpose.");
-            }
-        }
         static FocusMissionStep Step(string key,string title,string body,string action,string[] options=null,bool input=false,string hint=null)
             =>new FocusMissionStep {Key=key,Title=title,Body=body,ActionLabel=action,Options=options??Array.Empty<string>(),OptionalInput=input,InputHint=hint};
         // Kept immutable so existing saved session prompts, step indexes and receipts remain valid.
@@ -299,6 +274,7 @@ namespace CapstoneDesign.Runtime.LocalState
             var step=mission?.Steps.FirstOrDefault(s=>s.Key==stepKey);
             if(step==null)return Array.Empty<string>();
             bool method=stepKey=="activity"&&new[]{"P06","P07","P14","P18","P20","P21","P22","P27","P28"}.Contains(mission.Code)
+                ||mission.ContentVersion==FocusMissionCatalog.Version&&stepKey=="practice"&&new[]{"P01","P06","P07"}.Contains(mission.Code)
                 ||mission.Code=="P18"&&stepKey=="practice"||mission.Code=="P28"&&stepKey=="next-activity"
                 ||mission.Code=="P19"&&stepKey=="route"||mission.Code=="P24"&&stepKey=="route";
             return method?step.Options.Where(option=>DifferentPurposeAlternative(mission,stepKey,option)==null).ToArray():Array.Empty<string>();
@@ -317,9 +293,11 @@ namespace CapstoneDesign.Runtime.LocalState
             return DifferentPurposeAlternative(definition,"route",route?.Value);
         }
         public static FocusDurationRecommendation RecommendDuration(string missionId,string stepKey,int baselineSeconds,IEnumerable<FocusDurationFeedback> history)
+            =>RecommendDuration(FocusMissionCatalog.Find(missionId),stepKey,baselineSeconds,history);
+        // The caller supplies the saved session's immutable definition, including legacy keys.
+        public static FocusDurationRecommendation RecommendDuration(FocusMissionDefinition definition,string stepKey,int baselineSeconds,IEnumerable<FocusDurationFeedback> history)
         {
             if(baselineSeconds<0||baselineSeconds>86400)throw new ArgumentOutOfRangeException(nameof(baselineSeconds));
-            var definition=FocusMissionCatalog.Find(missionId);
             var step=definition?.Steps.FirstOrDefault(s=>s.Key==stepKey);
             var result=new FocusDurationRecommendation {BaselineSeconds=baselineSeconds,RecommendedSeconds=baselineSeconds,PolicyId=PolicyId,Reason="catalog-default"};
             if(step==null||!IsTimedPractice(step)||baselineSeconds==0)return result;
@@ -349,148 +327,6 @@ namespace CapstoneDesign.Runtime.LocalState
             string plan=string.IsNullOrEmpty(timePeriod)?text:timePeriod+" · "+text;
             if(plan.Length>500)throw new ArgumentException("Plan text is too long.");
             return plan;
-        }
-    }
-
-    public sealed class FocusAdditionalRecommendation
-    {
-        readonly float[] features;
-        public string MissionId { get; private set; }
-        public string PolicyId { get; private set; }
-        public string Reason { get; private set; }
-        public double Score { get; private set; }
-        public float[] Features=>(float[])features.Clone();
-        internal FocusAdditionalRecommendation(string id,string reason,float[] values,double score)
-        {MissionId=id;PolicyId=FocusAdditionalRecommendationPolicy.PolicyId;Reason=reason;features=(float[])values.Clone();Score=score;}
-    }
-    public static class FocusAdditionalRecommendationPolicy
-    {
-        public const string PolicyId="focus-additional-history-preference-v2";
-        internal sealed class PreferenceSignal
-        {
-            public string MissionId, Reason, Identity;
-            public int Direction, Priority;
-            public DateTimeOffset At;
-        }
-        // Local choice only: it cannot change the required course, start an activity or issue rewards.
-        // It deliberately consumes no health values or notification click times.
-        public static FocusAdditionalRecommendation Select(GardenState state,DateTimeOffset now)
-        {
-            if(state==null)throw new ArgumentNullException(nameof(state));
-            var active=FocusMissionPolicy.Active(state,FocusMissionCatalog.AdditionalRole);
-            if(active!=null)return new FocusAdditionalRecommendation(active.MissionId,"resume-active-activity",new[]{0f,.5f,0f,.5f},1);
-            var all=FocusMissionCatalog.Additional;
-            var candidates=all.Where(m=>!FocusMissionPolicy.AdditionalCompletedToday(state,m.Id)).ToArray();
-            if(candidates.Length==0)candidates=all;
-            var favorite=PreferenceFor(state,now);
-            var decisions=candidates.Select(m=>
-            {
-                var started=state.Sessions.Where(s=>FocusMissionPolicy.IsFocus(s)&&s.MissionId==m.Id&&StartedBefore(s,now)).ToArray();
-                var last=started.Select(s=>DateTimeOffset.Parse(s.StartedUtc)).DefaultIfEmpty(DateTimeOffset.MinValue).Max();
-                float completion=started.Length==0?.5f:started.Count(s=>s.Status==ParticipationState.RewardCommitted)/(float)started.Length;
-                float recency=started.Length==0?1:(float)Math.Max(0,Math.Min(1,(now-last).TotalDays/14));
-                bool preferenceApplies=favorite!=null&&favorite.MissionId==m.Id;
-                float preference=preferenceApplies&&favorite.Direction>0?1:0;
-                // Feature order matches the historical contract, but this local policy is not sent
-                // to its model: duration fit is unknown, not an invented available-time response.
-                var values=new[]{preference,completion,recency,.5f};
-                // A frequency response changes ranking only. It never changes practice seconds,
-                // removes a course step or prohibits the user's explicit choice of this activity.
-                double frequencyPenalty=preferenceApplies&&favorite.Direction<0?.30:0;
-                double score=.30*preference+.20*completion+.15*recency-frequencyPenalty;
-                string reason=preferenceApplies&&favorite.Direction!=0?favorite.Reason:started.Length>0?"participation-history":"catalog-default-no-history";
-                return new FocusAdditionalRecommendation(m.Id,reason,values,score);
-            }).ToArray();
-            // Equal-evidence suggestions rotate deterministically by date, rather than always M03.
-            int rotation=(int)(now.UtcDateTime.Date.Ticks/TimeSpan.TicksPerDay%all.Length);
-            return decisions.OrderByDescending(d=>d.Score)
-                .ThenBy(d=>(Array.FindIndex(all,m=>m.Id==d.MissionId)-rotation+all.Length)%all.Length).First();
-        }
-        static bool StartedBefore(ActivitySession session,DateTimeOffset now)
-        {DateTimeOffset time;return DateTimeOffset.TryParse(session.StartedUtc,out time)&&time<=now;}
-        internal static PreferenceSignal PreferenceFor(GardenState state,DateTimeOffset now)
-        {
-            var signals=new List<PreferenceSignal>();
-            var saved=state.PracticePreferences.FirstOrDefault(p=>p.Key=="favorite");
-            if(saved!=null)
-            {
-                DateTimeOffset at;
-                // Untimestamped old settings remain the fallback. Do not invent their date.
-                if(string.IsNullOrEmpty(saved.UpdatedUtc))at=DateTimeOffset.MinValue;
-                else if(!DateTimeOffset.TryParse(saved.UpdatedUtc,out at)||at>now)at=DateTimeOffset.MaxValue;
-                if(at<=now)signals.Add(new PreferenceSignal {MissionId=FocusMissionCatalog.Additional.FirstOrDefault(m=>MatchesPreference(m,saved.Value))?.Id,
-                    Direction=1,Reason="saved-preference",At=at,Priority=2,Identity="settings"});
-            }
-            foreach(var session in state.Sessions)
-            {
-                DateTimeOffset started,ended;
-                if(!FocusMissionPolicy.IsFocus(session)||session.Status!=ParticipationState.RewardCommitted
-                    ||!DateTimeOffset.TryParse(session.StartedUtc,out started)||!DateTimeOffset.TryParse(session.EndedUtc,out ended)
-                    ||ended<started||ended>now)continue;
-                var definition=FocusMissionCatalog.FindForSession(session);
-                if(definition==null||session.FocusStepRecords==null)continue;
-                // Read only exact choices whose own prompt supports a future preference. Merely
-                // choosing today's practice, an unconfirmed draft, or arbitrary free text is not it.
-                FocusStepRecord record=null;string method=null,reason="focus-method-preference";int direction=1;
-                if(definition.Code=="P07")
-                {
-                    record=ConfirmedChoice(session,definition,"next",started,ended);
-                    if(record==null||record.Value=="잘 모르겠음")continue;
-                    method=record.Value;
-                }
-                else if(definition.Code=="P21")
-                {
-                    record=ConfirmedChoice(session,definition,"save",started,ended);
-                    var activity=ConfirmedChoice(session,definition,"activity",started,ended);
-                    if(record?.Value!="내 쉬는 방법으로 저장"||activity==null)continue;
-                    method=activity.Value;
-                }
-                else if(definition.Code=="P28")
-                {
-                    record=ConfirmedChoice(session,definition,"next-activity",started,ended);
-                    if(record==null)continue;
-                    method=record.Value;
-                }
-                else if(definition.Code=="P14")
-                {
-                    record=ConfirmedChoice(session,definition,"preference",started,ended);
-                    var activity=ConfirmedChoice(session,definition,"activity",started,ended);
-                    // "As now" keeps the current ranking input, rather than erasing a previous
-                    // preference/less-often response and thereby changing it.
-                    if(record==null||activity==null||record.Value=="잘 모르겠음"||record.Value=="지금처럼")continue;
-                    method=activity.Value;
-                    direction=record.Value=="더 자주"?1:-1;
-                    reason=direction>0?"focus-frequency-more":"focus-frequency-less";
-                }
-                else continue;
-                var answered=DateTimeOffset.Parse(record.ConfirmedUtc);DateTimeOffset updated;
-                if(DateTimeOffset.TryParse(record.UpdatedUtc,out updated)&&updated>answered&&updated<=ended)answered=updated;
-                signals.Add(new PreferenceSignal {MissionId=AdditionalForMethod(method),Direction=direction,Reason=reason,
-                    At=answered,Priority=1,Identity=session.SessionId??""});
-            }
-            // The newest explicit answer wins. Unknown/skip/free text never erases an older one.
-            // A valid but unmapped choice (or P07 'none') removes an obsolete preference boost;
-            // it does not turn body contact into stretching or ambient sound into music.
-            return signals.OrderByDescending(signal=>signal.At).ThenByDescending(signal=>signal.Priority)
-                .ThenBy(signal=>signal.Identity,StringComparer.Ordinal).FirstOrDefault();
-        }
-        static FocusStepRecord ConfirmedChoice(ActivitySession session,FocusMissionDefinition definition,string key,DateTimeOffset started,DateTimeOffset ended)
-        {
-            var step=definition.Steps.FirstOrDefault(item=>item.Key==key);
-            var records=session.FocusStepRecords.Where(item=>item.Key==key).ToArray();
-            if(step==null||records.Length!=1)return null;
-            var record=records[0];DateTimeOffset at;
-            return !record.Skipped&&step.Options.Contains(record.Value)&&DateTimeOffset.TryParse(record.ConfirmedUtc,out at)
-                &&at>=started&&at<=ended?record:null;
-        }
-        static string AdditionalForMethod(string method)
-            =>method=="호흡"?"free-mission:M17":method=="잠시 멈춤"?"free-mission:M09":null;
-        static bool MatchesPreference(FocusMissionDefinition mission,string value)
-        {
-            if(string.IsNullOrWhiteSpace(value))return false;
-            if(mission.Title==value)return true;
-            return value=="호흡 관찰"&&mission.Code=="M17"||value=="몸 살펴보기"&&mission.Code=="M05"
-                ||value=="잠시 멈추기"&&mission.Code=="M09";
         }
     }
 

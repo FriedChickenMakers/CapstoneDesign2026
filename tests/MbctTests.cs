@@ -26,6 +26,15 @@ class MbctTests
     {var s=new GardenStateService(store,clock,new DemoBalanceConfig());Check(s.Open(),"Open MBCT state");Check(s.RefreshCycle(new string[0]),"Refresh MBCT cycle");return s;}
     static void Begin(GardenStateService s,int order,string session)
     {Check(s.BeginSession(session,MbctPolicy.MissionId(order),order),"Begin "+order);Check(s.StartSession(session),"Start "+order);}
+    static bool Ready(GardenStateService service,string id)
+    {
+        var session=service.Snapshot.Sessions.Single(item=>item.SessionId==id);
+        if(session.Status==ParticipationState.RewardCommitted)return true;
+        var mission=MbctContent.Find(session.MissionId);
+        return mission==null || session.InstructionStep>=mission.steps.Length || service.SavePracticeStep(id,mission.steps.Length);
+    }
+    static bool Complete(GardenStateService service,string id,string mood=null,string note=null,System.Collections.Generic.IEnumerable<string> eligibleAnimalIds=null)
+    { return Ready(service,id) && service.CompleteSession(id,mood,note,eligibleAnimalIds); }
     static void CheckDetachedLists(object original,object copy)
     {
         foreach(var field in original.GetType().GetFields())
@@ -66,33 +75,33 @@ class MbctTests
                 string session=program+"-"+order;
                 Check(service.BeginSession(session,MbctPolicy.MissionId(program,order),order) && service.StartSession(session),program+" begin own sequence");
                 Check(!service.SelectMbctProgram("8w"),program+" active practice prevents course switch");
-                Check(service.CompleteSession(session),program+" complete practice");
+                Check(Complete(service,session),program+" complete practice");
                 int before=service.Snapshot.Nutrient;
-                Check(service.CompleteSession(session) && service.Snapshot.Nutrient==before,program+" repeated completion cannot repay");
-                if(order<=6)Check(WeeklyPlants.Active(service.Snapshot).Recipe.GrowthStep==order,program+" activity completion grows automatically");
-                if(order==6)Check(WeeklyPlants.Active(service.Snapshot).Recipe.GrowthStep==6 && WeeklyPlants.Active(service.Snapshot).Recipe.SpeciesId==null,program+" remains juvenile until seventh credited activity");
+                Check(Complete(service,session) && service.Snapshot.Nutrient==before,program+" repeated completion cannot repay");
+                Check(service.GetPracticeGrowth(session)!=null && service.Snapshot.Coins==order*50,program+" each finished practice records its growth with exactly one 50-coin final reward");
+                if(order==6)Check(service.Snapshot.PlantAppearance.Recipe.GrowthStep==6,program+" sixth eligible practice reaches exactly the sixth stage");
                 service.Dispose();service=Open(store,clock);
                 Check(MbctPolicy.NextOrder(service.Snapshot)==order+1 && MbctPolicy.ActiveProgram(service.Snapshot)==program,program+" exact progression survives restart");
             }
             Check(MbctPolicy.CompletedCount(service.Snapshot)==catalog.Count && MbctPolicy.Availability(service.Snapshot).Contains("활동을 마쳤어요"),program+" explicit completed state");
             Check(service.Snapshot.MbctCompletedIds.Count==0 && service.Snapshot.MbctNextOrder==1,program+" original 48 IDs and progression preserved");
-            Check(service.Snapshot.Nutrient==catalog.Count*5,program+" activity growth does not consume earned nutrients");
+            Check(service.Snapshot.Nutrient==catalog.Count*50,program+" entire course pays exactly 50 coins per occurrence");
             string finalId=MbctPolicy.MissionId(program,catalog.Count);
             Check(service.BeginSession(program+"-review",finalId,catalog.Count) && service.StartSession(program+"-review"),program+" review allowed after completion");
             int savedNutrients=service.Snapshot.Nutrient;
-            Check(service.CompleteSession(program+"-review") && service.Snapshot.Nutrient==savedNutrients,program+" completed-course review pays no additional reward");
+            Check(Complete(service,program+"-review") && service.Snapshot.Nutrient==savedNutrients,program+" completed-course review pays no additional reward");
             Check(service.SelectMbctProgram("8w") && service.SelectMbctProgram(program) && MbctPolicy.CompletedCount(service.Snapshot)==catalog.Count,program+" switching preserves completed progress");
             CheckDetachedLists(service.Snapshot,StateCodec.Clone(service.Snapshot));
             service.Dispose();
         }
         var switchClock=new Clock();var switchStore=new Store();var switched=Open(switchStore,switchClock);
         Check(switched.SelectMbctProgram("2w"),"Select two-week course");
-        Check(switched.BeginSession("short-first","course:MBCT2W01",1) && switched.StartSession("short-first") && switched.CompleteSession("short-first"),"Complete first short practice");
+        Check(switched.BeginSession("short-first","course:MBCT2W01",1) && switched.StartSession("short-first") && Complete(switched,"short-first"),"Complete first short practice");
         Check(switched.SelectMbctProgram("4w") && !switched.BeginSession("same-day-other","course:MBCT4W01",1),"Cross-program switch cannot bypass daily reward limit");
         switchClock.Time=switchClock.Time.AddDays(1);Check(switched.RefreshCycle(new string[0]),"Next day for second program");
         Check(!switched.BeginSession("wrong-program","course:MBCT2W02",2),"Unselected program cannot advance");
         Check(!switched.BeginSession("wrong-order","course:MBCT4W02",1),"Short-course ID/order mismatch rejected");
-        Check(switched.BeginSession("four-first","course:MBCT4W01",1) && switched.StartSession("four-first") && switched.CompleteSession("four-first"),"Begin distinct four-week course");
+        Check(switched.BeginSession("four-first","course:MBCT4W01",1) && switched.StartSession("four-first") && Complete(switched,"four-first"),"Begin distinct four-week course");
         Check(switched.SelectMbctProgram("2w") && MbctPolicy.NextOrder(switched.Snapshot)==2,"Resume prior short-course progress");
         var beforeSwitch=StateCodec.Encode(switched.Snapshot);switchStore.Fail=true;
         Check(!switched.SelectMbctProgram("8w") && StateCodec.Encode(switched.Snapshot)==beforeSwitch,"Course switch failure preserves progress and selection atomically");switchStore.Fail=false;
@@ -102,7 +111,7 @@ class MbctTests
             switchClock.Time=switchClock.Time.AddDays(1);Check(switched.RefreshCycle(new string[0]),"Cross-program weekly date");
             string program=day%2==0?"2w":"4w";Check(switched.SelectMbctProgram(program),"Alternate program without resetting its progress");
             int order=MbctPolicy.NextOrder(switched.Snapshot);string id="alternating-"+day;
-            Check(switched.BeginSession(id,MbctPolicy.MissionId(program,order),order) && switched.StartSession(id) && switched.CompleteSession(id),"Cross-program practice uses one global quota");
+            Check(switched.BeginSession(id,MbctPolicy.MissionId(program,order),order) && switched.StartSession(id) && Complete(switched,id),"Cross-program practice uses one global quota");
         }
         switchClock.Time=switchClock.Time.AddDays(1);Check(switched.RefreshCycle(new string[0]) && switched.SelectMbctProgram("8w"),"Sunday switch to untouched eight-week program");
         Check(!switched.BeginSession("seventh-cross-program","course:MBCT01",1) && switched.LastError.Contains("이번 주"),"Switching into a third program cannot bypass the six-per-week quota");
@@ -117,14 +126,28 @@ class MbctTests
     static void HistoryAndSummaryChecks()
     {
         var clock=new Clock();var store=new Store {Data=StateCodec.Encode(new GardenState {MigrationCompleted=true,Nutrient=100})};var service=Open(store,clock);
-        Begin(service,1,"remembered");Check(service.CompleteSession("remembered","차분해요","합성 검증 기록"),"Create explicitly linkable completed activity");
+        Begin(service,1,"remembered");Check(Complete(service,"remembered","차분해요","합성 검증 기록"),"Create explicitly linkable completed activity");
         var before=StateCodec.Encode(service.Snapshot);store.Fail=true;
-        Check(!service.UpdateReflection("remembered","synthetic edited","synthetic note") && StateCodec.Encode(service.Snapshot)==before,"Reflection and organ edits fail atomically");store.Fail=false;
-        var memory=WeeklyPlants.FindMemory(service.Snapshot,MemoryRecordKind.SessionReflection,"remembered");
-        Check(memory!=null && WeeklyPlants.Active(service.Snapshot).Recipe.GrowthStep==1,"Activity growth and optional leaf saved together");
-        string organ=memory.OrganId;int nutrient=service.Snapshot.Nutrient;
-        Check(service.CompleteSession("remembered") && service.Snapshot.Nutrient==nutrient && WeeklyPlants.Active(service.Snapshot).Memories.Count==1,"Completion retry creates no duplicate memory or growth");
-        Check(!service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId,"remembered"),"Purchases cannot bypass activity growth");
+        Check(!service.GrowPlant("new-paid-growth",GardenPlantVisuals.GrowthPlantId,"remembered") && StateCodec.Encode(service.Snapshot)==before,"New paid growth is rejected without changing coins or recipe");store.Fail=false;
+        // Import a synthetic historical purchase exactly as an older writer saved it.
+        var historical=service.Snapshot;
+        // The current policy attaches daily-emotion leaves, while old session
+        // reflection leaves remain readable after migration and restart.
+        WeeklyPlants.AddMemory(historical,WeeklyPlants.Active(historical).Id,MemoryRecordKind.SessionReflection,"remembered",clock.UtcNow.ToString("O"),540);
+        string organ=WeeklyPlants.FindMemory(historical,MemoryRecordKind.SessionReflection,"remembered").OrganId;
+        foreach(string request in new[]{"linked-growth","unlinked-growth"})
+        {
+            historical.PurchaseReceipts.Add(request);
+            historical.PurchaseCommands.Add(new PurchaseCommand{RequestId=request,Command="growth|"+GardenPlantVisuals.GrowthPlantId});
+            historical.GrowthHistory.Add(new GardenGrowthRecord{RequestId=request,PlantId=GardenPlantVisuals.GrowthPlantId,
+                LinkedSessionId=request=="linked-growth"?"remembered":"",CreatedUtc=clock.UtcNow.ToString("O"),BeforeGrowth=request=="linked-growth"?0:.1f,AfterGrowth=request=="linked-growth"?.1f:.2f});
+        }
+        store.Save(historical);service.Dispose();service=Open(store,clock);
+        var history=service.Snapshot.GrowthHistory.First();int nutrient=service.Snapshot.Nutrient;
+        Check(history.LinkedSessionId=="remembered" && history.BeforeGrowth==0 && history.AfterGrowth==.1f && history.CreatedUtc==clock.UtcNow.ToString("O"),"Legacy history preserves explicit association, actual timestamp and before/after values");
+        Check(service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId,"remembered") && service.Snapshot.GrowthHistory.Count==2 && service.Snapshot.Nutrient==nutrient,"Legacy purchase retry creates no duplicate or extra charge");
+        Check(!service.GrowPlant("linked-growth",GardenPlantVisuals.GrowthPlantId) && service.Snapshot.GrowthHistory.First().LinkedSessionId=="remembered","Retry cannot silently relink a saved growth event");
+        Check(service.GrowPlant("unlinked-growth",GardenPlantVisuals.GrowthPlantId) && service.Snapshot.GrowthHistory.Last().LinkedSessionId=="","Legacy optional omission remains unlinked despite recent completion");
         service.Dispose();service=Open(store,clock);
         Check(WeeklyPlants.FindMemory(service.Snapshot,MemoryRecordKind.SessionReflection,"remembered").OrganId==organ && service.Snapshot.Sessions.Single().Note=="합성 검증 기록","Memory identity and original reflection survive restart");
         var detached=service.Snapshot;WeeklyPlants.Active(detached).Memories[0].RecordId="external edit";
@@ -135,7 +158,7 @@ class MbctTests
         var firstSummary=GardenRecordSummary.Calculate(service.Snapshot,firstDate,firstDate.AddTicks(1));
         Check(firstSummary.Completed==1 && firstSummary.Ended==1 && firstSummary.ExperienceTypes["즐거움"]==1,"Summary counts actual completed/ended records and chosen experience type");
         Check(GardenRecordSummary.Calculate(service.Snapshot,firstDate.AddTicks(1),firstDate.AddDays(1)).Completed==0,"Summary excludes records outside explicit time window");
-        clock.Time=clock.Time.AddDays(8);Check(service.RefreshCycle(new string[0]),"Move synthetic week");Begin(service,2,"later");Check(service.CompleteSession("later"),"Later-week completed activity");
+        clock.Time=clock.Time.AddDays(8);Check(service.RefreshCycle(new string[0]),"Move synthetic week");Begin(service,2,"later");Check(Complete(service,"later"),"Later-week completed activity");
         Check(service.SaveExperience("experience-two","불편함","다른 합성 사건","","",""),"Later-week experience");
         var week=GardenRecordSummary.Calculate(service.Snapshot,new DateTimeOffset(clock.Time.Date,clock.Time.Offset),clock.Time.AddTicks(1));
         var all=GardenRecordSummary.Calculate(service.Snapshot,DateTimeOffset.MinValue,clock.Time.AddTicks(1));
@@ -145,7 +168,7 @@ class MbctTests
         // A legacy save with growth purchases has no historical timestamp or source to infer.
         var legacyXml=new XmlDocument();legacyXml.LoadXml(StateCodec.Encode(service.Snapshot));legacyXml.DocumentElement.RemoveChild(legacyXml.DocumentElement["GrowthHistory"]);
         var legacy=StateCodec.Decode(legacyXml.OuterXml);
-        Check(legacy.GrowthHistory.Count==0 && legacy.PurchaseReceipts.Count==0 && legacy.Nutrient==service.Snapshot.Nutrient,"Legacy growth migrates without invented timestamps or associations");
+        Check(legacy.GrowthHistory.Count==0 && legacy.PurchaseReceipts.SequenceEqual(service.Snapshot.PurchaseReceipts) && legacy.Nutrient==service.Snapshot.Nutrient,"Legacy growth migrates without invented timestamps or associations");
         service.Dispose();
     }
     static void CompletionBoundaryChecks()
@@ -157,23 +180,24 @@ class MbctTests
             var service=new GardenStateService(store,clock,new DemoBalanceConfig {VisitorChancePercent=100});
             Check(service.Open() && service.RefreshCycle(new[]{"animal:A01"}) && service.SelectMbctProgram(program),program+" prepare pre-reset state");
             Check(service.BeginSession("boundary",MbctPolicy.MissionId(program,1),1) && service.StartSession("boundary"),program+" begin before daily reset");
+            Check(Ready(service,"boundary"),program+" final practice step ready before reset");
             clock.Time=clock.Time.AddSeconds(20); // Complete before the UI's next 30-second refresh.
             var before=StateCodec.Encode(service.Snapshot);int saves=store.Saves;
             store.Fail=true;
-            Check(!service.CompleteSession("boundary",eligibleAnimalIds:new[]{"animal:A02"}) && StateCodec.Encode(service.Snapshot)==before
+            Check(!Complete(service,"boundary",eligibleAnimalIds:new[]{"animal:A02"}) && StateCodec.Encode(service.Snapshot)==before
                 && store.Data==before && store.Saves==saves,program+" reset decision, reward and completion fail atomically");
             store.Fail=false;
-            Check(service.CompleteSession("boundary",eligibleAnimalIds:new[]{"animal:A02"}) && store.Saves==saves+1,program+" current cycle and completion use one successful save");
+            Check(Complete(service,"boundary",eligibleAnimalIds:new[]{"animal:A02"}) && store.Saves==saves+1,program+" current cycle and completion use one successful save");
             var completed=service.Snapshot;
             Check(completed.LastCycleId==service.CurrentCycleId && completed.Sessions.Single().InstanceId==service.CurrentCycleId
                 && completed.DailyDecisions.Count==2 && completed.DailyDecisions.Last().VisitorId=="animal:A02",program+" completion consumes the real current day with supplied visitor candidates");
-            Check(completed.Nutrient==5 && completed.RewardReceipts.Single()==service.CurrentCycleId+"|"+MbctPolicy.MissionId(program,1),program+" one current-day reward receipt");
-            Check(service.CompleteSession("boundary") && service.Snapshot.Nutrient==5 && service.Snapshot.DailyDecisions.Count==2,program+" reset completion retry cannot duplicate reward or daily decision");
+            Check(completed.Nutrient==50 && completed.RewardReceipts.Single()==service.CurrentCycleId+"|"+MbctPolicy.MissionId(program,1),program+" one current-day reward receipt");
+            Check(Complete(service,"boundary") && service.Snapshot.Nutrient==50 && service.Snapshot.DailyDecisions.Count==2,program+" reset completion retry cannot duplicate reward or daily decision");
             Check(!service.BeginSession("second-same-day",MbctPolicy.MissionId(program,2),2),program+" next practice stays blocked after reset-boundary completion");
             string alternate=program=="2w"?"4w":"2w";
             Check(service.SelectMbctProgram(alternate) && !service.BeginSession("switched-same-day",MbctPolicy.MissionId(alternate,1),1),program+" switching course cannot bypass reset-boundary quota");
             service.Dispose();service=Open(store,clock);
-            Check(service.Snapshot.Nutrient==5 && service.Snapshot.DailyDecisions.Last().VisitorId=="animal:A02"
+            Check(service.Snapshot.Nutrient==50 && service.Snapshot.DailyDecisions.Last().VisitorId=="animal:A02"
                 && MbctPolicy.NextOrder(service.Snapshot,program)==2,program+" reset-boundary outcome survives restart");
             service.Dispose();
         }
@@ -183,7 +207,7 @@ class MbctTests
             var service=new GardenStateService(new Store(),clock,new DemoBalanceConfig {VisitorChancePercent=100});
             Check(service.Open() && service.RefreshCycle(candidates),"Prepare explicitly known visitor set");
             Begin(service,1,"default-candidates");clock.Time=clock.Time.AddSeconds(20);
-            Check(service.CompleteSession("default-candidates") && service.Snapshot.DailyDecisions.Last().VisitorId==(candidates.FirstOrDefault()??""),
+            Check(Complete(service,"default-candidates") && service.Snapshot.DailyDecisions.Last().VisitorId==(candidates.FirstOrDefault()??""),
                 "Existing completion caller reuses known candidates and never invents a visitor");
             service.Dispose();
         }
@@ -240,34 +264,34 @@ class MbctTests
         Check(s.Snapshot.Sessions.Single().InstructionStep==1 && s.Snapshot.Sessions.Single().Answers.Single().Value=="물","Step/answer restored");
         store.Fail=true;var before=StateCodec.Encode(s.Snapshot);
         Check(!s.SavePracticeStep("one",2,"food","과자") && StateCodec.Encode(s.Snapshot)==before,"Draft write is atomic");
-        Check(!s.CompleteSession("one") && StateCodec.Encode(s.Snapshot)==before,"Failed completion leaves reward/progress unchanged");
-        store.Fail=false;Check(s.CompleteSession("one") && s.Snapshot.Nutrient==5 && s.Snapshot.MbctNextOrder==2,"Atomic five reward and progress");
-        Check(s.CompleteSession("one") && s.Snapshot.Nutrient==5,"Duplicate completion has one reward");
+        Check(!Complete(s,"one") && StateCodec.Encode(s.Snapshot)==before,"Failed completion leaves reward/progress unchanged");
+        store.Fail=false;Check(Complete(s,"one") && s.Snapshot.Nutrient==50 && s.Snapshot.MbctNextOrder==2,"Atomic practice growth and course progress with exactly 50 coins");
+        Check(Complete(s,"one") && s.Snapshot.Nutrient==50,"Duplicate completion has one reward");
         Check(!s.BeginSession("two-today","course:MBCT02",2),"One new practice per day");
-        Begin(s,1,"review");Check(s.CompleteSession("review") && s.Snapshot.Nutrient==5 && s.Snapshot.MbctNextOrder==2,"Review does not reward or advance");
+        Begin(s,1,"review");Check(Complete(s,"review") && s.Snapshot.Nutrient==50 && s.Snapshot.MbctNextOrder==2,"Review does not reward or advance");
         Check(s.Snapshot.PracticePreferences.Single().Value=="물","Completed preferences persist");
         Check(s.SaveExperience("journal","불편함","메시지","가슴 답답함","울적해요","답장이 없어요"),"Independent journal save");
-        Check(s.SaveExperience("journal","불편함","메시지","가슴 답답함","울적해요","답장이 없어요") && s.Snapshot.Experiences.Count==1 && s.Snapshot.Nutrient==5,"Journal retry no reward/duplicate");
+        Check(s.SaveExperience("journal","불편함","메시지","가슴 답답함","울적해요","답장이 없어요") && s.Snapshot.Experiences.Count==1 && s.Snapshot.Nutrient==50,"Journal retry no reward/duplicate");
         before=StateCodec.Encode(s.Snapshot);store.Fail=true;
         Check(!s.SavePreference("routine","손 씻기") && StateCodec.Encode(s.Snapshot)==before,"Preference failure atomic");store.Fail=false;
         Check(s.SavePreference("routine","손 씻기"),"Reusable routine save");
         Check(s.SavePreference("warning-sign","잠을 잘 못 잠") && s.SavePreference("support","치료진"),"Editable personal plan");
         for(int order=2;order<=6;order++)
-        {clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Next practice day");Begin(s,order,"day-"+order);Check(s.CompleteSession("day-"+order),"Complete day");}
-        Check(s.Snapshot.Nutrient==30 && s.Snapshot.MbctNextOrder==7,"Six rewards total thirty");
+        {clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Next practice day");Begin(s,order,"day-"+order);Check(Complete(s,"day-"+order),"Complete day");}
+        Check(s.Snapshot.Nutrient==300 && s.Snapshot.MbctNextOrder==7,"Six practices grant exactly 300 coins");
         clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Sunday");
         Check(!s.BeginSession("seventh","course:MBCT07",7) && s.LastError.Contains("이번 주"),"Six per Monday-Sunday week");
         clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Next week");Begin(s,7,"seven");
         // Resume across midnight: completion belongs to the current cycle.
-        clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Cross-midnight");Check(s.CompleteSession("seven"),"Complete resumed session");
+        clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Cross-midnight");Check(Complete(s,"seven"),"Complete resumed session");
         Check(s.Snapshot.Sessions.Last().InstanceId==s.Snapshot.LastCycleId && !s.BeginSession("eight-same-day","course:MBCT08",8),"Completion date consumes current daily quota");
         for(int order=8;order<=48;order++)
         {
             do{clock.Time=clock.Time.AddDays(1);Check(s.RefreshCycle(new string[0]),"Advance calendar");}while(MbctPolicy.Availability(s.Snapshot)!=null);
-            Begin(s,order,"course-"+order);Check(s.CompleteSession("course-"+order),"Complete full course");
+            Begin(s,order,"course-"+order);Check(Complete(s,"course-"+order),"Complete full course");
             s.Dispose();s=Open(store,clock);
         }
-        Check(s.Snapshot.MbctNextOrder==49 && s.Snapshot.MbctCompletedIds.Count==48 && s.Snapshot.Nutrient==240,"Full course reopens with forty-eight rewards");
+        Check(s.Snapshot.MbctNextOrder==49 && s.Snapshot.MbctCompletedIds.Count==48 && s.Snapshot.Nutrient==2400,"Full course reopens without granting duplicate coins");
         Check(s.Snapshot.NextCourseOrder==1 && s.Snapshot.CompletedCourseIds.Count==0,"Legacy progress independent");
         Check(s.Snapshot.Experiences.Single().Emotion=="울적해요" && s.Snapshot.PracticePreferences.Any(a=>a.Key=="routine" && a.Value=="손 씻기"),"Journal/preferences survive full course");
         var old=new GardenState{MigrationCompleted=true,Nutrient=77};var xml=new XmlDocument();xml.LoadXml(StateCodec.Encode(old));
@@ -299,7 +323,7 @@ class MbctTests
         Check(skip.Snapshot.PracticePreferences.Single().Value=="existing preference","Skip preserves prior global preference");
         skip.Dispose();skip=Open(skipStore,new Clock());
         Check(skip.Snapshot.Sessions.Single().InstructionStep==1 && skip.Snapshot.Sessions.Single().Answers.All(a=>a.Key!="food"),"Skipped answer stays absent after reload");
-        Check(skip.CompleteSession("skip-optional") && skip.Snapshot.PracticePreferences.Single(a=>a.Key=="food").Value=="existing preference","Completion does not leak skipped autosave into preference");
+        Check(Complete(skip,"skip-optional") && skip.Snapshot.PracticePreferences.Single(a=>a.Key=="food").Value=="existing preference","Completion does not leak skipped autosave into preference");
         Check(!skip.SkipPracticeStep("skip-optional",2,"other"),"Completed practice cannot be edited by skip");
         skip.Dispose();
         var existingEightProgress=s.Snapshot.MbctCompletedIds.ToArray();var existingEightNutrient=s.Snapshot.Nutrient;

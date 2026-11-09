@@ -200,7 +200,7 @@ namespace CapstoneDesign.EditorTools
             }
             if (name == "plant-collection" || name == "plant-memories")
             {
-                if (name == "plant-collection") ui.ShowPlantCollection();
+                if (name == "plant-collection") ui.ShowPlantAlbum();
                 else
                 {
                     Require(service.SaveExperience("theme-memory", "즐거움", "합성 UI 검토용 기억입니다.", "", "편안함", ""), service.LastError);

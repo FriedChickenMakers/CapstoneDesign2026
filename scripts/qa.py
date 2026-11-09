@@ -35,12 +35,17 @@ def catalog(output):
     python = sys.executable
     checks = [Check("harness", "python", [python, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"]),
               Check("server", "python", [python, "-m", "unittest", "discover", "-s", "server/tests", "-v"], ("server",))]
-    for name in ("local-state", "mbct", "garden-appearance", "heart-range-refresh", "walking-baseline-refresh",
-                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation", "focus-state", "all-missions",
-                 "focus-adjustment", "focus-contracts", "focus-preferences", "focus-recommendation-measurements"):
+    for name in ("local-state", "mbct", "garden-appearance", "garden-photos", "heart-range-refresh", "walking-baseline-refresh",
+                 "walking-personalization", "activity-notifications", "personalization", "mission-recommendation", "focus-state", "all-missions", "mission-practice-growth",
+                 "combined-branch-fixtures", "combined-plants", "combined-camera-recommendation",
+                 "daily-emotion", "daily-missions", "full-reset", "guided-focus", "activity-journal",
+                 "memory-leaf-affordance", "plant-memory-presentation", "focus-preferences", "focus-recommendation-measurements",
+                 "focus-adjustment", "focus-contracts", "guided-v4-compatibility"):
         checks.append(Check(name, "unit", ["bash", "scripts/test-" + name + ".sh"], ("mono",)))
     checks.append(Check("procedural-plants", "unit", [python, "scripts/test-procedural-plants.py"], ("plant-compiler",)))
-    checks.append(Check("weekly-plants", "unit", [python, "scripts/test-weekly-plants.py"], ("plant-compiler",)))
+    # Weekly partial growth is superseded by daily mission + CombinedPlantCollection.
+    # Confirmed adjustment/allowance contracts are restored for new content v5 and
+    # checked above, while historical session definitions remain immutable.
     checks.append(Check("flower-layout", "unit", [python, "scripts/test-weekly-plants.py", "FlowerLayoutTests"], ("plant-compiler",)))
     checks.append(Check("plant-volume", "unit", [python, "scripts/test-weekly-plants.py", "PlantVolumeTests"], ("plant-compiler",)))
     for name in ("health-query", "notification-policy", "notification-personas", "sensor-summary-unit", "daily-acceleration-unit", "measurement-buffer"):
@@ -61,11 +66,9 @@ def catalog(output):
                          ("guided-ui", "TabConsistencyCapture.CaptureGuidance"), ("demo-polish", "DemoPolishValidation.Capture"),
                          ("sky", "GardenSkyValidation.Capture"), ("lighting", "GardenLightingValidation.Capture"),
                          ("procedural-scene", "GardenProceduralValidation.Capture"),
-                         ("weekly-plants-ui", "WeeklyPlantValidation.Run"),
                          ("flower-spacing", "WeeklyPlantValidation.FlowerSpacing"),
                          ("plant-volume-ui", "WeeklyPlantValidation.PlantVolume"),
                          ("focus-missions", "FocusMissionValidation.Run"),
-                         ("focus-adjustments", "FocusAdjustmentValidation.Run"),
                          ("mobile-ui", "MobileUiValidation.Run"), ("all-courses", "AllCourseValidation.Run")):
         checks.append(editor(name, method, "visual", graphics=True))
     settings = editor("measurement-settings", "MeasurementSettingsCapture.Start", "visual", graphics=True, quit=False)

@@ -27,7 +27,15 @@ object AndroidPlatformBridge {
     private var inputMode = "LIVE"
 
     @JvmStatic
-    fun initialize(activity: Activity, unityVersionValue: String, inputModeValue: String): String = try {
+    fun resetLocalData(activity: Activity, resetId: String): String {
+        appContext = activity.applicationContext
+        val result=NativeLocalReset.reset(activity.applicationContext, resetId)
+        activity.runOnUiThread { notificationDialog?.dismiss(); notificationDialog=null; notificationDialogShowing=false; notificationNoticeShown="" }
+        return result
+    }
+
+    @JvmStatic
+    fun initialize(activity: Activity, unityVersionValue: String, inputModeValue: String): String { return try {
         if (activityReference.get() !== activity) {
             notificationDialogShowing = false
             notificationNoticeShown = ""
@@ -36,7 +44,8 @@ object AndroidPlatformBridge {
         appContext = activity.applicationContext
         unityVersion = unityVersionValue
         inputMode = inputModeValue
-        if (inputMode != "LIVE") MeasurementTelemetry.configure(activity.applicationContext, "", false, 0)
+        if (NativeLocalReset.pending(activity)) return resultJson(PlatformStatus.ERROR, "Local reset is pending", "LOCAL_RESET_PENDING")
+        if (inputMode != "LIVE") MeasurementTelemetry.suspend()
         SensorRepository.initialize(activity.applicationContext)
         HealthRepository.initialize(activity.applicationContext)
         ActivityNotifications.initialize(activity.applicationContext, inputModeValue == "LIVE")
@@ -44,7 +53,7 @@ object AndroidPlatformBridge {
         resultJson(PlatformStatus.AVAILABLE, "Android platform bridge initialized")
     } catch (exception: Exception) {
         resultJson(PlatformStatus.ERROR, exception.safeMessage(), "BRIDGE_INITIALIZE_FAILED")
-    }
+    } }
 
     @JvmStatic
     fun getPlatformSnapshotJson(): String = platformSnapshotJson(false)
@@ -87,6 +96,7 @@ object AndroidPlatformBridge {
 
     @JvmStatic
     fun startSensorSummaryExperiment(activity: Activity, windowMs: Long, durationMs: Long, runId: String): String {
+        if (NativeLocalReset.pending(activity)) return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
         if (activity.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0)
             return resultJson(PlatformStatus.ERROR,"Development build required")
         val intent=Intent(activity,SensorForegroundService::class.java)
@@ -97,8 +107,11 @@ object AndroidPlatformBridge {
 
     @JvmStatic
     fun startDailyAccelerationTrial(activity: Activity): String = try {
-        activity.startForegroundService(Intent(activity, DailyAccelerationService::class.java))
-        resultJson(PlatformStatus.AVAILABLE, "Daily acceleration trial start requested")
+        if (NativeLocalReset.pending(activity)) resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
+        else {
+            activity.startForegroundService(Intent(activity, DailyAccelerationService::class.java))
+            resultJson(PlatformStatus.AVAILABLE, "Daily acceleration trial start requested")
+        }
     } catch (exception: Exception) {
         resultJson(PlatformStatus.ERROR, exception.safeMessage(), "DAILY_TRIAL_START_FAILED")
     }
@@ -116,9 +129,11 @@ object AndroidPlatformBridge {
 
     @JvmStatic
     fun startAutomaticPermissionFlow(activity: Activity): String = try {
+        val epoch=NativeLocalReset.epoch(activity)
         activity.runOnUiThread {
+            if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
             activity.startActivity(Intent(activity, HealthPermissionActivity::class.java)
-                .putExtra("automatic", true))
+                .putExtra("automatic", true).putExtra("localDataEpoch",epoch))
         }
         resultJson(PlatformStatus.AVAILABLE, "Missing permissions are being checked")
     } catch (exception: Exception) {
@@ -152,6 +167,7 @@ object AndroidPlatformBridge {
     fun startBackgroundSensorService(): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+        if (NativeLocalReset.pending(context)) return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
         return try {
             val intent = Intent(context, DailyAccelerationService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -171,6 +187,10 @@ object AndroidPlatformBridge {
     fun stopBackgroundSensorService(): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+        if (NativeLocalReset.pending(context)) {
+            context.stopService(Intent(context, DailyAccelerationService::class.java))
+            return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
+        }
         return try {
             context.startForegroundService(Intent(context, DailyAccelerationService::class.java)
                 .setAction(DailyAccelerationService.ACTION_STOP))
@@ -184,13 +204,16 @@ object AndroidPlatformBridge {
     fun stopLegacyAutoAccelerationTrial(): String {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
+        val epoch=NativeLocalReset.epoch(context)
+        if(!NativeLocalReset.current(context,epoch))return resultJson(PlatformStatus.NO_DATA,"Local reset is pending")
         val preferences = context.getSharedPreferences("daily_acceleration_trial", Context.MODE_PRIVATE)
         if (DailyAccelerationStatus.read(context).optString("status") != "UNKNOWN")
             return resultJson(PlatformStatus.AVAILABLE, "Manual collector state retained")
         if (preferences.getBoolean("userEnabled", false))
             return resultJson(PlatformStatus.AVAILABLE, "User-enabled acceleration trial retained")
         return try {
-            preferences.edit().putBoolean("active", false).commit()
+            if(!NativeLocalReset.write(context,epoch) { check(preferences.edit().putBoolean("active", false).commit()) })
+                return resultJson(PlatformStatus.NO_DATA,"Local reset invalidated this request")
             val stopped = context.stopService(Intent(context, DailyAccelerationService::class.java))
             resultJson(PlatformStatus.AVAILABLE,
                 if (stopped) "Old automatic acceleration trial stopped" else "No automatic trial running")
@@ -221,12 +244,14 @@ object AndroidPlatformBridge {
         }
         return try {
             val requestable = permissions.filter { !PermissionState.wasRuntimeRequested(activity, it) }
+            val epoch=NativeLocalReset.epoch(activity)
             activity.runOnUiThread {
+                if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
                 if (requestable.isEmpty()) {
                     activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.parse("package:${activity.packageName}")))
                 } else {
-                    requestable.forEach { PermissionState.markRuntimeRequested(activity, it) }
+                    requestable.forEach { PermissionState.markRuntimeRequested(activity, it,epoch) }
                     activity.requestPermissions(requestable.toTypedArray(), RUNTIME_PERMISSION_REQUEST_CODE)
                 }
             }
@@ -244,8 +269,10 @@ object AndroidPlatformBridge {
         val (status, message) = HealthRepository.availabilityStatus()
         if (status != PlatformStatus.AVAILABLE) return resultJson(status, message)
         return try {
+            val epoch=NativeLocalReset.epoch(activity)
             activity.runOnUiThread {
-                activity.startActivity(Intent(activity, HealthPermissionActivity::class.java))
+                if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
+                activity.startActivity(Intent(activity, HealthPermissionActivity::class.java).putExtra("localDataEpoch",epoch))
             }
             resultJson(PlatformStatus.PERMISSION_REQUIRED, "Health Connect permission request opened")
         } catch (exception: Exception) {
@@ -272,11 +299,13 @@ object AndroidPlatformBridge {
         val context = appContext
             ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
         val result = MissionRewardNotifications.schedule(context, sessionId, startEpochMs, goalSteps, virtualSteps, endEpochMs, aggregate)
+        val epoch=NativeLocalReset.epoch(context)
         if (MissionRewardNotifications.permissionPromptNeeded(context)) {
             activityReference.get()?.runOnUiThread {
+                if(!NativeLocalReset.current(context,epoch))return@runOnUiThread
                 activityReference.get()?.let { activity ->
                     activity.startActivity(Intent(activity, HealthPermissionActivity::class.java)
-                        .putExtra("rewardReminder", true))
+                        .putExtra("rewardReminder", true).putExtra("localDataEpoch",epoch))
                 }
             }
         }
@@ -309,8 +338,11 @@ object AndroidPlatformBridge {
     fun getWalkingAchievementJson(): String = appContext?.let { MissionRewardNotifications.achievement(it) } ?: "{}"
 
     @JvmStatic
+    fun suspendMeasurements(): String = MeasurementTelemetry.suspend()
+    @JvmStatic
     fun configureMeasurements(binding: String, enabled: Boolean, since: Long): String =
-        appContext?.let { MeasurementTelemetry.configure(it, binding, enabled && inputMode == "LIVE", since) } ?: "{}"
+        if(enabled && inputMode != "LIVE") { MeasurementTelemetry.suspend(); "{\"ok\":false}" }
+        else appContext?.let { MeasurementTelemetry.configure(it, binding, enabled, since) } ?: "{}"
     @JvmStatic
     fun recordMeasuredFocusRecommendation(kind: String, decision: String, session: String, recommended: String, actual: String,
                                          policy: String, reason: String, occurred: Long, offset: Int): String =
@@ -338,6 +370,7 @@ object AndroidPlatformBridge {
             ?: resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Bridge is not initialized")
 
     // These dialogs edit the existing daily reminder. There is no separate one-off mode.
+    private var notificationDialog: android.app.Dialog? = null
     private var notificationDialogShowing = false
     private var notificationNoticeShown = ""
 
@@ -345,12 +378,14 @@ object AndroidPlatformBridge {
     fun showActivityNotificationEntryPrompt(): String {
         val activity = activityReference.get() ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Activity unavailable")
         if (inputMode != "LIVE") return resultJson(PlatformStatus.UNSUPPORTED, "Live Android mode required")
+        val epoch=NativeLocalReset.epoch(activity)
         activity.runOnUiThread {
+            if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
             if (activity.isFinishing || activity.isDestroyed || notificationDialogShowing) return@runOnUiThread
             try {
                 val current = ActivityNotifications.settings(activity)
                 if (!current.optBoolean("timeChosen", false)) {
-                    showInitialNotificationTimePrompt(activity)
+                    showInitialNotificationTimePrompt(activity, epoch)
                     return@runOnUiThread
                 }
                 val permission = current.optString("permissionStatus")
@@ -360,11 +395,12 @@ object AndroidPlatformBridge {
                 if (!current.optBoolean("enabled", true) || notice.isEmpty()) { notificationNoticeShown = ""; return@runOnUiThread }
                 if (notice == notificationNoticeShown) return@runOnUiThread
                 notificationDialogShowing = true
-                android.app.AlertDialog.Builder(activity)
+                notificationDialog = android.app.AlertDialog.Builder(activity)
                     .setTitle("알림을 확인해 주세요")
                     .setMessage(if (blocked) "기기에서 활동 알림이 허용되지 않았어요. 알림을 받으려면 권한을 확인해 주세요."
                         else "최근 활동 알림의 게시를 확인하지 못했어요. 자동으로 다시 확인하며, 알림 설정도 확인할 수 있어요.")
                     .setPositiveButton("알림 설정") { _, _ ->
+                        if(!NativeLocalReset.current(activity,epoch))return@setPositiveButton
                         notificationNoticeShown = notice
                         if (blocked) ActivityNotifications.requestPermission(activity)
                         else activity.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
@@ -379,21 +415,24 @@ object AndroidPlatformBridge {
         return resultJson(PlatformStatus.AVAILABLE, "Notification entry state checked")
     }
 
-    private fun showInitialNotificationTimePrompt(activity: Activity) {
+    private fun showInitialNotificationTimePrompt(activity: Activity, epoch: String) {
+        if(!NativeLocalReset.current(activity,epoch))return
         notificationDialogShowing = true
-        android.app.AlertDialog.Builder(activity)
+        notificationDialog = android.app.AlertDialog.Builder(activity)
             .setTitle("알림을 받을 시각을 정해 주세요")
             .setMessage("하루 한 번, 편한 시간에 활동을 알려드려요. 정하지 않으면 낮 12시에 시작하며 설정에서 바꿀 수 있어요. 알림시간 자동 최적화는 기본으로 켜져 있어요.")
             .setCancelable(false)
             .setPositiveButton("시각 설정") { _, _ ->
+                if(!NativeLocalReset.current(activity,epoch))return@setPositiveButton
                 notificationDialogShowing = false
-                showNotificationTimePicker(activity, initial = true)
+                showNotificationTimePicker(activity, initial = true, epoch = epoch)
             }
             .setNegativeButton("아직 정하지 못했어요") { _, _ ->
+                if(!NativeLocalReset.current(activity,epoch))return@setNegativeButton
                 notificationDialogShowing = false
                 val current = ActivityNotifications.settings(activity)
                 val result = ActivityNotifications.configure(activity, current.optBoolean("enabled", true),
-                    ActivityReminderPolicy.DEFAULT_MINUTE, current.optBoolean("adaptive", true), timeSelected = true, adjustmentSource = "default")
+                    ActivityReminderPolicy.DEFAULT_MINUTE, current.optBoolean("adaptive", true), timeSelected = true, adjustmentSource = "default", expectedEpoch = epoch)
                 if (JSONObject(result).optString("status") != PlatformStatus.AVAILABLE) notificationSaveError(activity)
             }.show()
     }
@@ -405,15 +444,18 @@ object AndroidPlatformBridge {
     @JvmStatic
     fun showActivityNotificationTimePicker(): String {
         val activity = activityReference.get() ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Activity unavailable")
+        val epoch=NativeLocalReset.epoch(activity)
         activity.runOnUiThread {
+            if(!NativeLocalReset.current(activity,epoch))return@runOnUiThread
             if (!notificationDialogShowing && !activity.isFinishing && !activity.isDestroyed) try {
-                showNotificationTimePicker(activity, initial = false)
+                showNotificationTimePicker(activity, initial = false, epoch = epoch)
             } catch (_: Exception) { notificationDialogShowing = false; notificationSaveError(activity) }
         }
         return resultJson(PlatformStatus.AVAILABLE, "Notification time picker opened")
     }
 
-    private fun showNotificationTimePicker(activity: Activity, initial: Boolean) {
+    private fun showNotificationTimePicker(activity: Activity, initial: Boolean, epoch: String) {
+        if(!NativeLocalReset.current(activity,epoch))return
         val minute = ActivityNotifications.settings(activity).optInt("minuteOfDay", ActivityReminderPolicy.DEFAULT_MINUTE)
         // Localize only this clock. Its initial value matches the time shown in Settings.
         val dialogContext = android.view.ContextThemeWrapper(activity, R.style.CapstoneTimePickerDialog).apply {
@@ -421,17 +463,18 @@ object AndroidPlatformBridge {
         }
         notificationDialogShowing = true
         var completed = false
-        android.app.TimePickerDialog(dialogContext, R.style.CapstoneTimePickerDialog, { _, hour, selectedMinute ->
+        notificationDialog = android.app.TimePickerDialog(dialogContext, R.style.CapstoneTimePickerDialog, { _, hour, selectedMinute ->
+            if(!NativeLocalReset.current(activity,epoch))return@TimePickerDialog
             val current = ActivityNotifications.settings(activity)
             val result = ActivityNotifications.configure(activity, current.optBoolean("enabled", true),
-                hour * 60 + selectedMinute, current.optBoolean("adaptive", true), timeSelected = true)
+                hour * 60 + selectedMinute, current.optBoolean("adaptive", true), timeSelected = true, expectedEpoch = epoch)
             completed = JSONObject(result).optString("status") == PlatformStatus.AVAILABLE
             if (!completed) notificationSaveError(activity)
         }, minute / 60, minute % 60, true).apply {
             setOnDismissListener {
                 notificationDialogShowing = false
-                if (initial && !completed && !activity.isFinishing && !activity.isDestroyed)
-                    showInitialNotificationTimePrompt(activity)
+                if (initial && !completed && !activity.isFinishing && !activity.isDestroyed && NativeLocalReset.current(activity,epoch))
+                    showInitialNotificationTimePrompt(activity, epoch)
             }
             show()
             getButton(android.content.DialogInterface.BUTTON_NEGATIVE).apply {
@@ -454,7 +497,8 @@ object AndroidPlatformBridge {
     @JvmStatic
     fun requestActivityNotificationPermission(): String {
         val activity = activityReference.get() ?: return resultJson(PlatformStatus.SERVICE_UNAVAILABLE, "Activity unavailable")
-        activity.runOnUiThread { ActivityNotifications.requestPermission(activity) }
+        val epoch=NativeLocalReset.epoch(activity)
+        activity.runOnUiThread { if(NativeLocalReset.current(activity,epoch))ActivityNotifications.requestPermission(activity) }
         return resultJson(PlatformStatus.AVAILABLE, "Notification permission checked")
     }
 

@@ -1,12 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
-project_dir="$(cd "$(dirname "$0")/.." && pwd)"
-mono_root="${UNITY_MONO_ROOT:-/opt/unity/editors/6000.3.24f1/Editor/Data/MonoBleedingEdge}"
-test_dir="$(mktemp -d)"
-trap 'rm -rf "$test_dir"' EXIT
-garden_plant_sources=("$project_dir"/Assets/Scripts/ProceduralPlants/Plant{Catalog,Math,Recipe,Generator,Geometry,MemoryGeometry,FlowerLayout}.cs)
-"$mono_root/bin/mono" "$mono_root/lib/mono/4.5/mcs.exe" -langversion:latest -r:System.Xml.dll -r:System.Core.dll \
-  -out:"$test_dir/focus-recommendation-measurement-tests.exe" "$project_dir/Assets/Scripts/Runtime/LocalGardenState.cs" "$project_dir/Assets/Scripts/Runtime/CameraMissionPolicy.cs" "$project_dir/Assets/Scripts/Runtime/FocusMissionCatalog.cs" "$project_dir/Assets/Scripts/Runtime/FocusDrawingData.cs" \
-  "$project_dir/Assets/Scripts/Runtime/GardenPlantAppearance.cs" "$project_dir/Assets/Scripts/Runtime/WeeklyPlantState.cs" "${garden_plant_sources[@]}" \
-  "$project_dir/tests/FocusRecommendationMeasurementTests.cs"
-"$mono_root/bin/mono" "$test_dir/focus-recommendation-measurement-tests.exe"
+source "$(dirname "${BASH_SOURCE[0]}")/garden-domain-sources.sh"
+garden_run_test FocusRecommendationMeasurementTests

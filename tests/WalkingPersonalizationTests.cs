@@ -69,14 +69,14 @@ class WalkingTests
         Check(!service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==0,"below target not completed");
         service.ObserveMissionSteps("synthetic-walk",5000,WalkingPersonalization.AggregateSource);
         store.Fail=true;Check(!service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==0,"failed save never commits reward");
-        store.Fail=false;Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==5,"observed target auto-completes and rewards");
+        store.Fail=false;Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==50,"observed target auto-completes and rewards");
         Check(service.Snapshot.Sessions[0].Status==ParticipationState.RewardCommitted,"automatic completion is durable session result");
-        Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==5,"duplicate automatic completion idempotent");
+        Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==50,"duplicate automatic completion idempotent");
         service=new GardenStateService(store,clock,new DemoBalanceConfig());Check(service.Open(),"reopen");
-        Check(service.Snapshot.Sessions[0].WalkingGoalSteps==5000 && service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==5,"target and receipt survive restart");
-        Check(service.BeginSession("repeat","free-mission:M15") && service.StartWalkingSession("repeat",Evaluate(low)),"second walk same cycle");
-        service.ObserveMissionSteps("repeat",7000,WalkingPersonalization.AggregateSource);service.TryCompleteWalkingGoal("repeat");
-        Check(service.Snapshot.Nutrient==5,"same daily mission cannot reward twice");
+        Check(service.Snapshot.Sessions[0].WalkingGoalSteps==5000 && service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==50,"target and receipt survive restart");
+        string completedState=StateCodec.Encode(service.Snapshot);
+        Check(!service.BeginSession("repeat","free-mission:M15") && StateCodec.Encode(service.Snapshot)==completedState,"second same-day additional mission is rejected without changing prior reward or records");
+        Check(service.AdvancePreviewDay(),"legacy walking uses the next unclaimed day");
         Check(service.BeginSession("legacy","free-mission:M15") && service.StartSession("legacy"),"legacy session starts through old contract");
         var legacy=service.Snapshot.Sessions.Last();
         Check(WalkingPersonalization.TargetFor(legacy)==300 && WalkingPersonalization.QueryStartFor(legacy)==DateTimeOffset.Parse(legacy.StartedUtc),"legacy keeps old goal and interval");
@@ -84,6 +84,7 @@ class WalkingTests
         service.ObserveMissionSteps("legacy",300);Check(service.TryCompleteWalkingGoal("legacy"),"legacy completes at 300");
         var encoded=StateCodec.Encode(service.Snapshot);var decoded=StateCodec.Decode(encoded);
         Check(decoded.Sessions[0].WalkingGoalSteps==5000 && decoded.Sessions.Last().WalkingGoalSteps==0,"serialization preserves both generations");
+        Check(service.AdvancePreviewDay(),"invalid target test uses an unclaimed day");
         var invalid=Evaluate(low);invalid.GoalSteps=50001;
         Check(service.BeginSession("invalid","free-mission:M15") && !service.StartWalkingSession("invalid",invalid),"invalid goal rejected atomically");
         Check(service.Snapshot.Sessions.Last().Status==ParticipationState.Selected,"invalid start did not modify state");

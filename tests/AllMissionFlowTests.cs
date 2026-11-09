@@ -47,12 +47,20 @@ static class AllMissionFlowTests
             if(step.Kind=="wait")Check(Get(service,id).Status!=ParticipationState.RewardCommitted,"P27 returning later is not completion");
             Check(service.ConfirmFocusStep(id,index,answer,string.IsNullOrEmpty(answer)),"confirm "+mission.Code+" "+index+" "+service.LastError);
         }
-        int nutrient=service.Snapshot.Nutrient;
+        int coins=service.Snapshot.Coins;
+        string beforePractice=StateCodec.Encode(service.Snapshot);
+        store.Fail=true;Check(!service.CommitPracticeGrowth(id),"failed practice-end growth "+mission.Code);store.Fail=false;
+        Check(StateCodec.Encode(service.Snapshot)==beforePractice,"failed practice growth preserves complete state "+mission.Code);
+        Check(service.CommitPracticeGrowth(id),"practice growth before reflection "+mission.Code+" "+service.LastError);
+        var growth=service.GetPracticeGrowth(id);
+        Check(growth!=null&&service.Snapshot.Coins==coins,"durable practice receipt without coin reward "+mission.Code);
+        string grownRecipe=CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
         Check(service.SaveFocusReflection(id,"","",1),"optional reflection");
         store.Fail=true;Check(!service.CompleteFocusSession(id),"failed completion "+mission.Code);store.Fail=false;
-        Check(Get(service,id).Status==ParticipationState.InProgress&&service.Snapshot.Nutrient==nutrient,"failed commit preserves session and reward");
+        Check(Get(service,id).Status==ParticipationState.InProgress&&service.Snapshot.Coins==coins,"failed final commit preserves session and wallet");
         Check(service.CompleteFocusSession(id),"complete "+mission.Code+" "+service.LastError);int reward=Get(service,id).RewardAmount;
-        Check(service.CompleteFocusSession(id)&&service.Snapshot.Nutrient==nutrient+reward,"idempotent completion "+mission.Code);
+        Check(reward==50&&service.CompleteFocusSession(id)&&service.Snapshot.Coins==coins+50
+            &&CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==grownRecipe,"final completion grants exactly 50 coins and never another growth "+mission.Code);
         service=Open(store,clock);Check(Get(service,id).FocusStepRecords.All(s=>!string.IsNullOrEmpty(s.ConfirmedUtc)),"completed records retain branch decisions");
         return service;
     }
@@ -60,7 +68,12 @@ static class AllMissionFlowTests
     {
         Check(FocusMissionCatalog.All.Select(m=>m.Code).Distinct().Count()==45,"all mission IDs retained");
         var store=new AllMissionStore();var clock=new AllMissionClock();var service=Open(store,clock);
-        foreach(var mission in FocusMissionCatalog.Additional)service=Perform(service,store,clock,"free-"+mission.Code,mission);
+        foreach(var mission in FocusMissionCatalog.Additional)
+        {
+            if(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null)
+            {clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"next additional mission day");}
+            service=Perform(service,store,clock,"free-"+mission.Code,mission);
+        }
         Check(!service.Snapshot.MbctProgramChosen,"all recommendations work before course selection");
         Check(service.SelectMbctProgram("8w"),"choose full curriculum");
         for(int order=1;order<=48;order++)

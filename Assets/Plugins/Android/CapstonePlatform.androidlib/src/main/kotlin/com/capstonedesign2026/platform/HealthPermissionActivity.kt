@@ -31,22 +31,30 @@ class HealthPermissionActivity : ComponentActivity() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var settingsLaunched = false
     private var healthSettingsLaunched = false
+    private var dataEpoch = ""
+    private fun currentData(): Boolean {
+        if(NativeLocalReset.current(this,dataEpoch))return true
+        finish(); return false
+    }
     private val runtimeLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        requestHealthPermissions()
+        if(currentData())requestHealthPermissions()
     }
 
     private val permissionLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract(),
     ) {
-        PermissionState.markHealthRequestCompleted(applicationContext)
+        if(!currentData())return@registerForActivityResult
+        PermissionState.markHealthRequestCompleted(applicationContext,dataEpoch)
         HealthRepository.refresh()
         finish()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dataEpoch=savedInstanceState?.getString("localDataEpoch") ?: intent.getStringExtra("localDataEpoch") ?: NativeLocalReset.epoch(this)
+        if(!currentData())return
         HealthRepository.initialize(applicationContext)
         if (intent.getBooleanExtra("automatic", false) || intent.getBooleanExtra("rewardReminder", false)) {
             val missing = buildList {
@@ -59,7 +67,7 @@ class HealthPermissionActivity : ComponentActivity() {
             }
             val requestable = missing.filter { !PermissionState.wasRuntimeRequested(this, it) }
             if (requestable.isNotEmpty()) {
-                requestable.forEach { PermissionState.markRuntimeRequested(this, it) }
+                requestable.forEach { PermissionState.markRuntimeRequested(this, it,dataEpoch) }
                 runtimeLauncher.launch(requestable.toTypedArray())
                 return
             }
@@ -68,6 +76,7 @@ class HealthPermissionActivity : ComponentActivity() {
     }
 
     private fun requestHealthPermissions() {
+        if(!currentData())return
         if ((intent.getBooleanExtra("automatic", false) || intent.getBooleanExtra("rewardReminder", false)) && hasDeniedRuntimePermission()) {
             if (settingsLaunched) finish() else showSettingsPrompt(health = false)
             return
@@ -80,6 +89,7 @@ class HealthPermissionActivity : ComponentActivity() {
             try {
                 val client = HealthConnectClient.getOrCreate(this@HealthPermissionActivity)
                 val granted = withContext(Dispatchers.IO) { client.permissionController.getGrantedPermissions() }
+                if(!currentData())return@launch
                 val required = if (intent.getBooleanExtra("rewardReminder", false)) {
                     buildSet {
                         add(HealthPermission.getReadPermission(StepsRecord::class))
@@ -101,7 +111,7 @@ class HealthPermissionActivity : ComponentActivity() {
                     permissionLauncher.launch(missing)
                 }
             } catch (_: Exception) {
-                HealthRepository.refresh()
+                if(currentData())HealthRepository.refresh()
                 finish()
             }
         }
@@ -122,6 +132,7 @@ class HealthPermissionActivity : ComponentActivity() {
                 "헬스 커넥트에서 연결할 건강 기록을 선택해 주세요."
                 else "신체 활동 또는 알림 권한이 꺼져 있어요. 앱 설정에서 허용할 수 있어요.")
             .setPositiveButton("설정 열기") { _, _ ->
+                if(!currentData())return@setPositiveButton
                 val destination = if (health && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
                     Intent(HealthConnectManager.ACTION_MANAGE_HEALTH_PERMISSIONS)
                         .putExtra(Intent.EXTRA_PACKAGE_NAME, packageName)
@@ -142,6 +153,7 @@ class HealthPermissionActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if(!currentData())return
         if (!settingsLaunched) return
         if (healthSettingsLaunched || hasDeniedRuntimePermission()) {
             HealthRepository.refresh()
@@ -157,6 +169,10 @@ class HealthPermissionActivity : ComponentActivity() {
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("localDataEpoch",dataEpoch)
+        super.onSaveInstanceState(outState)
     }
 }
 

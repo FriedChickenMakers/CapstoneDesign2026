@@ -124,7 +124,7 @@ namespace CapstoneDesign.Runtime
             Input.textComponent.rectTransform.sizeDelta = layout.Input.size - new Vector2(32, 32);
             if (Input.placeholder != null) Input.placeholder.rectTransform.sizeDelta = layout.Input.size - new Vector2(32, 32);
             var actionRect = (RectTransform)done.transform;
-            actionRect.anchoredPosition = new Vector2(layout.Done.x, -layout.Done.y); actionRect.sizeDelta = layout.Done.size;
+            FigmaMissionUi.SetRect(actionRect, layout.Done.x, layout.Done.y, layout.Done.width, layout.Done.height);
             var actionText = done.GetComponentInChildren<Text>();
             if (actionText != null) actionText.rectTransform.sizeDelta = new Vector2(layout.Done.width - 16, layout.Done.height);
             overlay.SetAsLastSibling();

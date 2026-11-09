@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using System;
 #if ENABLE_INPUT_SYSTEM
 using UnityEngine.InputSystem;
 using UnityEngine.InputSystem.UI;
@@ -17,6 +18,7 @@ namespace CapstoneDesign.Prototype
     {
         public Camera previewCamera;
         public PrototypeGardenPreviewLayout zoomLayout;
+        public Func<bool> InputBlocked {get;set;}
         public Vector3 focus = new Vector3(0, .58f, 0);
         public const float DefaultDistance = 5.8f;
         public float distance = DefaultDistance;
@@ -49,6 +51,7 @@ namespace CapstoneDesign.Prototype
 
         void Update()
         {
+            if(InputBlocked?.Invoke()==true){CancelInteraction();return;}
             // The second finger can land on a UI control, whose pointer events do
             // not reach this image. Suspend orbit without treating that as a pinch.
             if(IsDragging && touches.Count<2 && ActiveTouchCount()>1)SuspendOrbit();
@@ -101,7 +104,7 @@ namespace CapstoneDesign.Prototype
 
         public void OnBeginDrag(PointerEventData eventData)
         {
-            if (!isActiveAndEnabled || previewCamera == null || IsDragging
+            if (!isActiveAndEnabled || InputBlocked?.Invoke()==true || previewCamera == null || IsDragging
                 || eventData.button != PointerEventData.InputButton.Left) return;
             if(!Contains(eventData,eventData.pressPosition) || !OwnsRaycast(eventData.pointerPressRaycast))return;
             pointerId=eventData.pointerId;
@@ -166,7 +169,7 @@ namespace CapstoneDesign.Prototype
             zoomLayout.SetZoom(value);Apply(Angles);
         }
         bool CanInteract(PointerEventData data)=>isActiveAndEnabled && previewCamera!=null && data!=null
-            && data.button==PointerEventData.InputButton.Left;
+            && InputBlocked?.Invoke()!=true && data.button==PointerEventData.InputButton.Left;
         bool Contains(PointerEventData data,Vector2 point)=>RectTransformUtility.RectangleContainsScreenPoint(
             (RectTransform)transform,point,data.pressEventCamera??data.enterEventCamera);
         bool OwnsRaycast(RaycastResult hit)=>hit.gameObject==null || hit.gameObject.GetComponentInParent<PrototypeIslandDrag>()==this;

@@ -30,10 +30,10 @@ static class FocusPreferenceRecommendationTests
     }
     static ActivitySession Completed(string code,int minutesAgo,params string[] choices)
     {
-        var definition=FocusMissionCatalog.Find(code);var ended=Now.AddMinutes(-minutesAgo);var started=ended.AddMinutes(-10);
+        var definition=FocusMissionCatalog.Find(code,FocusMissionCatalog.TextureVersion);var ended=Now.AddMinutes(-minutesAgo);var started=ended.AddMinutes(-10);
         var values=new Dictionary<string,string>();for(int i=0;i<choices.Length;i+=2)values[choices[i]]=choices[i+1];
         return new ActivitySession {SessionId="synthetic-preference-"+code+"-"+minutesAgo,MissionId=definition.Id,
-            FocusVersion=3,FocusRole=definition.Role,Status=ParticipationState.RewardCommitted,
+            FocusVersion=FocusMissionCatalog.TextureVersion,FocusRole=definition.Role,Status=ParticipationState.RewardCommitted,
             SelectedUtc=started.AddSeconds(-1).ToString("O"),StartedUtc=started.ToString("O"),EndedUtc=ended.ToString("O"),
             FocusStepRecords=definition.Steps.Select((step,index)=>new FocusStepRecord {Key=step.Key,
                 Value=values.ContainsKey(step.Key)?values[step.Key]:step.Options.FirstOrDefault()??"",
@@ -47,7 +47,7 @@ static class FocusPreferenceRecommendationTests
     {using(var writer=new StringWriter()){new XmlSerializer(typeof(GardenState)).Serialize(writer,state);return writer.ToString();}}
     static void Main()
     {
-        Methods();Frequency();Eligibility();NewestExplicitResponse();BoundaryPreservation();SettingPersistence();
+        Methods();CurrentGuidedPreference();Frequency();Eligibility();NewestExplicitResponse();BoundaryPreservation();SettingPersistence();
         Console.WriteLine("Focus preference recommendations: "+assertions+" assertions PASS");
     }
     static void Methods()
@@ -75,6 +75,21 @@ static class FocusPreferenceRecommendationTests
         var today=State("잠시 멈추기");today.Sessions.Add(Completed("P07",30,"activity","호흡","next","잘 모르겠음"));
         Check(Decision(today).MissionId=="free-mission:M09","today's method choice is not a future preference");
     }
+    static void CurrentGuidedPreference()
+    {
+        // Current guided P07 stores its future-method choice on the notice step,
+        // while migrated texture-v3 histories retain the original next key.
+        var state=State();var definition=FocusMissionCatalog.Find("P07");
+        var session=Completed("P07",30,"next","호흡");session.FocusVersion=FocusMissionCatalog.Version;
+        session.FocusStepRecords=definition.Steps.Select((step,index)=>new FocusStepRecord {
+            Key=step.Key,Value=step.Key=="notice"?"호흡":step.Options.FirstOrDefault()??"",
+            ConfirmedUtc=Now.AddMinutes(-35).AddSeconds(index).ToString("O"),
+            UpdatedUtc=Now.AddMinutes(-35).AddSeconds(index).ToString("O")}).ToList();
+        state.Sessions.Add(session);
+        Check(Decision(state).MissionId=="free-mission:M17"&&Decision(state).Reason=="focus-method-preference","current guided P07 notice informs additional breathing recommendation");
+        Record(session,"notice").Skipped=true;
+        Check(Decision(state).Reason=="catalog-default-no-history","skipped guided notice does not invent a preference");
+    }
     static void Frequency()
     {
         foreach(var response in new[]{"더 자주","지금처럼","덜 자주"})
@@ -85,7 +100,7 @@ static class FocusPreferenceRecommendationTests
             if(response=="더 자주")Check(Decision(state).MissionId=="free-mission:M17"&&Decision(state).Reason=="focus-frequency-more","more often boosts eligible matching activity");
             if(response=="덜 자주")Check(Decision(state).MissionId!="free-mission:M17","less often lowers priority without deleting the activity");
             if(response=="지금처럼")Check(Decision(state).Reason=="saved-preference","as-now does not clear existing preference");
-            Check(FocusMissionAdjustmentPolicy.RecommendDuration("M17","breath",60,null).RecommendedSeconds==60,"frequency does not shorten duration");
+            Check(FocusMissionCatalog.Find("M17").Steps.Single(step=>step.Key=="breath").RecommendedSeconds==60,"frequency ranking leaves the current catalog breath duration unchanged");
         }
         foreach(var text in new[]{"잘 모르겠음","호흡은 더 자주", "덜 자주 해 주세요","더 자주\nsynthetic free text"})
         {

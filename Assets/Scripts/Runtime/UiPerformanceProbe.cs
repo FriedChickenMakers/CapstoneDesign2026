@@ -164,6 +164,15 @@ namespace CapstoneDesign.Runtime
         void OnApplicationPause(bool paused) { if (paused) Finish("pause"); }
         void OnApplicationQuit() => Finish("quit");
         void OnDestroy() => Finish("destroy");
+        public static void DiscardForFullReset()
+        {
+            if(active==null)return;
+            var capture=active; active=null;
+            capture.finished=true;
+            foreach(var recorder in capture.recorders)if(recorder.Valid)recorder.Dispose();
+            capture.frameCount=capture.operationCount=capture.droppedOperations=0;
+            capture.enabled=false;
+        }
         void Finish(string reason)
         {
             if (finished) return;

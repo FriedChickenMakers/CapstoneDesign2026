@@ -24,16 +24,17 @@ namespace CapstoneDesign.Runtime
             design.gameObject.AddComponent<FocusKeyboardNavigation>();
             return design;
         }
-        void FigmaHeader(Transform p,string title,string subtitle)
+        void FigmaHeader(Transform p,string title,string subtitle,GardenThemeSurface.Tone tone=GardenThemeSurface.Tone.Default)
         {
             var plaque=FigmaMissionUi.Box(p,"정원 제목표",12,42,366,48,FigmaMissionUi.Warm,10);
-            GardenThemeSurface.Apply(plaque.gameObject,GardenThemeSurface.Style.Header);
+            GardenThemeSurface.Apply(plaque.gameObject,GardenThemeSurface.Style.Header,tone);
             FigmaMissionUi.Label(p,title,24,52,342,38,28,GardenThemeSurface.WoodInk,true);
-            FigmaMissionUi.Label(p,subtitle,24,98,342,30,14,FigmaMissionUi.Muted);
+            if(!string.IsNullOrEmpty(subtitle))FigmaMissionUi.Label(p,subtitle,24,98,342,30,14,FigmaMissionUi.Muted);
         }
         void FigmaNavigation(Transform p,string active)
         {
-            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,ShowFocusCourse,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
+            Action records = active == "미션" ? ShowDailyEmotionHistory : ShowFocusCourse;
+            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,records,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
         }
         void RefreshMissionNavigation()
         {

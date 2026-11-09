@@ -82,22 +82,45 @@ class FlowerLayoutTests
             }
         }
         Check(newCoverage.Average()<oldCoverage.Average()*.8,"Flower occlusion did not fall by at least 20% across fixed views");
-        var state=new GardenState{MigrationCompleted=true,LegacyGrowth=.3f};WeeklyPlants.Migrate(state,"2026-11-04T12:00:00Z",true);
-        WeeklyPlants.Active(state).Recipe.MeshVersion=4;var store=new Store{State=state};string oldLegacy=PlantCodec.Encode(state.PlantCollection.Plants[0].Recipe);
+        // A real schema-2 save keeps its stored mesh version through collection
+        // migration. Reopening a schema-3 save must not reroll or restyle a plant.
+        const string created="2026-11-04T12:00:00Z";
+        var state=new GardenState{MigrationCompleted=true,SchemaVersion=2,LegacyGrowth=.3f,Nutrient=37};
+        GardenPlantVisuals.Sync(state);
+        state.PlantCollection=new PlantCollectionState{ActiveId="weekly-1"};
+        state.PlantCollection.Plants.Add(new PlantInstanceState{Id=GardenPlantVisuals.InstanceId,Ordinal=0,Legacy=true,
+            CreatedUtc=created,LegacyGrowth=GardenPlantVisuals.TotalGrowth(state),Recipe=PlantCodec.Clone(state.PlantAppearance.Recipe)});
+        var storedRecipe=PlantGenerator.Create(state.InstallationId,"weekly-1",21,PlantGrowthMode.MissionCompletions);
+        storedRecipe.MeshVersion=4;
+        state.PlantCollection.Plants.Add(new PlantInstanceState{Id="weekly-1",Ordinal=1,CreatedUtc=created,Recipe=storedRecipe});
+        string source=StateCodec.Encode(state),oldLegacy=PlantCodec.Encode(state.PlantCollection.Plants[0].Recipe),oldActive=PlantCodec.Encode(storedRecipe);
+        var store=new Store{State=state};
         using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
         {
-            Check(service.Open(),"Style migration failed");Check(WeeklyPlants.Active(service.Snapshot).Recipe.MeshVersion==PlantGeometry.CurrentMeshVersion&&PlantCodec.Encode(service.Snapshot.PlantCollection.Plants[0].Recipe)==oldLegacy,"Style migration changed legacy plant");
-            Check(service.RefreshCycle(null)&&service.BeginSession("synthetic-migration-memory","free-mission:M17",0)&&service.StartSession("synthetic-migration-memory")&&service.CompleteSession("synthetic-migration-memory","중립","synthetic migration note"),"Memory fixture failed");
+            Check(service.Open(),"Schema-2 style migration failed: "+service.LastError);
+            Check(service.Snapshot.SchemaVersion==3&&PlantCodec.Encode(WeeklyPlants.Active(service.Snapshot).Recipe)==oldActive
+                &&PlantCodec.Encode(service.Snapshot.PlantCollection.Plants[0].Recipe)==oldLegacy,
+                "Migration changed stored recipe, mesh version, seed or legacy plant");
+            Check(service.Snapshot.Coins==37,"Migration changed wallet");
+            Check(service.RefreshCycle(null)&&service.BeginSession("synthetic-migration-memory","free-mission:M17",0)&&service.StartSession("synthetic-migration-memory")
+                &&service.CompleteSession("synthetic-migration-memory","중립","synthetic migration note"),"Memory fixture failed: "+service.LastError);
+            Check(service.BeginSession("synthetic-migration-basic","course:P01",1)&&service.StartSession("synthetic-migration-basic")
+                &&service.CompleteSession("synthetic-migration-basic"),"Basic fixture failed: "+service.LastError);
+            string cycle=service.Snapshot.LastCycleId;
+            Check(service.BeginDailyEmotion(cycle)&&service.CompleteDailyEmotion(DailyEmotionPolicy.RecordId(cycle),"중립","synthetic migration memory"),
+                "Emotion memory fixture failed: "+service.LastError);
+            Check(WeeklyPlants.Active(service.Snapshot).Recipe.MeshVersion==4&&WeeklyPlants.Active(service.Snapshot).Memories.Count==1,
+                "Continuing growth changed saved style or lost emotion memory");
         }
-        WeeklyPlants.Active(store.State).Recipe.MeshVersion=4;
-        string beforeUpgrade=StateCodec.Encode(store.State);
+        string beforeReload=StateCodec.Encode(store.State);
         using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
         {
-            Check(service.Open(),"Populated style migration failed");
-            Check(StateCodec.Encode(service.Snapshot)==beforeUpgrade.Replace("<MeshVersion>4</MeshVersion>","<MeshVersion>"+PlantGeometry.CurrentMeshVersion+"</MeshVersion>"),"Style upgrade changed memory IDs, records, growth, wallet or other saved data");
+            Check(service.Open(),"Populated style reload failed: "+service.LastError);
+            Check(StateCodec.Encode(service.Snapshot)==beforeReload,"Reload changed stored mesh, memory IDs, records, growth, wallet or other saved data");
         }
-        store=new Store{State=state,Fail=true};using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
-        {Check(!service.Open()&&WeeklyPlants.Active(store.State).Recipe.MeshVersion==4,"Failed style migration overwrote original");}
+        store=new Store{State=StateCodec.Decode(source),Fail=true};
+        using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig()))
+        {Check(!service.Open()&&StateCodec.Encode(store.State)==source,"Failed schema migration overwrote original");}
         timings.Sort();coldTimings.Sort();string summary=checks+" checks; "+(12*seeds)+" plants / 8 views; hidden fraction "+oldCoverage.Average().ToString("F4")+" -> "+newCoverage.Average().ToString("F4")+"; cached mesh p50/p95 "+timings[timings.Count/2].ToString("F2")+"/"+timings[(int)((timings.Count-1)*.95)].ToString("F2")+" ms; cold layout p50/p95 "+coldTimings[coldTimings.Count/2].ToString("F2")+"/"+coldTimings[(int)((coldTimings.Count-1)*.95)].ToString("F2")+" ms; max triangles "+triangles;
         string output=Environment.GetEnvironmentVariable("CAPSTONE_FLOWER_OUTPUT");
         if(!string.IsNullOrEmpty(output)){Directory.CreateDirectory(output);File.WriteAllLines(Path.Combine(output,"occlusion.csv"),lines);File.WriteAllText(Path.Combine(output,"report.txt"),summary);}

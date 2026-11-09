@@ -181,10 +181,13 @@ namespace CapstoneDesign.Runtime.Personalization
         public BehaviorEvent[] Batch(long now)
         {
             if (!state.Enabled) return Array.Empty<BehaviorEvent>();
-            var next = Copy(); next.Events.RemoveAll(e => e.occurred_utc_ms < now - 90L*86400000 || e.occurred_utc_ms > now + 300000);
+            var next = Copy(); next.Events.RemoveAll(e => e.occurred_utc_ms < now - 90L*86400000);
             next.Recorded.RemoveAll(r=>r.OccurredUtcMs<now-90L*86400000);
             if (next.Events.Count != state.Events.Count || next.Recorded.Count!=state.Recorded.Count) Commit(next);
-            return state.Events.Take(100).Select(Clone).ToArray();
+            // A clock correction is not a deletion request. Hold future rows with
+            // their original identity/time, while allowing later valid rows through.
+            // This cannot detect a still-incorrect device clock relative to the server.
+            return state.Events.Where(e => e.occurred_utc_ms <= now + 300000).Take(100).Select(Clone).ToArray();
         }
         public void Acknowledge(IEnumerable<string> ids, IEnumerable<string> sent)
         {

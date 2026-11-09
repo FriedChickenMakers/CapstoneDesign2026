@@ -7,7 +7,7 @@ using CapstoneDesign.Plants;
 
 namespace CapstoneDesign.Runtime.LocalState
 {
-    public enum MemoryRecordKind { None, SessionReflection, Experience }
+    public enum MemoryRecordKind { None, SessionReflection, Experience, DailyEmotion }
     public sealed class MemoryOrganState
     {
         public string OrganId, RecordId, CreatedUtc;
@@ -21,13 +21,19 @@ namespace CapstoneDesign.Runtime.LocalState
         public int Ordinal;
         public bool Legacy;
         public float LegacyGrowth;
+        public string StartedCycleId="", SavedCycleId="", PhotoId="", DisplayName="";
+        public bool Completed;
+        public float RenderScale=1.9f;
+        public int BaselineStep;
+        public int[] BaselineCounts=new int[6];
+        public List<GardenPlantMemo> Memos=new List<GardenPlantMemo>();
         public PlantRecipe Recipe;
         public List<MemoryOrganState> Memories = new List<MemoryOrganState>();
         internal PlantInstanceState Copy()
         {
             var copy=(PlantInstanceState)MemberwiseClone();
             copy.Recipe=GardenPlantVisuals.CopyRecipe(Recipe);
-            copy.Memories=Memories.Select(m=>m.Copy()).ToList();return copy;
+            copy.Memories=Memories.Select(m=>m.Copy()).ToList();copy.Memos=Memos.Select(m=>m.Copy()).ToList();copy.BaselineCounts=(int[])BaselineCounts.Clone();return copy;
         }
     }
     public sealed class PlantGrowthDecision
@@ -58,15 +64,18 @@ namespace CapstoneDesign.Runtime.LocalState
     public sealed class PlantCollectionState
     {
         public int PolicyVersion = 1;
+        public string ImportedLedgerDigest="";
         public string ActiveId;
         public List<PlantInstanceState> Plants = new List<PlantInstanceState>();
         public List<PlantGrowthDecision> Decisions = new List<PlantGrowthDecision>();
         public List<string> DeletedExperienceTokens = new List<string>();
+        public List<string> DeletedEmotionTokens = new List<string>();
         public ParticipationGrowthPolicy ParticipationPolicy = new ParticipationGrowthPolicy();
         public List<ParticipationGrowthDecision> ParticipationDecisions = new List<ParticipationGrowthDecision>();
         internal PlantCollectionState Copy() => new PlantCollectionState {
-            PolicyVersion=PolicyVersion,ActiveId=ActiveId,Plants=Plants.Select(p=>p.Copy()).ToList(),
+            PolicyVersion=PolicyVersion,ImportedLedgerDigest=ImportedLedgerDigest,ActiveId=ActiveId,Plants=Plants.Select(p=>p.Copy()).ToList(),
             Decisions=Decisions.Select(d=>d.Copy()).ToList(),DeletedExperienceTokens=new List<string>(DeletedExperienceTokens),
+            DeletedEmotionTokens=new List<string>(DeletedEmotionTokens),
             ParticipationPolicy=ParticipationPolicy.Copy(),ParticipationDecisions=ParticipationDecisions.Select(d=>d.Copy()).ToList() };
     }
     public static class WeeklyPlants
@@ -78,13 +87,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public static string Title(PlantInstanceState p) => p.Legacy?"이전 정원의 식물":p.Ordinal+"번째 식물";
         public static bool Migrate(GardenState state,string now,bool preserveLegacy)
         {
-            if(state.SchemaVersion==2)return false;
-            if(state.SchemaVersion!=1 || state.PlantCollection!=null)throw new InvalidDataException("Unsupported plant migration.");
-            GardenPlantVisuals.Sync(state);
-            var collection=new PlantCollectionState();state.PlantCollection=collection;
-            if(preserveLegacy)collection.Plants.Add(new PlantInstanceState {Id=GardenPlantVisuals.InstanceId,Ordinal=0,Legacy=true,
-                CreatedUtc=now,LegacyGrowth=GardenPlantVisuals.TotalGrowth(state),Recipe=GardenPlantVisuals.CopyRecipe(state.PlantAppearance.Recipe)});
-            NewPlant(state,now);state.SchemaVersion=2;return true;
+            return CombinedPlants.Migrate(state,now,!preserveLegacy);
         }
         static PlantInstanceState NewPlant(GardenState state,string now)
         {
@@ -97,6 +100,7 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         public static bool UpgradeFlowerLayout(GardenState state)
         {
+            if(state.SchemaVersion==3)return false; // A stored recipe never changes on re-entry.
             bool changed=false;
             foreach(var plant in state.PlantCollection.Plants.Where(p=>!p.Legacy && p.Recipe.MeshVersion>=4 && p.Recipe.MeshVersion<PlantGeometry.CurrentMeshVersion))
             {
@@ -116,7 +120,7 @@ namespace CapstoneDesign.Runtime.LocalState
             return StateCodec.Hash("participation-eligibility|"+identity);
         }
         public static int VisualCreditUnits(GardenState state,string plantId) =>
-            state.PlantCollection.Decisions.Where(d=>d.PlantId==plantId && d.AccountingVersion==1).Sum(d=>d.AwardedUnits)
+            state.PlantCollection.Decisions.Where(d=>d.PlantId==plantId && d.AccountingVersion>=1).Sum(d=>d.AwardedUnits)
             +state.PlantCollection.ParticipationDecisions.Where(d=>d.PlantId==plantId).Sum(d=>d.Units);
         // Geometry still advances at real completions only. Saved credits add persistent,
         // monotonic physical size, including while the first plant is still a seed.
@@ -177,14 +181,15 @@ namespace CapstoneDesign.Runtime.LocalState
         }
         public static void Reflection(GardenState state,ActivitySession session,string now,int utcOffset)
         {
-            if(state.SchemaVersion!=2)return;
+            if(state.SchemaVersion!=2 && state.SchemaVersion!=3)return;
             var existing=FindMemory(state,MemoryRecordKind.SessionReflection,session.SessionId);
             bool hasText=!string.IsNullOrWhiteSpace(session.Mood)||!string.IsNullOrWhiteSpace(session.Note);
             if(!hasText) { if(existing!=null)Unlink(existing);return; }
             if(existing!=null)return;
             var decision=state.PlantCollection.Decisions.FirstOrDefault(d=>d.SessionToken==Token(session.SessionId));
             // A deliberate late edit can link an old record; migration never does so.
-            AddMemory(state,decision?.PlantId??state.PlantCollection.ActiveId,MemoryRecordKind.SessionReflection,session.SessionId,now,utcOffset);
+            var practice=state.PracticeGrowthRecords.FirstOrDefault(r=>r.SessionId==session.SessionId && r.Outcome==PracticeGrowthOutcome.Grown);
+            AddMemory(state,practice?.PlantInstanceId??decision?.PlantId??state.PlantCollection.ActiveId,MemoryRecordKind.SessionReflection,session.SessionId,now,utcOffset);
         }
         public static MemoryOrganState FindMemory(GardenState state,MemoryRecordKind kind,string id) =>
             state.PlantCollection?.Plants.SelectMany(p=>p.Memories).FirstOrDefault(m=>m.Kind==kind && m.RecordId==id);
@@ -192,7 +197,7 @@ namespace CapstoneDesign.Runtime.LocalState
         {
             if(FindMemory(state,kind,recordId)!=null)return;
             var plant=state.PlantCollection.Plants.FirstOrDefault(p=>p.Id==plantId);
-            if(plant==null || plant.Legacy)throw new InvalidOperationException("기록을 연결할 식물을 선택해 주세요.");
+            if(plant==null || (plant.Legacy && state.SchemaVersion<3))throw new InvalidOperationException("기록을 연결할 식물을 선택해 주세요.");
             int slot=plant.Memories.Count;
             plant.Memories.Add(new MemoryOrganState{OrganId=plant.Id+"/memory/"+slot,SlotIndex=slot,Kind=kind,
                 RecordId=recordId,CreatedUtc=now,UtcOffsetMinutes=offset});
@@ -200,6 +205,7 @@ namespace CapstoneDesign.Runtime.LocalState
         public static void Unlink(MemoryOrganState memory) { memory.Kind=MemoryRecordKind.None;memory.RecordId=null; }
         public static void Validate(GardenState state)
         {
+            if(state.SchemaVersion==3){CombinedPlants.Validate(state);return;}
             var c=state.PlantCollection;
             if(state.SchemaVersion==1) { if(c!=null)throw new InvalidDataException("Plant collection requires schema 2.");return; }
             if(c==null || c.PolicyVersion!=1 || c.Plants==null || c.Decisions==null || c.DeletedExperienceTokens==null || c.ParticipationDecisions==null || c.ParticipationPolicy==null || c.Plants.Any(p=>p==null) || c.Decisions.Any(d=>d==null))throw new InvalidDataException("Invalid plant collection.");
@@ -323,6 +329,31 @@ namespace CapstoneDesign.Runtime.LocalState
     public sealed partial class GardenStateService
     {
         int RecordOffset => (int)clock.TimeZone.GetUtcOffset(CurrentUtc).TotalMinutes;
+        // The memo ID, not its reusable business-day ID, identifies an editable
+        // emotion. Every projection changes in the same transaction as its source.
+        public bool UpdateDailyEmotion(string memoId,string mood,string note) => Change(next=>
+        {
+            if((mood?.Length??0)>80||(note?.Length??0)>500||(string.IsNullOrWhiteSpace(mood)&&string.IsNullOrWhiteSpace(note)))throw new ArgumentException("감정이나 메모를 남겨 주세요.");
+            var plant=next.PlantCollection.Plants.FirstOrDefault(p=>p.Memos.Any(m=>m.Id==memoId));
+            var memo=plant?.Memos.FirstOrDefault(m=>m.Id==memoId)??throw new InvalidOperationException("기록을 찾을 수 없어요.");
+            if(memo.Mood!=(mood??"")||memo.Note!=(note??""))next.PrivacyRevision=checked(next.PrivacyRevision+1);
+            memo.Mood=mood??"";memo.Note=note??"";
+            var record=next.DailyEmotionRecords.FirstOrDefault(r=>r.Id==memo.DailyEmotionRecordId&&r.MemoId==memo.Id&&r.CompletedUtc==memo.CreatedUtc);
+            if(record!=null){record.Mood=memo.Mood;record.Note=memo.Note;}
+            CombinedPlants.SyncProjections(next);
+        });
+        public bool DeleteDailyEmotion(string memoId) => Change(next=>
+        {
+            if(string.IsNullOrWhiteSpace(memoId))throw new ArgumentException("기록을 선택해 주세요.");
+            var plant=next.PlantCollection.Plants.FirstOrDefault(p=>p.Memos.Any(m=>m.Id==memoId));
+            if(plant==null)return;
+            var memo=plant.Memos.First(m=>m.Id==memoId);
+            next.DailyEmotionRecords.RemoveAll(r=>r.Id==memo.DailyEmotionRecordId&&r.MemoId==memo.Id&&r.CompletedUtc==memo.CreatedUtc);
+            plant.Memos.Remove(memo);next.PrivacyRevision=checked(next.PrivacyRevision+1);
+            string token=WeeklyPlants.Token(memo.Id);if(!next.PlantCollection.DeletedEmotionTokens.Contains(token))next.PlantCollection.DeletedEmotionTokens.Add(token);
+            var memory=WeeklyPlants.FindMemory(next,MemoryRecordKind.DailyEmotion,memoId);if(memory!=null)WeeklyPlants.Unlink(memory);
+            CombinedPlants.SyncProjections(next);
+        });
         public bool UpdateReflection(string id,string mood,string note) => Change(next=>
         {
             var session=Session(next,id);

@@ -21,11 +21,7 @@ if host:
     refs = sorted((install / 'packs/Microsoft.NETCore.App.Ref').glob('*'), key=version)[-1]
     refdir = next((refs / 'ref').glob('net*'))
     runtime = sorted((install / 'shared/Microsoft.NETCore.App').glob('*'), key=version)[-1]
-sources = sorted((root / 'Assets/Scripts/ProceduralPlants').glob('*.cs'))
-sources = [p for p in sources if p.name != 'ProceduralPlantView.cs']
-sources += [root / ('Assets/Scripts/Runtime/' + name + '.cs') for name in (
-    'LocalGardenState', 'CameraMissionPolicy', 'WeeklyPlantState', 'GardenPlantAppearance', 'FocusMissionCatalog',
-    'FocusDrawingData', 'MindfulnessContent', 'MbctContent')]
+sources = [root / line for line in (root / 'scripts/garden-domain-sources.txt').read_text().splitlines() if line.strip()]
 tests = sys.argv[1:] or ['WeeklyPlantTests']
 with tempfile.TemporaryDirectory(prefix='synthetic-weekly-plants-') as temporary:
     out = Path(temporary)

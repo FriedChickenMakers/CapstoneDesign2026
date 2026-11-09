@@ -12,7 +12,7 @@ namespace CapstoneDesign.Runtime
         public Button HomeButton, MissionButton, CourseButton;
         public Text MissionBadge;
         public string ActiveTab { get; private set; }
-        readonly string[] labels={"홈","미션","내 과정"};
+        readonly string[] labels={"홈","미션","기록"};
         Button[] buttons;
         Text[] captions;
         RawImage[] icons;
@@ -20,7 +20,7 @@ namespace CapstoneDesign.Runtime
 
         public static MissionBottomNavigation Create(Transform design,string active,Action home,Action missions,Action course,bool? hasPending,bool hasOptional=false)
         {
-            var rect=FigmaMissionUi.Box(design,"하단 탐색",12,748,366,84,Color.clear);
+            var rect=FigmaMissionUi.Box(design,"하단 탐색",0,760,390,84,GardenThemePalette.WoodDark);
             GardenThemeSurface.Apply(rect.gameObject,GardenThemeSurface.Style.Shelf);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
             bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);return bar;
@@ -31,9 +31,8 @@ namespace CapstoneDesign.Runtime
             var actions=new[]{home,missions,course};buttons=new Button[3];captions=new Text[3];icons=new RawImage[3];
             for(int i=0;i<3;i++)
             {
-                var button=FigmaMissionUi.Button(transform,labels[i],9+120*i,8,108,64,actions[i],Color.white,FigmaMissionUi.Green,14);
-                // The themed child draws the face. Keep the hit-target Image transparent
-                // so its differently rounded white sprite cannot fringe the corners.
+                var button=FigmaMissionUi.Button(transform,labels[i],12+122*i,8,122,64,actions[i],Color.white,FigmaMissionUi.Green,14);
+                // The themed face owns the corners; avoid a white sprite beneath it.
                 button.GetComponent<Image>().color=Color.clear;
                 button.GetComponentInChildren<Text>().gameObject.SetActive(false);buttons[i]=button;
                 icons[i]=FigmaMissionUi.Asset(button.transform,"FocusMissions/Main/"+new[]{"home","leaf-muted","book"}[i],43,7,22,22);
@@ -51,7 +50,7 @@ namespace CapstoneDesign.Runtime
             string[] paths={"home-white","leaf-muted-white","book-white"};
             for(int i=0;i<3;i++)
             {
-                bool selected=active==labels[i];FigmaMissionUi.SetSelected(buttons[i],selected);
+                bool selected=active==labels[i];
                 buttons[i].GetComponent<Image>().color=Color.clear;
                 GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf);
                 captions[i].color=selected?new Color32(35,76,54,255):Color.white;
@@ -71,7 +70,7 @@ namespace CapstoneDesign.Runtime
         void Fit()
         {
             var parent=transform.parent as RectTransform;if(parent==null)return;
-            ((RectTransform)transform).anchoredPosition=new Vector2(12,-(parent.rect.height-96));
+            ((RectTransform)transform).anchoredPosition=new Vector2(0,-(parent.rect.height-84));
         }
     }
 }

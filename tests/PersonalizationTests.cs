@@ -57,6 +57,24 @@ static class PersonalizationTests
         Check(!reloaded.Add(Event(now)) && reloaded.Count==EventQueue.Capacity,"Full queue does not erase pending exposure");
         Check(reloaded.Batch(now).Length==100,"Batch limit matches API");
         Check(reloaded.Batch(now+91L*86400000).Length==0,"Expired events removed before upload");
+        // A corrected clock must hold future rows without deleting their evidence
+        // or keeping later valid rows behind an unuploadable head item.
+        var skewStore=new Store();var skew=new EventQueue(skewStore);
+        skew.Bind("synthetic-clock-enrollment");skew.SetConsent(true,now-1000);
+        var future=Event(now+86400000);var current=Event(now);
+        Check(skew.Add(future) && skew.Add(current),"Clock fixture persisted both original observations");
+        var corrected=skew.Batch(now);
+        Check(corrected.Length==1 && corrected[0].event_id==current.event_id,"Corrected-clock batch sends valid rows past future head");
+        Check(skew.Count==2 && skewStore.Value.Events[0].occurred_utc_ms==future.occurred_utc_ms,"Future rows retain their original payload on disk");
+        skew.Acknowledge(corrected.Select(e=>e.event_id),corrected.Select(e=>e.event_id));
+        skew=new EventQueue(skewStore);
+        Check(skew.Count==1 && skew.Batch(now).Length==0,"Future-only outbox remains pending across restart");
+        Check(!skew.Add(future),"Deferred event receipt prevents duplicate requeue");
+        var catchup=skew.Batch(now+86400000);
+        Check(catchup.Length==1 && catchup[0].event_id==future.event_id && catchup[0].occurred_utc_ms==future.occurred_utc_ms,
+            "Clock catch-up uploads the original ID and timestamp");
+        skew.Acknowledge(catchup.Select(e=>e.event_id),catchup.Select(e=>e.event_id));
+        Check(skew.Count==0,"Only server acknowledgement removes the deferred row");
         var invalid=Event(now);invalid.features[0]=float.NaN;Check(!reloaded.Add(invalid),"NaN rejected");
         invalid=Event(now);invalid.activity_id="synthetic free text";Check(!reloaded.Add(invalid),"Free-text catalog identifiers rejected");
         // Every event accepted locally must satisfy the server's exact ID grammar;

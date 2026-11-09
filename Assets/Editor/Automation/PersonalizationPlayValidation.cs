@@ -126,6 +126,94 @@ namespace CapstoneDesign.EditorTools
             var activated = store.Load();
             Check(activated.ConsentStartedUtcMs > 0 && activated.MeasurementConsentUtcMs >= activated.ConsentStartedUtcMs,
                 "first-activation-boundaries-persisted");
+            // An unavailable registration/queue is not a withdrawal. Exercise real
+            // read failures, then recover in the same client without reopening UI.
+            UnityEngine.Object.DestroyImmediate(client.gameObject);
+            var savedQueue=File.ReadAllBytes(queuePath);
+            string heldQueue=queuePath+".held";
+            File.Move(queuePath,heldQueue);Directory.CreateDirectory(queuePath);
+            client=PersonalizationClient.Instance;
+            Check(!client.Configured && !client.Consented,"queue-read-failure-suspends-registration");
+            yield return new WaitForSecondsRealtime(3.2f);
+            Check(Directory.Exists(queuePath) && File.Exists(heldQueue),"failed-queue-is-preserved-for-recovery");
+            Directory.Delete(queuePath);File.Move(heldQueue,queuePath);File.Delete(queuePath+".tmp");
+            retryDeadline=Time.realtimeSinceStartup+8;
+            while(!client.MeasurementConsented && Time.realtimeSinceStartup<retryDeadline)yield return null;
+            Check(client.MeasurementConsented && store.Load().MeasurementConsentUtcMs==activated.MeasurementConsentUtcMs,
+                "queue-read-retry-preserves-collection-boundary");
+            UnityEngine.Object.DestroyImmediate(client.gameObject);
+            string savedEnrollment=File.ReadAllText(enrollment);
+            File.WriteAllText(enrollment,"{ invalid synthetic registration");
+            client=PersonalizationClient.Instance;
+            Check(!client.Configured,"invalid-registration-suspends-collection");
+            yield return new WaitForSecondsRealtime(3.2f);
+            Check(System.Linq.Enumerable.SequenceEqual(savedQueue,File.ReadAllBytes(queuePath)),
+                "invalid-registration-does-not-clear-durable-queue");
+            File.WriteAllText(enrollment,savedEnrollment);
+            retryDeadline=Time.realtimeSinceStartup+8;
+            while(!client.MeasurementConsented && Time.realtimeSinceStartup<retryDeadline)yield return null;
+            Check(client.MeasurementConsented && store.Load().MeasurementConsentUtcMs==activated.MeasurementConsentUtcMs,
+                "registration-retry-preserves-collection-boundary");
+            var hook=typeof(PersonalizationClient).GetField("measurementCallOverride",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic);
+            var shownCalls=new List<object[]>();bool failShown=true;
+            Func<string,object[],string> transport=(method,args)=> {
+                if(method=="recordMeasuredFocusRecommendation" && (string)args[0]=="focus_recommendation_shown")
+                {shownCalls.Add((object[])args.Clone());if(failShown){failShown=false;return "{\"ok\":false}";}}
+                return method=="getMeasurementBatch"?"{}":"{\"ok\":true}";
+            };
+            hook.SetValue(null,transport);
+            try
+            {
+                var shownAt=DateTimeOffset.UtcNow;
+                string decision=Guid.NewGuid().ToString("N");
+                var exposure=new CapstoneDesign.Runtime.LocalState.FocusRecommendationExposure {
+                    DecisionId=decision,MissionId="free-mission:M03",PolicyId="focus-additional-history-preference-v2",
+                    Reason="catalog-default-no-history",ShownUtc=shownAt.ToString("O")};
+                Check(!client.RecordMeasuredFocusExposure(exposure),"shown-write-failure-not-acknowledged");
+                exposure.ShownUtc=shownAt.AddHours(1).ToString("O"); // caller mutation cannot change the retry evidence
+                retryDeadline=Time.realtimeSinceStartup+8;
+                while(shownCalls.Count<2 && Time.realtimeSinceStartup<retryDeadline)yield return null;
+                Check(shownCalls.Count==2 && (string)shownCalls[1][1]==decision && (long)shownCalls[1][7]==shownAt.ToUnixTimeMilliseconds(),
+                    "shown-retry-retains-original-decision-and-observed-time");
+                yield return new WaitForSecondsRealtime(3.2f);
+                Check(shownCalls.Count==2,"acknowledged-shown-stops-client-retries");
+                exposure.ShownUtc=shownAt.ToString("O");
+                client.RecordMeasuredSession(new CapstoneDesign.Runtime.LocalState.ActivitySession {
+                    SessionId=Guid.NewGuid().ToString("N"),MissionId="free-mission:M02",SelectedUtc=DateTimeOffset.UtcNow.ToString("O"),
+                    FocusRecommendationExposure=exposure});
+                Check(shownCalls.Count==3 && (long)shownCalls[2][7]==shownAt.ToUnixTimeMilliseconds(),
+                    "saved-visible-snapshot-restores-shown-without-fabricating-selection-time");
+                foreach(string rejection in new[]{"capacity","invalid"})
+                {
+                    int rejectedCalls=0;
+                    Func<string,object[],string> rejectTransport=(method,args)=> {
+                        if(method=="recordMeasuredFocusRecommendation")
+                        {rejectedCalls++;return "{\"ok\":false,\"failure\":\""+rejection+"\"}";}
+                        return "{\"ok\":true}";
+                    };
+                    hook.SetValue(null,rejectTransport);
+                    var rejected=JsonUtility.FromJson<CapstoneDesign.Runtime.LocalState.FocusRecommendationExposure>(JsonUtility.ToJson(exposure));rejected.DecisionId=Guid.NewGuid().ToString("N");
+                    Check(!client.RecordMeasuredFocusExposure(rejected),"shown-"+rejection+"-not-acknowledged");
+                    client.RecordMeasuredFocusExposure(rejected);
+                    yield return new WaitForSecondsRealtime(3.2f);
+                    Check(rejectedCalls==1,"shown-"+rejection+"-does-not-loop-or-inflate-drop-counter");
+                }
+                int transientCalls=0;
+                Func<string,object[],string> storageTransport=(method,args)=> {
+                    if(method=="recordMeasuredFocusRecommendation")
+                    {transientCalls++;return "{\"ok\":false,\"failure\":\"storage\"}";}
+                    return "{\"ok\":true}";
+                };
+                hook.SetValue(null,storageTransport);
+                var transient=JsonUtility.FromJson<CapstoneDesign.Runtime.LocalState.FocusRecommendationExposure>(JsonUtility.ToJson(exposure));transient.DecisionId=Guid.NewGuid().ToString("N");
+                client.RecordMeasuredFocusExposure(transient);client.RecordMeasuredFocusExposure(transient);
+                Check(transientCalls==1,"shown-transient-retry-respects-first-backoff");
+                retryDeadline=Time.realtimeSinceStartup+8;
+                while(transientCalls<2 && Time.realtimeSinceStartup<retryDeadline)yield return null;
+                yield return new WaitForSecondsRealtime(3.2f);
+                Check(transientCalls==2,"shown-repeated-storage-failure-backs-off-exponentially");
+            }
+            finally {hook.SetValue(null,null);}
             UnityEngine.Object.DestroyImmediate(client.gameObject);
             // Also exercise a registered behavior-only state: retry must add
             // the missing measurement boundary without moving its earlier one.
@@ -166,7 +254,14 @@ namespace CapstoneDesign.EditorTools
                 "server-upload-confirmed");
             Check(client.SetConsent(false) && !client.Consented && client.PendingCount == 0 && client.DeletionPending,
                 "operator-withdrawal-immediate-local-clear");
+            string deletionQueue=File.ReadAllText(queuePath), deletionEnrollment=File.ReadAllText(enrollment);
             UnityEngine.Object.DestroyImmediate(client.gameObject);
+            var blockedReset=PersonalizationClient.ResetLocalDataForAppReset("synthetic-pending-delete");
+            Check(blockedReset.status=="PENDING" && blockedReset.errorCode=="SERVER_DELETION_PENDING",
+                "local-reset-preserves-pending-server-deletion");
+            Check(File.ReadAllText(queuePath)==deletionQueue && File.ReadAllText(enrollment)==deletionEnrollment
+                && !File.Exists(Path.Combine(root,"personalization-local-reset")),
+                "pending-deletion-credentials-preserved");
             client = PersonalizationClient.Instance;
             Check(client.Configured && !client.Consented && !client.MeasurementConsented && client.DeletionPending,
                 "pending-deletion-reload-cannot-reactivate");
@@ -180,6 +275,10 @@ namespace CapstoneDesign.EditorTools
             Check(!client.Record("recommendation_shown", Guid.NewGuid().ToString("N"), "course:MBCT2W01",
                 new[] { 1f, .5f, .25f, 1f }, "local-rules-v1") && client.PendingCount == 0,
                 "revoked-enrollment-cannot-record");
+            Check(PersonalizationClient.ResetLocalDataForAppReset("synthetic-completed-delete").status=="AVAILABLE"
+                && !File.Exists(enrollment) && !File.Exists(queuePath)
+                && File.Exists(Path.Combine(root,"personalization-local-reset")),
+                "local-reset-finishes-after-server-deletion");
         }
         static void Finish(Exception failure)
         {

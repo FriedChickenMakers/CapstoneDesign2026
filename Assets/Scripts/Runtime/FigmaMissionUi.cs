@@ -18,6 +18,26 @@ namespace CapstoneDesign.Runtime
         static float Linear(float c) => c<=.04045f?c/12.92f:Mathf.Pow((c+.055f)/1.055f,2.4f);
         // Decorative theme colors remain unchanged; action/text colors meet the small-text target.
         public static Color ActionColor(Color color) {while(Contrast(color,Color.white)<4.6f){color.r*=.97f;color.g*=.97f;color.b*=.97f;}return color;}
+        // Authoring still uses the top-left corner even when a control scales
+        // around its centre. Read unscaled layout coordinates during a press.
+        public static Vector2 TopLeftPosition(RectTransform rect) => rect.anchoredPosition
+            + new Vector2(-rect.pivot.x*rect.rect.width,(1-rect.pivot.y)*rect.rect.height);
+        public static void SetTopLeftPosition(RectTransform rect,Vector2 position)
+        {
+            rect.anchoredPosition=position+new Vector2(rect.pivot.x*rect.rect.width,-(1-rect.pivot.y)*rect.rect.height);
+        }
+        public static void SetRect(RectTransform rect,float x,float y,float width,float height)
+        {
+            rect.sizeDelta=new Vector2(width,height);SetTopLeftPosition(rect,new Vector2(x,-y));
+        }
+        public static void CenterPivot(RectTransform rect)
+        {
+            if(rect==null || rect.pivot==new Vector2(.5f,.5f))return;
+            // World-space compensation also preserves rotated/scaled parents,
+            // stretched anchors and the positions of anchored child graphics.
+            Vector3 center=rect.TransformPoint(rect.rect.center);
+            rect.pivot=new Vector2(.5f,.5f);rect.position=center;
+        }
         public static RectTransform Rect(Transform p,string name,float x,float y,float w,float h)
         {
             var go=new GameObject(name,typeof(RectTransform));var rt=(RectTransform)go.transform;rt.SetParent(p,false);
@@ -62,15 +82,16 @@ namespace CapstoneDesign.Runtime
             t.font=bold?GardenTypography.Semibold:GardenTypography.Body;if(t.font==null)t.font=GardenUi.ResolveFont();
             t.text=text;t.fontSize=size;t.color=GardenThemeSurface.Foreground(p,color??Ink);t.alignment=align;t.supportRichText=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;t.verticalOverflow=VerticalWrapMode.Overflow;t.lineSpacing=1.2f;t.raycastTarget=false;return t;
         }
-        public static Button Button(Transform p,string label,float x,float y,float w,float h,Action action,Color? fill=null,Color? ink=null,int size=16)
+        public static Button Button(Transform p,string label,float x,float y,float w,float h,Action action,Color? fill=null,Color? ink=null,int size=16,GardenThemeSurface.Tone tone=GardenThemeSurface.Tone.Default)
         {
             var rt=Box(p,label,x,y,w,h,fill??Green,16);var im=rt.GetComponent<Image>();im.raycastTarget=true;
+            CenterPivot(rt);
             var b=rt.gameObject.AddComponent<Button>();b.targetGraphic=im;b.navigation=new Navigation{mode=Navigation.Mode.Automatic};
             var colors=b.colors;colors.highlightedColor=new Color(.94f,.97f,.94f);colors.pressedColor=new Color(.78f,.86f,.80f);colors.disabledColor=new Color(.80f,.83f,.80f);colors.fadeDuration=.1f;b.colors=colors;
             bool themed=HasGardenShell(p) && (fill??Green).a>.99f;
             bool primary=themed && ((fill??Green)==Green || (fill??Green)==Brown);
             if(themed)GardenThemeSurface.Apply(rt.gameObject,primary?GardenThemeSurface.Style.Primary:
-                fill==Soft?GardenThemeSurface.Style.Selected:string.IsNullOrEmpty(label)?GardenThemeSurface.Style.Paper:GardenThemeSurface.Style.Wood);
+                fill==Soft?GardenThemeSurface.Style.Selected:string.IsNullOrEmpty(label)?GardenThemeSurface.Style.Paper:GardenThemeSurface.Style.Wood,tone);
             float inset=primary && w>=280?28:8;
             Label(rt,label,inset,0,w-2*inset,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());
             rt.gameObject.AddComponent<FocusControlFeedback>().Control=b;return b;

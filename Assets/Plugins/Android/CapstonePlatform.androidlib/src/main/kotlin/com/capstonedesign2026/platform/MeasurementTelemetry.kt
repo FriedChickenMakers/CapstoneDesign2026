@@ -111,7 +111,27 @@ internal object MeasurementTelemetry {
         elapsed = SystemClock.elapsedRealtime(), boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1),
         offset = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).offset.totalSeconds / 60,
         appVersion = version(context), dataset = dataset)
+    /** Called only after the application's durable reset transaction has started.
+     * AtomicFile.openRead restores legacy .bak, so delete every generation instead
+     * of decoding/replacing a possibly corrupt outbox via the withdrawal protocol. */
+    fun resetLocalData(context: Context) = synchronized(this) {
+        suspended=true; buffer=null; location=""; error=false
+        listOf(stateFile(context),healthFile(context)).forEach { file ->
+            AtomicFile(file).delete()
+            listOf("", ".bak", ".new", ".tmp").forEach { suffix ->
+                val part=File(file.path+suffix)
+                check(!part.exists() || part.delete()) { "Measurement record could not be removed" }
+            }
+        }
+    }
+    /** Registration is temporarily unavailable: pause without erasing evidence.
+     * A confirmed configure of the same binding resumes the same collection. */
+    fun suspend(): String = synchronized(this) {
+        suspended = true
+        "{\"ok\":true}"
+    }
     fun configure(context: Context, binding: String, enabled: Boolean, since: Long): String = synchronized(this) {
+        if(enabled && NativeLocalReset.pending(context))return@synchronized "{\"ok\":false}"
         if (!enabled) suspended = true // Stop in memory even if the disk rejects withdrawal.
         try {
             if (!enabled) {
@@ -166,8 +186,9 @@ internal object MeasurementTelemetry {
     fun focusRecommendation(context: Context, kind: String, decision: String, session: String,
                             recommended: String, actual: String, policy: String, reason: String,
                             at: Long, offset: Int): String = synchronized(this) {
+        fun failed(reason: String) = JSONObject().put("ok", false).put("failure", reason).toString()
+        if (suspended) return failed("suspended")
         try {
-            if (suspended) return "{\"ok\":false}"
             require(kind in setOf("focus_recommendation_shown", "focus_recommendation_selected", "focus_recommendation_started", "focus_recommendation_completed", "focus_recommendation_ended"))
             require(decision.matches(Regex("[a-f0-9]{32}")))
             val catalog = Regex("free-mission:M(?:0[1-9]|1[0-7])")
@@ -177,13 +198,23 @@ internal object MeasurementTelemetry {
             val shown = kind == "focus_recommendation_shown"
             require(if (shown) session.isEmpty() && actual == recommended else session.matches(Regex("[a-f0-9]{32}")) && actual.matches(catalog))
             require(offset in -840..840)
+        } catch (_: IllegalArgumentException) {
+            latchError(context)
+            return failed("invalid")
+        }
+        try {
             val b = get(context)
+            val now = System.currentTimeMillis()
+            if (!b.state.enabled) return failed("disabled")
+            if (at < b.state.since || at < now - MeasurementBuffer.RETENTION) return failed("outside-window")
+            if (at > now + 300000) return failed("clock-ahead")
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + decision + session + kind),
                 sessionKey = session, decisionId = decision, recommendedActivity = recommended, activity = actual,
                 policy = policy, reason = reason, elapsed = -1, boot = -1, offset = offset)
-            JSONObject().put("ok", b.add(r, System.currentTimeMillis())).toString()
-        } catch (_: Exception) { latchError(context); "{\"ok\":false}" }
+            if (b.add(r, now)) "{\"ok\":true}" else failed("capacity")
+        } catch (_: Exception) { latchError(context); failed("storage") }
     }
+
     fun batch(context: Context, binding: String): String = synchronized(this) {
         try {
             val b = get(context)
@@ -196,6 +227,7 @@ internal object MeasurementTelemetry {
         } catch (_: Exception) { latchError(context); "{}" }
     }
     fun acknowledge(context: Context, binding: String, collection: String, accepted: String, sent: String): String = synchronized(this) {
+        if(suspended || NativeLocalReset.pending(context))return@synchronized "{\"ok\":false}"
         try {
             fun ids(s: String): Set<String> { val a = JSONArray(s); return (0 until a.length()).map { a.getString(it) }.toSet() }
             get(context).acknowledge(binding, collection, ids(accepted), ids(sent)); "{\"ok\":true}"

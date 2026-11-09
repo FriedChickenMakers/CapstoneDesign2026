@@ -176,7 +176,7 @@ namespace CapstoneDesign.EditorTools
                     report.Add("Home " + time.Item1 + " bloom contribution: " + difference);
                     Require(difference.Visible > 100 && difference.Peak >= 3, "Bloom was not visible at " + time.Item1);
                     AssertUiUnchanged(home, on, off, size, report);
-                    AssertGrowthCentered(home, report);
+                    AssertGrowthLayout(home, report);
                 }
                 Require(errors.Count == 0, "Render errors: " + string.Join("; ", errors));
                 report.Add("GARDEN_LIGHTING_VALIDATION_PASS");
@@ -401,21 +401,44 @@ namespace CapstoneDesign.EditorTools
                 UnityEngine.Object.DestroyImmediate(target); UnityEngine.Object.DestroyImmediate(texture);
             }
         }
-        static void AssertGrowthCentered(GardenHomePresenter home, List<string> report)
+        static void AssertGrowthLayout(GardenHomePresenter home, List<string> report)
         {
             var surface = home.stage.rectTransform.parent as RectTransform;
-            Require(surface != null && surface.name == "Growth surface" && Mathf.Abs(surface.rect.height - 64) < .01f,
-                "Compact growth strip height changed");
+            Require(surface != null && surface.name == "Growth surface" && surface.gameObject.activeInHierarchy,
+                "Two-row growth card is missing");
+            Rect Relative(RectTransform rect)
+            {
+                var corners=new Vector3[4];rect.GetWorldCorners(corners);
+                var min=surface.InverseTransformPoint(corners[0]);var max=surface.InverseTransformPoint(corners[2]);
+                return Rect.MinMaxRect(min.x,min.y,max.x,max.y);
+            }
+            bool Fits(Rect rect)=>rect.xMin>=surface.rect.xMin-.5f&&rect.xMax<=surface.rect.xMax+.5f
+                &&rect.yMin>=surface.rect.yMin-.5f&&rect.yMax<=surface.rect.yMax+.5f;
+            bool Overlaps(Rect a,Rect b)=>Mathf.Min(a.xMax,b.xMax)>Mathf.Max(a.xMin,b.xMin)+.5f
+                &&Mathf.Min(a.yMax,b.yMax)>Mathf.Max(a.yMin,b.yMin)+.5f;
             home.stage.ForceMeshUpdate(true, true);
-            float glyphCenter = surface.InverseTransformPoint(home.stage.transform.TransformPoint(GlyphBounds(home.stage).center)).y;
-            float error = Mathf.Abs(glyphCenter - surface.rect.center.y);
-            Require(error < 1, "Growth label visible glyphs are not vertically centered: " + error);
+            var status=Relative(home.stage.rectTransform);var glyphs=GlyphBounds(home.stage);
+            Require(Fits(status)&&!home.stage.isTextOverflowing
+                &&home.stage.rectTransform.rect.Contains(new Vector2(glyphs.min.x,glyphs.min.y))
+                &&home.stage.rectTransform.rect.Contains(new Vector2(glyphs.max.x,glyphs.max.y)),
+                "The complete growth status must remain visible inside the first row");
+            Require(home.shopButton!=null&&home.shopButton.IsActive()&&home.shopButton.IsInteractable()
+                &&home.shopButton.transform.parent==surface,"Garden action must share the information card");
+            var action=Relative((RectTransform)home.shopButton.transform);
+            Require(Fits(action)&&!Overlaps(action,status),"Garden action overlaps or escapes the growth status row");
+            Require(Mathf.Abs(surface.rect.height-160)<.5f,"Original compact information card height is restored");
+            Require(home.progressDots!=null&&home.progressDots.Length==4,"Original four appearance markers exist");
+            var occupied=new List<Rect>{status,action};
             foreach (var dot in home.progressDots)
             {
-                float center = surface.InverseTransformPoint(dot.transform.TransformPoint(dot.rectTransform.rect.center)).y;
-                Require(Mathf.Abs(center - surface.rect.center.y) < .01f, "Growth marker is not vertically centered");
+                Require(dot!=null&&dot.gameObject.activeInHierarchy&&dot.transform.parent==surface&&dot.GetComponentInChildren<PrototypeUiIcon>()!=null,"Appearance marker and icon are visible inside the original card");
+                var bounds=Relative((RectTransform)dot.transform);
+                Require(Fits(bounds)&&occupied.All(other=>!Overlaps(other,bounds)),"Appearance marker overlaps the caption, garden action or another marker");occupied.Add(bounds);
             }
-            report.Add("Growth card 1200x2000: height=64, glyph midpoint error=" + error + ", four centered markers PASS");
+            Require(!surface.GetComponentsInChildren<Transform>(false).Any(node=>node.name=="GardenHome.PlantStatusDetail"||node.name=="GardenHome.MemoryRecords"||node.name=="GardenHome.Album"),"Home-only detailed status and additional actions are removed");
+            var navigation=Relative((RectTransform)home.NavigationBar.transform);
+            Require(!Overlaps(surface.rect,navigation),"Growth card overlaps bottom navigation");
+            report.Add("Growth card 1200x2000: actual height="+surface.rect.height+", restored stage caption, four separate icons and garden action PASS");
         }
         static void AssertUiUnchanged(GardenHomePresenter home, Color32[] on, Color32[] off, Vector2Int size, List<string> report)
         {

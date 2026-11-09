@@ -79,6 +79,16 @@ namespace CapstoneDesign.EditorTools
             catch(Exception error){report.failed++;report.checks.Add(new CheckResult{name=name,status="fail",detail=error.ToString()});}
         }
         static void Require(bool value,string message){if(!value)throw new InvalidOperationException(message);}
+        static Rect RectIn(RectTransform owner,RectTransform child)
+        {
+            var corners=new Vector3[4];child.GetWorldCorners(corners);
+            var a=owner.InverseTransformPoint(corners[0]);var b=owner.InverseTransformPoint(corners[2]);
+            return Rect.MinMaxRect(a.x,a.y,b.x,b.y);
+        }
+        static bool Contains(Rect outer,Rect inner)=>inner.xMin>=outer.xMin-.5f&&inner.xMax<=outer.xMax+.5f
+            &&inner.yMin>=outer.yMin-.5f&&inner.yMax<=outer.yMax+.5f;
+        static bool Overlap(Rect a,Rect b)=>Mathf.Min(a.xMax,b.xMax)>Mathf.Max(a.xMin,b.xMin)+.5f
+            &&Mathf.Min(a.yMax,b.yMax)>Mathf.Max(a.yMin,b.yMin)+.5f;
 
         static void Surfaces(Fixture f)
         {
@@ -89,14 +99,29 @@ namespace CapstoneDesign.EditorTools
             {var node=content.Find("GardenAndGrowth/"+name);Require(node==null||!node.gameObject.activeInHierarchy,"Removed lower element remains visible: "+name);}
             var growth=content.Find("GardenAndGrowth/Growth surface") as RectTransform;
             Require(growth!=null&&growth.gameObject.activeInHierarchy,"The restored growth panel is missing.");
-            Require(growth.sizeDelta==new Vector2(624,64),"The restored growth panel changed its original dimensions.");
             var growthImage=growth.GetComponent<Image>();
             Require(growthImage!=null&&growthImage.color.a>.9f,"The growth panel backdrop was not restored.");
             Require(home.stage!=null&&home.stage.gameObject.activeInHierarchy&&home.stage.transform.parent==growth,"Growth text is not inside the restored lower panel.");
-            Require(home.progressDots!=null&&home.progressDots.Length==4&&home.progressDots.All(dot=>dot!=null&&dot.gameObject.activeInHierarchy&&dot.transform.parent==growth),"Growth progress dots were not restored inside their panel.");
+            Require(Mathf.Abs(growth.rect.height-160)<.5f,"The original compact growth panel height was not restored.");
+            Require(home.progressDots!=null&&home.progressDots.Length==4,"The four original appearance markers are missing.");
+            Require(home.shopButton!=null&&home.shopButton.IsActive()&&home.shopButton.IsInteractable()
+                &&home.shopButton.transform.parent==growth,"The garden action is missing from the lower information card.");
+            var stage=RectIn(growth,home.stage.rectTransform);var shop=RectIn(growth,(RectTransform)home.shopButton.transform);
+            Require(Contains(growth.rect,stage)&&Contains(growth.rect,shop)&&!Overlap(stage,shop),"Growth status and garden action must fit side by side within the lower card.");
+            var occupied=new List<Rect>{stage,shop};
+            foreach(var dot in home.progressDots)
+            {
+                Require(dot!=null&&dot.gameObject.activeInHierarchy&&dot.transform.parent==growth&&dot.GetComponentInChildren<PrototypeUiIcon>()!=null,"Original appearance marker is not visible inside the card.");
+                var bounds=RectIn(growth,(RectTransform)dot.transform);
+                Require(Contains(growth.rect,bounds)&&occupied.All(other=>!Overlap(other,bounds)),"Appearance markers must fit beneath the caption without overlapping the garden action.");occupied.Add(bounds);
+            }
+            Require(!growth.GetComponentsInChildren<Transform>(false).Any(node=>node.name=="GardenHome.PlantStatusDetail"||node.name=="GardenHome.MemoryRecords"||node.name=="GardenHome.Album"),"Home-only record actions and detailed status were not removed.");
             Require(f.Layout.lowerBoundary==growth,"Garden framing does not reserve space for the restored growth panel.");
             var growthBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(content,growth);
             Require(growthBounds.center.y<((RectTransform)content).rect.center.y,"The growth panel is no longer in the lower garden area.");
+            Require(Contains(((RectTransform)content).rect,RectIn((RectTransform)content,growth))
+                &&!Overlap(RectIn((RectTransform)content,growth),RectIn((RectTransform)content,(RectTransform)home.NavigationBar.transform)),
+                "Lower information card must stay in the home frame without covering bottom navigation.");
             Require(!home.homeCanvas.GetComponentsInChildren<Button>(false).Any(b=>b.GetComponentsInChildren<Text>(false).Any(t=>t.text=="보기 +"||t.text=="보기 −"||t.text=="가까이 보기"||t.text=="정원 전체")),"Retired view controls remain visible.");
             foreach(var label in new[]{home.title,home.date,home.guide})
             {
@@ -117,9 +142,9 @@ namespace CapstoneDesign.EditorTools
             string expectedDate=TimeZoneInfo.ConvertTime(f.Service.CurrentUtc,f.Service.CurrentTimeZone).ToString("M월 d일",System.Globalization.CultureInfo.InvariantCulture);
             Require(home.date.text==expectedDate,"The restored date does not match the app's effective local date.");
             Require(home.title.fontSize>home.date.fontSize&&home.title.rectTransform.parent==content,"The plant name is not the primary upper label.");
-            Require(home.guide.text.Contains("영양제")&&home.guide.text.Contains("37"),"The nutrient count is not shown.");
-            Require(home.guide.fontSize<home.title.fontSize,"The nutrient count is not visually secondary.");
-            Require(home.stage.text==new[]{"작은 씨앗","새싹","봉오리","꽃이 피었어요"}[GardenHomePresenter.StageForGrowth(GardenPlantVisuals.TotalGrowth(f.State))],"Growth text does not describe the actual plant state.");
+            Require(home.guide.text.Contains("코인")&&home.guide.text.Contains("37")&&!home.guide.text.Contains("영양제"),"The preserved balance is not shown as coins.");
+            Require(home.guide.fontSize<home.title.fontSize,"The coin count is not visually secondary.");
+            Require(home.stage.text=="새싹","The restored stage caption no longer matches the synthetic legacy .1 growth state.");
             Require(home.NavigationBar!=null&&home.TemporarySettingsButton!=null&&home.TemporarySettingsButton.gameObject.activeInHierarchy,"Home navigation or temporary settings entry disappeared.");
             Require(home.OverlayTopBoundary!=null,"Transparent camera-framing boundary is missing.");
         }

@@ -94,8 +94,8 @@ Shader "Capstone/Garden Clock Sky"
                 // also needs blue sky. Existing mist supplies the white lower clouds.
                 // Slightly clearer blue at the horizon while the lower
                 // hemisphere stays softer behind the island and its mist.
-                float3 day=lerp(float3(.17,.45,.77),float3(.11,.47,.88),smoothstep(-.85,.12,d.y));
-                day=lerp(day,float3(.060,.30,.75),smoothstep(.12,1,d.y));
+                float3 day=lerp(float3(.30,.49,.62),float3(.25,.48,.66),smoothstep(-.85,.12,d.y));
+                day=lerp(day,float3(.14,.32,.53),smoothstep(.12,1,d.y));
                 // These are linear output values: a .1 night sky becomes much brighter
                 // after display conversion. Keep the horizon subtle instead of blue daylight.
                 float3 night=lerp(float3(.009,.017,.037),float3(.0015,.004,.012),height);
