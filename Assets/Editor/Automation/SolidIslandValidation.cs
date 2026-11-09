@@ -31,6 +31,113 @@ namespace CapstoneDesign.EditorTools
 
         public static void BuildAndCapture() => Run(true);
         public static void CaptureExisting() => Run(false);
+
+        // Batch-only, isolated preview scene: no app/service initialization,
+        // scene saving, asset rebuilding, or user state is needed for this check.
+        public static void ValidatePresentationOnly()
+        {
+            Require(Application.isBatchMode && Application.companyName == "CapstoneSyntheticValidation",
+                "Presentation validation requires an isolated synthetic batch project.");
+            int ownedBefore = Resources.FindObjectsOfTypeAll<Mesh>().Count(m => m.name == GardenIslandPresentation.PresentedMeshName);
+            var scene = EditorSceneManager.NewPreviewScene();
+            var report = new List<string>();
+            try
+            {
+                var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
+                var garden = (GameObject)PrefabUtility.InstantiatePrefab(prefab, scene);
+                var surface = garden.GetComponent<GardenSurface>();
+                ValidatePresentation(surface, report);
+                var cameraObject = new GameObject("Synthetic presentation camera");
+                UnityEngine.SceneManagement.SceneManager.MoveGameObjectToScene(cameraObject, scene);
+                var lighting = GardenStreetLighting.Ensure(cameraObject.AddComponent<Camera>(), garden.transform);
+                Require(lighting.Lights.Length == 2, "Both supporting streetlamps must remain available.");
+                foreach (var light in lighting.Lights)
+                {
+                    var lamp = light.transform.parent;
+                    Require(Mathf.Abs(lamp.localScale.x - .48f) < .00001f && lamp.localPosition.z >= .70f,
+                        "Streetlamps must be shorter and behind the central plant footprint.");
+                    var points = lamp.GetComponentsInChildren<MeshFilter>().SelectMany(filter =>
+                        filter.sharedMesh.vertices.Select(v => surface.transform.InverseTransformPoint(filter.transform.TransformPoint(v)))).ToArray();
+                    float bottom = points.Min(p => p.y);
+                    foreach (var foot in points.Where(p => p.y < bottom + .001f))
+                        Require(Mathf.Abs(foot.y - surface.HeightInSpace(surface.transform, new Vector2(foot.x, foot.z))) < .01f,
+                            "A shortened streetlamp base left the supported meadow.");
+                }
+                lighting.ApplyTime(12); Require(lighting.Lights.All(l => !l.enabled), "Day lamps should remain off.");
+                lighting.ApplyTime(21); Require(lighting.Lights.All(l => l.enabled), "Night lamps should remain lit.");
+                report.Add("Both shortened rear lamps grounded; existing day/night switching preserved");
+            }
+            finally { EditorSceneManager.ClosePreviewScene(scene); }
+            Require(Resources.FindObjectsOfTypeAll<Mesh>().Count(m => m.name == GardenIslandPresentation.PresentedMeshName) == ownedBefore,
+                "Closing the isolated garden scene retained a presentation mesh.");
+            Debug.Log("GARDEN_PRESENTATION_VALIDATION_PASS " + string.Join("; ", report));
+        }
+
+        static void ValidatePresentation(GardenSurface surface, List<string> report)
+        {
+            var original = surface.surface.sharedMesh;
+            var vertices = original.vertices;
+            var normals = original.normals;
+            var triangles = Enumerable.Range(0, original.subMeshCount).Select(sub => original.GetTriangles(sub)).ToArray();
+            var renderer = surface.surface.GetComponent<MeshRenderer>();
+            var materials = renderer.sharedMaterials;
+            var supported = new Dictionary<Vector2, float>();
+            for (int x = -11; x <= 11; x += 2)
+                for (int z = -8; z <= 8; z += 2)
+                {
+                    var point = new Vector2(x / 10f, z / 10f);
+                    try { supported.Add(point, surface.HeightInSpace(surface.transform, point)); }
+                    catch (InvalidOperationException) { }
+                }
+            Require(supported.Count > 50, "Expected enough valid island placement samples.");
+            int before = Resources.FindObjectsOfTypeAll<Mesh>().Count(m => m.name == GardenIslandPresentation.PresentedMeshName);
+            var view = GardenIslandPresentation.Ensure(surface);
+            Require(view != null && view.IsApplied && view.SourceMesh == original && view.PresentedMesh != original,
+                "Presentation must own a clone of the known island mesh.");
+            Require((view.PresentedMesh.hideFlags & HideFlags.DontSave) == HideFlags.DontSave,
+                "The presentation mesh must not become a saved asset or scene override.");
+            var clone = view.PresentedMesh;
+            var shallow = clone.vertices;
+            Require(shallow.Length == vertices.Length && clone.subMeshCount == triangles.Length,
+                "Presentation changed island topology.");
+            int preserved = 0, compressed = 0;
+            for (int i = 0; i < vertices.Length; i++)
+            {
+                var expected = vertices[i];
+                if (expected.y < 0) { expected.y *= GardenIslandPresentation.LowerDepthScale; compressed++; }
+                else preserved++;
+                Require(shallow[i].Equals(expected), "Meadow/rim/xz or intended lower depth changed.");
+            }
+            Require(preserved > 0 && compressed > 0 && clone.bounds.min.y > original.bounds.min.y,
+                "Island depth was not reduced while retaining its support surface.");
+            for (int sub = 0; sub < triangles.Length; sub++)
+                Require(clone.GetTriangles(sub).SequenceEqual(triangles[sub]), "A triangle or material partition moved.");
+            Require(renderer.sharedMaterials.SequenceEqual(materials), "Island material identity changed.");
+            foreach (var sample in supported)
+                Require(surface.HeightInSpace(surface.transform, sample.Key) == sample.Value, "Placement height changed.");
+            GardenIslandPresentation.Ensure(surface);
+            Require(view.PresentedMesh == clone, "Repeated Ensure allocated another island mesh.");
+            for (int repeat = 0; repeat < 3; repeat++)
+            {
+                clone = view.PresentedMesh;
+                view.enabled = false;
+                Require(surface.surface.sharedMesh == original && !view.IsApplied && clone == null,
+                    "Disabling the view failed to restore the source or release its clone.");
+                view.enabled = true;
+                Require(view.IsApplied && view.PresentedMesh != original,
+                    "Re-entering the garden did not reapply its presentation.");
+                Require(Resources.FindObjectsOfTypeAll<Mesh>().Count(m => m.name == GardenIslandPresentation.PresentedMeshName) == before + 1,
+                    "Repeated garden entry retained unused presentation meshes.");
+            }
+            UnityEngine.Object.DestroyImmediate(view);
+            Require(surface.surface.sharedMesh == original && original.vertices.SequenceEqual(vertices)
+                && original.normals.SequenceEqual(normals), "Presentation disposal changed the source asset.");
+            Require(Resources.FindObjectsOfTypeAll<Mesh>().Count(m => m.name == GardenIslandPresentation.PresentedMeshName) == before,
+                "Presentation destruction retained an owned mesh.");
+            GardenIslandPresentation.Ensure(surface);
+            report.Add("Meadow/rim and " + supported.Count + " placement heights exact; lower depth x.55; topology/materials intact; disable/enable/destroy ownership verified");
+        }
+
         static void Run(bool rebuild)
         {
             string output=Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS") ?? "artifacts/solid-island";
@@ -59,9 +166,12 @@ namespace CapstoneDesign.EditorTools
                 "Actual home is not linked to the updated GardenBase prefab.");
             Require(home.gardenRoot.Find("rock_largeA")==null && home.gardenRoot.Find("rock_largeB")==null,
                 "Detached underside survived in the actual scene.");
-            Require(home.gardenRoot.GetComponent<GardenSurface>().surface.sharedMesh==prefab.GetComponent<GardenSurface>().surface.sharedMesh,
-                "Actual scene overrides the derived island mesh.");
-            report.Add("Actual MockupMain home uses updated prefab/mesh, no independent underside or mesh override: PASS");
+            var currentSurface = home.gardenRoot.GetComponent<GardenSurface>();
+            var presentation = currentSurface.GetComponent<GardenIslandPresentation>();
+            Require((presentation != null && presentation.IsApplied ? presentation.SourceMesh : currentSurface.surface.sharedMesh)
+                == prefab.GetComponent<GardenSurface>().surface.sharedMesh,
+                "Actual scene lost the original derived island source mesh.");
+            report.Add("Actual MockupMain home retains its prefab source and has no independent underside: PASS");
             using var service=new GardenStateService(new Store(),new Clock(),new DemoBalanceConfig { VisitorChancePercent=0 },new LegacySnapshot { Nutrient=100 });
             home.activity.Initialize(service,true);
             var state=service.Snapshot;state.LegacyGrowth=2f;

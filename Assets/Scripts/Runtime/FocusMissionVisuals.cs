@@ -29,9 +29,10 @@ namespace CapstoneDesign.Runtime
     {
         public Button Button;
         public void OnPointerDown(PointerEventData eventData)
-        { if (Button != null && Button.interactable) Button.targetGraphic.color = new Color(1, 1, 1, .12f); }
+        { if (eventData.button == PointerEventData.InputButton.Left && Button != null && Button.IsInteractable() && Button.targetGraphic != null) Button.targetGraphic.color = new Color(1, 1, 1, .12f); }
         public void OnPointerUp(PointerEventData eventData) => Clear();
         public void OnPointerExit(PointerEventData eventData) => Clear();
-        void Clear() { if (Button != null) Button.targetGraphic.color = Color.clear; }
+        void OnDisable() => Clear();
+        void Clear() { if (Button != null && Button.targetGraphic != null) Button.targetGraphic.color = Color.clear; }
     }
 }

@@ -35,13 +35,16 @@ namespace CapstoneDesign.Runtime
         void Initialize(Camera camera)
         {
             if (properties == null) properties = new MaterialPropertyBlock();
-            if (Lights.Length > 0) return;
             var surface = GetComponentInChildren<GardenSurface>(true);
             // Sky-only preview cameras have no island to furnish.
             if (surface == null) return;
+            GardenIslandPresentation.Ensure(surface);
+            if (Lights.Length > 0) return;
             var source = Resources.Load<GameObject>("GardenModels/StreetLamp");
             if (source == null) throw new InvalidOperationException("Missing imported garden streetlamp");
-            var positions = new[] { new Vector2(-.75f, .78f), new Vector2(.80f, -.42f) };
+            // Both lamps support the rear edge in the default garden view. Keep
+            // the central plant and the visitor's foreground footprint clear.
+            var positions = new[] { new Vector2(-.68f, .72f), new Vector2(.68f, .76f) };
             Lights = new Light[positions.Length];
             for (int i = 0; i < positions.Length; i++)
             {
@@ -49,7 +52,7 @@ namespace CapstoneDesign.Runtime
                 lamp.name = "Garden streetlamp " + (i + 1);
                 // Supporting garden furniture, below the mature plant's canopy.
                 // Scale before placement so the real feet stay on the meadow.
-                lamp.transform.localScale *= .68f;
+                lamp.transform.localScale *= .48f;
                 GardenSceneModels.ConfigureRenderers(lamp);
                 GardenSceneModels.Place(lamp.transform, positions[i], i == 0 ? 18 : -16, surface.transform);
                 foreach (var renderer in lamp.GetComponentsInChildren<Renderer>(true))
@@ -64,7 +67,7 @@ namespace CapstoneDesign.Runtime
                 var light = bulb.gameObject.AddComponent<Light>();
                 light.type = LightType.Point;
                 light.color = BulbColor;
-                light.intensity = 1.3f;
+                light.intensity = .95f;
                 light.range = 2.65f;
                 light.cullingMask = camera.cullingMask;
                 light.renderMode = LightRenderMode.ForcePixel;

@@ -5,10 +5,11 @@ using UnityEngine.UI;
 namespace CapstoneDesign.Runtime
 {
     // Creating an offscreen row is not an exposure. Report once when at least
-    // half the row intersects its scroll viewport, or the user selects it.
+    // half the row intersects its fixed/scroll viewport, or the user selects it.
     public sealed class RecommendationExposure : MonoBehaviour
     {
         public Action OnVisible;
+        public RectTransform Viewport;
         bool reported;
         readonly Vector3[] corners=new Vector3[4];
         public void ReportVisible()
@@ -19,10 +20,9 @@ namespace CapstoneDesign.Runtime
         void LateUpdate()
         {
             if(reported || OnVisible==null || !gameObject.activeInHierarchy)return;
-            var scroll=GetComponentInParent<ScrollRect>();
-            var viewport=scroll?.viewport;
+            var viewport=Viewport!=null?Viewport:GetComponentInParent<ScrollRect>()?.viewport;
             var rect=transform as RectTransform;
-            if(viewport==null || rect==null || rect.rect.height<=0)return;
+            if(viewport==null || !viewport.gameObject.activeInHierarchy || rect==null || rect.rect.height<=0)return;
             rect.GetWorldCorners(corners);
             var bottom=viewport.InverseTransformPoint(corners[0]);
             var top=viewport.InverseTransformPoint(corners[2]);

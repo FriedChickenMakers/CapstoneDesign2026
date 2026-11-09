@@ -59,29 +59,49 @@ namespace CapstoneDesign.Runtime
                 if (root != null && view == root.gameObject && root.gameObject.activeInHierarchy
                     && gameObject.activeInHierarchy && IsGuidedView(id, revision)) action();
             };
-            var ink = FocusInk(mission); var accent = FocusAccent(mission); var muted = FocusMuted(mission);
+            bool breathGuide = mission.Code == "P01";
+            bool soundGuide = mission.Code == "P02";
+            var ink = FocusInk(mission); var accent = FocusAccent(mission);
+            var muted = breathGuide ? FigmaMissionUi.Hex("405F55") : soundGuide ? FigmaMissionUi.Hex("456272") : FocusMuted(mission);
+            if (breathGuide) ApplyP01BreathTheme(root);
+            else if (soundGuide) ApplyP02SoundTheme(root);
+            else
+            {
+                ApplyPracticeIllustrationTheme(root, mission, GuidedIllustrationKey());
+                if (guidedSlide >= GuidedSlide.Cue0 && guidedSlide <= GuidedSlide.Cue2)
+                    for (int i = 0; i < 3; i++)
+                        FigmaMissionUi.Box(root, "Guided.ProgressMark." + i, 298 + i * 24, 64, 18, 3,
+                            i <= (int)guidedSlide - (int)GuidedSlide.Cue0 ? accent : FocusAlpha(accent, .18f), 1.5f);
+            }
             root.GetComponent<FocusMobilePageLayout>().FixedContent = true;
             focusPracticeClock = null;
             focusInteractionSession = id;
             focusInteractionStep = 0;
             FigmaMissionUi.Button(root, "나가기", 24, 24, 86, 48, () => current(CloseFocusPractice), Color.clear, ink, 15).name = "Focus.Close";
-            FigmaMissionUi.Label(root, FocusPracticeContext(GuidedProgress()), 148, 36, 218, 24, 14, accent,
+            string progress = guidedSlide == GuidedSlide.Help ? "도움말"
+                : guidedSlide <= GuidedSlide.Choice ? "준비" : GuidedProgress();
+            FigmaMissionUi.Label(root, FocusPracticeContext(progress), 148, 36, 218, 24, 14, accent,
                 false, TextAnchor.MiddleRight).name = "Guided.Progress";
-            FigmaMissionUi.Label(root, mission.Code + " · " + (guidedSlide == GuidedSlide.Overview ? "기본 미션" : mission.Title),
-                24, 86, 342, 24, 14, accent).name = "Guided.Mission";
+            bool showHeading = guidedSlide == GuidedSlide.Overview;
+            if (showHeading)
+                FigmaMissionUi.Label(root, guidedSlide == GuidedSlide.Overview ? "기본 미션" : mission.Title,
+                    24, 86, 342, 24, 16, accent, false, TextAnchor.UpperCenter).name = "Guided.Mission";
             string heading, body, bodyName;
             GuidedSlideText(mission, out heading, out body, out bodyName);
-            FigmaMissionUi.Label(root, heading, 24, 122, 342, 42, heading.Length > 14 ? 24 : 27, ink, true).name = "Guided.Title";
-            var copy = FigmaMissionUi.Label(root, body, 24, 174, 342, 68, 18, muted);
+            Text headingLabel = null;
+            if (showHeading)
+            {
+                headingLabel = FigmaMissionUi.Label(root, heading, 24, 122, 342, 42, 30, ink, true, TextAnchor.UpperCenter);
+                headingLabel.name = "Guided.Title";
+            }
+            var copy = FigmaMissionUi.Label(root, body, 24, 174, 342, 68, 22, muted, false, TextAnchor.UpperCenter);
             copy.name = bodyName; copy.lineSpacing = 1.15f;
 
-            var icon = FigmaMissionUi.Button(root, "", 105, 315, 180, 180,
-                () => current(() => AdvanceGuidedSlide(id)), Color.clear, accent);
-            icon.name = "Focus.IconAction";
-            icon.transition = Selectable.Transition.None;
-            icon.gameObject.AddComponent<FocusMissionTapFeedback>().Button = icon;
-            FocusCircle(icon.transform, 0, 0, 180, FocusCircleColor(mission));
-            AllFocusIcon(icon.transform, mission, 28, 28, 124);
+            RectTransform illustration;
+            var icon = breathGuide ? BuildP01BreathIcon(root, () => current(() => AdvanceGuidedSlide(id)), out illustration)
+                : soundGuide ? BuildP02SoundIcon(root, () => current(() => AdvanceGuidedSlide(id)), out illustration)
+                : BuildPracticeIllustration(root, mission, GuidedIllustrationKey(), guidedChoice,
+                    () => current(() => AdvanceGuidedSlide(id)), out illustration);
             string hint = guidedSlide == GuidedSlide.Overview ? "아이콘을 눌러 시작"
                 : guidedSlide == GuidedSlide.Practice || guidedSlide == GuidedSlide.Reflection ? "아이콘을 눌러 실습 마치기"
                 : guidedSlide == GuidedSlide.Cue2 ? "아이콘을 눌러 실습"
@@ -123,9 +143,13 @@ namespace CapstoneDesign.Runtime
                     NavigateGuidedSlide(GuidedSlide.Help);
                 }), Color.clear, accent, 15).name = "Guided.HelpToggle";
             var layout = root.gameObject.AddComponent<FocusGuidedSlideLayout>();
-            layout.Icon = (RectTransform)icon.transform; layout.ActionHint = actionHint.rectTransform;
+            layout.Icon = (RectTransform)icon.transform; layout.Illustration = illustration; layout.ActionHint = actionHint.rectTransform;
             layout.Viewport = viewport; layout.Content = content; layout.ContentHeight = contentHeight;
-            layout.Navigation = navigation; layout.Notice = notice; layout.Refresh();
+            layout.Navigation = navigation; layout.Notice = notice;
+            layout.Heading = headingLabel; layout.Copy = copy;
+            // P02 has an 88-point optional text field; reserve room to see it in full.
+            if (soundGuide) layout.MinimumAnswerHeight = 100;
+            layout.Refresh();
         }
 
         string GuidedProgress()
@@ -145,7 +169,7 @@ namespace CapstoneDesign.Runtime
                 case GuidedSlide.Preparation:
                     title = "준비해요"; body = FocusGuidedPracticeContent.Preparation(code); name = "Guided.Preparation"; break;
                 case GuidedSlide.Choice:
-                    title = FocusGuidedPracticeContent.ChoiceLabel(code); body = "편한 하나를 골라요."; name = "Guided.ChoiceTitle"; break;
+                    title = FocusGuidedPracticeContent.ChoiceLabel(code); body = FocusGuidedPracticeContent.ChoiceLabel(code); name = "Guided.ChoiceTitle"; break;
                 case GuidedSlide.Cue0: case GuidedSlide.Cue1: case GuidedSlide.Cue2:
                     int cue = (int)guidedSlide - (int)GuidedSlide.Cue0;
                     title = cue == 0 ? "감각을 느껴요" : cue == 1 ? "잠시 살펴봐요" : "천천히 이어가요";
@@ -157,9 +181,24 @@ namespace CapstoneDesign.Runtime
                 case GuidedSlide.Help:
                     title = "괜찮아요"; body = GuidedHelp(mission)[guidedHelpIndex]; name = "Guided.Help"; break;
             }
+            if (code == "P01")
+            {
+                var stage = P01Stage();
+                title = guidedSlide == GuidedSlide.Overview ? mission.Title : P01BreathGuide.Title(stage, guidedChoice, guidedHelpIndex);
+                body = P01BreathGuide.Body(stage, guidedChoice, guidedHelpIndex);
+            }
+            else if (code == "P02")
+            {
+                var stage = P02Stage();
+                title = guidedSlide == GuidedSlide.Overview ? mission.Title : P02SoundGuide.Title(stage);
+                body = P02SoundGuide.Body(stage);
+            }
         }
 
-        static string[] GuidedHelp(FocusMissionDefinition mission) => FocusGuidedPracticeContent.Help(mission.Code).Split('\n');
+        static string[] GuidedHelp(FocusMissionDefinition mission) => mission.Code == "P01"
+            ? new[] { P01BreathGuide.Body(P01BreathIllustration.Stage.Help, null) }
+            : mission.Code == "P02" ? new[] { P02SoundGuide.Body(P02SoundIllustration.Stage.Help) }
+            : new[] { FocusGuidedPracticeContent.Help(mission.Code) };
 
         float BuildGuidedChoices(Transform parent, FocusMissionDefinition mission, Action<Action> current)
         {

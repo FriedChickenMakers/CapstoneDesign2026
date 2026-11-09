@@ -32,7 +32,8 @@ namespace CapstoneDesign.Runtime
         }
         void FigmaNavigation(Transform p,string active)
         {
-            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,ShowFocusCourse,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
+            Action records = active == "미션" ? ShowDailyEmotionHistory : ShowFocusCourse;
+            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,records,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
         }
         void RefreshMissionNavigation()
         {

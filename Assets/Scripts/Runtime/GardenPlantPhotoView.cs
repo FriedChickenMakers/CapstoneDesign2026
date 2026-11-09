@@ -261,16 +261,38 @@ namespace CapstoneDesign.Runtime
             memoId=null;
             if(!IsInteractive || !isActiveAndEnabled || !gameObject.activeInHierarchy || GardenMemoPopup.IsOpen
                 || memoPicking==null || image==null || texture==null || !texture.IsCreated()
-                || !RectTransformUtility.ScreenPointToLocalPointInRectangle((RectTransform)transform,screenPoint,eventCamera,out var local))return false;
-            var rect=((RectTransform)transform).rect;
-            if(!rect.Contains(local) || rect.width<=0 || rect.height<=0 || !image.Raycast(screenPoint,eventCamera))return false;
-            var uv=image.uvRect;
-            var point=new Vector2(uv.x+(local.x-rect.xMin)/rect.width*uv.width,uv.y+(local.y-rect.yMin)/rect.height*uv.height);
-            if(point.x<0 || point.x>1 || point.y<0 || point.y>1)return false;
+                || !TryMemoRay(screenPoint,eventCamera,out _))return false;
             // Retain each view's eye and unnormalised corner directions while the
             // shared camera renders other photos. Direction vectors avoid losing
             // near-plane precision at the isolated studio's distant world position.
-            return memoPicking.TryPick(new Ray(pickOrigin, pickDirection + pickHorizontal * point.x + pickVertical * point.y),out memoId,out _);
+            bool RayAt(Vector2 point,out Ray ray)=>TryMemoRay(point,eventCamera,out ray);
+            bool Project(Vector3 point,out Vector2 screen)=>TryMemoProjection(point,eventCamera,out screen);
+            return memoPicking.TryPickNearby(screenPoint,RayAt,Project,GardenMemoryPicker.TouchRadiusPixels(image.canvas),out memoId,out _);
+        }
+        bool TryMemoRay(Vector2 screenPoint,Camera eventCamera,out Ray ray)
+        {
+            ray=default;
+            var surface=(RectTransform)transform;var rect=surface.rect;
+            if(rect.width<=0 || rect.height<=0 || !RectTransformUtility.ScreenPointToLocalPointInRectangle(surface,screenPoint,eventCamera,out var local)
+                || !rect.Contains(local) || !image.Raycast(screenPoint,eventCamera))return false;
+            var uv=image.uvRect;
+            var point=new Vector2(uv.x+(local.x-rect.xMin)/rect.width*uv.width,uv.y+(local.y-rect.yMin)/rect.height*uv.height);
+            if(point.x<0 || point.x>1 || point.y<0 || point.y>1)return false;
+            ray=new Ray(pickOrigin,pickDirection+pickHorizontal*point.x+pickVertical*point.y);return true;
+        }
+        bool TryMemoProjection(Vector3 world,Camera eventCamera,out Vector2 screen)
+        {
+            screen=default;
+            var forward=pickDirection+(pickHorizontal+pickVertical)*.5f;
+            var delta=world-pickOrigin;float depth=Vector3.Dot(delta,forward);
+            var uv=image.uvRect;
+            if(depth<=.00001f || pickHorizontal.sqrMagnitude<=.000001f || pickVertical.sqrMagnitude<=.000001f
+                || Mathf.Abs(uv.width)<.000001f || Mathf.Abs(uv.height)<.000001f)return false;
+            float u=Vector3.Dot(delta,pickHorizontal)/(depth*pickHorizontal.sqrMagnitude)+.5f;
+            float v=Vector3.Dot(delta,pickVertical)/(depth*pickVertical.sqrMagnitude)+.5f;
+            var surface=(RectTransform)transform;var rect=surface.rect;
+            var local=new Vector3(rect.xMin+(u-uv.x)/uv.width*rect.width,rect.yMin+(v-uv.y)/uv.height*rect.height,0);
+            screen=RectTransformUtility.WorldToScreenPoint(eventCamera,surface.TransformPoint(local));return true;
         }
 
         void ReleaseTexture()

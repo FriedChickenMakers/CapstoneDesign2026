@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Linq;
 using CapstoneDesign.Runtime.LocalState;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CapstoneDesign.Runtime
 {
@@ -15,6 +16,9 @@ namespace CapstoneDesign.Runtime
             if (this == null || !opened || HasPendingFullReset || owner == null || !owner.gameObject.activeInHierarchy
                 || string.IsNullOrEmpty(plantInstanceId) || string.IsNullOrEmpty(memoId)) return false;
             var state = Service.Snapshot;
+            var individual = state.PlantCollection?.Plants.FirstOrDefault(plant => plant.Id == plantInstanceId);
+            var knownOrgan = individual?.Memories.FirstOrDefault(memory => memory.OrganId == memoId);
+            if (knownOrgan != null && knownOrgan.Kind == MemoryRecordKind.None) return false;
             GardenPlantMemo memo = PlantAlbumHistory.MemoryRecord(state, plantInstanceId, memoId);
             if (string.IsNullOrEmpty(photoId))
             {
@@ -37,10 +41,51 @@ namespace CapstoneDesign.Runtime
             if (plantMemoPopup != null && memory != null)
             {
                 string organId = memory.OrganId;
-                plantMemoPopup.ConfigureActions(() => ShowPlantMemoryEditor(plantInstanceId, organId, photoId),
-                    () => ShowPlantMemoryDeletion(plantInstanceId, organId, photoId));
+                bool fromActivity = owner.IsChildOf(transform);
+                Action returnToOrigin = CapturePlantMemoryReturn(plantInstanceId, photoId, fromActivity);
+                Action prepareOrigin = () => {
+                    if (fromActivity) return;
+                    PreparePlantMemoryPage();
+                    // Android Back from an editor opened on the garden returns to
+                    // the garden, rather than an unrelated previously visited tab.
+                    EnterPage("plant-memory-garden:" + plantInstanceId, returnToOrigin);
+                };
+                plantMemoPopup.ConfigureActions(() => {
+                    prepareOrigin(); ShowPlantMemoryEditor(plantInstanceId, organId, photoId, returnToOrigin);
+                }, () => {
+                    prepareOrigin(); ShowPlantMemoryDeletion(plantInstanceId, organId, photoId, returnToOrigin);
+                });
             }
             return plantMemoPopup != null;
+        }
+
+        Action CapturePlantMemoryReturn(string plantId, string photoId, bool fromActivity)
+        {
+            bool list = fromActivity && screen == "plant-memories:" + plantId;
+            bool photo = fromActivity && !string.IsNullOrEmpty(photoId) && screen == "plant-photo:" + photoId;
+            var sourceScroll = list ? pageViewport?.GetComponent<ScrollRect>()
+                : photo ? activityFrame?.GetComponentsInChildren<ScrollRect>().FirstOrDefault(value => value.name == "PlantAlbum.RecordsViewport") : null;
+            float position = sourceScroll != null ? sourceScroll.verticalNormalizedPosition : 1;
+            return () => {
+                if (this == null || !opened || HasPendingFullReset) return;
+                if (!fromActivity)
+                {
+                    int origin = pageHistory.FindLastIndex(entry => entry.Key == "plant-memory-garden:" + plantId);
+                    if (origin >= 0) pageHistory.RemoveRange(origin + 1, pageHistory.Count - origin - 1);
+                    GoGarden(); return;
+                }
+                if (list) ShowPlantMemories(plantId);
+                else if (photo) ShowPlantPhoto(photoId);
+                else { ReturnToPlantMemory(plantId, photoId); return; }
+                Canvas.ForceUpdateCanvases();
+                var restoredScroll = list ? pageViewport?.GetComponent<ScrollRect>()
+                    : activityFrame?.GetComponentsInChildren<ScrollRect>().FirstOrDefault(value => value.name == "PlantAlbum.RecordsViewport");
+                if (restoredScroll != null)
+                {
+                    restoredScroll.StopMovement();
+                    restoredScroll.verticalNormalizedPosition = Mathf.Clamp01(position);
+                }
+            };
         }
 
         void ClosePlantMemoPopup()

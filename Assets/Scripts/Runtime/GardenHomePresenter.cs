@@ -59,7 +59,6 @@ namespace CapstoneDesign.Runtime
         Transform additions;
         string additionsSignature;
         string plantSignature;
-        RectTransform growthSurface;
         PrototypeGardenPreviewLayout backgroundPreview;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
@@ -78,7 +77,8 @@ namespace CapstoneDesign.Runtime
             if(backgroundPreview!=null)
             {
                 backgroundPreview.MemoClicked-=OpenPlantMemo;
-                backgroundPreview.MemoRayPicker=null; backgroundPreview.MemoPickingAllowed=null; backgroundPreview.InputBlocked=null;
+                backgroundPreview.MemoRayPicker=null; backgroundPreview.MemoScreenPicker=null;
+                backgroundPreview.MemoPickingAllowed=null; backgroundPreview.InputBlocked=null;
                 if(backgroundPreview.orbit!=null)backgroundPreview.orbit.InputBlocked=null;
             }
             MemoView?.DisposeOwnedResources();
@@ -165,20 +165,15 @@ namespace CapstoneDesign.Runtime
                 var fit=frame.AddComponent<FigmaMissionCanvasFit>();fit.Design=design;fit.Fit();
                 NavigationBar=MissionBottomNavigation.Create(design,"홈",OpenHome,OpenActivity,OpenCourse,null);
                 homeTab=NavigationBar.HomeButton;activityTab=NavigationBar.MissionButton;settingsTab=NavigationBar.CourseButton;
-                if(shopButton!=null)
-                {
-                    var shopRect=(RectTransform)shopButton.transform;
-                    shopRect.anchoredPosition=new Vector2(shopRect.anchoredPosition.x,168);
-                }
             }
             RefreshMissionStatus();
             if(TemporarySettingsButton!=null)return;
-            TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",552,4,120,96,OpenSettings,GardenUi.Pale,GardenUi.Green,28);
+            TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",568,24,104,96,OpenSettings,GardenUi.Pale,GardenUi.Green,26);
             TemporarySettingsButton.name="TemporarySettingsButton";
             GardenThemeSurface.Apply(TemporarySettingsButton.gameObject,GardenThemeSurface.Style.Wood);
             TemporarySettingsButton.GetComponentInChildren<Text>().color=GardenThemeSurface.WoodInk;
             var rect=(RectTransform)TemporarySettingsButton.transform;
-            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(1,1);rect.anchoredPosition=new Vector2(-48,-4);
+            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(.5f,.5f);rect.anchoredPosition=new Vector2(-100,-72);
             if(date!=null && backgroundPreview==null)
             {
                 var dateRect=date.rectTransform;
@@ -231,45 +226,63 @@ namespace CapstoneDesign.Runtime
             backgroundPreview.MemoPickingAllowed=()=>!GardenMemoPopup.IsOpen && IsGardenVisible && ProceduralPlant!=null
                 && ProceduralPlant.Geometry!=null && ProceduralPlant.Geometry.Organs.Any(o=>o.Selectable);
             backgroundPreview.MemoRayPicker=PickPlantMemo;
+            backgroundPreview.MemoScreenPicker=PickPlantMemoNear;
             if(backgroundPreview.orbit!=null)backgroundPreview.orbit.InputBlocked=()=>GardenMemoPopup.IsOpen;
             backgroundPreview.excludedBoundsRoot = plant != null ? plant.transform : null;
             backgroundPreview.UseFullScreenBackground(homeCanvas);
+            // Keep the whole island in view, with the plant nearer the visual centre
+            // and spare sky above it rather than a large gap above the information.
+            backgroundPreview.horizontalPadding=32;
+            backgroundPreview.compositionAnchorY=.24f;
+            if(backgroundPreview.orbit!=null)
+            {
+                backgroundPreview.orbit.defaultAngles=new Vector2(-18,36);
+                backgroundPreview.orbit.SetFocus(new Vector3(0,.26f,0));
+                backgroundPreview.orbit.ResetView();
+            }
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
-            PlaceOverlayText(title,content,48,32,420,58,40,false);
-            PlaceOverlayText(date,content,48,98,420,40,26,false);
-            PlaceOverlayText(guide,content,48,100,180,40,24,true);
+            PlaceOverlayText(title,content,48,32,460,58,40,false);
+            PlaceOverlayText(date,content,48,96,360,40,25,false);
+            PlaceOverlayText(guide,content,48,128,190,40,24,true);
             var growth=home.Find("Growth surface") as RectTransform;
             if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,GardenUi.Background).transform;
-            growthSurface=growth;
             growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),GardenUi.Background);
             GardenThemeSurface.Apply(growth.gameObject,GardenThemeSurface.Style.Paper);
             growth.GetComponent<Image>().raycastTarget=false;
             growth.anchorMin=growth.anchorMax=Vector2.zero;growth.pivot=new Vector2(0,1);
-            growth.anchoredPosition=new Vector2(48,328);growth.sizeDelta=new Vector2(624,64);growth.SetAsFirstSibling();
+            growth.anchoredPosition=new Vector2(48,260);growth.sizeDelta=new Vector2(624,160);growth.SetAsFirstSibling();
             if(stage!=null)
             {
                 var rect=stage.rectTransform;rect.SetParent(growth,false);
-                rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(0,.5f);rect.anchoredPosition=Vector2.zero;rect.sizeDelta=new Vector2(300,60);
-                stage.fontSize=26;stage.color=Green;stage.alignment=TextAlignmentOptions.Midline;
+                rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(0,1);rect.anchoredPosition=new Vector2(24,-20);rect.sizeDelta=new Vector2(316,50);
+                stage.fontSize=26;stage.color=Green;stage.alignment=TextAlignmentOptions.MidlineLeft;
                 stage.raycastTarget=false;stage.gameObject.SetActive(true);
             }
             if(progressDots!=null)for(int i=0;i<progressDots.Length;i++)if(progressDots[i]!=null)
             {
                 var rect=(RectTransform)progressDots[i].transform;rect.SetParent(growth,false);
-                rect.anchorMin=rect.anchorMax=new Vector2(0,.5f);rect.pivot=new Vector2(0,.5f);
-                rect.anchoredPosition=new Vector2(350+60*i,0);rect.sizeDelta=new Vector2(48,34);progressDots[i].gameObject.SetActive(true);
+                rect.anchorMin=rect.anchorMax=new Vector2(0,1);rect.pivot=new Vector2(0,1);
+                rect.anchoredPosition=new Vector2(24+72*i,-88);rect.sizeDelta=new Vector2(58,44);progressDots[i].gameObject.SetActive(true);
                 var symbol=i==0?PrototypeUiIcon.Symbol.Seed:i==1?PrototypeUiIcon.Symbol.Leaf:
                     i==2?PrototypeUiIcon.Symbol.Pot:PrototypeUiIcon.Symbol.Flower;
                 var icon=GardenUi.Icon(rect,symbol,.5f,.5f,0,0);
-                icon.rectTransform.sizeDelta=new Vector2(30,30);
+                icon.rectTransform.sizeDelta=new Vector2(34,34);
+            }
+            if(shopButton!=null)
+            {
+                var rect=(RectTransform)shopButton.transform;
+                rect.SetParent(growth,false);
+                rect.anchorMin=rect.anchorMax=new Vector2(0,1);rect.pivot=new Vector2(.5f,.5f);
+                rect.anchoredPosition=new Vector2(476,-80);rect.sizeDelta=new Vector2(248,96);
+                foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.fontSize=28;
             }
             foreach(var name in new[]{"Home overview surface","Brand"})
                 if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(false);
             if(home!=null)foreach(var name in new[]{"Garden view controls","보기 +","보기 −"})
                 if(home.Find(name)!=null)home.Find(name).gameObject.SetActive(false);
             OverlayTopBoundary=(RectTransform)GardenUi.Box(content,"Garden top safe boundary",0,1,1,0).transform;
-            GardenUi.FromTop(OverlayTopBoundary,0,148);
+            GardenUi.FromTop(OverlayTopBoundary,0,172);
             backgroundPreview.upperBoundary=OverlayTopBoundary;
             backgroundPreview.lowerBoundary=growth;
             backgroundPreview.SetSubjectFocus(false);
@@ -433,7 +446,6 @@ namespace CapstoneDesign.Runtime
             if (guide != null) guide.text = "코인 " + saved.Coins + "개";
             if (stage != null) stage.text = shownPlant?.Completed==true ? "완성 · 사진첩 보관"
                 :hasCurrent?new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage]:"다음 실습을 기다려요";
-            if(growthSurface!=null)growthSurface.sizeDelta=new Vector2(624,64);
             if (progressDots != null)
                 for (int i = 0; i < progressDots.Length; i++)
                     if (progressDots[i] != null)
@@ -443,7 +455,7 @@ namespace CapstoneDesign.Runtime
                         GardenThemeSurface.Apply(progressDots[i].gameObject,i<=visualStage?
                             GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper);
                         var icon=progressDots[i].GetComponentInChildren<PrototypeUiIcon>();
-                        if(icon!=null)icon.color=i<=visualStage?Color.white:new Color(1,1,1,.40f);
+                        if(icon!=null)icon.color=i<=visualStage?Green:new Color(.45f,.51f,.43f,.65f);
                     }
             var active = saved.Sessions.LastOrDefault(s => FocusMissionPolicy.IsFocus(s) && FocusMissionPolicy.IsActive(s));
             var completed = saved.Sessions.LastOrDefault(s => FocusMissionPolicy.IsFocus(s) && s.InstanceId == saved.LastCycleId && s.Status == ParticipationState.RewardCommitted);
@@ -558,6 +570,35 @@ namespace CapstoneDesign.Runtime
         {
             var picking=GardenMemoryPicker.Capture(ProceduralPlant,gardenRoot);
             return picking!=null && picking.TryPick(ray,out var memoId,out _)?memoId:null;
+        }
+
+        string PickPlantMemoNear(Vector2 point,Camera eventCamera)
+        {
+            var picking=GardenMemoryPicker.Capture(ProceduralPlant,gardenRoot);
+            if(picking==null || backgroundPreview==null || gardenCamera==null)return null;
+            var image=backgroundPreview.GetComponent<RawImage>();
+            var surface=(RectTransform)image.transform;var rect=surface.rect;var uv=image.uvRect;
+            bool RayAt(Vector2 screen,out Ray ray)
+            {
+                ray=default;
+                if(rect.width<=0 || rect.height<=0 || !image.Raycast(screen,eventCamera)
+                    || !RectTransformUtility.ScreenPointToLocalPointInRectangle(surface,screen,eventCamera,out var local)
+                    || !rect.Contains(local))return false;
+                var viewport=new Vector2(uv.x+(local.x-rect.xMin)/rect.width*uv.width,
+                    uv.y+(local.y-rect.yMin)/rect.height*uv.height);
+                if(viewport.x<0 || viewport.x>1 || viewport.y<0 || viewport.y>1)return false;
+                ray=gardenCamera.ViewportPointToRay(viewport);return true;
+            }
+            bool Project(Vector3 world,out Vector2 screen)
+            {
+                screen=default;
+                if(Mathf.Abs(uv.width)<.00001f || Mathf.Abs(uv.height)<.00001f)return false;
+                var viewport=gardenCamera.WorldToViewportPoint(world);
+                if(viewport.z<=0)return false;
+                var local=rect.min+Vector2.Scale(new Vector2((viewport.x-uv.x)/uv.width,(viewport.y-uv.y)/uv.height),rect.size);
+                screen=RectTransformUtility.WorldToScreenPoint(eventCamera,surface.TransformPoint(local));return true;
+            }
+            return picking.TryPickNearby(point,RayAt,Project,GardenMemoryPicker.TouchRadiusPixels(homeCanvas),out var id,out _)?id:null;
         }
 
         public void RefreshDate()

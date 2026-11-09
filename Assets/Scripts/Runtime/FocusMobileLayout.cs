@@ -112,22 +112,131 @@ namespace CapstoneDesign.Runtime
         }
     }
 
+    // Today's three actions fit the available safe-area height. Compact cards
+    // move the action beside the copy instead of shrinking the whole page.
+    [ExecuteAlways]
+    public sealed class FocusMissionHomeLayout : MonoBehaviour
+    {
+        public sealed class Card
+        {
+            public RectTransform Root, Icon;
+            public Text Badge, Title, Detail;
+            public Button Action;
+            public int TitleSize;
+            internal bool Side;
+            internal float TextWidth, BadgeHeight, TitleHeight, DetailHeight, CopyHeight, ButtonHeight, Height;
+            internal Text ActionText;
+        }
+
+        public RectTransform Body, Header, Heading, DebugLauncher;
+        public Text Notice;
+        public Card[] Cards;
+        const float CardWidth = 342, Padding = 12, Gap = 8, SideActionWidth = 120;
+        void OnEnable() { Canvas.preWillRenderCanvases += Refresh; }
+        void OnDisable() { Canvas.preWillRenderCanvases -= Refresh; }
+
+        static float TextHeight(Text text, float width)
+        {
+            if (text == null) return 0;
+            text.rectTransform.sizeDelta = new Vector2(width, text.rectTransform.sizeDelta.y);
+            return Mathf.Ceil(text.preferredHeight);
+        }
+        static float Measure(Card card, bool side)
+        {
+            card.Side = side;
+            card.TextWidth = CardWidth - Padding * 2 - (side ? SideActionWidth + 12 : 0);
+            card.Title.fontSize = side ? Mathf.Min(18, card.TitleSize) : card.TitleSize;
+            card.BadgeHeight = card.Badge == null ? 0 : Mathf.Max(24, TextHeight(card.Badge, card.TextWidth - (card.Icon == null ? 0 : 28)));
+            card.TitleHeight = TextHeight(card.Title, card.TextWidth);
+            card.DetailHeight = TextHeight(card.Detail, card.TextWidth);
+            card.CopyHeight = (card.Badge == null ? 0 : card.BadgeHeight + 4) + card.TitleHeight + 4 + card.DetailHeight;
+            if (card.ActionText == null) card.ActionText = card.Action.GetComponentInChildren<Text>();
+            float actionWidth = side ? SideActionWidth : CardWidth - Padding * 2;
+            card.ButtonHeight = Mathf.Max(48, TextHeight(card.ActionText, actionWidth - 16) + 8);
+            card.Height = Padding * 2 + (side ? Mathf.Max(card.CopyHeight, card.ButtonHeight) : card.CopyHeight + Gap + card.ButtonHeight);
+            return card.Height;
+        }
+
+        public void Refresh()
+        {
+            if (Body == null || Cards == null || Cards.Length == 0) return;
+            float height = ((RectTransform)transform).rect.height;
+            float headerTop = Mathf.Lerp(16, 36, Mathf.InverseLerp(680, 844, height));
+            if (Header != null) FigmaMissionUi.SetRect(Header, 12, headerTop, 366, 48);
+            if (Heading != null) FigmaMissionUi.SetRect(Heading, 24, headerTop + 7, 342, 38);
+            float top = headerTop + 68;
+            bool debug = DebugLauncher != null && DebugLauncher.gameObject.activeSelf;
+            bool message = Notice != null && Notice.gameObject.activeSelf;
+            float noticeWidth = debug ? 236 : 342;
+            float noticeHeight = message ? TextHeight(Notice, noticeWidth) : 0;
+            // Error guidance and the development entry share a row, while the
+            // navigation bar keeps its existing 84-point region below them.
+            float footer = Mathf.Max(debug ? 52 : 0, message ? noticeHeight + 12 : 0);
+            float footerTop = height - 84 - footer;
+            if (debug)
+            {
+                DebugLauncher.anchorMin = DebugLauncher.anchorMax = new Vector2(0, 1);
+                FigmaMissionUi.SetRect(DebugLauncher, 272, footerTop + (footer - 44) / 2, 94, 44);
+            }
+            if (message)
+            {
+                FigmaMissionUi.SetRect(Notice.rectTransform, 24, footerTop + (footer - noticeHeight) / 2, noticeWidth, noticeHeight);
+                Notice.transform.SetAsLastSibling();
+            }
+            float available = Mathf.Max(1, footerTop - top - Gap);
+            FigmaMissionUi.SetRect(Body, 0, top, 390, available);
+            float natural = 0;
+            // Prefer full-width actions. Short screens compact the lower cards
+            // first, keeping the main mission's visual priority when possible.
+            for (int sideCount = 0; sideCount <= Cards.Length; sideCount++)
+            {
+                natural = Gap * (Cards.Length - 1);
+                for (int i = 0; i < Cards.Length; i++) natural += Measure(Cards[i], i >= Cards.Length - sideCount);
+                if (natural <= available) break;
+            }
+            float extra = Mathf.Max(0, available - natural) / Cards.Length;
+            float y = 0;
+            foreach (var card in Cards)
+            {
+                float cardHeight = card.Height + extra;
+                FigmaMissionUi.SetRect(card.Root, 24, y, CardWidth, cardHeight);
+                float copyY = card.Side ? (cardHeight - card.CopyHeight) / 2 : Padding;
+                if (card.Badge != null)
+                {
+                    float badgeX = Padding + (card.Icon == null ? 0 : 28);
+                    FigmaMissionUi.SetRect(card.Badge.rectTransform, badgeX, copyY, card.TextWidth - (badgeX - Padding), card.BadgeHeight);
+                    if (card.Icon != null) FigmaMissionUi.SetRect(card.Icon, Padding, copyY + (card.BadgeHeight - 24) / 2, 24, 24);
+                    copyY += card.BadgeHeight + 4;
+                }
+                FigmaMissionUi.SetRect(card.Title.rectTransform, Padding, copyY, card.TextWidth, card.TitleHeight);
+                copyY += card.TitleHeight + 4;
+                FigmaMissionUi.SetRect(card.Detail.rectTransform, Padding, copyY, card.TextWidth, card.DetailHeight);
+                float actionWidth = card.Side ? SideActionWidth : CardWidth - Padding * 2;
+                float actionX = card.Side ? CardWidth - Padding - actionWidth : Padding;
+                float actionY = card.Side ? (cardHeight - card.ButtonHeight) / 2 : cardHeight - Padding - card.ButtonHeight;
+                FigmaMissionUi.SetRect((RectTransform)card.Action.transform, actionX, actionY, actionWidth, card.ButtonHeight);
+                FigmaMissionUi.SetRect(card.ActionText.rectTransform, 8, 0, actionWidth - 16, card.ButtonHeight);
+                y += cardHeight + Gap;
+            }
+        }
+    }
+
     // The illustration is the stable visual and touch anchor across every slide.
     // Only optional answers scroll; text, illustration and navigation never move together.
     [ExecuteAlways]
     public sealed class FocusGuidedSlideLayout : MonoBehaviour
     {
-        public RectTransform Icon, ActionHint, Viewport, Content, Navigation;
+        public RectTransform Icon, Illustration, ActionHint, Viewport, Content, Navigation;
         public Text Notice;
+        // Optional larger reading treatment. Other slides retain their authored layout.
+        public Text Heading, Copy;
+        public float MinimumAnswerHeight = 86;
         public float ContentHeight;
         void OnEnable(){Canvas.preWillRenderCanvases+=Refresh;}
         void OnDisable(){Canvas.preWillRenderCanvases-=Refresh;}
         public void Refresh()
         {
             float height=((RectTransform)transform).rect.height;
-            float iconTop=height*.48f-90;
-            if(Icon!=null)FigmaMissionUi.SetRect(Icon,105,iconTop,180,180);
-            if(ActionHint!=null)FigmaMissionUi.SetRect(ActionHint,24,iconTop+192,342,28);
             float bottom=height-72;
             if(Navigation!=null)FigmaMissionUi.SetRect(Navigation,24,height-64,342,48);
             if(Notice!=null&&Notice.gameObject.activeSelf)
@@ -136,8 +245,33 @@ namespace CapstoneDesign.Runtime
                 FigmaMissionUi.SetRect(Notice.rectTransform,24,bottom,342,56);
                 Notice.transform.SetAsLastSibling();
             }
-            float available=Mathf.Max(36,bottom-(iconTop+230));
-            if(Viewport!=null)FigmaMissionUi.SetRect(Viewport,24,iconTop+230,342,available);
+            // Keep the larger illustration below the copy, including on short
+            // phones; reserve answer space when a storage notice is visible.
+            bool reading = Copy != null;
+            float minTop = 254, actionGap = 50;
+            float illustrationOffset = reading ? Mathf.Lerp(14,32,Mathf.InverseLerp(692,844,height)) : 0;
+            if (reading)
+            {
+                float copyTop = 126;
+                if (Heading != null)
+                {
+                    float titleHeight = Mathf.Max(42, Mathf.Ceil(Heading.preferredHeight));
+                    FigmaMissionUi.SetRect(Heading.rectTransform,24,122,342,titleHeight);
+                    copyTop = 122 + titleHeight + 10;
+                }
+                float copyHeight = Mathf.Max(54, Mathf.Ceil(Copy.preferredHeight));
+                FigmaMissionUi.SetRect(Copy.rectTransform,24,copyTop,342,copyHeight);
+                minTop = Mathf.Max(254, copyTop + copyHeight + 18) + illustrationOffset;
+                actionGap = 40;
+            }
+            float size=Mathf.Clamp(bottom-minTop-actionGap-(reading?MinimumAnswerHeight:72),reading?160:180,reading?280:224);
+            float iconTop=Mathf.Max(minTop,height*.48f-size/2+illustrationOffset);
+            if(Icon!=null)FigmaMissionUi.SetRect(Icon,(390-size)/2,iconTop,size,size);
+            if(Illustration!=null)Illustration.localScale=Vector3.one*(size/180);
+            if(ActionHint!=null)FigmaMissionUi.SetRect(ActionHint,24,iconTop+size+(reading?6:12),342,28);
+            float answersTop=iconTop+size+actionGap;
+            float available=Mathf.Max(36,bottom-answersTop);
+            if(Viewport!=null)FigmaMissionUi.SetRect(Viewport,24,answersTop,342,available);
             if(Content!=null)
             {
                 Content.sizeDelta=new Vector2(342,Mathf.Max(available,ContentHeight));
@@ -150,26 +284,70 @@ namespace CapstoneDesign.Runtime
     {
         public Selectable Control;
         Vector3 normal=Vector3.one;
-        Outline ring;
+        FocusControlFocusRing ring;
         bool pressed;
         void Awake(){FigmaMissionUi.CenterPivot(transform as RectTransform);normal=transform.localScale;}
         public void OnPointerDown(PointerEventData data)
         {
-            if(data.button!=PointerEventData.InputButton.Left || Control==null || !Control.IsInteractable() || pressed)return;
+            if(data.button!=PointerEventData.InputButton.Left || Control==null || !Control.IsInteractable())return;
+            // A pointer can press the already keyboard-selected control without
+            // another OnSelect event. Keep its transparent hit area unobscured.
+            ShowFocus(false);
+            if(pressed)return;
             FigmaMissionUi.CenterPivot(transform as RectTransform);normal=transform.localScale;pressed=true;
             if(!FigmaMissionUi.ReducedMotion)transform.localScale=normal*.97f;
         }
         public void OnPointerUp(PointerEventData data)=>Release();
         public void OnPointerExit(PointerEventData data)=>Release();
         void Release(){if(!pressed)return;pressed=false;transform.localScale=normal;}
-        void OnDisable(){if(pressed)Release();}
+        void OnDisable(){ShowFocus(false);Release();}
         public void OnSelect(BaseEventData data)
         {
-            if(ring==null){ring=gameObject.AddComponent<Outline>();ring.effectColor=FigmaMissionUi.Green;ring.effectDistance=new Vector2(2,-2);ring.useGraphicAlpha=false;}
-            ring.enabled=true;
-            if(!(data is PointerEventData))FocusKeyboardNavigation.Reveal(Control);
+            bool keyboard=!(data is PointerEventData) && Control!=null && Control.IsInteractable();
+            ShowFocus(keyboard);
+            if(keyboard)FocusKeyboardNavigation.Reveal(Control);
         }
-        public void OnDeselect(BaseEventData data){if(ring!=null)ring.enabled=false;Release();}
+        public void OnDeselect(BaseEventData data){ShowFocus(false);Release();}
+        void ShowFocus(bool visible)
+        {
+            if(!visible){if(ring!=null)ring.gameObject.SetActive(false);return;}
+            if(ring==null)
+            {
+                var child=new GameObject("Keyboard focus border",typeof(RectTransform),typeof(LayoutElement));
+                var rect=(RectTransform)child.transform;rect.SetParent(transform,false);
+                rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;rect.offsetMin=rect.offsetMax=Vector2.zero;
+                child.GetComponent<LayoutElement>().ignoreLayout=true;
+                ring=child.AddComponent<FocusControlFocusRing>();ring.color=FigmaMissionUi.Green;ring.raycastTarget=false;
+            }
+            ring.transform.SetAsLastSibling();ring.gameObject.SetActive(true);
+        }
+    }
+
+    // Outline duplicates a Graphic's filled triangles, even when its Image is
+    // transparent. A separate border leaves the illustration's centre empty.
+    [RequireComponent(typeof(RectTransform),typeof(CanvasRenderer))]
+    public sealed class FocusControlFocusRing : MaskableGraphic
+    {
+        protected override void OnPopulateMesh(VertexHelper mesh)
+        {
+            mesh.Clear();var r=GetPixelAdjustedRect();
+            if(r.width<=0 || r.height<=0)return;
+            float thickness=Mathf.Min(2,Mathf.Min(r.width,r.height)/2);
+            Edge(mesh,r.xMin,r.yMin,r.xMax,r.yMin+thickness);
+            Edge(mesh,r.xMin,r.yMax-thickness,r.xMax,r.yMax);
+            Edge(mesh,r.xMin,r.yMin+thickness,r.xMin+thickness,r.yMax-thickness);
+            Edge(mesh,r.xMax-thickness,r.yMin+thickness,r.xMax,r.yMax-thickness);
+        }
+        void Edge(VertexHelper mesh,float left,float bottom,float right,float top)
+        {
+            if(right<=left || top<=bottom)return;
+            int start=mesh.currentVertCount;
+            mesh.AddVert(new Vector3(left,bottom),color,Vector2.zero);
+            mesh.AddVert(new Vector3(left,top),color,Vector2.zero);
+            mesh.AddVert(new Vector3(right,top),color,Vector2.zero);
+            mesh.AddVert(new Vector3(right,bottom),color,Vector2.zero);
+            mesh.AddTriangle(start,start+1,start+2);mesh.AddTriangle(start,start+2,start+3);
+        }
     }
 
     public sealed class FocusKeyboardNavigation : MonoBehaviour

@@ -56,14 +56,14 @@ namespace CapstoneDesign.Runtime
             var circle=FigmaMissionUi.Hex(mission.CircleHex??"E1EBE4");
             if(kind=="overview")
             {
-                FocusCircle(root,85,307,220,circle);AllFocusIcon(root,mission,119,341,152);
+                FocusCircle(root,69,291,252,circle);AllFocusIcon(root,mission,103,325,184);
                 FocusCaption(root,"한 번에 한 단계씩",accent,563);
             }
             else if(kind=="draw") BuildFocusDrawing(root,mission);
             else if(kind=="review") BuildFocusReview(root,mission,step);
             else if(kind=="choice"||kind=="input"||(kind=="focus"&&instruction.Options.Length>0))
             {
-                float size=kind=="input"?72:120;AllFocusIcon(root,mission,(390-size)/2,kind=="input"?245:267,size);
+                float size=kind=="input"?84:144;AllFocusIcon(root,mission,(390-size)/2,kind=="input"?241:255,size);
                 BuildAllFocusOptions(root,mission,instruction,kind=="input"?332:432);
                 if(kind=="input")
                 {
@@ -82,16 +82,16 @@ namespace CapstoneDesign.Runtime
             else if(kind=="listen") BuildAllFocusListening(root,mission);
             else if(kind=="wait")
             {
-                AllFocusIcon(root,mission,135,285,120);AllFocusContext(root,mission,"선택한 생활 계기와 실습을 저장했어요.\n돌아오면 여기서 이어갈 수 있어요.",448,112);
+                AllFocusIcon(root,mission,123,273,144);AllFocusContext(root,mission,"선택한 생활 계기와 실습을 저장했어요.\n돌아오면 여기서 이어갈 수 있어요.",448,112);
                 FigmaMissionUi.Button(root,"나중에 이어하기",45,583,300,48,CloseFocusPractice,Color.white,accent,15).name="Focus.ContinueLater";
             }
             else if(kind=="prepare")
             {
-                AllFocusIcon(root,mission,135,285,120);AllFocusContext(root,mission,"준비를 마친 뒤\n아래 버튼을 눌러요.",448,112);
+                AllFocusIcon(root,mission,123,273,144);AllFocusContext(root,mission,"준비를 마친 뒤\n아래 버튼을 눌러요.",448,112);
             }
             else
             {
-                var circleNode=FigmaMissionUi.Rect(root,"집중 아이콘",69,302,252,252);FocusCircle(circleNode,0,0,252,circle);AllFocusIcon(circleNode,mission,50,50,152);
+                var circleNode=FigmaMissionUi.Rect(root,"집중 아이콘",69,302,252,252);FocusCircle(circleNode,0,0,252,circle);AllFocusIcon(circleNode,mission,34,34,184);
                 if(kind=="breathe")circleNode.gameObject.AddComponent<FocusBreathingPulse>();
                 string cue=kind=="breathe"?"숨은 내 속도로 · 억지로 바꾸지 않아요":kind=="confirm"?"해본 순서를 돌아보고 마쳐요":"주의가 벗어나면 부드럽게 돌아와요";
                 FigmaMissionUi.Label(root,cue,45,instruction.RecommendedSeconds>0?560:570,300,42,14,FocusMuted(mission),false,TextAnchor.MiddleCenter);
@@ -167,7 +167,7 @@ namespace CapstoneDesign.Runtime
         }
         bool BuildAllFocusWalking(Transform root,FocusMissionDefinition mission)
         {
-            AllFocusIcon(root,mission,145,250,100);var card=FigmaMissionUi.Box(root,"오늘의 걸음",45,370,300,164,Color.white,22);
+            AllFocusIcon(root,mission,139,244,112);var card=FigmaMissionUi.Box(root,"오늘의 걸음",45,370,300,164,Color.white,22);
             var session=ActiveSession();string id=session.SessionId;bool ready=true;
             if(session.WalkingGoalSteps<=0)
             {
@@ -184,7 +184,7 @@ namespace CapstoneDesign.Runtime
         }
         void BuildAllFocusListening(Transform root,FocusMissionDefinition mission)
         {
-            AllFocusIcon(root,mission,150,252,90);string route=ActiveSession().FocusStepRecords.FirstOrDefault(r=>r.Key=="route")?.Value;
+            AllFocusIcon(root,mission,143,245,104);string route=ActiveSession().FocusStepRecords.FirstOrDefault(r=>r.Key=="route")?.Value;
             if(route=="상대의 이야기")
             {AllFocusContext(root,mission,"상대가 말하는 동안\n답을 준비하지 말고 들어요.",418,150);return;}
             var card=FigmaMissionUi.Box(root,"짧은 이야기 음성",45,366,300,260,Color.white,22);

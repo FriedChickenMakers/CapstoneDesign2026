@@ -24,10 +24,14 @@ namespace CapstoneDesign.Prototype
         public float horizontalPadding = 8;
         public float boundaryGap = 12;
         [Range(0, .2f)] public float edgeMargin = .02f;
+        // Only distributes unused vertical space; the complete fitted envelope
+        // still stays between the UI boundaries at the overview zoom.
+        [Range(0, 1)] public float compositionAnchorY = .5f;
         private bool boundsReady;
         private Vector3 measuredFocus;
         private Transform measuredRoot;
         private float horizontalRadius, radius;
+        readonly List<Vector3> compositionCorners = new List<Vector3>();
         private bool fullScreen;
         private RawImage image;
         private Canvas backgroundCanvas;
@@ -40,6 +44,7 @@ namespace CapstoneDesign.Prototype
         private bool hasOverviewFocus;
         readonly PrototypeTapGesture memoTap=new PrototypeTapGesture();
         public Func<Ray,string> MemoRayPicker {get;set;}
+        public Func<Vector2,Camera,string> MemoScreenPicker {get;set;}
         public Func<bool> MemoPickingAllowed {get;set;}
         public Func<bool> InputBlocked {get;set;}
         public event Action<string> MemoClicked;
@@ -96,7 +101,7 @@ namespace CapstoneDesign.Prototype
         private void OnApplicationPause(bool paused){if(paused)memoTap.Clear();}
 
         bool CanPick=>isActiveAndEnabled && gameObject.activeInHierarchy && InputBlocked?.Invoke()!=true
-            && MemoRayPicker!=null && MemoPickingAllowed?.Invoke()==true
+            && (MemoRayPicker!=null || MemoScreenPicker!=null) && MemoPickingAllowed?.Invoke()==true
             && orbit!=null && orbit.enabled && orbit.previewCamera!=null;
         bool OwnsSurface(RaycastResult hit)=>hit.gameObject==null || hit.gameObject==gameObject;
         bool Inside(PointerEventData data)
@@ -126,6 +131,11 @@ namespace CapstoneDesign.Prototype
             if(!rect.Contains(local) || rect.width<=0 || rect.height<=0)return false;
             if(image==null)image=GetComponent<RawImage>();
             if(!image.Raycast(screenPoint,eventCamera))return false;
+            if(MemoScreenPicker!=null)
+            {
+                memoId=MemoScreenPicker(screenPoint,eventCamera);
+                return !string.IsNullOrEmpty(memoId);
+            }
             var uv=image.uvRect;
             var point=new Vector2(uv.x+(local.x-rect.xMin)/rect.width*uv.width,uv.y+(local.y-rect.yMin)/rect.height*uv.height);
             if(point.x<0 || point.x>1 || point.y<0 || point.y>1)return false;
@@ -185,6 +195,27 @@ namespace CapstoneDesign.Prototype
             float aspect = display.width / display.height;
             if (!TryGetComposition(display, area, horizontalRadius, radius, edgeMargin,
                 out float size, out Vector2 projectionCenter)) return;
+            if(fullScreen && compositionCorners.Count>0)
+            {
+                // Keep the conservative all-angle radius for scale, but position the
+                // actual projected envelope. A flat island needs less vertical room
+                // than its sphere, especially when the plant is still a seed.
+                float bottom=float.PositiveInfinity,top=float.NegativeInfinity;
+                var up=orbit.previewCamera.transform.up;
+                foreach(var corner in compositionCorners)
+                {
+                    float height=Vector3.Dot(corner-orbit.focus,up);
+                    bottom=Mathf.Min(bottom,height);top=Mathf.Max(top,height);
+                }
+                float pixelsPerUnit=display.height/(2*size);
+                float padding=area.height*Mathf.Clamp(edgeMargin,0,.2f);
+                float spareHeight=area.height-2*padding-(top-bottom)*pixelsPerUnit;
+                if(spareHeight>=0)
+                {
+                    float focusPixel=area.yMin+padding+Mathf.Clamp01(compositionAnchorY)*spareHeight-bottom*pixelsPerUnit;
+                    projectionCenter.y=(display.center.y-focusPixel)/pixelsPerUnit;
+                }
+            }
             // .85 is the original complete-garden composition. Gestures can
             // zoom out to half scale or move closer for details without changing
             // the stored plant, camera orbit or the initial fit.
@@ -238,6 +269,7 @@ namespace CapstoneDesign.Prototype
         {
             boundsReady = false;
             horizontalRadius = radius = 0;
+            compositionCorners.Clear();
             if (gardenRoot == null || orbit == null) return;
             if (subject != null && IsSubjectFocused)
             {
@@ -276,6 +308,9 @@ namespace CapstoneDesign.Prototype
             {
                 if (excludedBoundsRoot != null && filter.transform.IsChildOf(excludedBoundsRoot)) continue;
                 if (filter.sharedMesh == null) continue;
+                var bounds=filter.sharedMesh.bounds;
+                for(int x=-1;x<=1;x+=2)for(int y=-1;y<=1;y+=2)for(int z=-1;z<=1;z+=2)
+                    compositionCorners.Add(filter.transform.TransformPoint(bounds.center+Vector3.Scale(bounds.extents,new Vector3(x,y,z))));
                 foreach (var vertex in filter.sharedMesh.vertices)
                 {
                     var delta = filter.transform.TransformPoint(vertex) - orbit.focus;

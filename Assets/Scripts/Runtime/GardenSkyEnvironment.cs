@@ -129,10 +129,10 @@ namespace CapstoneDesign.Runtime
                 SunDirection = sun, LightDirection = sun.y >= 0 ? sun : -sun,
                 Daylight = daylight, Twilight = twilight,
                 LightColor = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1.015f,.995f,.92f), new Color(1,.61f,.34f), twilight), daylight),
-                LightIntensity = Mathf.Lerp(.85f, 1.28f, daylight),
-                AmbientSky = Color.Lerp(new Color(.17f,.20f,.32f), new Color(.57f,.69f,.77f), daylight),
-                AmbientEquator = Color.Lerp(new Color(.12f,.14f,.21f), new Color(.41f,.44f,.39f), daylight),
-                AmbientGround = Color.Lerp(new Color(.09f,.085f,.12f), new Color(.27f,.26f,.24f), daylight),
+                LightIntensity = Mathf.Lerp(1.0f, 1.28f, daylight),
+                AmbientSky = Color.Lerp(new Color(.25f,.28f,.38f), new Color(.57f,.69f,.77f), daylight),
+                AmbientEquator = Color.Lerp(new Color(.20f,.24f,.27f), new Color(.41f,.44f,.39f), daylight),
+                AmbientGround = Color.Lerp(new Color(.14f,.14f,.18f), new Color(.27f,.26f,.24f), daylight),
                 ReflectionIntensity = Mathf.Lerp(.06f,.25f,daylight),
                 Background = Color.Lerp(new Color(.009f,.018f,.043f), new Color(.46f,.70f,.88f), daylight)
             };

@@ -93,9 +93,19 @@ namespace CapstoneDesign.Runtime
 
         string BasicFocusChoice(FocusMissionDefinition mission, ActivitySession session, int step)
         {
-            if (mission.Code == "P18" && mission.Steps[step].Key == "practice" && !string.IsNullOrEmpty(focusAnswer)) return focusAnswer;
-            string key = mission.Code == "P24" ? "route" : mission.Code == "P12" ? "experience" : "activity";
-            return session.FocusStepRecords.FirstOrDefault(record => record.Key == key)?.Value ?? "";
+            if (step >= 0 && !string.IsNullOrEmpty(focusAnswer))
+            {
+                string currentKey = mission.Steps[step].Key;
+                // Reflection answers describe the result, not a different practice.
+                // Keep the chosen route visible while typing or retrying a save.
+                bool selectsPractice = currentKey == "activity" || currentKey == "route" || currentKey == "experience"
+                    || mission.Code == "P18" && currentKey == "practice"
+                    || mission.Code == "P26" && currentKey == "help"
+                    || mission.Code == "P27" && currentKey == "trigger"
+                    || mission.Code == "P28" && (currentKey == "next-activity" || currentKey == "time");
+                if (selectsPractice) return focusAnswer;
+            }
+            return SavedPracticeIllustrationChoice(mission, session);
         }
 
         void BuildBasicFocusSlides(RectTransform root, FocusMissionDefinition mission, ActivitySession session, int step)
@@ -118,23 +128,31 @@ namespace CapstoneDesign.Runtime
             string progress = step < 0 ? "" : "안내 " + mission.Steps.Take(step + 1).Select((item, index) => index)
                 .Count(index => FocusMissionCatalog.IsApplicable(mission, session.FocusStepRecords, index)) + "/"
                 + mission.Steps.Select((item, index) => index).Count(index => FocusMissionCatalog.IsApplicable(mission, session.FocusStepRecords, index));
-            if (readingHelp) progress = "도움말 " + (basicHelpPage + 1) + "/" + help.Length;
+            if (readingHelp) progress = "도움말";
             if (transcript) progress = "이야기 " + (basicTranscriptPage + 1) + "/" + BasicTranscriptPages().Length;
             if (reviewing) progress = "확인 " + (basicReviewPage + 1) + "/" + Math.Max(1, records.Length);
             FigmaMissionUi.Label(root, FocusPracticeContext(progress), 148, 36, 218, 24, 14, accent, false, TextAnchor.MiddleRight).name = "Basic.Progress";
-            FigmaMissionUi.Label(root, mission.Code + " · " + (step < 0 ? "기본 미션" : mission.Title), 24, 86, 342, 24, 14, accent).name = "Basic.Mission";
+            if (step < 0)
+                FigmaMissionUi.Label(root, "기본 미션", 24, 86, 342, 24, 16, accent, false, TextAnchor.UpperCenter).name = "Basic.Mission";
             string title = step < 0 ? mission.Title : FocusBasicSlideContent.Title(mission.Code, instruction.Key, instruction.Title);
             string body = step < 0 ? mission.Overview : FocusBasicSlideContent.Body(mission.Code, instruction.Key, instruction.Body, BasicFocusChoice(mission, session, step));
             string bodyName = step < 0 ? "Basic.Overview" : "Basic.Body";
-            if (readingHelp) { title = "잠깐 도움말"; body = help[Math.Min(basicHelpPage, help.Length - 1)]; bodyName = "Basic.Help"; }
+            if (readingHelp) { body = string.Join("\n", help); bodyName = "Basic.Help"; }
             if (transcript) { title = "창가의 작은 화분"; body = BasicTranscriptPages()[basicTranscriptPage]; bodyName = "Basic.Transcript"; }
-            if (reviewing) { title = records.Length > 0 ? records[basicReviewPage].Title : title; body = records.Length > 0 ? "내가 남긴 내용을 확인해요." : "고른 내용이 없어도 마칠 수 있어요."; }
-            FigmaMissionUi.Label(root, title, 24, 122, 342, 42, title.Length > 14 ? 24 : 27, ink, true).name = "Basic.Title";
-            var copy = FigmaMissionUi.Label(root, body, 24, 174, 342, 68, 18, muted); copy.name = bodyName; copy.lineSpacing = 1.15f;
-            var icon = FigmaMissionUi.Button(root, "", 105, 315, 180, 180, () => act(() => AdvanceBasicFocusSlide(id, step)), Color.clear, accent);
-            icon.name = "Focus.IconAction"; icon.transition = Selectable.Transition.None;
-            icon.gameObject.AddComponent<FocusMissionTapFeedback>().Button = icon;
-            FocusCircle(icon.transform, 0, 0, 180, FocusCircleColor(mission)); AllFocusIcon(icon.transform, mission, 28, 28, 124);
+            if (reviewing) body = records.Length > 0 ? FocusBasicSlideContent.ReviewBody(mission.Code, records[basicReviewPage].Key) : "고른 내용이 없어도 마칠 수 있어요.";
+            Text heading = null;
+            if (step < 0)
+            {
+                heading = FigmaMissionUi.Label(root, title, 24, 122, 342, 42, 30, ink, true, TextAnchor.UpperCenter);
+                heading.name = "Basic.Title";
+            }
+            var copy = FigmaMissionUi.Label(root, body, 24, 174, 342, 68, 22, muted, false, TextAnchor.UpperCenter); copy.name = bodyName; copy.lineSpacing = 1.15f;
+            string pictureKey = step < 0 ? "overview" : readingHelp ? "guide-help" : transcript ? "transcript" : instruction.Key;
+            ApplyPracticeIllustrationTheme(root, mission, pictureKey);
+            string pictureChoice = step < 0 ? "" : reviewing && records.Length > 0
+                ? records[basicReviewPage].Value : BasicFocusChoice(mission, session, step);
+            var icon = BuildPracticeIllustration(root, mission, pictureKey, pictureChoice,
+                () => act(() => AdvanceBasicFocusSlide(id, step)), out var illustration);
             var hint = FigmaMissionUi.Label(root, BasicFocusActionHint(session, instruction, step, records.Length), 24, 507, 342, 28, 14, accent, false, TextAnchor.MiddleCenter);
             hint.name = "Basic.ActionHint";
             if (instruction != null && !readingHelp && !transcript && instruction.RequiredAnswer) icon.interactable = !string.IsNullOrWhiteSpace(focusAnswer);
@@ -169,14 +187,16 @@ namespace CapstoneDesign.Runtime
                     PauseBasicFocusActivity(); SaveFocusDraft(); basicHelpPage = 0; ShowFocusPractice();
                 }), Color.clear, accent, 15).name = "Basic.HelpToggle";
             var layout = root.gameObject.AddComponent<FocusGuidedSlideLayout>();
-            layout.Icon = (RectTransform)icon.transform; layout.ActionHint = hint.rectTransform;
+            layout.Icon = (RectTransform)icon.transform; layout.Illustration = illustration; layout.ActionHint = hint.rectTransform;
             layout.Viewport = viewport; layout.Content = content; layout.ContentHeight = height;
-            layout.Navigation = navigation; layout.Notice = notice; layout.Refresh();
+            layout.Navigation = navigation; layout.Notice = notice;
+            layout.Heading = heading; layout.Copy = copy; layout.MinimumAnswerHeight = 100;
+            layout.Refresh();
         }
 
         string BasicFocusActionHint(ActivitySession session, FocusMissionStep instruction, int step, int reviewCount)
         {
-            if (basicHelpPage >= 0) return "아이콘을 눌러 " + (basicHelpPage + 1 < FocusBasicSlideContent.Help(FocusMissionCatalog.FindForSession(session).Code, instruction.Key).Length ? "다음" : "돌아가기");
+            if (basicHelpPage >= 0) return "아이콘을 눌러 돌아가기";
             if (basicTranscriptPage >= 0) return "아이콘을 눌러 " + (basicTranscriptPage + 1 < BasicTranscriptPages().Length ? "다음" : "듣기로 돌아가기");
             if (step < 0) return session.Status == ParticipationState.Selected ? "아이콘을 눌러 시작" : "아이콘을 눌러 이어하기";
             if (instruction.Kind == "review" && basicReviewPage + 1 < reviewCount) return "아이콘을 눌러 다음 항목";
@@ -197,6 +217,8 @@ namespace CapstoneDesign.Runtime
                 for (int i = 0; i < buttons.Length; i++) StyleGuidedChoice(buttons[i], focusAnswer == options[i], FocusAccent(mission), FocusInk(mission));
                 if (instruction.RequiredAnswer) icon.interactable = !string.IsNullOrWhiteSpace(focusAnswer);
                 copy.text = FocusBasicSlideContent.Body(mission.Code, instruction.Key, instruction.Body, BasicFocusChoice(mission, ActiveSession(), step));
+                var art = root.GetComponentInChildren<FocusPracticeIllustration>(false);
+                if (art != null) art.Configure(mission.Code, instruction.Key, BasicFocusChoice(mission, ActiveSession(), step), FocusAccent(mission));
                 hint.text = BasicFocusActionHint(ActiveSession(), instruction, step, 0);
             };
             bool wide = options.Any(option => option.Length > 11);
@@ -311,8 +333,7 @@ namespace CapstoneDesign.Runtime
             if (session == null || session.SessionId != id || mission == null) return;
             if (basicHelpPage >= 0)
             {
-                var pages = FocusBasicSlideContent.Help(mission.Code, mission.Steps[step].Key);
-                if (++basicHelpPage >= pages.Length) basicHelpPage = -1;
+                basicHelpPage = -1;
                 ShowFocusPractice(); return;
             }
             if (basicTranscriptPage >= 0)
@@ -336,7 +357,7 @@ namespace CapstoneDesign.Runtime
             if (basicHelpPage >= 0 || basicTranscriptPage >= 0 || basicReviewPage > 0)
             {
                 SaveFocusDraft();
-                if (basicHelpPage >= 0) basicHelpPage--;
+                if (basicHelpPage >= 0) basicHelpPage = -1;
                 else if (basicTranscriptPage >= 0) basicTranscriptPage--;
                 else basicReviewPage--;
                 ShowFocusPractice(); return true;

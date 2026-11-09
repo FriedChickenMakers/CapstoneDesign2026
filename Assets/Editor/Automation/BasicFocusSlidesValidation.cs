@@ -28,6 +28,7 @@ namespace CapstoneDesign.EditorTools
             public List<Check> checks = new List<Check>();
             public List<Digest> digests = new List<Digest>();
             public List<string> captures = new List<string>(), errors = new List<string>();
+            public List<string> visualMeasurements = new List<string>();
         }
         [Serializable] sealed class Digest { public string key, sha256, content; }
         static Report report;
@@ -50,7 +51,7 @@ namespace CapstoneDesign.EditorTools
                 if (!string.IsNullOrEmpty(baseline)) Run("M UI matches preserved pre-change baseline", () => CompareDigests(baseline));
                 if (!args.Contains("-basicBaseline"))
                 {
-                    foreach (var size in new[] { new Vector2Int(360, 640), new Vector2Int(390, 844) })
+                    foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(360, 640), new Vector2Int(390, 844) })
                         Run("P08-P28 complete fixed-icon slide flow " + size.x + "x" + size.y, () => BasicFlows(size.x, size.y));
                     Run("P19/P26 conditional routes, alternate P24 audio and previous answers", SpecialBranches);
                     Run("Persisted P10 version1/version2 keep original UI", LegacyPages);
@@ -117,24 +118,56 @@ namespace CapstoneDesign.EditorTools
                         code + " overview keeps original selected domain state and central action");
                     if (order == 8) f.AssertCenteredPress();
                     f.Capture(code + "-overview");
+                    var overviewPixels = order == 8 ? f.Pixels() : null;
+                    Rect overviewArea = f.ArtBounds();
                     var oldStart = f.Button("Focus.IconAction").onClick;
                     f.Ui.gameObject.SetActive(false); oldStart.Invoke(); f.Ui.gameObject.SetActive(true); f.Layout();
                     Assert(f.Session(id).Status == ParticipationState.Selected && f.Text("Basic.Overview") != null, "Hidden old basic callback is ignored");
                     f.Click("Focus.IconAction"); oldStart.Invoke(); f.Layout();
                     Assert(f.Session(id).InstructionStep == 0 && f.Session(id).Status == ParticipationState.InProgress,
                         code + " stale overview action cannot skip first persisted step");
+                    anchor = f.AssertIcon();
+                    var firstStepPixels = order == 8 ? f.Pixels() : null;
+                    Rect firstStepArea = f.ArtBounds();
                     f.Click("Basic.Previous"); f.AssertBasicBody("Basic.Overview");
+                    if (order == 8) Assert(f.ChangedPixels(overviewPixels, f.Pixels(), overviewArea) == 0,
+                        "P08 first-step previous restores the original introduction picture without residual stage effects.");
                     Assert(Screen(f.Ui) == "focus-practice", code + " first-step previous opens overview instead of leaving mission");
                     f.Click("Focus.IconAction");
-                    int coins = f.Service.CoinBalance, stage = f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep,
-                        stored = f.Service.Snapshot.StoredGrowthSteps;
+                    if (order == 8) Assert(f.ChangedPixels(firstStepPixels, f.Pixels(), firstStepArea) == 0,
+                        "P08 advancing again restores the original feeling picture without duplicating the start.");
+                    var beforeGrowth = f.Service.Snapshot; var beforePlant = WeeklyPlants.Active(beforeGrowth);
+                    int coins = f.Service.CoinBalance;
                     FinishBasic(f, id, def, anchor, true);
                     Assert(f.Session(id).Status == ParticipationState.RewardCommitted && Screen(f.Ui) == "focus-complete"
                         && f.Service.CoinBalance == coins + 50, code + " completed once with 50 coins");
+                    var completedArt = f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false);
+                    Assert(completedArt != null && completedArt.MissionCode == code && completedArt.StepKey == "reflection",
+                        code + " completion keeps its mission illustration.");
+                    if (code == "P12") Assert(completedArt.Choice == "햇볕", "P12 completion preserves the observed experience.");
+                    if (code == "P18") Assert(completedArt.Choice == "주변 소리", "P18 completion preserves the last practiced target, not the original choice.");
+                    if (code == "P26") Assert(completedArt.Choice == "사람", "P26 completion preserves the chosen kind of help.");
                     var growth = f.Service.GetPracticeGrowth(id);
-                    Assert(growth != null && ((growth.Outcome == PracticeGrowthOutcome.Grown && f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep == stage + 1)
-                        || (growth.Outcome == PracticeGrowthOutcome.Stored && f.Service.Snapshot.StoredGrowthSteps == stored + 1)),
-                        code + " exactly one existing growth or completed-plant stored step");
+                    var afterGrowth = f.Service.Snapshot; var afterPlant = WeeklyPlants.Active(afterGrowth);
+                    Assert(growth != null && growth.Outcome == PracticeGrowthOutcome.Grown
+                        && growth.PlantInstanceId == afterPlant.Id && growth.AfterStep == growth.BeforeStep + 1
+                        && afterPlant.Recipe.GrowthStep == growth.AfterStep
+                        && afterGrowth.PracticeGrowthRecords.Count == beforeGrowth.PracticeGrowthRecords.Count + 1
+                        && afterGrowth.PlantCollection.Decisions.Count == beforeGrowth.PlantCollection.Decisions.Count + 1
+                        && afterGrowth.StoredGrowthSteps == beforeGrowth.StoredGrowthSteps,
+                        code + " exactly one full growth receipt applies to its identified individual");
+                    if (beforePlant.Completed)
+                        Assert(afterPlant.Id != beforePlant.Id && growth.BeforeStep == 0 && growth.AfterStep == 1
+                            && afterPlant.Recipe.MaxGrowthSteps == 21 && afterGrowth.PlantCollection.Plants.Count == beforeGrowth.PlantCollection.Plants.Count + 1
+                            && afterGrowth.PlantPhotos.Count == beforeGrowth.PlantPhotos.Count
+                            && afterGrowth.PlantPhotos.Any(p => p.SourcePlantInstanceId == beforePlant.Id)
+                            && CapstoneDesign.Plants.PlantCodec.Encode(CombinedPlants.Find(afterGrowth, beforePlant.Id).Recipe)
+                                == CapstoneDesign.Plants.PlantCodec.Encode(beforePlant.Recipe),
+                            code + " completed legacy individual stays archived while its next 21-step plant grows once");
+                    else
+                        Assert(afterPlant.Id == beforePlant.Id && growth.BeforeStep == beforePlant.Recipe.GrowthStep
+                            && afterPlant.Recipe.GrowthStep == beforePlant.Recipe.GrowthStep + 1,
+                            code + " unfinished individual advances exactly one stage without replacement");
                     f.Capture(code + "-complete");
                 }
             }
@@ -154,14 +187,16 @@ namespace CapstoneDesign.EditorTools
                 {
                     int elapsed = f.Ui.GetComponentInChildren<FocusPracticeClock>(false)?.ElapsedSeconds ?? 0;
                     var priorClock = f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
-                    f.Click("Basic.HelpToggle"); int pages = 0;
-                    while (f.Text("Basic.Help") != null)
-                    {
-                        Assert(++pages <= 12, "Bounded help pages"); f.AssertBasicBody("Basic.Help"); f.AssertIcon(anchor);
-                        Assert(f.Session(id).InstructionStep == step && f.Ui.GetComponentInChildren<FocusPracticeClock>(false) == null,
-                            def.Code + " help pages do not confirm or run timer");
-                        f.Click("Focus.IconAction");
-                    }
+                    f.Click("Basic.HelpToggle");
+                    f.AssertBasicBody("Basic.Help"); f.AssertIcon(anchor);
+                    Assert(f.Text("Basic.Help").text == string.Join("\n", FocusBasicSlideContent.Help(def.Code, instruction.Key))
+                        && !f.Text("Basic.Progress").text.Contains("1/") && f.Session(id).InstructionStep == step
+                        && f.Ui.GetComponentInChildren<FocusPracticeClock>(false) == null,
+                        def.Code + " shows all concise help on one page without confirmation or a running timer");
+                    if (step == 0) f.Capture(def.Code + "-help-single");
+                    f.Click("Focus.IconAction");
+                    Assert(f.Text("Basic.Help") == null && f.Text("Basic.Body") != null && f.Session(id).InstructionStep == step,
+                        def.Code + " one central help click returns directly to the same practice step");
                     Assert(priorClock == null || !priorClock.Running, def.Code + " help pauses prior timer");
                     Assert((f.Ui.GetComponentInChildren<FocusPracticeClock>(false)?.ElapsedSeconds ?? elapsed) == elapsed,
                         def.Code + " help return preserves elapsed");
@@ -175,26 +210,53 @@ namespace CapstoneDesign.EditorTools
                     f.Click("Focus.TimerToggle"); Assert(!clock.Running, def.Code + " timer pauses");
                     if (def.Code == "P18" && instruction.Options.Length > 0)
                     {
+                        var targetPixels = f.Pixels(); Rect targetArea = f.ArtBounds();
                         f.Click("Focus.TimerToggle"); f.Click("Focus.Option." + instruction.Options.Last());
                         var updated = f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
                         Assert(f.Session(id).InstructionStep == step && updated != null && updated.Running && updated.ElapsedSeconds == 13
                             && f.Session(id).FocusStepRecords[step].Value == instruction.Options.Last(),
                             "P18 target change preserves active step and elapsed running timer");
                         Assert(f.Text("Basic.Body").text.Contains("소리"), "P18 changed target has concrete sound guidance");
+                        f.AssertBasicBody("Basic.Body");
+                        var art = f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false);
+                        Assert(art.Choice == instruction.Options.Last() && f.ChangedPixels(targetPixels, f.Pixels(), targetArea) >= 24,
+                            "P18 target change also updates the actual illustration while preserving its timer and step.");
                         f.Click("Focus.TimerToggle");
                     }
                 }
                 if (instruction.Kind == "input")
                 {
                     var input = f.Ui.GetComponentsInChildren<InputField>(false).Single(i => i.name == "Focus.AnswerInput");
+                    bool soundNotice = def.Code == "P19" && instruction.Key == "notice"
+                        && f.Session(id).FocusStepRecords.Any(record => record.Key == "route" && record.Value == "짧은 소리 실습");
                     if (instruction.Options.Length > 0)
                     {
                         f.Click("Focus.Option." + instruction.Options[0]);
                         Assert(f.Session(id).InstructionStep == step && input.text == instruction.Options[0],
                             def.Code + " input suggestion fills draft without confirming");
+                        if (soundNotice) Assert(f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false).Choice == "짧은 소리 실습",
+                            "P19 selecting a reflection suggestion preserves the sound-route picture instead of changing it to a mountain.");
                     }
                     input.text = "synthetic " + def.Code + " " + instruction.Key; input.onEndEdit.Invoke(input.text); f.Layout();
                     f.RevealRect((RectTransform)input.transform); f.AssertFullyVisible((RectTransform)input.transform, "Optional free-text input"); f.AssertIcon(anchor);
+                    if (soundNotice)
+                    {
+                        Assert(Screen(f.Ui) == "focus-practice" && f.Session(id).InstructionStep == step
+                            && f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false).Choice == "짧은 소리 실습",
+                            "P19 free-text reflection keeps the chosen listening route while remaining on the same page.");
+                        string before = StateCodec.Encode(f.Service.Snapshot), retry = "synthetic P19 sound reflection retry";
+                        f.Store.Fail = true; input.text = retry; input.onEndEdit.Invoke(retry); f.Store.Fail = false; f.Layout();
+                        var art = f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false);
+                        Assert(StateCodec.Encode(f.Service.Snapshot) == before && Screen(f.Ui) == "focus-practice"
+                            && f.Session(id).InstructionStep == step && input.text == retry
+                            && art.MissionCode == "P19" && art.StepKey == "notice" && art.Choice == "짧은 소리 실습",
+                            "Failed P19 reflection saving retains the local text and sound illustration without overwriting durable state or the route.");
+                        f.AssertBasicBody("Basic.Body"); f.Capture("P19-sound-notice-save-failed");
+                        input.onEndEdit.Invoke(retry); f.Layout();
+                        Assert(f.Session(id).FocusStepRecords[step].Value == retry
+                            && f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false).Choice == "짧은 소리 실습",
+                            "P19 reflection retry saves the response while keeping its original sound-route illustration.");
+                    }
                     if (exercise && def.Code == "P08")
                     {
                         string value = input.text; f.Click("Focus.Close"); Assert(Screen(f.Ui) == "home", "Exit returns to mission home");
@@ -248,6 +310,9 @@ namespace CapstoneDesign.EditorTools
                     {
                         Assert(++pages <= expected.Length + 1, "Bounded review pages");
                         var value = f.Text("Basic.ReviewValue"); Assert(value != null, "Review shows an actual persisted answer"); seen.Add(value.text);
+                        var reviewArt = f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false);
+                        Assert(reviewArt != null && reviewArt.Choice == value.text,
+                            "Review illustration follows the displayed saved answer rather than the first activity.");
                         f.AssertIcon(anchor); if (exercise) f.Capture(def.Code + "-review-" + pages);
                         f.Click("Focus.IconAction");
                     }
@@ -393,13 +458,25 @@ namespace CapstoneDesign.EditorTools
             {
                 string id = "synthetic-digest-" + mission.Code;
                 Assert(f.Service.BeginFocusSession(id, mission.Code), f.Service.LastError);
+                var definition = FocusMissionCatalog.FindForSession(f.Session(id));
                 f.Ui.SelectFocusSession(id); f.Layout();
                 AddDigest(f, mission.Code + "/overview"); f.Click("Focus.Action");
                 int count = 0;
                 while (f.Session(id).Status != ParticipationState.RewardCommitted)
                 {
-                    Assert(++count <= mission.Steps.Length + 1, "Bounded additional progression " + mission.Code);
-                    var session = f.Session(id); int step = session.InstructionStep; var instruction = mission.Steps[step];
+                    Assert(++count <= definition.Steps.Length + 2, "Bounded additional progression " + mission.Code);
+                    if (Screen(f.Ui) == "focus-photo")
+                    {
+                        Assert(CameraMissionPolicy.Ready(f.Session(id)) && f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == 137,
+                            mission.Code + " optional photo choice waits before growth and coins");
+                        AddDigest(f, mission.Code + "/optional-photo"); f.Click("Photo.Skip");
+                        Assert(f.Session(id).PhotoPromptHandled && f.Session(id).Photo == null && f.Session(id).PhotoBonusAmount == 0,
+                            mission.Code + " real skip preserves normal rewards without a photo bonus");
+                        continue;
+                    }
+                    var session = f.Session(id); int step = session.InstructionStep;
+                    Assert(step < definition.Steps.Length, mission.Code + " active instruction belongs to its saved catalog version");
+                    var instruction = definition.Steps[step];
                     AddDigest(f, mission.Code + "/" + step + "/empty");
                     if (instruction.Kind == "draw")
                     {
@@ -550,8 +627,51 @@ namespace CapstoneDesign.EditorTools
                 Layout(); var body = Text(name); Assert(body != null && !string.IsNullOrWhiteSpace(body.text), "Visible basic slide body " + name);
                 AssertFullyVisible(body.rectTransform, name);
                 Assert(body.preferredHeight <= body.rectTransform.rect.height + .75f, name + " wraps completely within its authored region");
+                var centered = new[] { TextAnchor.UpperCenter, TextAnchor.MiddleCenter, TextAnchor.LowerCenter };
+                Assert(centered.Contains(body.alignment) && body.fontSize == 22, "Current basic instructions remain centered at 22 points.");
+                string currentId = (string)typeof(WeekOneQuestDemo).GetField("sessionId", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Ui);
+                var session = Session(currentId); var definition = FocusMissionCatalog.FindForSession(session);
+                var title = Text("Basic.Title"); var context = Text("Basic.Mission");
+                var layout = body.GetComponentInParent<FocusGuidedSlideLayout>();
+                if (name == "Basic.Overview")
+                {
+                    Assert(title != null && context != null && title.text == definition.Title && context.text == "기본 미션"
+                        && body.text == definition.Overview && title.fontSize == 30 && context.fontSize == 16,
+                        "Every basic introduction retains its original mission title and overview at 30/22/16 points.");
+                    foreach (var header in new[] { title, context })
+                    {
+                        Assert(centered.Contains(header.alignment) && header.preferredHeight <= header.rectTransform.rect.height + .75f,
+                            header.name + " fits its measured introduction text");
+                        AssertFullyVisible(header.rectTransform, header.name);
+                    }
+                    Assert(ScreenRect(context.rectTransform).yMin >= ScreenRect(title.rectTransform).yMax - .75f
+                        && ScreenRect(title.rectTransform).yMin >= ScreenRect(body.rectTransform).yMax - .75f,
+                        "Long introduction titles remain separate from their context and body.");
+                }
+                else
+                {
+                    Assert(title == null && context == null && layout.Heading == null
+                        && !layout.GetComponentsInChildren<Transform>(true).Any(t => t.name == "Basic.Title" || t.name == "Basic.Mission"),
+                        "Practice, help, transcript and review do not create extra title or mission-context objects.");
+                    Assert(Mathf.Abs(-FigmaMissionUi.TopLeftPosition(body.rectTransform).y - 126) < .1f
+                        && body.rectTransform.rect.height >= 54 - .1f,
+                        "The concise basic instruction starts in the shared reserved reading area.");
+                }
                 var textBounds = ScreenRect(body.rectTransform); var icon = ScreenRect((RectTransform)Button("Focus.IconAction").transform);
-                Assert(textBounds.yMin >= icon.yMax - .75f, name + " is separated from fixed central icon");
+                Assert(textBounds.yMin >= icon.yMax - .75f
+                    && ScreenRect((RectTransform)Button("Focus.Close").transform).yMin >= textBounds.yMax - .75f,
+                    name + " is separated from both the exit and central icon");
+                var art = Ui.GetComponentInChildren<FocusPracticeIllustration>(false);
+                string key = name == "Basic.Overview" ? "overview" : name == "Basic.Help" ? "guide-help"
+                    : name == "Basic.Transcript" ? "transcript" : definition.Steps[session.InstructionStep].Key;
+                Assert(art != null && !art.raycastTarget && art.MissionCode == definition.Code && art.StepKey == key,
+                    "The actual illustrated page follows its mission and current step without intercepting its controls.");
+                var shown = Pixels(); bool enabled = art.enabled; Color32[] hidden;
+                try { art.enabled = false; hidden = Pixels(); }
+                finally { art.enabled = enabled; Layout(); }
+                int painted = ChangedPixels(hidden, shown, ArtBounds());
+                report.visualMeasurements.Add(width + "x" + height + " " + definition.Code + "/" + key + ": " + painted + " painted pixels");
+                Assert(painted >= 128, definition.Code + "/" + key + " paints its actual illustration on the GPU.");
             }
             public void AssertBasicFailure()
             {
@@ -566,6 +686,9 @@ namespace CapstoneDesign.EditorTools
                 Assert(Ui.GetComponentsInChildren<Text>(false).Count(t => names.Contains(t.name)) == 1, "Exactly one piece of guidance is visible on " + name);
                 AssertFullyVisible(text.rectTransform, name);
                 Assert(text.preferredHeight <= text.rectTransform.rect.height + .5f, name + " fits its complete wrapped body");
+                var centered = new[] { TextAnchor.UpperCenter, TextAnchor.MiddleCenter, TextAnchor.LowerCenter };
+                Assert(centered.Contains(text.alignment) && centered.Contains(Text("Guided.Title").alignment),
+                    "Guided title and current instruction are horizontally centered");
                 var body = ScreenRect(text.rectTransform); var icon = ScreenRect((RectTransform)Button("Focus.IconAction").transform);
                 Assert(body.yMin >= icon.yMax - .5f, name + " does not overlap the fixed illustration");
                 Assert(Button("Focus.Action", false) == null, "Guided progress uses the central icon rather than an old footer action");
@@ -574,15 +697,55 @@ namespace CapstoneDesign.EditorTools
             {
                 Layout(); var rect = (RectTransform)Button("Focus.IconAction").transform;
                 AssertFullyVisible(rect, "Fixed central icon");
-                Assert(Vector2.Distance(rect.pivot, new Vector2(.5f, .5f)) < .001f && Vector2.Distance(rect.rect.size, new Vector2(180, 180)) < .01f,
-                    "Central icon has 180 design-point size and centered pivot");
+                var slide = rect.GetComponentInParent<FocusGuidedSlideLayout>();
+                bool constrained = ((RectTransform)slide.transform).rect.height < 672
+                    || slide.Notice != null && slide.Notice.gameObject.activeInHierarchy
+                    || slide.Heading != null && slide.Heading.preferredHeight > 42.5f || slide.Copy != null && slide.Copy.preferredHeight > 64;
+                Assert(Vector2.Distance(rect.pivot, new Vector2(.5f, .5f)) < .001f && Mathf.Abs(rect.rect.width - rect.rect.height) < .01f,
+                    "Central icon stays square with a centered press pivot");
+                Assert(slide.Copy != null && slide.MinimumAnswerHeight == 100,
+                    "Basic slides reserve the 88-point input field and its 12-point breathing room.");
+                float copyBottom = -FigmaMissionUi.TopLeftPosition(slide.Copy.rectTransform).y + slide.Copy.rectTransform.rect.height;
+                float lowerEdge = slide.Notice != null && slide.Notice.gameObject.activeInHierarchy
+                    ? -FigmaMissionUi.TopLeftPosition(slide.Notice.rectTransform).y : -FigmaMissionUi.TopLeftPosition(slide.Navigation).y - 8;
+                float designHeight = ((RectTransform)slide.transform).rect.height;
+                float down = Mathf.Lerp(14, 32, Mathf.InverseLerp(692, 844, designHeight));
+                float minimumTop = Mathf.Max(254, copyBottom + 18) + down;
+                float expectedSize = Mathf.Clamp(lowerEdge - minimumTop - 40 - 100, 160, 280);
+                Assert(Mathf.Abs(rect.rect.width - expectedSize) < .1f
+                    && Mathf.Abs(-FigmaMissionUi.TopLeftPosition(rect).y - Mathf.Max(minimumTop, designHeight * .48f - expectedSize / 2 + down)) < .1f,
+                    "Basic illustrations use the available measured reading area within 160–280 points and retain the responsive downward offset.");
                 var bounds = ScreenRect(rect);
-                Assert(Mathf.Abs(bounds.center.x - width * .5f) < .75f && Mathf.Abs(bounds.center.y - height * .52f) < .75f,
-                    "Central icon remains at horizontal center and 48 percent from top: " + bounds);
+                Assert(Mathf.Abs(bounds.center.x - width * .5f) < .75f,"Central icon remains horizontally centered: " + bounds);
+                var body = Ui.GetComponentsInChildren<Text>(false).Single(text => new[] { "Basic.Overview", "Basic.Body", "Basic.Help", "Basic.Transcript", "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" }.Contains(text.name));
+                Assert(ScreenRect(body.rectTransform).yMin >= bounds.yMax-.75f,"Enlarged icon leaves current guidance unobscured");
                 Assert(bounds.width >= 44 && bounds.height >= 44, "Icon target is at least 44 pixels");
-                if (expected.HasValue) Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f
+                var hint = Text("Basic.ActionHint");
+                Assert(bounds.yMin >= ScreenRect(hint.rectTransform).yMax - .75f
+                    && ScreenRect(hint.rectTransform).yMin >= ScreenRect(slide.Viewport).yMax - .75f
+                    && ScreenRect(slide.Viewport).yMin >= ScreenRect(slide.Navigation).yMax - .75f,
+                    "The illustration, action hint, local answer area and bottom navigation never overlap.");
+                if (expected.HasValue && !constrained) Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f
                     && Vector2.Distance(bounds.size, expected.Value.size) < .75f, "All slides retain the same central icon rectangle");
                 return bounds;
+            }
+            public Rect ArtBounds() => ScreenRect(Ui.GetComponentInChildren<FocusPracticeIllustration>(false).rectTransform);
+            public Color32[] Pixels()
+            {
+                Layout(); camera.Render(); var prior = RenderTexture.active; var image = new Texture2D(width, height, TextureFormat.RGB24, false);
+                try { RenderTexture.active = target; image.ReadPixels(new Rect(0, 0, width, height), 0, 0); image.Apply(); return image.GetPixels32(); }
+                finally { RenderTexture.active = prior; UnityEngine.Object.DestroyImmediate(image); }
+            }
+            public int ChangedPixels(Color32[] before, Color32[] after, Rect area)
+            {
+                int count = 0;
+                for (int y = Mathf.Max(0, Mathf.CeilToInt(area.yMin)); y < Mathf.Min(height, Mathf.FloorToInt(area.yMax)); y++)
+                    for (int x = Mathf.Max(0, Mathf.CeilToInt(area.xMin)); x < Mathf.Min(width, Mathf.FloorToInt(area.xMax)); x++)
+                    {
+                        var a = before[y * width + x]; var b = after[y * width + x];
+                        if (Math.Abs(a.r - b.r) > 8 || Math.Abs(a.g - b.g) > 8 || Math.Abs(a.b - b.b) > 8) count++;
+                    }
+                return count;
             }
             public void AssertCenteredPress()
             {

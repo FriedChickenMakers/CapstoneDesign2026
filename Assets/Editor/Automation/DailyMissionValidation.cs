@@ -27,6 +27,7 @@ namespace CapstoneDesign.EditorTools
             public int passed, failed, assertions, clicks, raycasts;
             public List<Check> checks = new List<Check>();
             public List<string> captures = new List<string>(), errors = new List<string>();
+            public List<string> gesturePixels = new List<string>();
         }
         static Report report;
         static string output;
@@ -43,6 +44,15 @@ namespace CapstoneDesign.EditorTools
             Application.logMessageReceived += Observe;
             try
             {
+                Run("Water practice pointer cancellation and keyboard focus 360x640", () => IconGestureFlow(360,640));
+                Run("Water practice pointer cancellation and keyboard focus 390x844", () => IconGestureFlow(390,844));
+                Run("Basic overview pointer cancellation and keyboard focus 360x640", () => BasicIconGestureFlow(360,640));
+                Run("Basic overview pointer cancellation and keyboard focus 390x844", () => BasicIconGestureFlow(390,844));
+                Run("Activity calendar dates, grouped records and read-only navigation 360x640", () => CalendarFlow(360,640));
+                Run("Activity calendar dates, grouped records and read-only navigation 390x844", () => CalendarFlow(390,844));
+                Run("All three mission cards without scrolling 360x640", () => HomeResponsiveFlow(360,640));
+                Run("All three mission cards without scrolling 390x844", () => HomeResponsiveFlow(390,844));
+                Run("All three mission cards without scrolling 320x568", () => HomeResponsiveFlow(320,568));
                 Run("Daily slots, carry-over and ordinary navigation 360x640", () => DailyFlow(360,640));
                 Run("Daily slots, carry-over and ordinary navigation 390x844", () => DailyFlow(390,844));
                 Run("One current course and compact course switching 360x640", () => CourseFlow(360,640));
@@ -76,6 +86,347 @@ namespace CapstoneDesign.EditorTools
         static string Screen(WeekOneQuestDemo ui) => (string)typeof(WeekOneQuestDemo).GetField("screen", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(ui);
 
         static string Snapshot(GardenStateService service) => StateCodec.Encode(service.Snapshot);
+        static void CalendarFlow(int width,int height)
+        {
+            using(var f=new Fixture(width,height,instant:DateTimeOffset.Parse("2026-10-30T10:00:00Z")))
+            {
+                Assert(f.Service.SelectMbctProgram("8w"),f.Service.LastError);
+                Assert(f.Service.BeginSession("journal-legacy","free-mission:M01")&&f.Service.StartSession("journal-legacy")
+                    &&f.Service.CompletePracticeSession("journal-legacy"),f.Service.LastError);
+                Assert(f.Session("journal-legacy").FocusVersion==0,"Historical fixture uses the real legacy session API.");
+                f.Clock.Time=DateTimeOffset.Parse("2026-10-31T10:00:00Z");Assert(f.Service.RefreshCycle(Array.Empty<string>()),f.Service.LastError);
+                CompleteRoleFixture(f,"journal-oct-basic","P01",1);CompleteRoleFixture(f,"journal-oct-additional","M03");
+                string emotion=DailyEmotionPolicy.RecordId(f.Service.CurrentCycleId);
+                Assert(f.Service.BeginDailyEmotion(f.Service.CurrentCycleId)&&f.Service.CompleteDailyEmotion(emotion,"평온함","합성 달력 기록"),f.Service.LastError);
+                string entryState=Snapshot(f.Service);int entrySaves=f.Store.Saves;
+                f.Ui.ShowHome();f.Layout();f.Click("DailyEmotion.CardAction");f.Click("DailyEmotion.History");
+                f.Click("DailyEmotion.HistoryRow."+emotion);
+                Assert(Screen(f.Ui)=="daily-emotion"&&f.Ui.TryNavigateBack(),"Home emotion detail can enter the journal and reopen that same record.");f.Layout();
+                Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.SelectedDate").text=="2026.10.31",
+                    "An earlier emotion page key cannot erase the calendar return path.");
+                f.Capture("journal-home-detail-reentry");
+                Assert(Snapshot(f.Service)==entryState&&f.Store.Saves==entrySaves,"Re-entering the same daily record never writes or pays a reward.");
+                f.Ui.ShowHome();f.Layout();
+                f.Clock.Time=DateTimeOffset.Parse("2026-11-01T10:00:00Z");Assert(f.Service.RefreshCycle(Array.Empty<string>()),f.Service.LastError);
+                Assert(f.Service.BeginFocusSession("journal-nov-basic","P02",2)&&f.Service.BeginFocusSession("journal-nov-additional","M03")
+                    &&f.Service.StartSession("journal-nov-additional"),f.Service.LastError);
+                string before=Snapshot(f.Service);int saves=f.Store.Saves;
+                f.Ui.ShowFocusCompletion("journal-oct-basic");f.Layout();
+                AssertCompletionJournalRoute(f,"journal-oct-basic","2026-10-31","journal-completion-previous-month");
+                f.Ui.ShowHome();f.Layout();
+                var navigation=f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
+                Assert(navigation.CourseButton!=null&&ReferenceEquals(f.Button(navigation.CourseButton.name),navigation.CourseButton),
+                    "Mission context exposes the actual shared record-tab button.");
+                f.Click(navigation.CourseButton.name);
+                Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.Month").text=="2026년 11월"
+                    &&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","Mission record-tab click opens the calendar at the actual current app day and month.");
+                f.Capture("journal-from-mission-record-tab");
+                bool HasSprout(string date)=>f.Ui.GetComponentsInChildren<PrototypeUiIcon>(false).Any(icon=>icon.name=="ActivityJournal.Sprout."+date);
+                void VerifySprout(string date)
+                {
+                    var icon=f.Ui.GetComponentsInChildren<PrototypeUiIcon>(false).Single(item=>item.name=="ActivityJournal.Sprout."+date);
+                    var cell=f.Button("ActivityJournal.Day."+date);var scroll=icon.GetComponentInParent<ScrollRect>();
+                    float position=scroll.verticalNormalizedPosition;
+                    try
+                    {
+                        f.RevealRect(icon.rectTransform);var area=f.Bounds(icon.rectTransform);var cellArea=f.Bounds((RectTransform)cell.transform);
+                        Assert(icon.rectTransform.rect.width>0&&icon.rectTransform.rect.height>0&&area.width>0&&area.height>0
+                            &&area.xMin>=cellArea.xMin-.5f&&area.xMax<=cellArea.xMax+.5f&&area.yMin>=cellArea.yMin-.5f&&area.yMax<=cellArea.yMax+.5f,
+                            "Recorded-day sprout has positive geometry contained in its actual date cell.");
+                        f.AssertFullyVisible(icon.rectTransform,"Recorded-day marker is reachable inside its calendar viewport");
+                        var shown=f.Pixels();var hidden=f.WithoutGraphicPixels(icon);
+                        Assert(f.ChangedPixels(shown,hidden,area,-1)>=4,"Recorded-day sprout contributes real GPU pixels, not merely a named object.");
+                    }
+                    finally{scroll.verticalNormalizedPosition=position;f.Layout();}
+                }
+                void OneDayCard()=>Assert(f.Ui.GetComponentsInChildren<Transform>(false).Count(node=>node.name=="ActivityJournal.DateCard")==1,
+                    "The selected date has one combined record box.");
+                OneDayCard();Assert(HasSprout("2026-11-01")&&!HasSprout("2026-11-02"),"Recorded date has a sprout; an empty date does not.");
+                VerifySprout("2026-11-01");
+                Assert(f.Button("ActivityJournal.Mission.journal-nov-basic")!=null&&f.Button("ActivityJournal.Mission.journal-nov-additional")!=null,
+                    "Selected and ongoing mission records remain accessible, not only completed missions.");
+                f.Capture("journal-current-month");
+                f.Click("ActivityJournal.PreviousMonth");
+                Assert(f.Text("ActivityJournal.Month").text=="2026년 10월"&&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01"
+                    &&HasSprout("2026-10-31"),"Changing the displayed month preserves selected date and exposes past recorded days.");
+                VerifySprout("2026-10-31");
+                f.Capture("journal-previous-month");f.Click("ActivityJournal.Day.2026-10-31");OneDayCard();
+                Assert(f.Text("ActivityJournal.SelectedDate").text=="2026.10.31"&&f.Button("DailyEmotion.HistoryRow."+emotion)!=null
+                    &&f.Button("ActivityJournal.Mission.journal-oct-basic")!=null&&f.Button("ActivityJournal.Mission.journal-oct-additional")!=null,
+                    "A single date box combines that day's basic, additional and emotion records.");
+                Assert(f.Button("ActivityJournal.Mission.journal-nov-basic",false)==null,"Date selection never mixes another day's records.");
+                f.Capture("journal-selected-date");
+                var mission=f.Button("ActivityJournal.Mission.journal-oct-basic");f.RevealRect((RectTransform)mission.transform);
+                f.AssertFullyVisible((RectTransform)mission.transform,"Last mission row is reachable by the real calendar scroll");f.Capture("journal-selected-date-last-row");
+                f.Click(mission.name);Assert(Screen(f.Ui)=="focus-record","Calendar mission row opens the existing mission record detail.");
+                float expectedScroll=(float)typeof(WeekOneQuestDemo).GetField("activityJournalScroll",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(f.Ui);
+                Assert(expectedScroll<.99f,"Detail entry remembers an actually scrolled calendar position.");
+                f.Click("기록 목록");
+                var scroll=f.Ui.GetComponentsInChildren<ScrollRect>(false).Single(item=>item.name=="ActivityJournal.Scroll");
+                Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.SelectedDate").text=="2026.10.31"
+                    &&f.Text("ActivityJournal.Month").text=="2026년 10월"&&Mathf.Abs(scroll.verticalNormalizedPosition-expectedScroll)<.02f,
+                    "Mission detail return restores the selected day, month and list position.");
+                f.Click("DailyEmotion.HistoryRow."+emotion);
+                Assert(Screen(f.Ui)=="daily-emotion"&&f.Button("DailyEmotion.Save",false)==null&&f.Service.GetDailyEmotion(emotion).Note=="합성 달력 기록",
+                    "Calendar emotion entry opens the correct immutable saved record.");
+                f.Capture("journal-emotion-detail");f.Click("DailyEmotion.History");
+                Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.SelectedDate").text=="2026.10.31",
+                    "Emotion record-list action returns to its source calendar date.");
+                f.Click("ActivityJournal.Day.2026-10-30");f.Click("ActivityJournal.Mission.journal-legacy");
+                Assert(Screen(f.Ui)=="record","Legacy calendar row opens the existing historical record detail.");
+                f.Capture("journal-legacy-detail");f.Click("기록 목록");
+                Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.SelectedDate").text=="2026.10.30"
+                    &&f.Text("ActivityJournal.Month").text=="2026년 10월","Legacy record-list action returns to its source calendar day and month.");
+                f.Click("ActivityJournal.NextMonth");f.Click("ActivityJournal.Day.2026-11-02");OneDayCard();
+                Assert(f.Text("ActivityJournal.SelectedDate").text=="2026.11.02"&&f.Text("ActivityJournal.Empty")!=null
+                    &&!f.Ui.GetComponentsInChildren<Button>(false).Any(button=>button.name.StartsWith("ActivityJournal.Mission.",StringComparison.Ordinal)
+                        ||button.name.StartsWith("DailyEmotion.HistoryRow.",StringComparison.Ordinal)),"Empty date has clear guidance and no stale record buttons.");
+                f.RevealAndRead(f.Text("ActivityJournal.Empty"));f.Capture("journal-empty-day");
+                f.Click("ActivityJournal.Today");Assert(f.Text("ActivityJournal.Month").text=="2026년 11월"
+                    &&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","Today returns to the current app date.");
+                f.Click("ActivityJournal.Mission.journal-nov-additional");Assert(Screen(f.Ui)=="focus-record","Ongoing record is still readable from calendar.");
+                Assert(f.Ui.TryNavigateBack(),"Existing back navigation handles calendar record detail.");f.Layout();
+                Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","Back retains the current calendar selection.");
+                f.Click("ActivityJournal.Back");
+                Assert(Screen(f.Ui)=="course"&&f.Button("Focus.CourseRecords.8w")!=null&&f.Button("PlantAlbum.Open")!=null,
+                    "The calendar's explicit back action preserves access to the existing course and album record hub.");
+                f.Capture("journal-return-record-hub");
+                Assert(Snapshot(f.Service)==before&&f.Store.Saves==saves,"All calendar reads, month/date selections and detail returns preserve exact state with zero writes or rewards.");
+            }
+        }
+        static void AssertCompletionJournalRoute(Fixture f,string id,string expectedDay,string captureName)
+        {
+            string before=Snapshot(f.Service);int saves=f.Store.Saves;
+            Assert(Screen(f.Ui)=="focus-complete"&&f.Session(id).Status==ParticipationState.RewardCommitted,
+                "Record navigation starts from the actual completed mission page.");
+            Assert(ActivityJournal.DayFor(f.Session(id),f.Service.CurrentTimeZone)==expectedDay,
+                "The completion fixture has the expected app-day ownership, including carry-over.");
+            var action=f.Button("Focus.ViewRecord");
+            Assert(action.GetComponentInChildren<Text>().text=="기록으로 이동","Completion clearly labels the calendar destination.");
+            f.RevealRect((RectTransform)action.transform);f.AssertFullyVisible((RectTransform)action.transform,"Completion record action is reachable");
+            f.Capture(captureName+"-action");f.Click("Focus.ViewRecord");
+            var date=DateTime.ParseExact(expectedDay,"yyyy-MM-dd",System.Globalization.CultureInfo.InvariantCulture);
+            string expectedMonth=date.Year+"년 "+date.Month+"월",selected=expectedDay.Replace('-','.');
+            void AssertDate()=>Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.Month").text==expectedMonth
+                &&f.Text("ActivityJournal.SelectedDate").text==selected&&f.Button("ActivityJournal.Mission."+id)!=null,
+                "Completion selects its own record date and month, rather than today's date or a stale selection.");
+            AssertDate();f.Capture(captureName);
+            f.Click("ActivityJournal.Mission."+id);
+            Assert(Screen(f.Ui)=="focus-record","The selected calendar mission opens its existing read-only detail.");
+            f.Click("기록 목록");AssertDate();
+            f.Click("ActivityJournal.Mission."+id);
+            Assert(f.Ui.TryNavigateBack(),"System back handles a mission detail opened from completion's calendar.");f.Layout();AssertDate();
+            Assert(Snapshot(f.Service)==before&&f.Store.Saves==saves,
+                "Completion-to-calendar, detail, record-list and back navigation perform zero writes, growth or coin rewards.");
+        }
+        static void BasicIconGestureFlow(int width,int height)
+        {
+            using(var f=new Fixture(width,height))
+            {
+                Assert(f.Service.SelectMbctProgram("8w"),f.Service.LastError);
+                f.Ui.ShowHome();f.Layout();f.Click("Focus.BasicAction");
+                Assert(f.Text("Guided.Overview")!=null,"Basic regression reaches the actual first overview shown in the reported screen.");
+                f.WithEventSystem(()=>
+                {
+                    var button=f.Button("Focus.IconAction");var rect=(RectTransform)button.transform;var normal=rect.localScale;
+                    var bounds=f.Bounds(rect);string before=Snapshot(f.Service);int saves=f.Store.Saves;var baseline=f.Pixels();
+                    f.Capture("basic-overview-baseline");var failures=new List<string>();
+                    void Inspect(string label)
+                    {
+                        var shown=f.Pixels();var withoutHitGraphic=f.WithoutTargetPixels(button);
+                        int green=f.AddedGreenPixels(withoutHitGraphic,shown,bounds,10);
+                        report.gesturePixels.Add(width+"x"+height+" basic overview "+label+": darkGreenInterior="+green);
+                        if(green>8)failures.Add(label+" adds an opaque green face through the transparent overview hit graphic ("+green+" pixels).");
+                    }
+                    var data=f.Down(button);f.Capture("basic-overview-down");Inspect("pointer down");
+                    data.dragging=true;data.eligibleForClick=false;data.delta=new Vector2(42,16);data.position+=data.delta;
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.beginDragHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.dragHandler);
+                    f.Capture("basic-overview-drag");Inspect("drag");
+                    data.position=new Vector2(bounds.xMax+24,bounds.center.y);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerExitHandler);
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerUpHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.endDragHandler);
+                    f.Capture("basic-overview-cancelled");Inspect("cancelled release");
+                    Assert(rect.localScale==normal&&f.Text("Guided.Overview")!=null&&Snapshot(f.Service)==before&&f.Store.Saves==saves,
+                        "Dragging out retains overview, restores its scale and performs no practice or save.");
+                    f.Select(button,false);f.Capture("basic-overview-keyboard-focus");var focused=f.Pixels();
+                    Assert(f.ChangedPixels(baseline,focused,bounds,10)<=8&&f.ChangedPixels(baseline,focused,bounds,-5)>=4,
+                        "Basic overview keyboard focus has a visible border and unchanged centre.");
+                    data=f.Down(button);f.Capture("basic-overview-keyboard-to-pointer");Inspect("keyboard then pointer");
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerExitHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerUpHandler);
+                    f.Select(null,false);f.Click("Focus.IconAction");
+                    Assert(f.Text("Guided.Preparation")!=null&&f.Text("Guided.Overview")==null&&Snapshot(f.Service)==before&&f.Store.Saves==saves,
+                        "One ordinary click after cancellation advances exactly one guidance slide without starting practice.");
+                    Assert(failures.Count==0,string.Join("\n",failures));
+                });
+            }
+        }
+        static void IconGestureFlow(int width,int height)
+        {
+            using(var f=new Fixture(width,height))
+            {
+                Assert(f.Service.SelectMbctProgram("8w"),f.Service.LastError);
+                f.Ui.ShowHome();f.Layout();f.Click("Focus.AdditionalAction");
+                var session=f.Service.Snapshot.Sessions.Single(s=>s.FocusRole==FocusMissionCatalog.AdditionalRole);
+                Assert(session.MissionId=="free-mission:M03","Gesture fixture reaches the actual water practice.");
+                f.Click("Focus.IconAction");Assert(f.Session(session.SessionId).InstructionStep==0,"Central icon starts the actual preparation step.");
+                f.Click("Focus.IconAction");Assert(f.Session(session.SessionId).InstructionStep==1,"One central click advances preparation exactly once to drinking.");
+                f.WithEventSystem(()=>
+                {
+                    var button=f.Button("Focus.IconAction");var rect=(RectTransform)button.transform;
+                    var normal=rect.localScale;var bounds=f.Bounds(rect);string before=Snapshot(f.Service);int saves=f.Store.Saves;
+                    var baseline=f.Pixels();f.Capture("water-gesture-baseline");
+                    var failures=new List<string>();
+                    void Inspect(string label,Color32[] pixels,bool keyboard=false)
+                    {
+                        int green=f.AddedGreenPixels(baseline,pixels,bounds,10);int interior=f.ChangedPixels(baseline,pixels,bounds,10);
+                        int total=f.ChangedPixels(baseline,pixels,bounds,-5);
+                        report.gesturePixels.Add(width+"x"+height+" "+label+": darkGreenInterior="+green+", changedInterior="+interior+", changedWithBorder="+total);
+                        if(green>8)failures.Add(label+" adds an opaque green fill inside the illustration ("+green+" pixels).");
+                        if(keyboard&&(interior>8||total<4))failures.Add(label+" must show a border while retaining the unchanged illustration interior.");
+                    }
+                    var data=f.Down(button);f.Capture("water-gesture-down");Inspect("pointer down",f.Pixels());
+                    // Model the event-module cancellation route: a drag cannot dispatch a click.
+                    data.dragging=true;data.eligibleForClick=false;data.delta=new Vector2(42,16);data.position+=data.delta;
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.beginDragHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.dragHandler);
+                    f.Capture("water-gesture-drag");Inspect("drag",f.Pixels());
+                    data.position=new Vector2(bounds.xMax+24,bounds.center.y);
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerExitHandler);
+                    f.Capture("water-gesture-exit");Inspect("pointer exit",f.Pixels());
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerUpHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.endDragHandler);
+                    f.Capture("water-gesture-cancelled");Inspect("cancelled release",f.Pixels());
+                    Assert(rect.localScale==normal&&Snapshot(f.Service)==before&&f.Store.Saves==saves,"Dragging out restores scale and never confirms a practice step or writes a reward.");
+                    data=f.Down(button);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerUpHandler);
+                    f.Capture("water-gesture-released");Inspect("pointer release without click",f.Pixels());
+                    // Keyboard focus legitimately reveals a control in a short viewport.
+                    // Compare its border after that layout movement, not against the old scroll position.
+                    FocusKeyboardNavigation.Reveal(button);f.Layout();bounds=f.Bounds(rect);baseline=f.Pixels();
+                    f.Capture("water-keyboard-unfocused");
+                    f.Select(button,false);f.Capture("water-keyboard-focus");Inspect("keyboard focus",f.Pixels(),true);
+                    data=f.Down(button);f.Capture("water-keyboard-to-pointer");Inspect("keyboard focus then pointer",f.Pixels());
+                    ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerExitHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerUpHandler);
+                    f.Select(null,false);button.gameObject.SetActive(false);button.gameObject.SetActive(true);f.Layout();
+                    Assert(rect.localScale==normal&&Snapshot(f.Service)==before,"Disable/reentry restores the target without altering the practice.");
+                    var ordinary=f.Button("Focus.Action");var ordinaryBounds=f.Bounds((RectTransform)ordinary.transform);var ordinaryBefore=f.Pixels();
+                    f.Select(ordinary,false);f.Capture("water-keyboard-ordinary-action");var ordinaryAfter=f.Pixels();
+                    Assert(f.ChangedPixels(ordinaryBefore,ordinaryAfter,ordinaryBounds,10)<=8&&f.ChangedPixels(ordinaryBefore,ordinaryAfter,ordinaryBounds,-5)>=4,
+                        "Keyboard focus on the ordinary filled action also preserves its interior and has a visible border.");
+                    f.Select(null,false);var retained=button.onClick;f.Click("Focus.IconAction");
+                    Assert(f.Session(session.SessionId).InstructionStep==2,"A normal click after cancelled gestures confirms the drinking step once.");
+                    string finished=Snapshot(f.Service);int committedSaves=f.Store.Saves;retained.Invoke();f.Layout();
+                    Assert(Snapshot(f.Service)==finished&&f.Store.Saves==committedSaves,"Retained previous-step callback cannot repeat completion or rewards.");
+                    Assert(failures.Count==0,string.Join("\n",failures));
+                });
+            }
+        }
+        static void HomeResponsiveFlow(int width,int height)
+        {
+            using(var f=new Fixture(width,height))
+            {
+                Assert(f.Service.SelectMbctProgram("8w"),f.Service.LastError);
+                f.Ui.ShowHome();AssertHomeWithoutScroll(f);f.Capture("home-fit-locked");
+                var exposure=f.Ui.GetComponentsInChildren<RecommendationExposure>(false).Single();
+                int observed=0;var original=exposure.OnVisible;
+                exposure.OnVisible=()=>{observed++;original?.Invoke();};
+                try
+                {
+                    // Edit-mode batch has no regular LateUpdate. Exercise the
+                    // existing visibility calculation, not its forced-report API.
+                    var update=typeof(RecommendationExposure).GetMethod("LateUpdate",BindingFlags.Instance|BindingFlags.NonPublic);
+                    update.Invoke(exposure,null);update.Invoke(exposure,null);
+                    Assert(observed==1,"Visible recommendation reports once even though home has no ScrollRect");
+                }
+                finally{exposure.OnVisible=original;}
+                Assert(!f.Button("DailyEmotion.CardAction",false).IsInteractable(),"Visible emotion action keeps its ordinary locked policy");
+                CompleteRoleFixture(f,"home-fit-basic","P01",1);
+                CompleteRoleFixture(f,"home-fit-additional","M03");
+                f.Ui.ShowHome();AssertHomeWithoutScroll(f);f.Capture("home-fit-unlocked");
+                Assert(f.Button("DailyEmotion.CardAction").IsInteractable(),"Both completed roles unlock the visible emotion action");
+                string before=Snapshot(f.Service);f.Store.Fail=true;
+                try{f.Click("DailyEmotion.CardAction");}finally{f.Store.Fail=false;}
+                Assert(Screen(f.Ui)=="home"&&Snapshot(f.Service)==before,"Failed emotion entry stays on home and preserves the whole saved state");
+                Assert(f.Text("Focus.SaveNotice")!=null,"Actual failed save exposes a notice on the three-card home");
+                AssertHomeWithoutScroll(f);f.Capture("home-fit-save-notice");
+                f.Click("DailyEmotion.CardAction");
+                Assert(Screen(f.Ui)=="daily-emotion","Still-visible emotion action retries successfully without scrolling");
+                string id=DailyEmotionPolicy.RecordId(f.Service.CurrentCycleId);
+                Assert(f.Service.CompleteDailyEmotion(id,"편안함","합성 화면 검사 메모"),f.Service.LastError);
+                f.Ui.ShowHome();AssertHomeWithoutScroll(f);f.Capture("home-fit-completed");
+                Assert(f.Button("DailyEmotion.CardAction").GetComponentInChildren<Text>().text=="기록 보기",
+                    "Completed emotion retains the visible record-reading action");
+            }
+            // Session title snapshots may outlive catalog wording. Use a separate
+            // synthetic store to exercise genuine saved titles rather than resize
+            // labels by hand or alter any product catalog definition.
+            var store=new Store();const string basicTitle="몸과 마음에 남은 작은 변화를 천천히 알아차리기";
+            const string additionalTitle="주변의 소리와 몸의 느낌을 차분하게 알아차리기";
+            using(var service=new GardenStateService(store,new Clock(),new DemoBalanceConfig(),new LegacySnapshot{Nutrient=137}))
+            {
+                Assert(service.Open()&&service.SelectMbctProgram("8w"),service.LastError);
+                Assert(service.BeginFocusSession("home-fit-long-basic","P01",1)&&service.StartSession("home-fit-long-basic"),service.LastError);
+                Assert(service.BeginFocusSession("home-fit-long-additional","M03")&&service.StartSession("home-fit-long-additional"),service.LastError);
+                var state=service.Snapshot;
+                state.Sessions.Single(item=>item.SessionId=="home-fit-long-basic").MissionTitleSnapshot=basicTitle;
+                state.Sessions.Single(item=>item.SessionId=="home-fit-long-additional").MissionTitleSnapshot=additionalTitle;
+                store.Save(state);
+            }
+            using(var f=new Fixture(width,height,store))
+            {
+                f.Ui.ShowHome();AssertHomeWithoutScroll(f);
+                foreach(string title in new[]{basicTitle,additionalTitle})
+                    Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.text==title),"Long saved mission title remains complete on its card");
+                Assert(f.Button("Focus.BasicAction").GetComponentInChildren<Text>().text.Contains("이어서")
+                    &&f.Button("Focus.AdditionalAction").GetComponentInChildren<Text>().text.Contains("이어서"),
+                    "Both longer resume states retain their own actions");
+                f.Capture("home-fit-long-saved-titles");
+            }
+        }
+        static bool Overlaps(Rect a,Rect b) => Mathf.Min(a.xMax,b.xMax)>Mathf.Max(a.xMin,b.xMin)+.5f
+            &&Mathf.Min(a.yMax,b.yMax)>Mathf.Max(a.yMin,b.yMin)+.5f;
+        static bool Contains(Rect outer,Rect inner) => inner.xMin>=outer.xMin-.5f&&inner.xMax<=outer.xMax+.5f
+            &&inner.yMin>=outer.yMin-.5f&&inner.yMax<=outer.yMax+.5f;
+        static void AssertHomeWithoutScroll(Fixture f)
+        {
+            string before=Snapshot(f.Service);f.Layout();
+            Assert(Screen(f.Ui)=="home","Three-card check targets the real mission home page");
+            Assert(!f.Ui.GetComponentsInChildren<ScrollRect>(false).Any(scroll=>scroll.isActiveAndEnabled&&(scroll.vertical||scroll.horizontal)),
+                "Mission home has no active scrolling owner");
+            var actions=new[]{f.Button("Focus.BasicAction",false),f.Button("Focus.AdditionalAction",false),f.Button("DailyEmotion.CardAction",false)};
+            Assert(actions.All(button=>button!=null),"All three mission actions exist together, including locked and completed actions");
+            var cards=actions.Select(button=>(RectTransform)button.transform.parent).ToArray();
+            Assert(cards.Distinct().Count()==3,"Each mission action belongs to its own card");
+            var bar=f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
+            var nav=f.Bounds((RectTransform)bar.transform);f.AssertFullyVisible((RectTransform)bar.transform,"Bottom navigation");
+            var launcher=f.Button("Focus.DebugLauncher");var debug=f.Bounds((RectTransform)launcher.transform);
+            f.AssertFullyVisible((RectTransform)launcher.transform,"Development launcher");
+            Assert(!Overlaps(nav,debug),"Development launcher does not cover bottom navigation");
+            var notice=f.Text("Focus.SaveNotice");Rect? noticeBounds=null;
+            if(notice!=null&&!string.IsNullOrWhiteSpace(notice.text))
+            {
+                noticeBounds=f.Bounds(notice.rectTransform);f.AssertFullyVisible(notice.rectTransform,"Actual save failure notice");
+                Assert(!Overlaps(noticeBounds.Value,nav)&&!Overlaps(noticeBounds.Value,debug),"Save failure notice has its own region above navigation and developer entry");
+                Assert(notice.preferredHeight<=notice.rectTransform.rect.height+.5f,"Full save failure message fits its allocated height");
+            }
+            for(int i=0;i<cards.Length;i++)
+            {
+                var card=f.Bounds(cards[i]);var action=f.Bounds((RectTransform)actions[i].transform);
+                f.AssertFullyVisible(cards[i],actions[i].name+" complete card");
+                f.AssertFullyVisible((RectTransform)actions[i].transform,actions[i].name+" action without reveal");
+                Assert(Contains(card,action),actions[i].name+" remains inside its own card");
+                Assert(!Overlaps(card,nav)&&!Overlaps(card,debug)&&(!noticeBounds.HasValue||!Overlaps(card,noticeBounds.Value)),
+                    actions[i].name+" card avoids navigation, developer entry and storage notice");
+                for(int j=0;j<i;j++)Assert(!Overlaps(card,f.Bounds(cards[j])),"Mission cards never overlap each other");
+                foreach(var text in cards[i].GetComponentsInChildren<Text>(false).Where(item=>!string.IsNullOrWhiteSpace(item.text)))
+                {
+                    var bounds=f.Bounds(text.rectTransform);f.AssertFullyVisible(text.rectTransform,text.text+" card text");
+                    Assert(Contains(card,bounds),"Card text stays inside its card: "+text.text);
+                    Assert(text.preferredHeight<=text.rectTransform.rect.height+.5f,"All wrapped card text remains readable: "+text.text);
+                    if(!text.transform.IsChildOf(actions[i].transform))Assert(!Overlaps(bounds,action),"Card guidance does not overlap its action: "+text.text);
+                }
+                f.AssertHitWithoutReveal(actions[i]);
+            }
+            f.AssertHitWithoutReveal(launcher);
+            foreach(var button in new[]{bar.HomeButton,bar.MissionButton,bar.CourseButton})f.AssertHitWithoutReveal(button);
+            Assert(Snapshot(f.Service)==before,"Responsive home layout and hit testing do not change saved progress or rewards");
+        }
         static void Ready(GardenStateService service, string id)
         {
             var session=service.Snapshot.Sessions.Single(s=>s.SessionId==id);
@@ -149,6 +500,8 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Text("Focus.CoinReward")!=null&&f.Text("Focus.CoinReward").text.Contains("50"),"Completion explicitly displays its 50 coin reward");
                 f.RevealAndRead(f.Text("Focus.CoinReward"));f.Capture("additional-coin-complete");
                 Assert(f.Button("Focus.SkipReflection",false)==null && f.Button("Focus.ReflectionNext",false)==null,"Completed P/M no longer offers the removed emotion/note transition");
+                AssertCompletionJournalRoute(f,chosen,f.Service.CurrentCycleId,"journal-additional-carry-completion");
+                f.Ui.ShowFocusCompletion(chosen);f.Layout();
                 f.Click("Focus.ConfirmHome");
                 var additional=f.Button("Focus.AdditionalAction",false);Assert(additional!=null&&!additional.IsInteractable(),"After final M completion, ordinary additional card is disabled");
                 Assert(!f.Service.BeginFocusSession("other-today","M01"),"Different M cannot bypass used allowance");
@@ -160,7 +513,10 @@ namespace CapstoneDesign.EditorTools
                 f.Ui.ShowHome();f.Layout();f.Capture("home-carry-active");f.Click("Focus.BasicAction");
                 Assert(f.Service.Snapshot.Sessions.Single(s=>s.SessionId==p.SessionId).FocusStepRecords[0].Value=="배"
                     && f.Text("Guided.PracticeHint")!=null&&f.Ui.GetComponentInChildren<FocusPracticeClock>(false).ElapsedSeconds==19,"Active P identity, choice and elapsed time survive next-day entry");
-                f.Click("Focus.IconAction");Assert(Screen(f.Ui)=="focus-complete"&&f.Session(p.SessionId).Status==ParticipationState.RewardCommitted,"Carried guided P finishes immediately");f.Click("Focus.ConfirmHome");
+                f.Click("Focus.IconAction");Assert(Screen(f.Ui)=="focus-complete"&&f.Session(p.SessionId).Status==ParticipationState.RewardCommitted,"Carried guided P finishes immediately");
+                Assert(f.Session(p.SessionId).InstanceId!=p.InstanceId,"Carried unfinished practice belongs to its actual completion day.");
+                AssertCompletionJournalRoute(f,p.SessionId,f.Service.CurrentCycleId,"journal-basic-carry-completion");
+                f.Ui.ShowFocusCompletion(p.SessionId);f.Layout();f.Click("Focus.ConfirmHome");
                 Assert(f.Service.CoinBalance==237,"Two independent completed roles pay exactly 50 coins each");
                 f.Ui.ShowCourse();f.Layout();Assert(!f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name.Contains("다시 연습")||b.name.Contains("선택 목록")),"Course history preserves records without free replay/selection CTA");
                 f.Capture("course-history");
@@ -297,7 +653,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.SelectMbctProgram("8w"),"Choose daily emotion course");f.Ui.ShowHome();f.Layout();
                 var locked=f.Button("DailyEmotion.CardAction",false);
                 Assert(locked!=null&&!locked.IsInteractable(),"Third daily card is locked before P and M completion");
-                f.RevealRect((RectTransform)locked.transform);f.AssertFullyVisible((RectTransform)locked.transform,"Locked third card action is readable by scrolling");f.Capture("emotion-locked");
+                f.AssertFullyVisible((RectTransform)locked.transform,"Locked third card action is readable without scrolling");f.Capture("emotion-locked");
                 f.Click("Focus.BasicAction");StartGuidedPractice(f);f.Click("Focus.IconAction");
                 Assert(Screen(f.Ui)=="focus-complete"&&f.Service.Snapshot.Sessions.Single().Status==ParticipationState.RewardCommitted,"Actual guided P finish commits directly to completion");f.Click("Focus.ConfirmHome");
                 Assert(!f.Button("DailyEmotion.CardAction",false).IsInteractable(),"One finished role keeps third card locked");
@@ -305,7 +661,7 @@ namespace CapstoneDesign.EditorTools
                 for(int attempt=0;Screen(f.Ui)=="focus-practice"&&attempt<6;attempt++)f.Click("Focus.Action");
                 if(Screen(f.Ui)=="focus-photo")f.Click("Photo.Skip");
                 Assert(Screen(f.Ui)=="focus-complete"&&f.Service.Snapshot.Sessions.Count(s=>s.Status==ParticipationState.RewardCommitted)==2,"Actual M actions complete the second role without emotion/note detour");f.Click("Focus.ConfirmHome");
-                f.RevealRect((RectTransform)f.Button("DailyEmotion.CardAction").transform);f.AssertFullyVisible((RectTransform)f.Button("DailyEmotion.CardAction").transform,"Unlocked third action remains reachable");f.Capture("emotion-unlocked");
+                f.AssertFullyVisible((RectTransform)f.Button("DailyEmotion.CardAction").transform,"Unlocked third action is visible without scrolling");f.Capture("emotion-unlocked");
                 int step=f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep;f.Click("DailyEmotion.CardAction");
                 Assert(Screen(f.Ui)=="daily-emotion","Third activity opens a distinct daily form");recordId=DailyEmotionPolicy.RecordId(f.Service.CurrentCycleId);
                 Assert(f.Service.GetDailyEmotion(recordId)!=null&&!f.Button("DailyEmotion.Save",false).IsInteractable(),"Blank daily form cannot complete");
@@ -565,6 +921,7 @@ namespace CapstoneDesign.EditorTools
                     foreach (var fit in root.GetComponentsInChildren<FigmaMissionCanvasFit>(false)) fit.Fit();
                     foreach (var page in root.GetComponentsInChildren<FocusMobilePageLayout>(false)) page.Refresh();
                     foreach (var slide in root.GetComponentsInChildren<FocusGuidedSlideLayout>(false)) slide.Refresh();
+                    foreach (var home in root.GetComponentsInChildren<FocusMissionHomeLayout>(false)) home.Refresh();
                     Canvas.ForceUpdateCanvases();
                 }
                 // Graphic depths/raycast ordering are populated by a real render.
@@ -585,6 +942,71 @@ namespace CapstoneDesign.EditorTools
                 ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerUpHandler);
                 ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerClickHandler);
                 report.clicks++; Layout();
+            }
+            public void WithEventSystem(Action check)
+            {
+                var previous=EventSystem.current;
+                var flags=BindingFlags.Instance|BindingFlags.NonPublic;
+                // Edit-mode fixtures do not receive EventSystem's runtime registration.
+                typeof(EventSystem).GetMethod("OnEnable",flags).Invoke(events,null);
+                EventSystem.current=events;
+                try{check();}
+                finally
+                {
+                    events.SetSelectedGameObject(null);
+                    typeof(EventSystem).GetMethod("OnDisable",flags).Invoke(events,null);
+                    if(previous!=null)EventSystem.current=previous;
+                }
+            }
+            public PointerEventData Down(Button button)
+            {
+                Layout();var point=ScreenRect((RectTransform)button.transform).center;
+                var data=new PointerEventData(events){pointerId=-1,position=point,pressPosition=point,button=PointerEventData.InputButton.Left,eligibleForClick=true};
+                var hits=new List<RaycastResult>();raycaster.Raycast(data,hits);report.raycasts++;
+                Assert(hits.Count>0&&hits[0].gameObject.GetComponentInParent<Button>()==button,"Central illustration is the actual top pointer hit.");
+                data.pointerPressRaycast=data.pointerCurrentRaycast=hits[0];
+                ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerDownHandler);
+                Assert(events.currentSelectedGameObject==button.gameObject,"Actual Button.OnPointerDown selects the fixture's control.");Layout();return data;
+            }
+            public void Select(Button button,bool pointer)
+            {
+                events.SetSelectedGameObject(null);
+                if(button!=null)events.SetSelectedGameObject(button.gameObject,pointer?(BaseEventData)new PointerEventData(events):new BaseEventData(events));
+                Layout();
+            }
+            public Color32[] Pixels()
+            {
+                Layout();camera.Render();var prior=RenderTexture.active;var image=new Texture2D(width,height,TextureFormat.RGB24,false);
+                try{RenderTexture.active=target;image.ReadPixels(new Rect(0,0,width,height),0,0);image.Apply();return image.GetPixels32();}
+                finally{RenderTexture.active=prior;UnityEngine.Object.DestroyImmediate(image);}
+            }
+            public Color32[] WithoutTargetPixels(Button button)
+            {
+                // Keep the actual child illustration and current press scale; isolate
+                // whether the transparent parent hit graphic paints an opaque face.
+                return WithoutGraphicPixels(button.targetGraphic);
+            }
+            public Color32[] WithoutGraphicPixels(Graphic graphic)
+            {
+                bool enabled=graphic.enabled;
+                try{graphic.enabled=false;return Pixels();}
+                finally{graphic.enabled=enabled;Layout();}
+            }
+            public int ChangedPixels(Color32[] before,Color32[] after,Rect area,float inset)
+                => CountPixels(before,after,area,inset,false);
+            public int AddedGreenPixels(Color32[] before,Color32[] after,Rect area,float inset)
+                => CountPixels(before,after,area,inset,true);
+            int CountPixels(Color32[] before,Color32[] after,Rect area,float inset,bool greenOnly)
+            {
+                int changed=0;float scale=width/390f;inset*=scale;
+                for(int y=Mathf.Max(0,Mathf.CeilToInt(area.yMin+inset));y<Mathf.Min(height,Mathf.FloorToInt(area.yMax-inset));y++)
+                    for(int x=Mathf.Max(0,Mathf.CeilToInt(area.xMin+inset));x<Mathf.Min(width,Mathf.FloorToInt(area.xMax-inset));x++)
+                    {
+                        var a=before[y*width+x];var b=after[y*width+x];
+                        bool different=Math.Abs(a.r-b.r)>8||Math.Abs(a.g-b.g)>8||Math.Abs(a.b-b.b)>8;
+                        if(different&&(!greenOnly||(b.g>b.r+8&&b.g>b.b+5&&a.r-b.r>30&&a.g-b.g>20)))changed++;
+                    }
+                return changed;
             }
             public void AssertFooter(string name)
             {
@@ -610,6 +1032,22 @@ namespace CapstoneDesign.EditorTools
                 return Rect.MinMaxRect(a.x, a.y, b.x, b.y);
             }
             public Rect Bounds(RectTransform rect) => ScreenRect(rect);
+            public void AssertHitWithoutReveal(Button button)
+            {
+                // Do not call Reveal or move a ScrollRect: every sample must be
+                // reachable in the first rendered frame at the current position.
+                var bounds=ScreenRect((RectTransform)button.transform);
+                float x=Mathf.Min(12,bounds.width*.2f),y=Mathf.Min(12,bounds.height*.25f);
+                var points=new[]{bounds.center,new Vector2(bounds.xMin+x,bounds.yMin+y),new Vector2(bounds.xMax-x,bounds.yMin+y),
+                    new Vector2(bounds.xMin+x,bounds.yMax-y),new Vector2(bounds.xMax-x,bounds.yMax-y)};
+                foreach(var point in points)
+                {
+                    var data=new PointerEventData(events){position=point,button=PointerEventData.InputButton.Left};
+                    var hits=new List<RaycastResult>();raycaster.Raycast(data,hits);report.raycasts++;
+                    Assert(hits.Count>0&&hits[0].gameObject.GetComponentInParent<Button>()==button,
+                        "Unrevealed action is the top pointer target at "+point+": "+button.name+"; hit="+(hits.Count==0?"none":hits[0].gameObject.name));
+                }
+            }
             public void AssertFullyVisible(RectTransform rect, string label)
             {
                 var bounds = ScreenRect(rect); const float tolerance = .5f;

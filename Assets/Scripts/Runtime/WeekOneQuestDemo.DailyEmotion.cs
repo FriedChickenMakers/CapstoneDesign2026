@@ -35,7 +35,7 @@ namespace CapstoneDesign.Runtime
             return memo + (record.RewardAmount > 0 ? " · 코인 +" + record.RewardAmount : "");
         }
 
-        float BuildDailyEmotionCard(Transform parent, GardenState state, float y)
+        FocusMissionHomeLayout.Card BuildDailyEmotionCard(Transform parent, GardenState state, float y)
         {
             const float height = 136;
             var record = DailyEmotionPolicy.Current(state);
@@ -43,11 +43,11 @@ namespace CapstoneDesign.Runtime
             bool available = DailyEmotionPolicy.Availability(state) == null;
             var card = FigmaMissionUi.Box(parent, "DailyEmotion.Card", 24, y, 342, height,
                 available || completed ? FigmaMissionUi.Soft : Color.white, 20);
-            FigmaMissionUi.Label(card, "감정 기록", 16, 12, 310, 28, 18, null, true);
+            var title = FigmaMissionUi.Label(card, "감정 기록", 16, 12, 310, 28, 18, null, true);
             string description = completed ? DailyEmotionRewardSummary(record)
-                : available ? "식물 옆 메모 1장 · 완료 보상 100코인"
+                : available ? "기억 잎 1개 · 완료 보상 100코인"
                 : "모든 미션 완료 후 열려요.";
-            FigmaMissionUi.Label(card, description, 16, 42, 310, 24, 14, FigmaMissionUi.Muted);
+            var detail = FigmaMissionUi.Label(card, description, 16, 42, 310, 24, 14, FigmaMissionUi.Muted);
             string id = record?.Id;
             var frame = activityFrame;
             var action = FigmaMissionUi.Button(card, completed ? "기록 보기" : "감정 기록하기", 16, 76, 310, 44, () =>
@@ -58,7 +58,7 @@ namespace CapstoneDesign.Runtime
                 completed || available ? Color.white : FigmaMissionUi.Muted, 16);
             action.name = "DailyEmotion.CardAction";
             action.interactable = completed || available;
-            return height;
+            return new FocusMissionHomeLayout.Card { Root=card, Title=title, Detail=detail, Action=action, TitleSize=18 };
         }
 
         public void ShowDailyEmotion(string id = null)
@@ -204,7 +204,7 @@ namespace CapstoneDesign.Runtime
                 keyboard.Accent = FigmaMissionUi.Green;
                 keyboard.Save = () => SaveDailyEmotionUiDraft();
                 y += 152;
-                y += DailyEmotionText(body, "감정이나 메모 중 하나만 남겨도 돼요.\n완료하면 식물 옆에 메모가 생기고 100코인을 받아요.\n다음 날 오전 4시까지 작성할 수 있어요.", y, 14, FigmaMissionUi.Muted);
+                y += DailyEmotionText(body, "감정이나 메모 중 하나만 남겨도 돼요.\n완료하면 기억 잎에 기록이 담기고 100코인을 받아요.\n다음 날 오전 4시까지 작성할 수 있어요.", y, 14, FigmaMissionUi.Muted);
                 dailyEmotionSaveButton = FigmaMissionUi.Button(root, "메모 남기고 완료", 100, 730, 266, 56,
                     () => CompleteDailyEmotionUi(frame, record.Id));
                 dailyEmotionSaveButton.name = "DailyEmotion.Save";
@@ -354,33 +354,7 @@ namespace CapstoneDesign.Runtime
 
         public void ShowDailyEmotionHistory()
         {
-            if (!opened || IsMissionDebugActive || !SaveActivePracticeDraft()) return;
-            var records = Service.Snapshot.DailyEmotionRecords.OrderByDescending(item => item.CycleId, StringComparer.Ordinal).ToArray();
-            var root = BeginFigmaPage("daily-emotion-history", ShowDailyEmotionHistory, FigmaMissionUi.Background, true, "기록");
-            FigmaHeader(root, "감정 기록", "날짜별로 남긴 마음을 돌아봐요.");
-            var body = FigmaScroll(root, 132, 628, Mathf.Max(628, records.Length * 112 + 24));
-            if (records.Length == 0)
-            {
-                FigmaMissionUi.Label(body, "아직 남긴 감정 기록이 없어요.", 24, 24, 342, 36, 20, null, true);
-                FigmaMissionUi.Label(body, "기본 미션과 추가 미션을 마치면\n오늘의 감정을 남길 수 있어요.", 24, 76, 342, 64, 16, FigmaMissionUi.Muted);
-            }
-            var frame = activityFrame;
-            for (int i = 0; i < records.Length; i++)
-            {
-                var record = records[i];
-                var row = FigmaMissionUi.Button(body, "", 24, 8 + i * 112, 342, 96, () =>
-                {
-                    if (frame != null && frame == activityFrame && frame.activeInHierarchy) ShowDailyEmotion(record.Id);
-                }, Color.white, FigmaMissionUi.Ink);
-                row.name = "DailyEmotion.HistoryRow." + record.Id;
-                FigmaMissionUi.Label(row.transform, record.CycleId.Replace('-', '.'), 16, 12, 190, 28, 18, null, true);
-                FigmaMissionUi.Label(row.transform, record.IsCompleted ? "완료" : Service.IsDailyEmotionExpired(record.Id) ? "작성 기간 지남" : "작성 중",
-                    190, 16, 136, 24, 14, FigmaMissionUi.Muted, false, TextAnchor.MiddleRight);
-                string summary = string.Join(" · ", new[] { record.Mood, record.Note }.Where(value => !string.IsNullOrWhiteSpace(value))).Replace('\n', ' ');
-                if (summary.Length > 60) summary = summary.Substring(0, 60) + "…";
-                FigmaMissionUi.Label(row.transform, string.IsNullOrEmpty(summary) ? "남긴 내용이 없어요." : summary,
-                    16, 48, 310, 36, 14, FigmaMissionUi.Muted);
-            }
+            ShowActivityJournal();
         }
 
         public void ResetDailyEmotionUiDraft()

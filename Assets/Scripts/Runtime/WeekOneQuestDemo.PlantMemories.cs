@@ -20,81 +20,69 @@ namespace CapstoneDesign.Runtime
             var state = Service.Snapshot;
             var plant = state.PlantCollection?.Plants.FirstOrDefault(p => p.Id == plantId);
             if (plant == null) { ShowPlantAlbum(); return; }
-            int pages = Math.Max(1, (plant.Memories.Count + WeeklyPlants.PageSize - 1) / WeeklyPlants.PageSize);
-            page = Mathf.Clamp(page, 0, pages - 1); int selectedPage = page;
-            string key = "plant-memories:" + plantId;
-            var root = BeginFigmaPage(key, () => ShowPlantMemories(plantId, selectedPage), FigmaMissionUi.Background, true, "기록");
-            var frame = activityFrame;
-            FigmaHeader(root, "기억 잎", GardenHomePresenter.CurrentPlantName(plant.Recipe));
-            var body = FigmaScroll(root, 132, 628, 700); float y = 8;
-            var visible = plant.Memories.Where(m => m.SlotIndex / WeeklyPlants.PageSize == page && m.Kind != MemoryRecordKind.None).ToArray();
-            foreach (var memory in visible)
-            {
-                var memo = PlantAlbumHistory.MemoryRecord(state, plantId, memory.OrganId);
-                if (memo == null) continue;
-                string organ = memory.OrganId;
-                var row = FigmaMissionUi.Button(body, "", 24, y, 342, 84, () => {
-                    if (IsPlantPageCurrent(frame, key)) OpenPlantMemo(plantId, organ, plant.PhotoId, root);
-                }, Color.white, FigmaMissionUi.Ink);
-                row.name = "PlantMemory.Record." + organ;
-                FigmaMissionUi.Label(row.transform, PlantAlbumHistory.Date(memo, Service.CurrentTimeZone), 16, 8, 310, 22, 14, FigmaMissionUi.Muted);
-                string summary = string.IsNullOrWhiteSpace(memo.Mood) ? "남긴 메모" : memo.Mood;
-                if (summary.Length > 40) summary = summary.Substring(0, 40) + "…";
-                FigmaMissionUi.Label(row.transform, summary, 16, 34, 310, 40, 17, FigmaMissionUi.Green, true);
-                y += 96;
-            }
-            if (visible.Length == 0)
-            {
-                FigmaMissionUi.Label(body, "이 가지에는 남긴 기록이 없어요.", 24, y, 342, 64, 17, FigmaMissionUi.Muted);
-                y += 80;
-            }
-            if (pages > 1)
-            {
-                FigmaMissionUi.Label(body, "기억 잎 " + (page + 1) + " / " + pages, 24, y, 342, 28, 14,
-                    FigmaMissionUi.Muted, false, TextAnchor.MiddleCenter); y += 36;
-                var previous = FigmaMissionUi.Button(body, "이전 잎", 24, y, 165, 48, () => {
-                    if (IsPlantPageCurrent(frame, key)) ShowPlantMemories(plantId, selectedPage - 1);
-                }, Color.white, FigmaMissionUi.Green);
-                previous.name = "PlantMemory.Previous"; previous.interactable = page > 0;
-                var next = FigmaMissionUi.Button(body, "다음 잎", 201, y, 165, 48, () => {
-                    if (IsPlantPageCurrent(frame, key)) ShowPlantMemories(plantId, selectedPage + 1);
-                }, Color.white, FigmaMissionUi.Green);
-                next.name = "PlantMemory.Next"; next.interactable = page < pages - 1; y += 64;
-            }
+            // Keep the optional page argument for existing callers. Only the 3D
+            // representation is paged; this reading list includes every linked leaf.
+            var records = plant.Memories.Where(memory => memory.Kind != MemoryRecordKind.None)
+                .Select(memory => new { Memory = memory, Record = PlantAlbumHistory.MemoryRecord(state, plantId, memory.OrganId) })
+                .Where(entry => entry.Record != null)
+                .OrderByDescending(entry => entry.Record.CreatedUtc, StringComparer.Ordinal)
+                .ThenByDescending(entry => entry.Memory.SlotIndex).ToArray();
             bool current = WeeklyPlants.Active(state)?.Id == plantId;
-            if (current || !string.IsNullOrEmpty(plant.PhotoId))
+            string photoId = state.PlantPhotos.FirstOrDefault(photo => photo.Id == plant.PhotoId
+                && photo.SourcePlantInstanceId == plantId)?.Id;
+            string key = "plant-memories:" + plantId;
+            var root = BeginFigmaPage(key, () => ShowPlantMemories(plantId, page), FigmaMissionUi.Background, true, "기록");
+            var frame = activityFrame;
+            FigmaHeader(root, "기억 잎", GardenHomePresenter.CurrentPlantName(plant.Recipe) + " · " + records.Length + "개");
+            var back = FigmaMissionUi.Button(root, current ? "정원으로 돌아가기" : photoId != null ? "사진으로 돌아가기" : "사진첩으로 돌아가기",
+                24, 138, 342, 48, () => {
+                    if (!IsPlantPageCurrent(frame, key) || GardenMemoPopup.IsOpen) return;
+                    if (current) GoGarden();
+                    else if (photoId != null) ShowPlantPhoto(photoId);
+                    else ShowPlantAlbum();
+                }, Color.clear, FigmaMissionUi.Green);
+            back.name = "PlantMemory.ViewPlant";
+            var body = FigmaScroll(root, 204, 556, 556); float y = 8;
+            pageViewport.name = "PlantMemory.Scroll";
+            foreach (var entry in records)
             {
-                FigmaMissionUi.Button(body, current ? "정원에서 이 잎 보기" : "사진으로 보기", 24, y, 342, 48, () => {
-                    if (!IsPlantPageCurrent(frame, key)) return;
-                    if (!current) { ShowPlantPhoto(plant.PhotoId); return; }
-                    var home = transform.root.GetComponent<GardenHomePresenter>();
-                    home?.SetMemoryPage(selectedPage); GoGarden(); home?.SetOverview(false);
-                }).name = "PlantMemory.ViewPlant"; y += 64;
+                string organId = entry.Memory.OrganId;
+                y += CreatePlantMemoryRecordRow(body, "PlantMemory", organId, entry.Record, 24, y, 342, () => {
+                    if (IsPlantPageCurrent(frame, key) && !GardenMemoPopup.IsOpen)
+                        OpenPlantMemo(plantId, organId, photoId, root);
+                }) + 8;
             }
-            FigmaMissionUi.Button(body, "사진첩으로 돌아가기", 24, y, 342, 48, () => {
-                if (IsPlantPageCurrent(frame, key)) ShowPlantAlbum();
+            if (records.Length == 0)
+            {
+                FigmaMissionUi.Label(body, "아직 기록이 연결된 기억 잎이 없어요.\n감정과 메모를 남기면 여기서 다시 볼 수 있어요.",
+                    24, y, 342, 88, 17, FigmaMissionUi.Muted).name = "PlantMemory.Empty";
+                y += 104;
+            }
+            FigmaMissionUi.Button(body, "사진첩 보기", 24, y, 342, 48, () => {
+                if (IsPlantPageCurrent(frame, key) && !GardenMemoPopup.IsOpen) ShowPlantAlbum();
             }, Color.clear, FigmaMissionUi.Green).name = "PlantMemory.Back";
-            body.sizeDelta = new Vector2(390, Math.Max(628, y + 72));
+            body.sizeDelta = new Vector2(390, y + 72);
         }
 
-        void ReturnToPlantMemory(string plantId, string photoId)
+        void ReturnToPlantMemory(string plantId, string photoId, Action returnToOrigin = null)
         {
             error = null;
+            if (returnToOrigin != null) { returnToOrigin(); return; }
             if (!string.IsNullOrEmpty(photoId) && Service.Snapshot.PlantPhotos.Any(p => p.Id == photoId)) ShowPlantPhoto(photoId);
             else ShowPlantMemories(plantId);
         }
 
-        void ShowPlantMemoryEditor(string plantId, string organId, string photoId)
+        void ShowPlantMemoryEditor(string plantId, string organId, string photoId, Action returnToOrigin = null)
         {
             if (!opened || !SaveActivePracticeDraft()) return;
             PreparePlantMemoryPage();
             var state = Service.Snapshot; var memory = PlantAlbumHistory.Memory(state, plantId, organId);
             var memo = PlantAlbumHistory.MemoryRecord(state, plantId, organId);
-            if (memory == null || memo == null) { ReturnToPlantMemory(plantId, photoId); return; }
+            if (memory == null || memo == null) { ReturnToPlantMemory(plantId, photoId, returnToOrigin); return; }
             string key = "plant-memory-edit:" + organId;
-            var root = BeginFigmaPage(key, () => ShowPlantMemoryEditor(plantId, organId, photoId), FigmaMissionUi.Background, true, "기록");
+            var root = BeginFigmaPage(key, () => ShowPlantMemoryEditor(plantId, organId, photoId, returnToOrigin), FigmaMissionUi.Background, true, "기록");
             var frame = activityFrame;
-            FigmaHeader(root, "기억 수정", PlantAlbumHistory.Date(memo, Service.CurrentTimeZone));
+            FigmaHeader(root, "기억 잎 기록 수정", PlantAlbumHistory.Date(memo, Service.CurrentTimeZone));
             var body = FigmaScroll(root, 132, 628, 760); float y = 8;
             string[] headings, values;
             bool experience = memory.Kind == MemoryRecordKind.Experience;
@@ -116,7 +104,7 @@ namespace CapstoneDesign.Runtime
             var failure = FigmaMissionUi.Label(body, "", 24, y, 342, 56, 15, FigmaMissionUi.Brown);
             failure.name = "PlantMemory.Error"; y += 64;
             FigmaMissionUi.Button(body, "취소", 24, y, 165, 48, () => {
-                if (IsPlantPageCurrent(frame, key)) ReturnToPlantMemory(plantId, photoId);
+                if (IsPlantPageCurrent(frame, key)) ReturnToPlantMemory(plantId, photoId, returnToOrigin);
             }, Color.white, FigmaMissionUi.Green).name = "PlantMemory.Cancel";
             FigmaMissionUi.Button(body, "저장", 201, y, 165, 48, () => {
                 if (!IsPlantPageCurrent(frame, key)) return;
@@ -127,38 +115,38 @@ namespace CapstoneDesign.Runtime
                     : memory.Kind == MemoryRecordKind.DailyEmotion ? Service.UpdateDailyEmotion(memory.RecordId, inputs[0].text, inputs[1].text)
                     : Service.UpdateReflection(memory.RecordId, inputs[0].text, inputs[1].text);
                 if (!saved) { failure.text = "저장하지 못했어요. 입력은 그대로예요. 다시 시도해 주세요."; return; }
-                UpdateGarden(); ReturnToPlantMemory(plantId, photoId);
+                UpdateGarden(); ReturnToPlantMemory(plantId, photoId, returnToOrigin);
             }).name = "PlantMemory.Save";
             body.sizeDelta = new Vector2(390, Math.Max(628, y + 72));
         }
 
-        void ShowPlantMemoryDeletion(string plantId, string organId, string photoId)
+        void ShowPlantMemoryDeletion(string plantId, string organId, string photoId, Action returnToOrigin = null)
         {
             if (!opened || !SaveActivePracticeDraft()) return;
             PreparePlantMemoryPage();
             var memory = PlantAlbumHistory.Memory(Service.Snapshot, plantId, organId);
-            if (memory == null) { ReturnToPlantMemory(plantId, photoId); return; }
+            if (memory == null) { ReturnToPlantMemory(plantId, photoId, returnToOrigin); return; }
             string key = "plant-memory-delete:" + organId;
-            var root = BeginFigmaPage(key, () => ShowPlantMemoryDeletion(plantId, organId, photoId), FigmaMissionUi.Background, true, "기록");
+            var root = BeginFigmaPage(key, () => ShowPlantMemoryDeletion(plantId, organId, photoId, returnToOrigin), FigmaMissionUi.Background, true, "기록");
             var frame = activityFrame;
-            FigmaHeader(root, "기억을 지울까요?", "식물의 모습과 성장 기록은 그대로예요.");
+            FigmaHeader(root, "기억 잎 기록 삭제", "식물의 모습과 성장 기록은 그대로예요.");
             var body = FigmaScroll(root, 132, 628, 420);
-            FigmaMissionUi.Label(body, "감정과 메모 내용이 삭제돼요.\n이 잎에는 기록이 연결되지 않아요.", 24, 20, 342, 90, 18);
+            FigmaMissionUi.Label(body, "감정과 메모 내용이 삭제돼요.\n이 기억 잎에는 기록이 연결되지 않아요.", 24, 20, 342, 90, 18);
             var failure = FigmaMissionUi.Label(body, "", 24, 120, 342, 64, 15, FigmaMissionUi.Brown);
             failure.name = "PlantMemory.Error";
             FigmaMissionUi.Button(body, "돌아가기", 24, 204, 165, 48, () => {
-                if (IsPlantPageCurrent(frame, key)) ReturnToPlantMemory(plantId, photoId);
+                if (IsPlantPageCurrent(frame, key)) ReturnToPlantMemory(plantId, photoId, returnToOrigin);
             }, Color.white, FigmaMissionUi.Green).name = "PlantMemory.Cancel";
             FigmaMissionUi.Button(body, "삭제", 201, 204, 165, 48, () => {
                 if (!IsPlantPageCurrent(frame, key)) return;
                 var live = PlantAlbumHistory.Memory(Service.Snapshot, plantId, organId);
-                if (live == null) { ReturnToPlantMemory(plantId, photoId); return; }
+                if (live == null) { ReturnToPlantMemory(plantId, photoId, returnToOrigin); return; }
                 if (live.Kind != memory.Kind || live.RecordId != memory.RecordId) return;
                 bool saved = memory.Kind == MemoryRecordKind.DailyEmotion ? Service.DeleteDailyEmotion(memory.RecordId)
                     : memory.Kind == MemoryRecordKind.Experience ? Service.DeleteExperience(memory.RecordId)
                     : Service.UpdateReflection(memory.RecordId, "", "");
                 if (!saved) { failure.text = "삭제하지 못했어요. 기록은 그대로예요. 다시 시도해 주세요."; return; }
-                UpdateGarden(); ReturnToPlantMemory(plantId, photoId);
+                UpdateGarden(); ReturnToPlantMemory(plantId, photoId, returnToOrigin);
             }, FigmaMissionUi.Brown, Color.white).name = "PlantMemory.DeleteConfirm";
         }
     }

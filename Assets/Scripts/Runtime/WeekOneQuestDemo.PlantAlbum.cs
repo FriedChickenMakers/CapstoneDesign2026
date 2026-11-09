@@ -142,7 +142,7 @@ namespace CapstoneDesign.Runtime
             var root = BeginFigmaPage("plant-photo:" + photoId, () => ShowPlantPhoto(photoId), FigmaMissionUi.Background, true, "기록");
             var detailFrame = activityFrame;
             root.GetComponent<FocusMobilePageLayout>().FixedContent = true;
-            FigmaHeader(root, "식물 사진", "함께한 기간과 기록 · 앱 날짜 기준");
+            FigmaHeader(root, "식물 사진", "함께한 기간과 기억 잎 · 앱 날짜 기준");
             SetPlantAlbumNotice(false);
             Func<bool> current = () => isActiveAndEnabled && IsPlantPageCurrent(detailFrame, "plant-photo:" + photoId)
                 && !GardenMemoPopup.IsOpen;
@@ -154,7 +154,7 @@ namespace CapstoneDesign.Runtime
             var preview = CreatePlantAlbumPreview(card, "PlantAlbum.DetailPreview", 16, 48, 310, 288, photo.Recipe, photo.Scale, InteractivePlantPhotos, photo.Memos, PlantAlbumHistory.Leaves(state, photo.SourcePlantInstanceId));
             preview.MemoClicked += memoId => OpenPlantMemo(photo.SourcePlantInstanceId, memoId, photo.Id, preview.transform);
             var records = PlantAlbumHistory.Records(state, photo);
-            var heading = FigmaMissionUi.Label(root, "그날의 기록 · " + records.Length + "개", 24, 472, 342, 24, 16, FigmaMissionUi.Ink, true);
+            var heading = FigmaMissionUi.Label(root, "기억 잎 기록 · " + records.Length + "개", 24, 472, 342, 24, 16, FigmaMissionUi.Ink, true);
             heading.name = "PlantAlbum.RecordHeading";
             var viewport = FigmaMissionUi.Box(root, "PlantAlbum.RecordsViewport", 24, 500, 342, 200, FigmaMissionUi.Soft, 14);
             viewport.GetComponent<Image>().raycastTarget = true; viewport.gameObject.AddComponent<RectMask2D>();
@@ -181,34 +181,14 @@ namespace CapstoneDesign.Runtime
             foreach (var record in records)
             {
                 string memoId = record.Id;
-                var row = FigmaMissionUi.Button(content, "", 6, y, 326, 98, () =>
+                y += CreatePlantMemoryRecordRow(content, "PlantAlbum", memoId, record, 6, y, 326, () =>
                 {
                     if (current()) OpenPlantMemo(photo.SourcePlantInstanceId, memoId, photo.Id, root);
-                }, Color.white, FigmaMissionUi.Ink);
-                row.name = "PlantAlbum.Record." + memoId;
-                FigmaMissionUi.Label(row.transform, PlantAlbumHistory.Date(record, Service.CurrentTimeZone), 12, 6, 302, 20, 14, FigmaMissionUi.Ink, true)
-                    .name = "PlantAlbum.RecordDate." + memoId;
-                string mood = string.IsNullOrWhiteSpace(record.Mood) ? "메모를 남긴 날" : record.Mood;
-                if (mood.Length > 36) mood = mood.Substring(0, 36) + "…";
-                var summary = FigmaMissionUi.Label(row.transform, mood, 12, 28, 302, 22, 16, FigmaMissionUi.Green, true);
-                summary.name = "PlantAlbum.RecordMood." + memoId;
-                float moodHeight = Mathf.Max(22, summary.preferredHeight);
-                summary.rectTransform.sizeDelta = new Vector2(302, moodHeight);
-                var basic = FigmaMissionUi.Label(row.transform, PlantAlbumHistory.MissionLine(record, true), 12, 32 + moodHeight, 302, 18, 13, FigmaMissionUi.Muted);
-                basic.name = "PlantAlbum.RecordBasic." + memoId;
-                float basicHeight = Mathf.Max(18, basic.preferredHeight);
-                basic.rectTransform.sizeDelta = new Vector2(302, basicHeight);
-                var additional = FigmaMissionUi.Label(row.transform, PlantAlbumHistory.MissionLine(record, false), 12, 34 + moodHeight + basicHeight, 302, 18, 13, FigmaMissionUi.Muted);
-                additional.name = "PlantAlbum.RecordAdditional." + memoId;
-                float additionalHeight = Mathf.Max(18, additional.preferredHeight);
-                additional.rectTransform.sizeDelta = new Vector2(302, additionalHeight);
-                float height = 42 + moodHeight + basicHeight + additionalHeight;
-                FigmaMissionUi.SetRect((RectTransform)row.transform, 6, y, 326, height);
-                y += height + 6;
+                }) + 6;
             }
             if (records.Length == 0)
             {
-                FigmaMissionUi.Label(content, "이 식물에 남긴 감정 기록이 없어요.", 18, 22, 306, 48, 16, FigmaMissionUi.Muted)
+                FigmaMissionUi.Label(content, "이 식물에 연결된 기억 잎 기록이 없어요.", 18, 22, 306, 48, 16, FigmaMissionUi.Muted)
                     .name = "PlantAlbum.NoRecords";
                 y = 82;
             }
@@ -221,6 +201,37 @@ namespace CapstoneDesign.Runtime
             layout.RecordViewport = viewport; layout.RecordContent = content; layout.RecordContentHeight = y;
             layout.Back = (RectTransform)back.transform; layout.Navigation = (RectTransform)root.GetComponentInChildren<MissionBottomNavigation>().transform;
             layout.Notice = notice; layout.Refresh();
+        }
+
+        float CreatePlantMemoryRecordRow(Transform parent, string prefix, string id, GardenPlantMemo record,
+            float x, float y, float width, Action open)
+        {
+            var row = FigmaMissionUi.Button(parent, "", x, y, width, 98, open, Color.white, FigmaMissionUi.Ink);
+            row.name = prefix + ".Record." + id;
+            float textWidth = width - 24;
+            FigmaMissionUi.Label(row.transform, PlantAlbumHistory.Date(record, Service.CurrentTimeZone),
+                12, 6, textWidth - 36, 20, 14, FigmaMissionUi.Ink, true).name = prefix + ".RecordDate." + id;
+            FigmaMissionUi.Label(row.transform, "보기", width - 46, 6, 34, 20, 12, FigmaMissionUi.Muted,
+                false, TextAnchor.MiddleRight).name = prefix + ".RecordOpen." + id;
+            string mood = string.IsNullOrWhiteSpace(record.Mood) ? "메모를 남긴 날" : record.Mood;
+            if (mood.Length > 36) mood = mood.Substring(0, 36) + "…";
+            var summary = FigmaMissionUi.Label(row.transform, mood, 12, 28, textWidth, 22, 16, FigmaMissionUi.Green, true);
+            summary.name = prefix + ".RecordMood." + id;
+            float moodHeight = Mathf.Max(22, summary.preferredHeight);
+            summary.rectTransform.sizeDelta = new Vector2(textWidth, moodHeight);
+            var basic = FigmaMissionUi.Label(row.transform, PlantAlbumHistory.MissionLine(record, true),
+                12, 32 + moodHeight, textWidth, 18, 13, FigmaMissionUi.Muted);
+            basic.name = prefix + ".RecordBasic." + id;
+            float basicHeight = Mathf.Max(18, basic.preferredHeight);
+            basic.rectTransform.sizeDelta = new Vector2(textWidth, basicHeight);
+            var additional = FigmaMissionUi.Label(row.transform, PlantAlbumHistory.MissionLine(record, false),
+                12, 34 + moodHeight + basicHeight, textWidth, 18, 13, FigmaMissionUi.Muted);
+            additional.name = prefix + ".RecordAdditional." + id;
+            float additionalHeight = Mathf.Max(18, additional.preferredHeight);
+            additional.rectTransform.sizeDelta = new Vector2(textWidth, additionalHeight);
+            float height = 42 + moodHeight + basicHeight + additionalHeight;
+            FigmaMissionUi.SetRect((RectTransform)row.transform, x, y, width, height);
+            return height;
         }
 
         static void AddPlantRecordScrollbar(RectTransform viewport, ScrollRect scroll)

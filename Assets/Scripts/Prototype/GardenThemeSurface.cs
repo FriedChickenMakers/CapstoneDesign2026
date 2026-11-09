@@ -51,7 +51,11 @@ namespace CapstoneDesign.Prototype
             (groundTexture = Resources.Load<Texture2D>("UI/Textures/Ground048UI"));
         // Keep navigation backing independent from buttons and page headings.
         const string ShelfTexturePath = "UI/Textures/Wood062LitUI";
-        static readonly Color TimberBorder = new Color32(75, 43, 29, 255);
+        static readonly Color TimberBorder = new Color32(76, 65, 52, 255);
+        static readonly Color TimberWash = new Color32(92, 81, 68, 72);
+        static readonly Color ShelfWash = new Color32(64, 59, 51, 82);
+        static readonly Color LeafWash = new Color32(52, 74, 57, 72);
+        static readonly Color SelectedLeafWash = new Color32(199, 213, 193, 68);
         bool texturedFace;
         Rect textureFaceRect;
         bool UsesWood => style == Style.Wood || style == Style.TabWood || style == Style.Header || style == Style.Shelf;
@@ -72,7 +76,7 @@ namespace CapstoneDesign.Prototype
         bool UsesTexture => style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
         Texture2D SurfaceTexture => style == Style.NavigationLeaf ? DenseLeafTexture : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
         public override Texture mainTexture => UsesTexture && SurfaceTexture != null ? SurfaceTexture : base.mainTexture;
-        public static readonly Color WoodInk = new Color32(255, 246, 226, 255);
+        public static readonly Color WoodInk = new Color32(249, 247, 237, 255);
         public static Color Foreground(Transform parent, Color fallback)
         {
             for (var node = parent; node != null; node = node.parent)
@@ -240,12 +244,14 @@ namespace CapstoneDesign.Prototype
             {
                 textureFaceRect = face;
                 texturedFace = true;
-                Gradient(mesh, face, navigationSelected ? radius : Mathf.Max(1, radius - 2 * u),
-                    style == Style.NavigationLeaf ? new Color(.42f, .48f, .40f) :
-                    navigationSelected ? Color.white : new Color(.58f, .64f, .55f),
-                    style == Style.NavigationLeaf ? new Color(.34f, .40f, .32f) :
-                    navigationSelected ? new Color(.96f, .98f, .93f) : new Color(.49f, .56f, .47f));
+                float faceRadius = navigationSelected ? radius : Mathf.Max(1, radius - 2 * u);
+                Gradient(mesh, face, faceRadius,
+                    style == Style.NavigationLeaf ? new Color(.59f, .65f, .56f) :
+                    navigationSelected ? new Color(.90f, .96f, .91f) : new Color(.64f, .69f, .61f),
+                    style == Style.NavigationLeaf ? new Color(.52f, .58f, .50f) :
+                    navigationSelected ? new Color(.86f, .92f, .87f) : new Color(.56f, .62f, .54f));
                 texturedFace = false;
+                TextureWash(mesh, face, faceRadius, style == Style.Home ? SelectedLeafWash : LeafWash);
                 return;
             }
             Gradient(mesh, face, Mathf.Max(1, radius - 2 * u),
@@ -288,11 +294,18 @@ namespace CapstoneDesign.Prototype
             textureFaceRect = face;
             texturedFace = true;
             Gradient(mesh, face, radius,
-                style == Style.Shelf ? new Color(.30f, .268f, .241f) :
-                (style == Style.Wood || style == Style.TabWood) ? Color.white : new Color(.90f, .87f, .82f),
-                (style == Style.Wood || style == Style.TabWood) ? new Color(.97f, .97f, .97f) :
-                style == Style.Shelf ? new Color(.236f, .211f, .193f) : new Color(.80f, .77f, .72f));
+                style == Style.Shelf ? new Color(.53f, .52f, .48f) : new Color(.92f, .93f, .90f),
+                style == Style.Shelf ? new Color(.46f, .45f, .42f) : new Color(.85f, .87f, .83f));
             texturedFace = false;
+            TextureWash(mesh, face, radius, style == Style.Shelf ? ShelfWash : TimberWash);
+        }
+
+        void TextureWash(VertexHelper mesh, Rect face, float radius, Color tint)
+        {
+            // The existing atlas has a white strip for solid decoration. A translucent
+            // face gently compresses photographic contrast without replacing the texture,
+            // allocating materials, or changing the opaque face and its hit rectangle.
+            Rounded(mesh, face, radius, tint);
         }
 
         void Progress(VertexHelper mesh, Rect r, bool fill)

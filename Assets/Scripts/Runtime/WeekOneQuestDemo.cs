@@ -433,7 +433,7 @@ namespace CapstoneDesign.Runtime
                 GardenUi.FlowLabel(p,"코인 +"+completed.RewardAmount).name="Mission.CoinReward";
             if(GardenPlantVisuals.HasCurrentPlant(state) && GardenPlantVisuals.IsCompleted(state))
             {
-                GardenUi.FlowLabel(p,"식물이 완성됐어요. 사진첩에 지금 모습을 남겨 보세요.").name="PlantGrowth.CompletedNotice";
+                GardenUi.FlowLabel(p,"식물이 완성됐어요. 완성한 모습은 사진첩에 자동으로 보관돼요.").name="PlantGrowth.CompletedNotice";
                 DockAction("사진첩으로 이동",ShowPlantAlbum,true);
             }
             AddStoredGrowthGuide(p, state);
@@ -682,7 +682,7 @@ namespace CapstoneDesign.Runtime
             GardenUi.ScrollText(p,(MindfulnessContent.FindMission(s.MissionId)?.title ?? s.MissionId)+"\n"+LocalTime(s.StartedUtc)+" ~ "+LocalTime(s.EndedUtc)+"\n기분: "+(string.IsNullOrEmpty(s.Mood)?"기록 건너뜀":s.Mood)+"\n"+(s.Note??""),.07f,.57f,.86f,.23f);
             if(MbctPolicy.IsMbct(s.MissionId))GardenUi.Button(p,"실습에서 적은 내용",.07f,.075f,.54f,.055f,()=>ShowPracticeAnswers(id));
             BuildRecordHeart(p,s);
-            GardenUi.Button(p,"기록 목록",.65f,.075f,.28f,.055f,ShowGardenJournal);
+            GardenUi.Button(p,"기록 목록",.65f,.075f,.28f,.055f,()=>ReturnToActivityJournalIfSource(ShowGardenJournal));
         }
         public void ShowDiscoveries()
         {

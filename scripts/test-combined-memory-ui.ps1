@@ -4,7 +4,8 @@ param(
     [string]$ReuseProject,
     [string]$UnityExe = (Join-Path $env:ProgramFiles 'Unity/Hub/Editor/6000.3.24f1/Editor/Unity.exe'),
     [int]$TimeoutSeconds = 600,
-    [switch]$PrepareOnly
+    [switch]$PrepareOnly,
+    [switch]$GardenCompositionOnly
 )
 $ErrorActionPreference = 'Stop'
 if ($RunId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$' -or $EvidenceGroup -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]*$') { throw 'Use simple unique artifact directory names.' }
@@ -65,7 +66,10 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $projectRoot 'Assets')) 
     if ($item.Name -in @('Editor', 'Editor.meta', 'Tests', 'Tests.meta')) { continue }
     Copy-Source ('Assets/' + $item.Name) (Join-Path $isolated ('Assets/' + $item.Name))
 }
-foreach ($file in @('CombinedPlantMemoryValidation.cs', 'CombinedPlantMemoryValidation.cs.meta', 'ScreenDensityTextValidation.cs', 'ScreenDensityTextValidation.cs.meta')) {
+# KenneyGardenBuilder is a compile dependency only. The explicit validation
+# entry calls ValidatePresentationOnly, never Build/BuildAndCapture or asset writes.
+foreach ($file in @('CombinedPlantMemoryValidation.cs', 'CombinedPlantMemoryValidation.cs.meta', 'ScreenDensityTextValidation.cs', 'ScreenDensityTextValidation.cs.meta',
+    'SolidIslandValidation.cs', 'SolidIslandValidation.cs.meta', 'KenneyGardenBuilder.cs', 'KenneyGardenBuilder.cs.meta')) {
     Copy-Source ('Assets/Editor/Automation/' + $file) (Join-Path $isolated ('Assets/Editor/Automation/' + $file))
 }
 foreach ($file in @('manifest.json', 'packages-lock.json')) { Copy-Source ('Packages/' + $file) (Join-Path $isolated ('Packages/' + $file)) }
@@ -102,12 +106,14 @@ $before = @(Get-Process -Name Unity -ErrorAction SilentlyContinue | Select-Objec
 [ordered]@{ runId = $RunId; utc = [DateTime]::UtcNow.ToString('O'); isolatedProject = $isolated; unityExecutable = $UnityExe;
     launchMode = 'Hidden -batchmode -force-d3d11; no GameView/window focus'; company = 'CapstoneSyntheticValidation'; product = $product;
     preexistingUnityPids = @($before.Id); copiedSources = $sourceFiles; sourceProjectUntouched = $true; activeColorSpace = $sourceColorSpace;
-    reusedProject = (-not [string]::IsNullOrWhiteSpace($ReuseProject)); previousVersions = $baselineFiles } |
+    reusedProject = (-not [string]::IsNullOrWhiteSpace($ReuseProject)); previousVersions = $baselineFiles;
+    gardenCompositionOnly = [bool]$GardenCompositionOnly } |
     ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $runRoot 'manifest.json') -Encoding utf8
 if ($PrepareOnly) { Write-Output "Prepared isolated GPU project: $isolated"; return }
 $arguments = @('-batchmode', '-force-d3d11', '-screen-width', '390', '-screen-height', '844',
     '-projectPath', ('"' + $isolated + '"'), '-executeMethod', 'CapstoneDesign.EditorTools.CombinedPlantMemoryValidation.RunBatch',
     '-combinedMemoryReport', ('"' + $reportPath + '"'), '-logFile', ('"' + $logPath + '"'))
+if($GardenCompositionOnly){$arguments+='-gardenCompositionOnly'}
 $process = Start-Process -FilePath $UnityExe -ArgumentList $arguments -WindowStyle Hidden -PassThru
 Write-Output "Started isolated GPU Unity PID $($process.Id); preexisting Unity PIDs $($before.Id -join ', ') untouched."
 $watch = [Diagnostics.Stopwatch]::StartNew()

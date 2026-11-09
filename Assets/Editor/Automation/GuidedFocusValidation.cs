@@ -24,6 +24,7 @@ namespace CapstoneDesign.EditorTools
             public int passed, failed, assertions, clicks, raycasts;
             public List<Check> checks = new List<Check>();
             public List<string> captures = new List<string>(), errors = new List<string>();
+            public List<string> visualMeasurements = new List<string>();
         }
         static Report report;
         static string output;
@@ -40,10 +41,14 @@ namespace CapstoneDesign.EditorTools
             Application.logMessageReceived += Observe;
             try
             {
-                foreach (var size in new[] { new Vector2Int(360, 640), new Vector2Int(390, 844) })
+                foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(360, 640), new Vector2Int(390, 844) })
+                    Run("P01 illustrated stages, focus choices and safe input " + size.x + "x" + size.y, () => P01VisualFlow(size.x, size.y));
+                foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(360, 640), new Vector2Int(390, 844) })
+                    Run("P02 sound illustrations, reading and optional reflection " + size.x + "x" + size.y, () => P02VisualFlow(size.x, size.y));
+                foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(360, 640), new Vector2Int(390, 844) })
                     Run("P01-P07 slides, centered action and durable practice " + size.x + "x" + size.y, () => Flow(size.x, size.y));
                 Run("Persisted version-2 page remains the previous runner", VersionTwoPage);
-                Run("Existing active v3 saved draft resumes practice", ActiveVersionThreeResume);
+                Run("Original schema-1 guided v3 draft migrates and resumes practice", ActiveVersionThreeResume);
                 Run("Guided debug entry preserves original service", DebugOverview);
             }
             finally
@@ -62,6 +67,242 @@ namespace CapstoneDesign.EditorTools
           catch (Exception ex) { report.failed++; report.checks.Add(new Check { name = name, status = "fail", detail = ex.ToString() }); } }
         static void Assert(bool value, string message) { report.assertions++; if (!value) throw new InvalidOperationException(message); }
         static string Screen(WeekOneQuestDemo ui) => (string)typeof(WeekOneQuestDemo).GetField("screen", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(ui);
+        static void P01VisualFlow(int width, int height)
+        {
+            bool reduced = FigmaMissionUi.ReducedMotion;
+            try
+            {
+                FigmaMissionUi.ReducedMotion = true;
+                using (var f = new Fixture(width, height))
+                {
+                    const string id = "synthetic-p01-illustration";
+                    Assert(f.Service.SelectMbctProgram("8w") && f.Service.BeginFocusSession(id, "P01", 1, program: "8w"), f.Service.LastError);
+                    f.Ui.SelectFocusSession(id); f.Layout();
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Overview); Rect anchor = f.AssertIcon();
+                    var overviewPixels = f.Pixels();
+                    Rect overviewArea = f.Bounds(f.Ui.GetComponentInChildren<P01BreathIllustration>(false).rectTransform);
+                    f.Capture("P01-visual-overview"); f.AssertIllustrationGestureCancellation("P01");
+                    Assert(f.Text("Guided.Overview") != null && f.Session(id).Status == ParticipationState.Selected,
+                        "Pointer cancellation cannot advance P01 or begin its practice.");
+                    f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Preparation); f.AssertIcon(anchor);
+                    var preparationPixels = f.Pixels();
+                    Rect preparationArea = f.Bounds(f.Ui.GetComponentInChildren<P01BreathIllustration>(false).rectTransform);
+                    f.Capture("P01-visual-preparation");
+                    f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Choice); f.AssertIcon(anchor);
+                    f.Capture("P01-visual-choice");
+                    f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Notice, "");
+                    f.Click("Focus.IconAction"); f.Click("Focus.IconAction");
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Return, "");
+                    var unchosenReturn = f.Pixels(); f.Capture("P01-visual-return-without-choice");
+                    Assert(string.IsNullOrEmpty(f.Session(id).FocusStepRecords[0].Value) && f.Session(id).Status == ParticipationState.Selected,
+                        "Skipping the focus choice keeps it unset and does not start practice or choose a body location.");
+                    f.Click("Guided.Previous"); f.Click("Guided.Previous"); f.Click("Guided.Previous");
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Choice, "");
+                    string beforeChoice = StateCodec.Encode(f.Service.Snapshot); int beforeWrites = f.Store.Saves;
+                    f.Store.Fail = true; f.Click("Guided.Choice.코");
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeChoice && f.Store.Saves == beforeWrites,
+                        "P01 choice storage failure leaves durable state and reward history unchanged.");
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Choice, "코"); f.AssertReadingSeparation();
+                    f.Capture("P01-visual-choice-error"); f.Store.Fail = false;
+                    var choices = new List<Color32[]>();
+                    var backNavigationFailures = new List<string>();
+                    foreach (string choice in new[] { "코", "가슴", "배" })
+                    {
+                        if (choices.Count > 0) f.Click("Guided.Previous");
+                        f.Click("Guided.Choice." + choice); f.AssertP01Illustration(P01BreathIllustration.Stage.Notice, choice); f.AssertIcon(anchor);
+                        Assert(f.Session(id).FocusStepRecords[0].Value == choice && f.Session(id).Status == ParticipationState.Selected,
+                            "Selecting " + choice + " changes the real saved focus area without starting the timer.");
+                        choices.Add(f.Pixels()); f.Capture("P01-visual-focus-" + choice);
+                        string selectedState = StateCodec.Encode(f.Service.Snapshot); int selectedWrites = f.Store.Saves;
+                        // Each reference is a newly built real page, reached through its normal buttons.
+                        f.Click("Guided.Previous"); f.AssertP01Illustration(P01BreathIllustration.Stage.Choice, choice);
+                        var selectedChoicePixels = f.Pixels();
+                        f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Notice, choice);
+                        var noticePixels = f.Pixels();
+                        f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Observe, choice);
+                        var observePixels = f.Pixels();
+                        f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Return, choice);
+                        var previousStages = new[] { P01BreathIllustration.Stage.Observe, P01BreathIllustration.Stage.Notice, P01BreathIllustration.Stage.Choice };
+                        var previousPictures = new[] { observePixels, noticePixels, selectedChoicePixels };
+                        for (int previous = 0; previous < previousStages.Length; previous++)
+                        {
+                            f.Click("Guided.Previous"); f.AssertP01Illustration(previousStages[previous], choice);
+                            Rect area = f.Bounds(f.Ui.GetComponentInChildren<P01BreathIllustration>(false).rectTransform);
+                            int changed = f.ChangedPixels(previousPictures[previous], f.Pixels(), area, 0);
+                            report.visualMeasurements.Add(width + "x" + height + " P01 back " + choice + " " + previousStages[previous] + ": " + changed + " changed pixels");
+                            if (changed != 0) backNavigationFailures.Add(choice + " " + previousStages[previous] + "=" + changed);
+                        }
+                        // Capture both affected pages before the aggregate assertion, including in a failing RED run.
+                        f.Click("Guided.Previous"); f.Capture("P01-visual-back-preparation-" + choice);
+                        Assert(f.Ui.GetComponentInChildren<P01BreathIllustration>(false).CurrentStage == P01BreathIllustration.Stage.Preparation,
+                            "Previous from choice reaches preparation without discarding the chosen focus.");
+                        int preparationChanged = f.ChangedPixels(preparationPixels, f.Pixels(), preparationArea, 0);
+                        f.Click("Guided.Previous"); f.Capture("P01-visual-back-overview-" + choice);
+                        Assert(f.Ui.GetComponentInChildren<P01BreathIllustration>(false).CurrentStage == P01BreathIllustration.Stage.Overview,
+                            "Previous from preparation reaches the original overview.");
+                        int overviewChanged = f.ChangedPixels(overviewPixels, f.Pixels(), overviewArea, 0);
+                        report.visualMeasurements.Add(width + "x" + height + " P01 back " + choice + " preparation=" + preparationChanged + ", overview=" + overviewChanged + " changed pixels");
+                        if (preparationChanged != 0 || overviewChanged != 0)
+                            backNavigationFailures.Add(choice + " preparation=" + preparationChanged + ", overview=" + overviewChanged);
+                        Assert(StateCodec.Encode(f.Service.Snapshot) == selectedState && f.Store.Saves == selectedWrites,
+                            "All previous-page navigation preserves the selected draft without saving, starting practice or rewarding.");
+                        f.Click("Focus.IconAction"); f.Click("Focus.IconAction");
+                        f.AssertP01Illustration(P01BreathIllustration.Stage.Choice, choice);
+                        f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Notice, choice);
+                        Assert(f.ChangedPixels(noticePixels, f.Pixels(), f.Bounds(f.Ui.GetComponentInChildren<P01BreathIllustration>(false).rectTransform), 0) == 0
+                            && StateCodec.Encode(f.Service.Snapshot) == selectedState && f.Store.Saves == selectedWrites,
+                            "Advancing again restores the saved focus illustration exactly without changing its draft or rewards.");
+                    }
+                    Assert(backNavigationFailures.Count == 0, "P01 back navigation must match fresh stage pixels and unselected preparation/overview baselines: "
+                        + string.Join("; ", backNavigationFailures));
+                    var picture = f.Bounds((RectTransform)f.Button("Focus.IconAction").transform);
+                    for (int a = 0; a < choices.Count; a++) for (int b = a + 1; b < choices.Count; b++)
+                    {
+                        int changed = f.ChangedPixels(choices[a], choices[b], picture, 8);
+                        report.visualMeasurements.Add(width + "x" + height + " P01 focus pair " + a + "/" + b + ": " + changed + " changed illustration pixels");
+                        Assert(changed >= 24, "Nose, chest and belly choices produce visibly distinct illustration pixels inside the same central target.");
+                    }
+                    f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Observe, "배"); f.AssertIcon(anchor);
+                    f.Capture("P01-visual-observe");
+                    f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Return, "배"); f.AssertIcon(anchor);
+                    Assert(f.ChangedPixels(unchosenReturn, f.Pixels(), picture, 8) >= 24,
+                        "Unchosen return guidance remains visually distinct from a chosen body's directed return cue.");
+                    f.Capture("P01-visual-return");
+                    string beforeStart = StateCodec.Encode(f.Service.Snapshot);
+                    f.Store.Fail = true; f.Click("Focus.IconAction"); f.Store.Fail = false;
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeStart && f.Session(id).Status == ParticipationState.Selected,
+                        "Failed practice start retains the last illustration and original saved participation.");
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Return, "배"); f.AssertReadingSeparation(); f.Capture("P01-visual-start-error");
+                    f.Click("Focus.IconAction"); f.AssertP01Illustration(P01BreathIllustration.Stage.Practice, "배"); f.AssertIcon(anchor);
+                    var practiceClock = f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
+                    Assert(practiceClock.Running, "P01 starts its existing timer only after the final cue.");
+                    practiceClock.ElapsedSeconds = 23; Assert(practiceClock.Flush(), "Persist P01 elapsed time before help");
+                    f.Capture("P01-visual-practice");
+                    Assert(f.Button("Guided.HelpToggle").GetComponentInChildren<Text>().text == "도움말", "P01 retains the help action rather than relabeling it as a restart.");
+                    string beforeHelp = StateCodec.Encode(f.Service.Snapshot);
+                    f.Click("Guided.HelpToggle");
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Help, "배", 0);
+                    Assert(!practiceClock.Running && f.Ui.GetComponentInChildren<FocusPracticeClock>(false) == null
+                        && !f.Text("Guided.Progress").text.Contains("1/3") && f.Text("Guided.Help").text.Split('\n').Length == 3,
+                        "P01 single-page help shows its three key statements together, pauses the timer and does not advertise three help pages.");
+                    f.Capture("P01-visual-help-single"); f.Click("Focus.IconAction");
+                    f.AssertP01Illustration(P01BreathIllustration.Stage.Practice, "배");
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeHelp
+                        && f.Ui.GetComponentInChildren<FocusPracticeClock>(false).ElapsedSeconds == 23,
+                        "One central click leaves P01 help and restores its original practice, focus and elapsed draft without reward.");
+                    f.Click("Guided.ReflectionToggle"); f.AssertP01Illustration(P01BreathIllustration.Stage.Reflection, "배"); f.AssertIcon(anchor);
+                    foreach (var option in f.Ui.GetComponentsInChildren<Button>(false).Where(b => b.name.StartsWith("Guided.Reflection.", StringComparison.Ordinal)).ToArray())
+                    { f.RevealRect((RectTransform)option.transform); f.AssertFullyVisible((RectTransform)option.transform, "Every optional reflection choice remains reachable"); }
+                    f.Capture("P01-visual-reflection");
+                    string readState = StateCodec.Encode(f.Service.Snapshot); int readWrites = f.Store.Saves;
+                    var staticPicture = f.Pixels(); var visual = f.Ui.GetComponentInChildren<P01BreathIllustration>(false);
+                    visual.SetAllDirty(); f.Layout();
+                    Assert(f.ChangedPixels(staticPicture, f.Pixels(), f.Bounds(visual.rectTransform), 0) == 0,
+                        "Reduced-motion re-render retains an identical static P01 illustration.");
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == readState && f.Store.Saves == readWrites
+                        && f.Service.CoinBalance == 137 && f.Service.GetPracticeGrowth(id) == null,
+                        "Illustration stages and optional reading never complete the mission, grow a plant or pay a reward.");
+                }
+            }
+            finally { FigmaMissionUi.ReducedMotion = reduced; }
+        }
+        static void P02VisualFlow(int width, int height)
+        {
+            bool reduced = FigmaMissionUi.ReducedMotion;
+            try
+            {
+                FigmaMissionUi.ReducedMotion = true;
+                using (var f = new Fixture(width, height))
+                {
+                    const string predecessor = "synthetic-p02-predecessor", id = "synthetic-p02-illustration";
+                    Assert(f.Service.SelectMbctProgram("8w") && f.Service.BeginFocusSession(predecessor, "P01", 1, program: "8w")
+                        && f.Service.StartGuidedFocusSession(predecessor, "")
+                        && f.Service.CompleteGuidedFocusPractice(predecessor, "", "", 0)
+                        && f.Service.CompletePracticeSession(predecessor), f.Service.LastError);
+                    f.Clock.Time = f.Clock.Time.AddDays(1);
+                    Assert(f.Service.RefreshCycle(Array.Empty<string>()) && f.Service.BeginFocusSession(id, "P02", 2, program: "8w"), f.Service.LastError);
+                    f.Ui.SelectFocusSession(id); f.Layout();
+                    string beforeReading = StateCodec.Encode(f.Service.Snapshot); int readingWrites = f.Store.Saves;
+                    var stages = new[] { P02SoundIllustration.Stage.Overview, P02SoundIllustration.Stage.Preparation,
+                        P02SoundIllustration.Stage.Notice, P02SoundIllustration.Stage.Observe, P02SoundIllustration.Stage.Return };
+                    var pictures = new List<Color32[]>(); var areas = new List<Rect>();
+                    Rect anchor = f.AssertIcon();
+                    for (int index = 0; index < stages.Length; index++)
+                    {
+                        if (index > 0) f.Click("Focus.IconAction");
+                        f.AssertP02Illustration(stages[index]); f.AssertIcon(anchor);
+                        Assert(f.Text("Guided.ChoiceTitle") == null && f.Ui.GetComponentInChildren<FocusPracticeClock>(false) == null,
+                            "P02 reading introduces neither a focus-choice page nor an active practice timer.");
+                        pictures.Add(f.Pixels()); areas.Add(f.Bounds(f.Ui.GetComponentInChildren<P02SoundIllustration>(false).rectTransform));
+                        f.Capture("P02-visual-" + stages[index]);
+                        if (index == 0) f.AssertIllustrationGestureCancellation("P02");
+                    }
+                    // These three cue pages share the same background, so a color-theme
+                    // change alone cannot satisfy the actual illustration difference.
+                    for (int a = 2; a < pictures.Count; a++) for (int b = a + 1; b < pictures.Count; b++)
+                    {
+                        int changed = f.ChangedPixels(pictures[a], pictures[b], anchor, 8);
+                        report.visualMeasurements.Add(width + "x" + height + " P02 " + stages[a] + "/" + stages[b] + ": " + changed + " changed illustration pixels");
+                        Assert(changed >= 24, "P02 noticing, observing and returning have visibly distinct guidance inside their common illustration area.");
+                    }
+                    for (int index = stages.Length - 2; index >= 0; index--)
+                    {
+                        f.Click("Guided.Previous"); f.AssertP02Illustration(stages[index]);
+                        f.Capture("P02-visual-back-" + stages[index]);
+                        Assert(f.ChangedPixels(pictures[index], f.Pixels(), areas[index], 0) == 0,
+                            "P02 previous navigation restores the exact fresh " + stages[index] + " illustration without residual effects.");
+                    }
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeReading && f.Store.Saves == readingWrites,
+                        "P02 reading, dragging and previous navigation preserve the original draft, plant, wallet and save count.");
+                    for (int index = 1; index < stages.Length; index++) f.Click("Focus.IconAction");
+                    f.Store.Fail = true; f.Click("Focus.IconAction"); f.Store.Fail = false;
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeReading && f.Session(id).Status == ParticipationState.Selected,
+                        "P02 failed practice start preserves the original selected session and rewards.");
+                    f.AssertP02Illustration(P02SoundIllustration.Stage.Return); f.AssertReadingSeparation(); f.Capture("P02-visual-start-error");
+                    f.Click("Focus.IconAction"); f.AssertP02Illustration(P02SoundIllustration.Stage.Practice);
+                    var clock = f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
+                    Assert(clock != null && clock.Running && f.Session(id).Status == ParticipationState.InProgress,
+                        "P02 starts its existing practice timer only after the last instruction.");
+                    clock.ElapsedSeconds = 29; Assert(clock.Flush(), "Persist P02 synthetic elapsed practice");
+                    f.Capture("P02-visual-practice");
+                    string beforeHelp = StateCodec.Encode(f.Service.Snapshot); int helpWrites = f.Store.Saves;
+                    Assert(f.Button("Guided.HelpToggle").GetComponentInChildren<Text>().text == "도움말", "P02 retains its help entry label.");
+                    f.Click("Guided.HelpToggle"); f.AssertP02Illustration(P02SoundIllustration.Stage.Help);
+                    Assert(!clock.Running && f.Ui.GetComponentInChildren<FocusPracticeClock>(false) == null
+                        && f.Text("Guided.Help").text.Split('\n').Length == 3 && !f.Text("Guided.Progress").text.Contains("1/3"),
+                        "P02 help presents three key statements on one page while the practice clock is paused.");
+                    f.Capture("P02-visual-help-single"); f.Click("Focus.IconAction");
+                    f.AssertP02Illustration(P02SoundIllustration.Stage.Practice);
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeHelp && f.Store.Saves == helpWrites
+                        && f.Ui.GetComponentInChildren<FocusPracticeClock>(false).ElapsedSeconds == 29,
+                        "One click returns from P02 help to its practice without changing elapsed time or the saved draft.");
+                    f.Click("Guided.ReflectionToggle"); f.AssertP02Illustration(P02SoundIllustration.Stage.Reflection);
+                    foreach (var option in f.Ui.GetComponentsInChildren<Button>(false).Where(b => b.name.StartsWith("Guided.Reflection.", StringComparison.Ordinal)).ToArray())
+                    { f.RevealRect((RectTransform)option.transform); f.AssertFullyVisible((RectTransform)option.transform, "P02 optional reflection choice remains reachable"); }
+                    var input = f.Ui.GetComponentsInChildren<InputField>(false).Single(i => i.name == "Guided.ReflectionInput");
+                    f.RevealRect((RectTransform)input.transform); f.AssertFullyVisible((RectTransform)input.transform, "P02 writing field remains reachable in its local answer scroll");
+                    const string note = "창밖에서 들리는 새 소리를 잠시 살폈어요.";
+                    input.text = note; input.onEndEdit.Invoke(note);
+                    Assert(f.Session(id).FocusStepRecords[1].Value == note && f.Session(id).FocusStepRecords[0].ElapsedSeconds == 29,
+                        "P02 optional writing uses the existing durable reflection field and preserves elapsed practice.");
+                    f.AssertIcon(anchor); f.Capture("P02-visual-reflection-input");
+                    f.Click("Guided.Previous"); f.AssertP02Illustration(P02SoundIllustration.Stage.Practice);
+                    f.Click("Guided.ReflectionToggle");
+                    Assert(f.Ui.GetComponentsInChildren<InputField>(false).Single(i => i.name == "Guided.ReflectionInput").text == note,
+                        "P02 reflection back and reentry retain the user's draft without completing the mission.");
+                    string beforeRender = StateCodec.Encode(f.Service.Snapshot); int renderWrites = f.Store.Saves;
+                    var visual = f.Ui.GetComponentInChildren<P02SoundIllustration>(false); var staticPixels = f.Pixels();
+                    visual.SetAllDirty(); f.Layout();
+                    Assert(f.ChangedPixels(staticPixels, f.Pixels(), f.Bounds(visual.rectTransform), 0) == 0,
+                        "P02 reduced-motion rendering remains static rather than pacing a breathing or sound animation.");
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == beforeRender && f.Store.Saves == renderWrites
+                        && f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == 187
+                        && f.Ui.GetComponentsInChildren<AudioSource>(true).Length == 0,
+                        "P02 illustration and optional reading introduce no audio source, completion, growth, reward or extra save.");
+                }
+            }
+            finally { FigmaMissionUi.ReducedMotion = reduced; }
+        }
         static void Flow(int width, int height)
         {
             using (var f = new Fixture(width, height))
@@ -81,14 +322,24 @@ namespace CapstoneDesign.EditorTools
                     Assert(f.Button("Guided.Previous", false) == null && f.Button("Focus.TimerToggle", false) == null,
                         code + " overview has no prior slide or running practice clock");
                     f.Capture(code + "-overview");
+                    var overviewPixels = order >= 3 ? f.Pixels() : null;
+                    Rect overviewArea = order >= 3 ? f.Bounds(f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false).rectTransform) : anchor;
                     var oldOverview = f.Button("Focus.IconAction").onClick;
                     f.Ui.gameObject.SetActive(false); oldOverview.Invoke(); f.Ui.gameObject.SetActive(true); f.Layout();
                     f.AssertSlide("Guided.Overview", definition.Overview);
                     f.Click("Focus.IconAction"); oldOverview.Invoke(); f.Layout();
-                    f.AssertSlide("Guided.Preparation", FocusGuidedPracticeContent.Preparation(code)); f.AssertIcon(anchor);
+                    f.AssertSlide("Guided.Preparation", FocusGuidedPracticeContent.Preparation(code)); anchor = f.AssertIcon();
+                    var preparationPixels = order >= 3 ? f.Pixels() : null;
+                    Rect preparationArea = order >= 3 ? f.Bounds(f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false).rectTransform) : anchor;
+                    if (order >= 3) Assert(f.ChangedPixels(overviewPixels, preparationPixels, preparationArea, 0) >= 24,
+                        code + " preparation visibly differs from its introduction within the actual illustration area");
                     Assert(f.Session(id).Status == ParticipationState.Selected, code + " repeated old overview action cannot skip preparation or start");
                     f.Click("Guided.Previous"); f.AssertSlide("Guided.Overview", definition.Overview);
+                    if (order >= 3) Assert(f.ChangedPixels(overviewPixels, f.Pixels(), overviewArea, 0) == 0,
+                        code + " previous restores the original mission illustration without residual preparation effects");
                     f.Click("Focus.IconAction"); f.AssertSlide("Guided.Preparation", FocusGuidedPracticeContent.Preparation(code));
+                    if (order >= 3) Assert(f.ChangedPixels(preparationPixels, f.Pixels(), preparationArea, 0) == 0,
+                        code + " advancing again restores the same preparation illustration");
                     if (order == 1)
                     {
                         string beforeExit = StateCodec.Encode(f.Service.Snapshot);
@@ -103,11 +354,12 @@ namespace CapstoneDesign.EditorTools
                     string chosen = "";
                     if (definition.Steps[0].Options.Length > 0)
                     {
-                        f.AssertSlide("Guided.ChoiceTitle", "편한 하나를 골라요."); f.AssertIcon(anchor);
+                        f.AssertSlide("Guided.ChoiceTitle", FocusGuidedPracticeContent.ChoiceLabel(code)); f.AssertIcon(anchor);
                         f.Click("Focus.IconAction");
                         f.AssertSlide("Guided.Cue.0", FocusGuidedPracticeContent.Guidance(code, "")[0]);
                         Assert(f.Session(id).FocusStepRecords[0].Value == "", code + " no selection uses default guidance without forced answer");
                         f.Click("Guided.Previous");
+                        Color32[] priorChoicePicture = null;
                         foreach (string choice in definition.Steps[0].Options)
                         {
                             if (chosen.Length > 0) f.Click("Guided.Previous");
@@ -130,6 +382,13 @@ namespace CapstoneDesign.EditorTools
                             f.AssertSlide("Guided.Cue.0", FocusGuidedPracticeContent.Guidance(code, choice)[0]); f.AssertIcon(anchor);
                             Assert(f.Session(id).FocusStepRecords[0].Value == choice && f.Session(id).Status == ParticipationState.Selected,
                                 code + " selected branch immediately opens its first instruction, without practice start");
+                            if (code == "P06")
+                            {
+                                var currentPicture = f.Pixels(); var art = f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false);
+                                if (priorChoicePicture != null) Assert(f.ChangedPixels(priorChoicePicture, currentPicture, f.Bounds(art.rectTransform), 0) >= 24,
+                                    "P06 choosing hands or dishes changes the actual task illustration while retaining the same instruction step.");
+                                priorChoicePicture = currentPicture; f.Capture(code + "-chosen-" + choice);
+                            }
                         }
                     }
                     for (int cue = 0; cue < 3; cue++)
@@ -159,7 +418,11 @@ namespace CapstoneDesign.EditorTools
                     if (order == 1) { f.Store.Fail = true; clock.ElapsedSeconds = 18; expectedElapsed = 18; }
                     f.Click("Guided.HelpToggle");
                     Assert(!clock.Running, code + " leaving practice for help pauses its previous clock");
-                    var help = FocusGuidedPracticeContent.Help(code).Split('\n');
+                    var help = code == "P01" ? new[] { P01BreathGuide.Body(P01BreathIllustration.Stage.Help, chosen) }
+                        : code == "P02" ? new[] { P02SoundGuide.Body(P02SoundIllustration.Stage.Help) }
+                        : new[] { FocusGuidedPracticeContent.Help(code) };
+                    Assert(help.Length == 1 && help[0].Split('\n').Length == 3 && !f.Text("Guided.Progress").text.Contains("1/3"),
+                        code + " displays its three short help statements together on one page");
                     for (int page = 0; page < help.Length; page++)
                     {
                         f.AssertSlide("Guided.Help", help[page]); f.AssertIcon(anchor);
@@ -220,6 +483,16 @@ namespace CapstoneDesign.EditorTools
                     var finish = f.Button("Focus.IconAction").onClick;
                     f.Click("Focus.IconAction");
                     Assert(!finishClock.Running, code + " successful finish pauses old clock before growth presentation");
+                    if (CameraMissionPolicy.Target(f.Session(id)) != null)
+                    {
+                        Assert(Screen(f.Ui) == "focus-photo" && f.Session(id).Status != ParticipationState.RewardCommitted
+                            && f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == 137 + (order - 1) * 50,
+                            code + " optional photo choice precedes rewards and opens no camera automatically");
+                        f.Capture(code + "-optional-photo");
+                        f.Click("Photo.Skip");
+                        Assert(f.Session(id).PhotoPromptHandled && f.Session(id).Photo == null && f.Session(id).PhotoBonusAmount == 0,
+                            code + " real skip completes without a photo or photo bonus");
+                    }
                     Assert(Screen(f.Ui) == "focus-complete" && f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep == stage + 1
                         && f.Service.CoinBalance == 137 + order * 50 && f.Service.GetPracticeGrowth(id) != null && f.Session(id).Status == ParticipationState.RewardCommitted,
                         code + " direct or optional-reflection finish commits exactly one growth and 50 coins");
@@ -255,23 +528,34 @@ namespace CapstoneDesign.EditorTools
         }
         static void ActiveVersionThreeResume()
         {
-            Store store;
+            Store store; string originalRecords, originalStarted;
             using (var f = new Fixture(360, 640))
             {
-                store = f.Store;
                 Assert(f.Service.SelectMbctProgram("8w") && f.Service.BeginFocusSession("existing-active-v3", "P01", 1, program: "8w"), "Seed original v3 session");
                 string answer = FocusMissionCatalog.Find("P01").Steps[1].Options.Last();
                 Assert(f.Service.StartGuidedFocusSession("existing-active-v3", "배")
                     && f.Service.SaveGuidedFocusDraft("existing-active-v3", "배", answer, 47), "Persist original active v3 draft");
+                // Original integrated saves used schema 1 / guided v3; texture's
+                // schema 2 / v3 means a different catalog and must not be faked.
+                var old = f.Service.Snapshot; var session = old.Sessions.Single();
+                old.SchemaVersion = 1; old.PlantCollection = null; session.FocusVersion = 3;
+                originalRecords = CapstoneDesign.Plants.PlantCodec.Encode(session.FocusStepRecords);
+                originalStarted = session.StartedUtc;
+                store = new Store(); store.Save(old);
             }
             using (var restored = new Fixture(360, 640, store))
             {
                 string before = StateCodec.Encode(restored.Service.Snapshot);
                 restored.Ui.SelectFocusSession("existing-active-v3"); restored.Layout();
                 restored.AssertSlide("Guided.PracticeHint", FocusGuidedPracticeContent.PracticeHint("P01"));
-                Assert(restored.Session("existing-active-v3").FocusVersion == 3 && restored.Session("existing-active-v3").FocusStepRecords[0].Value == "배"
+                Assert(restored.Service.Snapshot.SchemaVersion == 3 && restored.Session("existing-active-v3").FocusVersion == 4
+                    && restored.Session("existing-active-v3").FocusStepRecords[0].Value == "배"
+                    && restored.Session("existing-active-v3").Status == ParticipationState.InProgress
+                    && restored.Session("existing-active-v3").StartedUtc == originalStarted
+                    && CapstoneDesign.Plants.PlantCodec.Encode(restored.Session("existing-active-v3").FocusStepRecords) == originalRecords
+                    && restored.Service.CoinBalance == 137 && restored.Service.GetPracticeGrowth("existing-active-v3") == null
                     && restored.Ui.GetComponentInChildren<FocusPracticeClock>(false).ElapsedSeconds == 47,
-                    "Existing active v3 save resumes practice without forcing overview or changing version");
+                    "Original guided v3 translates to v4 without losing draft, time, participation or awarding rewards");
                 Assert(StateCodec.Encode(restored.Service.Snapshot) == before, "Opening existing active draft does not write or reward");
                 restored.Capture("v3-existing-active-resume");
             }
@@ -293,8 +577,8 @@ namespace CapstoneDesign.EditorTools
             }
         }
         sealed class Store : IStateStore
-        { string xml; public bool Fail; public GardenState Load() => xml == null ? null : StateCodec.Decode(xml);
-          public void Save(GardenState value) { if (Fail) throw new IOException("Synthetic guided UI save failure"); xml = StateCodec.Encode(value); } }
+        { string xml; public bool Fail; public int Saves; public GardenState Load() => xml == null ? null : StateCodec.Decode(xml);
+          public void Save(GardenState value) { if (Fail) throw new IOException("Synthetic guided UI save failure"); xml = StateCodec.Encode(value); Saves++; } }
         sealed class Clock : IClock
         { public DateTimeOffset Time = DateTimeOffset.Parse("2026-11-09T03:00:00Z"); public DateTimeOffset UtcNow => Time; public TimeZoneInfo TimeZone => TimeZoneInfo.Utc; }
         sealed class Fixture : IDisposable
@@ -364,29 +648,293 @@ namespace CapstoneDesign.EditorTools
             public void AssertSlide(string name, string expected)
             {
                 Layout(); var text = Text(name);
+                var breath = Screen(Ui) == "focus-practice" ? Ui.GetComponentInChildren<P01BreathIllustration>(false) : null;
+                if (breath != null)
+                {
+                    var nodes = new[] { "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" };
+                    var stages = new[] { P01BreathIllustration.Stage.Overview, P01BreathIllustration.Stage.Preparation, P01BreathIllustration.Stage.Choice,
+                        P01BreathIllustration.Stage.Notice, P01BreathIllustration.Stage.Observe, P01BreathIllustration.Stage.Return,
+                        P01BreathIllustration.Stage.Practice, P01BreathIllustration.Stage.Reflection, P01BreathIllustration.Stage.Help };
+                    int index = Array.IndexOf(nodes, name);
+                    Assert(index >= 0 && breath.CurrentStage == stages[index], "P01 picture stage matches the requested guidance page.");
+                    expected = P01BreathGuide.Body(stages[index], breath.FocusArea, breath.HelpPage);
+                }
+                var sound = Screen(Ui) == "focus-practice" ? Ui.GetComponentInChildren<P02SoundIllustration>(false) : null;
+                if (sound != null)
+                {
+                    var nodes = new[] { "Guided.Overview", "Guided.Preparation", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" };
+                    int index = Array.IndexOf(nodes, name);
+                    Assert(index >= 0 && sound.CurrentStage == (P02SoundIllustration.Stage)index, "P02 picture stage matches its actual guidance page.");
+                    expected = P02SoundGuide.Body(sound.CurrentStage);
+                }
+                var practiceArt = Screen(Ui) == "focus-practice" ? Ui.GetComponentInChildren<FocusPracticeIllustration>(false) : null;
+                FocusMissionDefinition genericMission = null;
+                if (practiceArt != null)
+                {
+                    var nodes = new[] { "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" };
+                    var keys = new[] { "overview", "preparation", "choice", "cue0", "cue1", "cue2", "practice", "reflection", "help" };
+                    int index = Array.IndexOf(nodes, name);
+                    string currentId = (string)typeof(WeekOneQuestDemo).GetField("sessionId", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Ui);
+                    genericMission = FocusMissionCatalog.FindForSession(Ui.Service.Snapshot.Sessions.Single(s => s.SessionId == currentId));
+                    string choice = (string)typeof(WeekOneQuestDemo).GetField("guidedChoice", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(Ui);
+                    Assert(index >= 0 && practiceArt.MissionCode == genericMission.Code && practiceArt.StepKey == keys[index]
+                        && practiceArt.Choice == choice && !practiceArt.raycastTarget,
+                        "The illustrated mission follows its actual mission, slide and current choice without intercepting input.");
+                }
                 Assert(Screen(Ui) == "focus-practice" && text != null && text.text == expected, "Expected single slide " + name);
                 var names = new[] { "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" };
                 Assert(Ui.GetComponentsInChildren<Text>(false).Count(t => names.Contains(t.name)) == 1, "Exactly one piece of guidance is visible on " + name);
                 AssertFullyVisible(text.rectTransform, name);
                 Assert(text.preferredHeight <= text.rectTransform.rect.height + .5f, name + " fits its complete wrapped body");
+                var centered = new[] { TextAnchor.UpperCenter, TextAnchor.MiddleCenter, TextAnchor.LowerCenter };
+                var title = Text("Guided.Title"); var context = Text("Guided.Mission");
+                if (breath != null || sound != null || practiceArt != null)
+                {
+                    Assert(text.fontSize == 22 && centered.Contains(text.alignment), "Every current basic mission keeps its centered 22-point instruction.");
+                    if (name == "Guided.Overview")
+                    {
+                        string missionTitle = breath != null ? "잠깐 멈춰보기" : sound != null ? "주변 소리 만나기" : genericMission.Title;
+                        string overview = breath != null ? "숨이 느껴지는 한 곳에\n잠시 주의를 두는 실습이에요."
+                            : sound != null ? "주변에서 들리는 소리에\n잠시 귀 기울이는 실습이에요." : genericMission.Overview;
+                        Assert(title != null && context != null && title.text == missionTitle && context.text == "기본 미션"
+                            && text.text == overview && title.fontSize == 30 && context.fontSize == 16,
+                            "The introduction retains its original mission title, context, copy and 30/22/16-point hierarchy.");
+                        foreach (var header in new[] { title, context })
+                        {
+                            Assert(centered.Contains(header.alignment) && header.preferredHeight <= header.rectTransform.rect.height + .5f,
+                                header.name + " retains its complete centered introduction text");
+                            AssertFullyVisible(header.rectTransform, header.name);
+                        }
+                        Assert(Bounds(context.rectTransform).yMin >= Bounds(title.rectTransform).yMax - .75f
+                            && Bounds(title.rectTransform).yMin >= Bounds(text.rectTransform).yMax - .75f,
+                            "Introduction context, title and body remain separate.");
+                    }
+                    else
+                    {
+                        var slide = text.GetComponentInParent<FocusGuidedSlideLayout>();
+                        Assert(title == null && context == null && slide.Heading == null
+                            && !slide.GetComponentsInChildren<Transform>(true).Any(t => t.name == "Guided.Title" || t.name == "Guided.Mission"),
+                            "Later current basic pages do not create title or mission-context objects, including hidden placeholders.");
+                        string heading = breath != null ? P01BreathGuide.Title(breath.CurrentStage, breath.FocusArea, breath.HelpPage)
+                            : sound != null ? P02SoundGuide.Title(sound.CurrentStage) : "";
+                        Assert(heading == "" && Mathf.Abs(-FigmaMissionUi.TopLeftPosition(text.rectTransform).y - 126) < .1f
+                            && text.rectTransform.rect.height >= 54 - .1f,
+                            "Later illustrated pages contain only their concise instruction at the reserved reading position.");
+                        var close = (RectTransform)Button("Focus.Close").transform;
+                        Assert(Bounds(close).yMin >= Bounds(text.rectTransform).yMax - .75f,
+                            "The instruction remains below the exit control.");
+                    }
+                }
+                else Assert(title != null && context != null && centered.Contains(text.alignment) && centered.Contains(title.alignment),
+                    "Other guided missions retain their title, context and centered instruction.");
                 var body = ScreenRect(text.rectTransform); var icon = ScreenRect((RectTransform)Button("Focus.IconAction").transform);
                 Assert(body.yMin >= icon.yMax - .5f, name + " does not overlap the fixed illustration");
                 Assert(Button("Focus.Action", false) == null, "Guided progress uses the central icon rather than an old footer action");
+                if (practiceArt != null)
+                {
+                    int painted = ChangedPixels(WithoutGraphicPixels(practiceArt), Pixels(), Bounds(practiceArt.rectTransform), 0);
+                    Assert(painted >= 128, practiceArt.MissionCode + "/" + practiceArt.StepKey + " actually paints its mission-specific illustration on the GPU.");
+                }
             }
             public Rect AssertIcon(Rect? expected = null)
             {
                 Layout(); var rect = (RectTransform)Button("Focus.IconAction").transform;
                 AssertFullyVisible(rect, "Fixed central icon");
-                Assert(Vector2.Distance(rect.pivot, new Vector2(.5f, .5f)) < .001f && Vector2.Distance(rect.rect.size, new Vector2(180, 180)) < .01f,
-                    "Central icon has 180 design-point size and centered pivot");
+                var slide = rect.GetComponentInParent<FocusGuidedSlideLayout>();
+                bool soundIllustration = Screen(Ui) == "focus-practice" && Ui.GetComponentInChildren<P02SoundIllustration>(false) != null;
+                bool measuredIllustration = soundIllustration || Screen(Ui) == "focus-practice" && (Ui.GetComponentInChildren<P01BreathIllustration>(false) != null
+                    || Ui.GetComponentInChildren<FocusPracticeIllustration>(false) != null);
+                bool constrained = ((RectTransform)slide.transform).rect.height < 672
+                    || slide.Notice != null && slide.Notice.gameObject.activeInHierarchy
+                    || measuredIllustration && (slide.Heading != null && slide.Heading.preferredHeight > 42.5f || slide.Copy != null && slide.Copy.preferredHeight > 64);
+                Assert(Vector2.Distance(rect.pivot, new Vector2(.5f, .5f)) < .001f && Mathf.Abs(rect.rect.width - rect.rect.height) < .01f,
+                    "Central icon stays square with a centered press pivot");
+                if (measuredIllustration)
+                {
+                    // Measure the actual text/footer geometry so larger copy and
+                    // storage notices retain their space at every output size.
+                    float copyBottom = -FigmaMissionUi.TopLeftPosition(slide.Copy.rectTransform).y + slide.Copy.rectTransform.rect.height;
+                    float lowerEdge = slide.Notice != null && slide.Notice.gameObject.activeInHierarchy
+                        ? -FigmaMissionUi.TopLeftPosition(slide.Notice.rectTransform).y
+                        : -FigmaMissionUi.TopLeftPosition(slide.Navigation).y - 8;
+                    float designHeight = ((RectTransform)slide.transform).rect.height;
+                    float down = Mathf.Lerp(14, 32, Mathf.InverseLerp(692, 844, designHeight));
+                    float minimumTop = Mathf.Max(254, copyBottom + 18) + down;
+                    float minimumAnswers = soundIllustration ? 100 : 86;
+                    float expectedSize = Mathf.Clamp(lowerEdge - minimumTop - 40 - minimumAnswers, 160, 280);
+                    Assert(Mathf.Abs(rect.rect.width - expectedSize) < .1f,
+                        "Illustrated guidance fills available reading space up to 280 points while retaining its body, action hint and " + minimumAnswers + "-point answer area: expected "
+                        + expectedSize + ", actual " + rect.rect.width);
+                    float actualTop = -FigmaMissionUi.TopLeftPosition(rect).y;
+                    float expectedTop = Mathf.Max(minimumTop, designHeight * .48f - expectedSize / 2 + down);
+                    Assert(Mathf.Abs(actualTop - expectedTop) < .1f,
+                        "Measured guidance moves its central illustration down responsively without taking space from the text or answers.");
+                }
+                else Assert(constrained ? rect.rect.width >= 180-.01f && rect.rect.width <= 224+.01f : Mathf.Abs(rect.rect.width-224) < .01f,
+                    "Other guided icons remain 224 design points, shrinking only to 180 when constrained");
                 var bounds = ScreenRect(rect);
-                Assert(Mathf.Abs(bounds.center.x - width * .5f) < .75f && Mathf.Abs(bounds.center.y - height * .52f) < .75f,
-                    "Central icon remains at horizontal center and 48 percent from top: " + bounds);
+                Assert(Mathf.Abs(bounds.center.x - width * .5f) < .75f,"Central icon remains horizontally centered: " + bounds);
+                var body = Ui.GetComponentsInChildren<Text>(false).Single(text => new[] { "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" }.Contains(text.name));
+                Assert(ScreenRect(body.rectTransform).yMin >= bounds.yMax-.75f,"Enlarged icon leaves current guidance unobscured");
                 Assert(bounds.width >= 44 && bounds.height >= 44, "Icon target is at least 44 pixels");
-                if (expected.HasValue) Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f
+                if (expected.HasValue && !constrained) Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f
                     && Vector2.Distance(bounds.size, expected.Value.size) < .75f, "All slides retain the same central icon rectangle");
                 return bounds;
             }
+            public void AssertP02Illustration(P02SoundIllustration.Stage stage)
+            {
+                Layout(); var visual = Ui.GetComponentInChildren<P02SoundIllustration>(false);
+                Assert(visual != null && visual.CurrentStage == stage && !visual.raycastTarget,
+                    "P02 uses the expected non-blocking sound illustration: " + stage);
+                var nodes = new[] { "Guided.Overview", "Guided.Preparation", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" };
+                AssertSlide(nodes[(int)stage], P02SoundGuide.Body(stage));
+                Assert(!string.IsNullOrWhiteSpace(Text(nodes[(int)stage]).text), "P02 retains a readable instruction on every stage.");
+                Rect icon = AssertIcon(); var hint = Text("Guided.ActionHint");
+                var answers = Ui.GetComponentsInChildren<RectTransform>(false).Single(r => r.name == "Guided.AnswersViewport");
+                var navigation = Ui.GetComponentsInChildren<RectTransform>(false).Single(r => r.name == "Guided.Navigation");
+                Assert(icon.yMin >= Bounds(hint.rectTransform).yMax - .75f
+                    && Bounds(hint.rectTransform).yMin >= Bounds(answers).yMax - .75f
+                    && Bounds(answers).yMin >= Bounds(navigation).yMax - .75f,
+                    "P02 picture, action hint, local response viewport and navigation do not overlap.");
+                AssertFullyVisible(hint.rectTransform, "P02 action hint"); AssertFullyVisible(answers, "P02 local answer viewport");
+                int painted = ChangedPixels(WithoutGraphicPixels(visual), Pixels(), icon, 0);
+                report.visualMeasurements.Add(width + "x" + height + " P02 " + stage + ": " + painted + " visible illustration pixels; target=" + icon);
+                Assert(painted >= 128, "P02 stage is actually visible in the GPU render.");
+            }
+            public void AssertP01Illustration(P01BreathIllustration.Stage stage, string focus = null, int helpPage = -1)
+            {
+                Layout(); var visual = Ui.GetComponentInChildren<P01BreathIllustration>(false);
+                Assert(visual != null && visual.CurrentStage == stage && !visual.raycastTarget,
+                    "P01 uses the expected non-blocking illustration stage: " + stage);
+                if (focus != null) Assert(visual.FocusArea == focus, "P01 illustration follows the actual chosen focus area " + focus);
+                if (helpPage >= 0) Assert(visual.HelpPage == helpPage, "P01 help picture follows page " + helpPage);
+                var body = Ui.GetComponentsInChildren<Text>(false).Single(t => new[] { "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" }.Contains(t.name));
+                AssertSlide(body.name, P01BreathGuide.Body(stage, visual.FocusArea, visual.HelpPage));
+                Assert(!string.IsNullOrWhiteSpace(body.text), "P01 retains a readable instruction on every stage.");
+                if (stage == P01BreathIllustration.Stage.Notice && focus != null)
+                    Assert(focus.Length > 0 ? body.text.Contains(focus) : new[] { "코", "가슴", "배" }.All(body.text.Contains),
+                        "Notice names the chosen body area or preserves all three options when none is chosen.");
+                Rect icon = AssertIcon(); var hint = Text("Guided.ActionHint");
+                var answers = Ui.GetComponentsInChildren<RectTransform>(false).Single(r => r.name == "Guided.AnswersViewport");
+                var navigation = Ui.GetComponentsInChildren<RectTransform>(false).Single(r => r.name == "Guided.Navigation");
+                Assert(icon.yMin >= Bounds(hint.rectTransform).yMax - .75f
+                    && Bounds(hint.rectTransform).yMin >= Bounds(answers).yMax - .75f
+                    && Bounds(answers).yMin >= Bounds(navigation).yMax - .75f,
+                    "P01 illustration, action hint, local answers and bottom navigation do not overlap.");
+                AssertFullyVisible(hint.rectTransform, "P01 action hint"); AssertFullyVisible(answers, "P01 local answer viewport");
+                var shown = Pixels(); var hidden = WithoutGraphicPixels(visual); int painted = ChangedPixels(hidden, shown, icon, 0);
+                report.visualMeasurements.Add(width + "x" + height + " P01 " + stage + "/" + focus + "/" + helpPage + ": " + painted + " visible illustration pixels; target=" + icon);
+                Assert(painted >= 128, "P01 stage is actually painted on the GPU instead of only exposing a configured component.");
+                AssertP01AttentionDots(visual, shown);
+            }
+            void AssertP01AttentionDots(P01BreathIllustration visual, Color32[] pixels)
+            {
+                // Sample the three anatomical positions in the authored figure,
+                // not the halo circumference or the guide's far endpoint.
+                var names = new[] { "코", "가슴", "배" };
+                var points = new[] { new Vector2(132, 80), new Vector2(128, 132), new Vector2(128, 164) };
+                bool selected = names.Contains(visual.FocusArea);
+                bool guide = visual.CurrentStage == P01BreathIllustration.Stage.Choice
+                    || visual.CurrentStage == P01BreathIllustration.Stage.Help && visual.HelpPage == 0;
+                bool selectedGuide = visual.CurrentStage == P01BreathIllustration.Stage.Notice
+                    || visual.CurrentStage == P01BreathIllustration.Stage.Return
+                    || visual.CurrentStage == P01BreathIllustration.Stage.Help && visual.HelpPage == 2;
+                var rect = visual.rectTransform.rect; float unit = Mathf.Min(rect.width, rect.height) / 232f;
+                for (int i = 0; i < points.Length; i++)
+                {
+                    bool expected = guide ? !selected || visual.FocusArea == names[i] : selected && selectedGuide && visual.FocusArea == names[i];
+                    var local = new Vector2(rect.center.x + (points[i].x - 128) * unit, rect.center.y + (128 - points[i].y) * unit);
+                    var point = camera.WorldToScreenPoint(visual.rectTransform.TransformPoint(local));
+                    int colored = 0;
+                    for (int y = Mathf.Max(0, Mathf.FloorToInt(point.y) - 1); y <= Mathf.Min(height - 1, Mathf.FloorToInt(point.y) + 1); y++)
+                        for (int x = Mathf.Max(0, Mathf.FloorToInt(point.x) - 1); x <= Mathf.Min(width - 1, Mathf.FloorToInt(point.x) + 1); x++)
+                        {
+                            var color = pixels[y * width + x];
+                            // The dark green dot is distinct from skin, clothing,
+                            // ink and a pale translucent halo under this small ROI.
+                            if (color.g - color.r > 35 && color.g - color.b > 15 && color.g < 155) colored++;
+                        }
+                    report.visualMeasurements.Add(width + "x" + height + " P01 dot " + visual.CurrentStage + "/" + visual.FocusArea
+                        + "/" + visual.HelpPage + "/" + names[i] + ": pixels=" + colored + ", expected=" + expected);
+                    Assert(expected ? colored > 0 : colored == 0,
+                        "P01 " + visual.CurrentStage + " shows a centre dot at " + names[i] + " only when its guide or return arrow uses that point.");
+                }
+            }
+            public void AssertIllustrationGestureCancellation(string code)
+            {
+                var priorEvents = EventSystem.current; bool reduced = FigmaMissionUi.ReducedMotion;
+                var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+                typeof(EventSystem).GetMethod("OnEnable", flags).Invoke(events, null); EventSystem.current = events;
+                try
+                {
+                    foreach (bool staticMode in new[] { false, true })
+                    {
+                        FigmaMissionUi.ReducedMotion = staticMode;
+                        var button = Button("Focus.IconAction"); var rect = (RectTransform)button.transform;
+                        var normal = rect.localScale; Rect area = Bounds(rect); string state = StateCodec.Encode(Service.Snapshot); int saves = Store.Saves;
+                        events.SetSelectedGameObject(null); var baseline = Pixels();
+                        var data = new PointerEventData(events) { position = area.center, pressPosition = area.center, pointerId = -1,
+                            button = PointerEventData.InputButton.Left, eligibleForClick = true };
+                        var hits = new List<RaycastResult>(); raycaster.Raycast(data, hits); report.raycasts++;
+                        Assert(hits.Count > 0 && hits[0].gameObject.GetComponentInParent<Button>() == button, code + " actual central graphic routes the pointer to its action button.");
+                        data.pointerCurrentRaycast = data.pointerPressRaycast = hits[0];
+                        ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerDownHandler); Layout();
+                        Assert(events.currentSelectedGameObject == button.gameObject, code + " real pointer down selects its action control.");
+                        Assert(Vector2.Distance(Bounds(rect).center, area.center) < .1f
+                            && Vector3.Distance(rect.localScale, normal * (staticMode ? 1 : .97f)) < .001f,
+                            code + " press stays centered and reduced motion suppresses press scaling.");
+                        void NoOpaqueHit(string phase)
+                        {
+                            var shown = Pixels(); var withoutTarget = WithoutGraphicPixels(button.targetGraphic);
+                            int darkened = ChangedPixels(withoutTarget, shown, Bounds(rect), 12, true);
+                            report.visualMeasurements.Add(width + "x" + height + " " + code + " " + phase + " reduced=" + staticMode + ": " + darkened + " opaque hit pixels");
+                            Assert(darkened <= 8, code + " transparent hit area never becomes an opaque filled panel during " + phase);
+                        }
+                        NoOpaqueHit("down"); Capture(code + "-visual-pointer-down-" + staticMode);
+                        data.dragging = true; data.eligibleForClick = false; data.delta = new Vector2(42, 16); data.position += data.delta;
+                        ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.beginDragHandler); ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.dragHandler);
+                        NoOpaqueHit("drag"); Capture(code + "-visual-pointer-drag-" + staticMode);
+                        data.position = new Vector2(area.xMax + 24, area.center.y);
+                        ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerExitHandler);
+                        ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerUpHandler); ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.endDragHandler); Layout();
+                        Assert(rect.localScale == normal && Text("Guided.Overview") != null && StateCodec.Encode(Service.Snapshot) == state && Store.Saves == saves,
+                            code + " cancelled drag restores its transform and never changes guidance, participation, saves or rewards.");
+                        Assert(ChangedPixels(baseline, Pixels(), area, 0) == 0, code + " cancelled release restores its exact illustration pixels.");
+                        Capture(code + "-visual-pointer-cancelled-" + staticMode);
+                    }
+                }
+                finally
+                {
+                    FigmaMissionUi.ReducedMotion = reduced; events.SetSelectedGameObject(null);
+                    typeof(EventSystem).GetMethod("OnDisable", flags).Invoke(events, null);
+                    if (priorEvents != null) EventSystem.current = priorEvents;
+                }
+            }
+            public Color32[] Pixels()
+            {
+                Layout(); camera.Render(); var prior = RenderTexture.active; var image = new Texture2D(width, height, TextureFormat.RGB24, false);
+                try { RenderTexture.active = target; image.ReadPixels(new Rect(0, 0, width, height), 0, 0); image.Apply(); return image.GetPixels32(); }
+                finally { RenderTexture.active = prior; UnityEngine.Object.DestroyImmediate(image); }
+            }
+            public Color32[] WithoutGraphicPixels(Graphic graphic)
+            {
+                bool enabled = graphic.enabled;
+                try { graphic.enabled = false; return Pixels(); }
+                finally { graphic.enabled = enabled; Layout(); }
+            }
+            public int ChangedPixels(Color32[] before, Color32[] after, Rect area, float inset, bool darkenedOnly = false)
+            {
+                int count = 0; inset *= width / 390f;
+                for (int y = Mathf.Max(0, Mathf.CeilToInt(area.yMin + inset)); y < Mathf.Min(height, Mathf.FloorToInt(area.yMax - inset)); y++)
+                    for (int x = Mathf.Max(0, Mathf.CeilToInt(area.xMin + inset)); x < Mathf.Min(width, Mathf.FloorToInt(area.xMax - inset)); x++)
+                    {
+                        var a = before[y * width + x]; var b = after[y * width + x];
+                        bool different = Math.Abs(a.r - b.r) > 8 || Math.Abs(a.g - b.g) > 8 || Math.Abs(a.b - b.b) > 8;
+                        if (different && (!darkenedOnly || a.r - b.r > 28 || a.g - b.g > 28 || a.b - b.b > 28)) count++;
+                    }
+                return count;
+            }
+            public Rect Bounds(RectTransform rect) => ScreenRect(rect);
             public void AssertCenteredPress()
             {
                 var button = Button("Focus.IconAction"); var rect = (RectTransform)button.transform;

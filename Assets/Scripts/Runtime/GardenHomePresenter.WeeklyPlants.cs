@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using CapstoneDesign.Plants;
 using CapstoneDesign.Runtime.LocalState;
 using UnityEngine;
@@ -16,10 +17,16 @@ namespace CapstoneDesign.Runtime
         void BindCurrentPlant(GardenState state)
         {
             var current = WeeklyPlants.Active(state);
-            if (shownPlant?.Id != current?.Id) MemoryPage = 0;
+            var nextLeaves=PlantAlbumHistory.Leaves(state,current?.Id);
+            int latest=nextLeaves.Where(m=>m.Linked).Select(m=>m.Slot).DefaultIfEmpty(-1).Max();
+            int previous=VisibleMemoryInputs.Where(m=>m.Linked).Select(m=>m.Slot).DefaultIfEmpty(-1).Max();
+            // A newly added record should have its leaf in the visible batch.
+            // This is view state only; existing records remain in the full list.
+            if(shownPlant?.Id!=current?.Id || latest>previous)
+                MemoryPage=latest<0?0:latest/PlantMemoryGeometry.PageSize;
             shownPlant = current;
             MemoryPage = Mathf.Clamp(MemoryPage, 0, MemoryPageCount - 1);
-            VisibleMemoryInputs = PlantAlbumHistory.Leaves(state, current?.Id);
+            VisibleMemoryInputs = nextLeaves;
         }
 
         public void SetMemoryPage(int page)

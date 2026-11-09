@@ -74,7 +74,7 @@ namespace CapstoneDesign.Runtime
             card.GetComponent<Image>().raycastTarget = true;
             var titlePlaque=FigmaMissionUi.Box(card,"GardenMemoPopup.TitlePlaque",12,14,318,50,FigmaMissionUi.Warm,10);
             CapstoneDesign.Prototype.GardenThemeSurface.Apply(titlePlaque.gameObject,CapstoneDesign.Prototype.GardenThemeSurface.Style.Header);
-            FigmaMissionUi.Label(card, "감정 기록", 24, 22, 294, 34, 24, CapstoneDesign.Prototype.GardenThemeSurface.WoodInk, true).name = "GardenMemoPopup.Title";
+            FigmaMissionUi.Label(card, "기억 잎 기록", 24, 22, 294, 34, 24, CapstoneDesign.Prototype.GardenThemeSurface.WoodInk, true).name = "GardenMemoPopup.Title";
             FigmaMissionUi.Label(card, date, 24, 62, 294, 24, 14, FigmaMissionUi.Muted).name = "GardenMemoPopup.Date";
             viewport = FigmaMissionUi.Box(card, "GardenMemoPopup.Viewport", 24, 108, 294, 360, Color.clear);
             viewport.GetComponent<Image>().raycastTarget = true;

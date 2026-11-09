@@ -82,8 +82,7 @@ namespace CapstoneDesign.Runtime
             string title = basic ? memo.BasicMissionTitle : memo.AdditionalMissionTitle;
             string label = basic ? "기본" : "추가";
             if (string.IsNullOrEmpty(id) && string.IsNullOrEmpty(title)) return label + " · 기록 없음";
-            string code = string.IsNullOrEmpty(id) ? "" : id.Substring(id.LastIndexOf(':') + 1);
-            return label + " · " + (code.Length == 0 ? "" : code + " ") + (string.IsNullOrEmpty(title) ? "미션명 기록 없음" : title);
+            return label + " · " + (string.IsNullOrEmpty(title) ? "미션명 기록 없음" : title);
         }
         public static GardenPlantMemo[] Records(GardenState state, GardenPlantPhoto photo)
         {
