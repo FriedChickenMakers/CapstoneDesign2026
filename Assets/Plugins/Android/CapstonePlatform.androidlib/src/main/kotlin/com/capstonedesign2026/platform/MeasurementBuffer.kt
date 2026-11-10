@@ -64,6 +64,9 @@ internal class MeasurementBuffer(private val store: MeasurementStore, private va
     fun acknowledge(binding: String, collection: String, ids: Set<String>, sent: Set<String>) {
         if (!state.enabled || state.binding != binding || state.collection != collection) return
         require(sent.containsAll(ids)) { "Acknowledgement includes unsent measurements" }
-        commit(state.copy(events = state.events.filterNot { it.eventId in ids }))
+        val remaining = state.events.filterNot { it.eventId in ids }
+        // Empty quality heartbeats and concurrent duplicate ACKs have no local
+        // state change. Avoid rewriting every receipt on the Unity main thread.
+        if (remaining.size != state.events.size) commit(state.copy(events = remaining))
     }
 }

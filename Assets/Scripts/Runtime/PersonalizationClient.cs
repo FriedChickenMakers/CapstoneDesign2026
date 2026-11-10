@@ -9,12 +9,12 @@ using UnityEngine.Networking;
 
 namespace CapstoneDesign.Runtime
 {
-    // Operators provision an individual enrollment in app-private storage only
-    // after written consent. Registered study collection starts without an app
-    // consent screen; ordinary unregistered installations do not upload research data.
+    // QA distribution follows the study's written-consent process outside the app.
+    // Android builds create a durable per-install enrollment on first LIVE use;
+    // existing operator registrations and withdrawal boundaries remain intact.
     public sealed partial class PersonalizationClient : MonoBehaviour
     {
-        [Serializable] sealed class Enrollment { public string endpoint, token; }
+        [Serializable] sealed class Enrollment { public string endpoint, token, automaticEnrollmentKey; }
         static PersonalizationClient instance;
         static bool localResetBlocked;
         UnityWebRequest activeRequest;
@@ -79,7 +79,8 @@ namespace CapstoneDesign.Runtime
                 { localResetBlocked=true; status="연결 설정 없음"; return; }
                 var loadedQueue = new EventQueue(new FileEventQueueStore(Path.Combine(directory, "behavior-queue.xml")));
                 string path = Path.Combine(directory, "personalization-enrollment.json");
-                if (!File.Exists(path)) { enrollment=null; status="연결 설정 없음"; return; }
+                if (!File.Exists(path) && !CreateAutomaticEnrollment(directory))
+                { enrollment=null; status="연결 설정 없음"; return; }
                 var candidate = JsonUtility.FromJson<Enrollment>(File.ReadAllText(path));
                 if (candidate == null || !ValidEndpoint(candidate.endpoint) || candidate.token == null || candidate.token.Length < 32
                     || candidate.token.Length>512 || candidate.token.Any(c=>c<33 || c>126)) { enrollment=null; status = "연결 설정 확인 필요"; return; }
@@ -249,7 +250,7 @@ namespace CapstoneDesign.Runtime
             if(Time.unscaledTime>=nextMeasurementSync)
             {
                 nextMeasurementSync=Time.unscaledTime+3;
-                if(SynchronizeMeasurementConsent())RetryMeasuredFocusExposures();
+                if(SynchronizeMeasurementConsent()) { RecordMeasuredAppVisit(); RetryMeasuredFocusExposures(); }
             }
             if(!CollectionContextAllowed)return;
             if(Time.unscaledTime>=nextActivationAttempt)ActivateRegisteredCollection();
@@ -264,6 +265,14 @@ namespace CapstoneDesign.Runtime
             request.timeout = 15;
             request.redirectLimit = 0; // Never forward an enrollment bearer to a redirect target.
             request.SetRequestHeader("Authorization", "Bearer " + enrollment.token);
+            // An offline first install can withdraw before its first successful
+            // registration. Let the server tombstone that token without uploading
+            // any events or re-enabling the native collector. Registered manual
+            // participants retain the original bearer-only deletion protocol.
+            if (method == "DELETE" && path == "/participant"
+                && AutomaticEnrollment.IsLowerHex64(enrollment.token)
+                && AutomaticEnrollment.IsLowerHex64(enrollment.automaticEnrollmentKey))
+                request.SetRequestHeader("X-Enrollment-Key", enrollment.automaticEnrollmentKey);
             if (body != null)
             {
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(body));

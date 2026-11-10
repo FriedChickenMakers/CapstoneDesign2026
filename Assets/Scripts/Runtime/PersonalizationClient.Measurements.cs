@@ -14,8 +14,57 @@ namespace CapstoneDesign.Runtime
         [Serializable] sealed class MeasurementResult { public bool ok; public string failure; }
         [Serializable] sealed class MeasurementId { public string event_id; }
         [Serializable] sealed class MeasurementUpload { public string collection_id; public MeasurementId[] events; }
+        [Serializable] sealed class AppVisitObservation { public string visit_key; public bool foreground; }
         float nextMeasurementSync;
         string measurementSyncKey;
+        string appVisitKey = Guid.NewGuid().ToString("N"), measuredAppVisit, rejectedAppVisit;
+        double appPausedAt = -1;
+
+        void OnApplicationPause(bool paused)
+        {
+            if (paused) { if(appPausedAt<0)appPausedAt = Time.realtimeSinceStartupAsDouble; return; }
+            ResumeMeasuredAppVisit(Time.realtimeSinceStartupAsDouble);
+        }
+
+        void ResumeMeasuredAppVisit(double now)
+        {
+            if (appPausedAt >= 0 && now - appPausedAt >= 30)
+                appVisitKey = Guid.NewGuid().ToString("N");
+            appPausedAt = -1;
+            // Resume promptly after connectivity/Doze; never discard an unsent batch.
+            nextAttempt = nextMeasurementSync = 0;
+        }
+
+        void RecordMeasuredAppVisit()
+        {
+            if (!MeasurementConsented || !CollectionContextAllowed) return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // GameActivity HOT returns must not rely on Unity pause callbacks.
+            // Android Activity START/STOP is also unaffected by keyboard focus.
+            AppVisitObservation visit;
+            try { visit=JsonUtility.FromJson<AppVisitObservation>(MeasurementCall("getMeasuredAppVisit")); }
+            catch(Exception) { return; }
+            if(visit==null || !visit.foreground || visit.visit_key==null || visit.visit_key.Length!=32
+                || visit.visit_key.Any(c=>!(c>='a' && c<='f') && !(c>='0' && c<='9')))return;
+            appVisitKey=visit.visit_key;
+#else
+            if(appPausedAt>=0)return;
+#endif
+            string identity = MeasurementBinding + ":" + queue.MeasurementConsentUtcMs + ":" + appVisitKey;
+            if (identity == measuredAppVisit || identity == rejectedAppVisit) return;
+            try
+            {
+                var result = JsonUtility.FromJson<MeasurementResult>(MeasurementCall("recordMeasuredAppSession", appVisitKey));
+                if (result?.ok == true) measuredAppVisit = identity;
+                // A full outbox has already counted this rejected attempt. Do not
+                // inflate its counter or rewrite storage every three seconds.
+                // A fresh foreground visit/collection receives a different key;
+                // transient storage/bridge failures still retry this same visit.
+                else if (result?.failure == "capacity" || result?.failure == "invalid" || result?.failure == "outside-window")
+                    rejectedAppVisit = identity;
+            }
+            catch (Exception) { /* Keep the same random key for a later durable retry. */ }
+        }
         sealed class PendingFocusExposure
         {
             public string Binding; public FocusRecommendationExposure Exposure;

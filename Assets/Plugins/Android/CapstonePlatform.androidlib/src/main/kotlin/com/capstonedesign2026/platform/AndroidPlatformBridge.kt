@@ -45,6 +45,7 @@ object AndroidPlatformBridge {
         unityVersion = unityVersionValue
         inputMode = inputModeValue
         if (NativeLocalReset.pending(activity)) return resultJson(PlatformStatus.ERROR, "Local reset is pending", "LOCAL_RESET_PENDING")
+        MeasurementAppVisits.initialize(activity)
         if (inputMode != "LIVE") MeasurementTelemetry.suspend()
         SensorRepository.initialize(activity.applicationContext)
         HealthRepository.initialize(activity.applicationContext)
@@ -349,6 +350,13 @@ object AndroidPlatformBridge {
         if (inputMode == "LIVE") appContext?.let { MeasurementTelemetry.focusRecommendation(it, kind, decision, session, recommended, actual, policy, reason, occurred, offset) } ?: "{}" else "{}"
     @JvmStatic
     fun getMeasurementBatch(binding: String): String = appContext?.let { MeasurementTelemetry.batch(it, binding) } ?: "{}"
+
+    @JvmStatic
+    fun recordMeasuredAppSession(session: String): String =
+        if (inputMode == "LIVE") appContext?.let { MeasurementTelemetry.appSession(it, session) } ?: "{}" else "{}"
+
+    @JvmStatic
+    fun getMeasuredAppVisit(): String = if (inputMode == "LIVE") MeasurementAppVisits.current() else "{}"
     @JvmStatic
     fun acknowledgeMeasurements(binding: String, collection: String, accepted: String, sent: String): String =
         appContext?.let { MeasurementTelemetry.acknowledge(it, binding, collection, accepted, sent) } ?: "{}"

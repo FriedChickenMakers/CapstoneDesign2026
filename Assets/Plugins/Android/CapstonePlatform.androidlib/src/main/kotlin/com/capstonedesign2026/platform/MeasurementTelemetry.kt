@@ -115,6 +115,7 @@ internal object MeasurementTelemetry {
      * AtomicFile.openRead restores legacy .bak, so delete every generation instead
      * of decoding/replacing a possibly corrupt outbox via the withdrawal protocol. */
     fun resetLocalData(context: Context) = synchronized(this) {
+        MeasurementUpload.cancel(context)
         suspended=true; buffer=null; location=""; error=false
         listOf(stateFile(context),healthFile(context)).forEach { file ->
             AtomicFile(file).delete()
@@ -143,6 +144,7 @@ internal object MeasurementTelemetry {
                 buffer = null; location = ""; error = false
             } else get(context).configure(binding, true, since)
             suspended = !enabled
+            if (enabled) MeasurementUpload.schedule(context) else MeasurementUpload.cancel(context)
             JSONObject().put("ok", true).toString()
         } catch (_: Exception) { latchError(context); JSONObject().put("ok", false).toString() }
     }
@@ -168,6 +170,7 @@ internal object MeasurementTelemetry {
                 scheduled = t.getLong("scheduled"), policy = t.getString("policy"), preferred = t.getInt("preferred"),
                 effective = t.getInt("effective"), samples = t.getInt("samples"), reason = reason)
             b.add(r, at)
+            MeasurementUpload.schedule(context)
         } catch (_: Exception) { latchError(context) }
     }
     fun activity(context: Context, kind: String, sessionKey: String, activity: String, at: Long, offset: Int): String = synchronized(this) {
@@ -178,7 +181,9 @@ internal object MeasurementTelemetry {
             val b = get(context)
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + sessionKey + kind), sessionKey = sessionKey,
                 activity = activity, elapsed = -1, boot = -1, offset = offset) // recovered wall time, never fabricated monotonic time
-            JSONObject().put("ok", b.add(r, System.currentTimeMillis())).toString()
+            val added = b.add(r, System.currentTimeMillis())
+            if (added) MeasurementUpload.schedule(context)
+            JSONObject().put("ok", added).toString()
         } catch (_: Exception) { latchError(context); "{\"ok\":false}" }
     }
     // Separate from the legacy four-feature model. Catalog IDs and fixed policy/reason
@@ -211,7 +216,26 @@ internal object MeasurementTelemetry {
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + decision + session + kind),
                 sessionKey = session, decisionId = decision, recommendedActivity = recommended, activity = actual,
                 policy = policy, reason = reason, elapsed = -1, boot = -1, offset = offset)
-            if (b.add(r, now)) "{\"ok\":true}" else failed("capacity")
+            if (b.add(r, now)) { MeasurementUpload.schedule(context); "{\"ok\":true}" } else failed("capacity")
+        } catch (_: Exception) { latchError(context); failed("storage") }
+    }
+
+    /** One random visit key per process start / foreground return after >=30s.
+     * No screen names, typed text, hardware IDs or health values are collected. */
+    fun appSession(context: Context, session: String): String = synchronized(this) {
+        fun failed(reason: String) = JSONObject().put("ok", false).put("failure", reason).toString()
+        try {
+            if (suspended || NativeLocalReset.pending(context)) return failed("suspended")
+            if (!session.matches(Regex("[a-f0-9]{32}"))) return failed("invalid")
+            val b = get(context)
+            val now = System.currentTimeMillis()
+            if (!b.state.enabled) return failed("disabled")
+            if (now < b.state.since) return failed("outside-window")
+            val record = base(context, "app_session_started", now).copy(
+                eventId = key(b.state.collection + session + "app_session_started"), sessionKey = session)
+            val added = b.add(record, now)
+            if (added) MeasurementUpload.schedule(context)
+            if (added) "{\"ok\":true}" else failed("capacity")
         } catch (_: Exception) { latchError(context); failed("storage") }
     }
 

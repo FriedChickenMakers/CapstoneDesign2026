@@ -1,9 +1,9 @@
 package com.capstonedesign2026.platform
 
 private class Store : MeasurementStore {
-    var value=MeasurementState(); var fail=false
+    var value=MeasurementState(); var fail=false; var saves=0
     override fun load()=value
-    override fun save(state: MeasurementState) { if(fail)throw java.io.IOException("Synthetic failure");value=state }
+    override fun save(state: MeasurementState) { if(fail)throw java.io.IOException("Synthetic failure");value=state;saves++ }
 }
 fun main() {
     val now=1800000000000L; val binding="a".repeat(64);var seq=0;val store=Store()
@@ -22,6 +22,10 @@ fun main() {
     check(q.state.events.size==1);store.fail=false
     q=queue();check(q.state.collection==collection && q.state.events.size==1)
     q.acknowledge(binding,collection,setOf(event(1).eventId),setOf(event(1).eventId));check(q.state.events.isEmpty())
+    val savesAfterAck=store.saves
+    q.acknowledge(binding,collection,emptySet(),emptySet())
+    q.acknowledge(binding,collection,setOf(event(1).eventId),setOf(event(1).eventId))
+    check(store.saves==savesAfterAck) // Heartbeat/duplicate ACK never rewrites retained receipts.
     check(q.add(event(1),now));check(q.state.events.isEmpty()) // recovered session cannot replay an acknowledged event
     for(i in 2..MeasurementBuffer.CAPACITY+1)check(q.add(event(i),now))
     check(!q.add(event(9999),now) && q.state.dropped==1L);check(q.batch(now).size==100)

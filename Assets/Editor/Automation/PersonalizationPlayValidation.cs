@@ -156,7 +156,11 @@ namespace CapstoneDesign.EditorTools
                 "registration-retry-preserves-collection-boundary");
             var hook=typeof(PersonalizationClient).GetField("measurementCallOverride",System.Reflection.BindingFlags.Static|System.Reflection.BindingFlags.NonPublic);
             var shownCalls=new List<object[]>();bool failShown=true;
+            var visitCalls=new List<string>();bool failVisit=false;string visitFailure=null;
             Func<string,object[],string> transport=(method,args)=> {
+                if(method=="recordMeasuredAppSession")
+                {visitCalls.Add((string)args[0]);if(visitFailure!=null)return "{\"ok\":false,\"failure\":\""+visitFailure+"\"}";
+                    if(failVisit){failVisit=false;return "{\"ok\":false}";}}
                 if(method=="recordMeasuredFocusRecommendation" && (string)args[0]=="focus_recommendation_shown")
                 {shownCalls.Add((object[])args.Clone());if(failShown){failShown=false;return "{\"ok\":false}";}}
                 return method=="getMeasurementBatch"?"{}":"{\"ok\":true}";
@@ -164,6 +168,30 @@ namespace CapstoneDesign.EditorTools
             hook.SetValue(null,transport);
             try
             {
+                var flags=System.Reflection.BindingFlags.Instance|System.Reflection.BindingFlags.NonPublic;
+                var visit=typeof(PersonalizationClient).GetMethod("RecordMeasuredAppVisit",flags);
+                var pause=typeof(PersonalizationClient).GetMethod("OnApplicationPause",flags);
+                var measured=typeof(PersonalizationClient).GetField("measuredAppVisit",flags);
+                var pausedAt=typeof(PersonalizationClient).GetField("appPausedAt",flags);
+                measured.SetValue(client,null);failVisit=true;
+                visit.Invoke(client,null);visit.Invoke(client,null);visit.Invoke(client,null);
+                Check(visitCalls.Count==2 && visitCalls[0]==visitCalls[1],"app-visit-failed-write-retries-same-random-key-once");
+                pause.Invoke(client,new object[]{true});visit.Invoke(client,null);
+                pause.Invoke(client,new object[]{false});visit.Invoke(client,null);
+                Check(visitCalls.Count==2,"short-interruption-does-not-inflate-app-visits");
+                pause.Invoke(client,new object[]{true});
+                typeof(PersonalizationClient).GetMethod("ResumeMeasuredAppVisit",flags).Invoke(client,new object[]{(double)pausedAt.GetValue(client)+31});
+                visit.Invoke(client,null);visit.Invoke(client,null);
+                Check(visitCalls.Count==3 && visitCalls[2]!=visitCalls[1],"foreground-after-thirty-seconds-starts-new-visit");
+                measured.SetValue(client,null);visitFailure="capacity";
+                visit.Invoke(client,null);visit.Invoke(client,null);visit.Invoke(client,null);
+                Check(visitCalls.Count==4,"app-visit-capacity-does-not-loop-or-inflate-drop-counter");
+                pause.Invoke(client,new object[]{true});
+                typeof(PersonalizationClient).GetMethod("ResumeMeasuredAppVisit",flags).Invoke(client,new object[]{(double)pausedAt.GetValue(client)+31});
+                visitFailure="storage";visit.Invoke(client,null);visit.Invoke(client,null);
+                visitFailure=null;visit.Invoke(client,null);visit.Invoke(client,null);
+                Check(visitCalls.Count==7 && visitCalls[4]==visitCalls[5] && visitCalls[5]==visitCalls[6]
+                    && visitCalls[4]!=visitCalls[3],"new-app-visit-retains-transient-storage-retry-after-rejected-visit");
                 var shownAt=DateTimeOffset.UtcNow;
                 string decision=Guid.NewGuid().ToString("N");
                 var exposure=new CapstoneDesign.Runtime.LocalState.FocusRecommendationExposure {

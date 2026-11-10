@@ -200,12 +200,13 @@ namespace CapstoneDesign.EditorTools
             finally { PlayerSettings.SetApplicationIdentifier(target,original); }
         }
 
-        // Closed QA enrollment is provisioned by an operator over USB into the
-        // bootstrap's private storage. Replace it in-place with the release
-        // candidate before handing the device to a participant. Both builds
-        // deliberately share an isolated package; never replace product data.
+        // Existing operator enrollments survive in-place updates. Fresh installs
+        // use the private automatic enrollment configuration embedded at build.
+        // The bootstrap remains available only for operator diagnostics.
         public static void BuildQaEnrollmentBootstrap() => BuildQaPackage(true);
         public static void BuildQaCandidate() => BuildQaPackage(false);
+        // Fresh-install validation must never clear an existing participant app.
+        public static void BuildAutomaticEnrollmentProbe() => BuildQaPackage(true, "com.capstonedesign2026.enrollmentqa");
 
         [Serializable]
         private sealed class QaBuildEvidence
@@ -216,9 +217,8 @@ namespace CapstoneDesign.EditorTools
             public ulong bytes;
         }
 
-        private static void BuildQaPackage(bool bootstrap)
+        private static void BuildQaPackage(bool bootstrap, string qaPackage = "com.capstonedesign2026.qa")
         {
-            const string qaPackage = "com.capstonedesign2026.qa";
             string artifacts = Environment.GetEnvironmentVariable("CAPSTONE_ARTIFACTS");
             string version = Environment.GetEnvironmentVariable("CAPSTONE_QA_VERSION");
             if (string.IsNullOrWhiteSpace(artifacts) || !Path.IsPathRooted(artifacts)
