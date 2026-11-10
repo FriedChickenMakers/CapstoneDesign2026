@@ -22,3 +22,8 @@ Latest navigation variant: four sparse leaves over #F4F9EC; centre reserved for 
 
 Two navigation variants: dense leaves for inactive tabs; four 40% larger
 leaves over pale green for selected tabs. Leaf count remains four.
+
+Additional derivative: LeafSet024LitNavigation.png. Nine larger overlapping
+leaf cells with NormalGL/roughness-based baked lighting, soft shadows and
+per-material saturation/contrast grading. Source and CC0 license unchanged.
+Reproduction helper: Assets/Editor/Automation/GardenNavigationLeafBake.cs.

@@ -18,6 +18,9 @@ namespace CapstoneDesign.Prototype
     {
         public Camera previewCamera;
         public PrototypeGardenPreviewLayout zoomLayout;
+        // Optional runtime scheduler; keep this reusable prototype assembly
+        // independent of the app/runtime assembly that owns the garden sky.
+        public static Func<Camera, bool> DeferredRenderRequest { private get; set; }
         public Func<bool> InputBlocked {get;set;}
         public Vector3 focus = new Vector3(0, .58f, 0);
         public const float DefaultDistance = 5.8f;
@@ -237,7 +240,10 @@ namespace CapstoneDesign.Prototype
             previewCamera.transform.SetPositionAndRotation(focus + rotation * (Vector3.back * distance), rotation);
             // The integrated home keeps its camera disabled between changes.
             if (render && Application.isPlaying && !previewCamera.enabled && previewCamera.gameObject.activeInHierarchy)
-                previewCamera.Render();
+            {
+                if (DeferredRenderRequest?.Invoke(previewCamera) != true)
+                    previewCamera.Render();
+            }
         }
     }
 }

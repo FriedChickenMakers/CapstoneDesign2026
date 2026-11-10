@@ -53,14 +53,14 @@ namespace CapstoneDesign.Tests
             finally { Object.DestroyImmediate(owner); }
         }
 
-        [TestCase(GardenThemeSurface.Style.Wood, "NavigationBackingUI")]
-        [TestCase(GardenThemeSurface.Style.TabWood, "NavigationBackingUI")]
-        [TestCase(GardenThemeSurface.Style.Header, "Wood062LitUI")]
-        [TestCase(GardenThemeSurface.Style.Shelf, "Wood062LitUI")]
+        [TestCase(GardenThemeSurface.Style.Wood, "LightWoodButtonUI")]
+        [TestCase(GardenThemeSurface.Style.TabWood, "LightWoodButtonUI")]
+        [TestCase(GardenThemeSurface.Style.Header, "LightWoodTitleUI")]
+        [TestCase(GardenThemeSurface.Style.Shelf, "LightWoodTitleUI")]
         [TestCase(GardenThemeSurface.Style.Backdrop, "Wood096Background")]
         [TestCase(GardenThemeSurface.Style.Primary, "LeafSet017UI")]
         [TestCase(GardenThemeSurface.Style.Home, "LeafSet024UI")]
-        [TestCase(GardenThemeSurface.Style.NavigationLeaf, "LeafSet024DenseUI")]
+        [TestCase(GardenThemeSurface.Style.NavigationLeaf, "LeafSet024LitNavigation")]
         public void TextureRestylingUsesTheImportedResource(GardenThemeSurface.Style style, string resource)
         {
             var owner = new GameObject("Synthetic texture control", typeof(RectTransform));

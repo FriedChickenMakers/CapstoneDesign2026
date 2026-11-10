@@ -33,7 +33,7 @@ namespace CapstoneDesign.Prototype
         static Texture2D woodTexture;
         static Texture2D denseLeafTexture;
         static Texture2D DenseLeafTexture => denseLeafTexture != null ? denseLeafTexture :
-            (denseLeafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024DenseUI"));
+            (denseLeafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024LitNavigation"));
         static Texture2D homeTexture;
         static Texture2D HomeTexture => homeTexture != null ? homeTexture :
             (homeTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024UI"));
@@ -42,21 +42,22 @@ namespace CapstoneDesign.Prototype
             (leafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet017UI"));
         static Texture2D shelfTexture;
         static bool shelfTextureLoaded;
-        const string ButtonTexturePath = "UI/Textures/NavigationBackingUI"; // Wood026
+        const string ButtonTexturePath = "UI/Textures/LightWoodButtonUI"; // Wood092, baked normal/roughness
         static Texture2D headerTexture;
         static Texture2D HeaderTexture => headerTexture != null ? headerTexture :
-            (headerTexture = Resources.Load<Texture2D>("UI/Textures/Wood062LitUI"));
+            (headerTexture = Resources.Load<Texture2D>("UI/Textures/LightWoodTitleUI"));
         static Texture2D groundTexture;
         static Texture2D GroundTexture => groundTexture != null ? groundTexture :
             (groundTexture = Resources.Load<Texture2D>("UI/Textures/Ground048UI"));
         // Keep navigation backing independent from buttons and page headings.
-        const string ShelfTexturePath = "UI/Textures/Wood062LitUI";
+        const string ShelfTexturePath = "UI/Textures/LightWoodTitleUI";
         static readonly Color TimberBorder = new Color32(76, 65, 52, 255);
         static readonly Color TimberWash = new Color32(92, 81, 68, 72);
         static readonly Color ButtonWash = new Color32(92, 81, 68, 38);
         static readonly Color ShelfWash = new Color32(64, 59, 51, 82);
         static readonly Color LeafWash = new Color32(52, 74, 57, 72);
         static readonly Color SelectedLeafWash = new Color32(199, 213, 193, 68);
+        [Min(1)] public float textureZoom = 1f;
         bool texturedFace;
         Rect textureFaceRect;
         bool UsesWood => style == Style.Wood || style == Style.TabWood || style == Style.Header || style == Style.Shelf;
@@ -77,7 +78,7 @@ namespace CapstoneDesign.Prototype
         bool UsesTexture => style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
         Texture2D SurfaceTexture => style == Style.NavigationLeaf ? DenseLeafTexture : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
         public override Texture mainTexture => UsesTexture && SurfaceTexture != null ? SurfaceTexture : base.mainTexture;
-        public static readonly Color WoodInk = new Color32(249, 247, 237, 255);
+        public static readonly Color WoodInk = new Color32(31, 56, 40, 255);
         public static Color Foreground(Transform parent, Color fallback)
         {
             for (var node = parent; node != null; node = node.parent)
@@ -115,6 +116,7 @@ namespace CapstoneDesign.Prototype
             if(changed)
             {
                 surface.BindOwner();
+                surface.UpdateIvy();
                 surface.SetAllDirty();
             }
             return surface;
@@ -172,7 +174,7 @@ namespace CapstoneDesign.Prototype
             switch (style)
             {
                 case Style.Backdrop: Backdrop(mesh, r); break;
-                case Style.NavigationLeaf:
+                case Style.NavigationLeaf: LitNavigation(mesh, r, unit); break;
                 case Style.Home: Primary(mesh, r, unit); break;
                 case Style.Primary: Primary(mesh, r, unit); break;
                 case Style.TabWood:
@@ -219,26 +221,116 @@ namespace CapstoneDesign.Prototype
 
         void Timber(VertexHelper mesh, Rect r, float u, bool header)
         {
-            float radius = Mathf.Min(header ? 11 : 14, r.height * .2f) * u;
-            Shadow(mesh, r, radius, (pressed ? 1 : 4) * u);
-            if (header) Rounded(mesh, r, radius, TimberBorder);
-            Rect face = header ? Inset(r, 2 * u) : r;
-            if (pressed) face = Offset(face, 0, -1.5f * u);
-            TimberFace(mesh, face, header ? Mathf.Max(1, radius - 2 * u) : radius);
-            if (!header && SurfaceTexture != null)
+            if (SurfaceTexture == null) { TimberFace(mesh, r, 10); return; }
+            float radius = Mathf.Min(10, r.height * .20f);
+            const float bevel = 2.8f;
+            float depth = pressed ? 1 : bevel * 1.1f;
+            LitRounded(mesh, Offset(r, -.7f, -depth-1.5f), radius+1, new Color32(70,60,39,19), false, r);
+            LitRounded(mesh, Offset(r, 0, -depth-.5f), radius, new Color32(70,60,39,35), false, r);
+            Color edge = (header ? new Color32(216,203,180,255) : new Color32(218,202,174,255));
+            edge *= .66f; edge.a=1;
+            LitRounded(mesh, Offset(r, 0, -depth), radius, edge, false, r);
+            var face=Inset(r,bevel);
+            if(pressed)face=Offset(face,0,-1);
+            LitRim(mesh,r,face,radius,Mathf.Max(0,radius-bevel));
+            LitRounded(mesh,face,Mathf.Max(0,radius-bevel),Color.white,true,face);
+        }
+
+        void LitNavigation(VertexHelper mesh, Rect r, float u)
+        {
+            float radius=Mathf.Min(16*u,r.height*.24f);
+            Shadow(mesh,r,radius,(pressed?1:4)*u);
+            Rounded(mesh,r,radius,new Color32(41,73,53,255));
+            var face=Inset(r,2*u);
+            if(pressed)face=Offset(face,0,-1.5f*u);
+            // Preserve the approved broad-leaf crop; only its frame matches the garden action.
+            LitRounded(mesh,face,Mathf.Max(1,radius-2*u),Color.white,true,Inset(r,1.7f));
+        }
+
+        void UpdateIvy()
+        {
+            bool timber=style==Style.Wood || style==Style.Header;
+            for(int i=0;i<2;i++)
             {
-                // Fixed bevel illumination complements the offline normal-map bake.
-                // It follows each button's shape instead of stretching a painted rim.
-                Border(mesh, Inset(face, .6f * u), Mathf.Max(0, radius - .6f * u),
-                    (pressed ? 1.3f : 2.3f) * u,
-                    new Color32(255, 238, 197, 150), new Color32(37, 25, 17, 165));
+                string name=i==0?"Lit ivy right":"Lit ivy left";
+                var child=transform.Find(name);
+                bool visible=timber && (i==0 || style!=Style.Header);
+                if(child==null && !visible)continue;
+                if(child==null)
+                {
+                    var go=new GameObject(name,typeof(RectTransform),typeof(LayoutElement),typeof(RawImage));
+                    go.transform.SetParent(transform,false);
+                    go.GetComponent<LayoutElement>().ignoreLayout=true;child=go.transform;
+                }
+                child.gameObject.SetActive(visible);
+                if(!visible)continue;
+                var rect=(RectTransform)child;
+                bool right=i==0,header=style==Style.Header;
+                float size=right?(header?46:39):42;
+                rect.anchorMin=rect.anchorMax=new Vector2(right?1:0,.5f);rect.pivot=new Vector2(.5f,.5f);
+                rect.sizeDelta=new Vector2(size,size);rect.anchoredPosition=right?new Vector2(header?-19:-17,header?9:7):new Vector2(18,-7);
+                rect.localRotation=Quaternion.Euler(0,0,right?-22:153);
+                var image=child.GetComponent<RawImage>();
+                image.texture=Resources.Load<Texture2D>(right?"UI/Textures/IvyLitRightUI":"UI/Textures/IvyLitLeftUI");
+                image.raycastTarget=false;int cell=right?(header?0:1):3;
+                image.uvRect=new Rect((cell%3)/3f,1f-(cell/3+1)/3f,1f/3f,1f/3f);
             }
-            if (SurfaceTexture == null) WoodGrain(mesh, face, u);
-            if (header && r.width >= 170)
+        }
+
+        static Vector2 LitPerimeter(Rect r,float radius,int corner,int step)
+        {
+            var center=Corner(r,radius,corner);
+            float angle=(corner*90+step*90f/8)*Mathf.Deg2Rad;
+            return center+new Vector2(Mathf.Cos(angle),Mathf.Sin(angle))*radius;
+        }
+        void LitRim(VertexHelper mesh,Rect outer,Rect inner,float outerRadius,float innerRadius)
+        {
+            const int count=36;int start=mesh.currentVertCount;
+            for(int corner=0;corner<4;corner++)for(int i=0;i<=8;i++)
             {
-                Circle(mesh, new Vector2(r.xMin + 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
-                Circle(mesh, new Vector2(r.xMax - 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
+                float a=(corner*90+i*90f/8)*Mathf.Deg2Rad;
+                float shade=.82f+.18f*Vector2.Dot(new Vector2(Mathf.Cos(a),Mathf.Sin(a)),new Vector2(-.52f,.66f).normalized);
+                LitVertex(mesh,LitPerimeter(outer,outerRadius,corner,i),new Color(shade,shade,shade,1),true,inner,false);
+                LitVertex(mesh,LitPerimeter(inner,innerRadius,corner,i),Color.white,true,inner,false);
             }
+            for(int i=0;i<count;i++)
+            {
+                int a=start+2*i,b=start+2*((i+1)%count);
+                mesh.AddTriangle(a,b,b+1);mesh.AddTriangle(a,b+1,a+1);
+            }
+        }
+        void LitRounded(VertexHelper mesh,Rect r,float radius,Color tint,bool textured,Rect face)
+        {
+            const int count=36;int start=mesh.currentVertCount;
+            LitVertex(mesh,r.center,tint,textured,face);
+            for(int corner=0;corner<4;corner++)for(int i=0;i<=8;i++)
+                LitVertex(mesh,LitPerimeter(r,radius,corner,i),tint,textured,face);
+            for(int i=0;i<count;i++)mesh.AddTriangle(start,start+i+1,start+(i+1)%count+1);
+        }
+        void LitVertex(VertexHelper mesh,Vector2 point,Color tint,bool textured,Rect face,bool light=true)
+        {
+            var texture=SurfaceTexture;
+            Vector2 uv=new Vector2(.5f,(texture.height-16f)/texture.height);
+            if(textured)
+            {
+                if(light)
+                {
+                    float nx=Mathf.Clamp01((point.x-face.xMin)/face.width),ny=Mathf.Clamp01((point.y-face.yMin)/face.height);
+                    float shade=.945f+.035f*ny+.02f*(1-nx);
+                    tint=new Color(tint.r*shade,tint.g*shade,tint.b*shade,tint.a);
+                }
+                bool rotate=style==Style.Wood || style==Style.TabWood;
+                float w=rotate?texture.height-32:texture.width,h=rotate?texture.width:texture.height-32;
+                float coverage=style==Style.NavigationLeaf?.94f:style==Style.Shelf?.72f/2.5f:.72f;
+                float scale=Mathf.Min(w/face.width,h/face.height)*coverage;
+                Vector2 delta=(point-face.center)*scale;
+                if(rotate)delta=new Vector2(delta.y,-delta.x);
+                uv=new Vector2(.5f+delta.x/texture.width,((texture.height-32)*.5f+delta.y)/texture.height);
+            }
+            if(disabled)tint=Color.Lerp(tint,new Color(.86f,.85f,.78f,tint.a),.4f);
+            else if(pressed)tint=Color.Lerp(tint,new Color(.20f,.29f,.19f,tint.a),.1f);
+            else if(highlighted)tint=Color.Lerp(tint,new Color(1,.99f,.86f,tint.a),.06f);
+            mesh.AddVert(point,tint*color,uv);
         }
 
         void Primary(VertexHelper mesh, Rect r, float u)
@@ -289,7 +381,9 @@ namespace CapstoneDesign.Prototype
             // The inset navigation shelf has transparent rounded corners; the
             // parent keeps the touch rectangle separate from this decoration.
             Shadow(mesh, r, 15 * u, 4 * u);
-            TimberFace(mesh, r, 15 * u);
+            if(SurfaceTexture!=null)
+                LitRounded(mesh,r,15*u,new Color(.96f,.91f,.83f),true,r);
+            else TimberFace(mesh, r, 15 * u);
             if (SurfaceTexture == null) WoodGrain(mesh, r, u);
         }
 
@@ -536,7 +630,7 @@ namespace CapstoneDesign.Prototype
             }
             else if (pressed) tint = Color.Lerp(tint, new Color(.20f, .29f, .19f, tint.a), .10f);
             else if (highlighted) tint = Color.Lerp(tint, new Color(1, .99f, .86f, tint.a), .06f);
-            Vector2 uv = UsesTexture && SurfaceTexture != null ? new Vector2(.5f, 1040f / 1056f) : Vector2.zero;
+            Vector2 uv = UsesTexture && SurfaceTexture != null ? new Vector2(.5f, (SurfaceTexture.height-16f)/SurfaceTexture.height) : Vector2.zero;
             if (texturedFace)
             {
                 // Aspect-preserving central crop; never squeeze a square photo
@@ -546,7 +640,7 @@ namespace CapstoneDesign.Prototype
                 // Enlarge only the shelf grain 2.5x; the approved shelf geometry,
                 // icon positions, button gaps and all other texture crops stay fixed.
                 float coverage = style == Style.Shelf ? .94f / 2.5f : style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
-                float scale = coverage / Mathf.Max(textureFaceRect.width, textureFaceRect.height);
+                float scale = coverage / Mathf.Max(textureFaceRect.width, textureFaceRect.height) / Mathf.Max(1,textureZoom);
                 if (style == Style.Wood || style == Style.TabWood || style == Style.Header)
                     scale = Mathf.Min(1f / 480f, .94f / Mathf.Max(textureFaceRect.width, textureFaceRect.height));
                 uv = new Vector2(.5f + (point.x - textureFaceRect.center.x) * scale,

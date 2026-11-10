@@ -189,7 +189,7 @@ namespace CapstoneDesign.Runtime
             stateSummary=GardenUi.Label(content,(mode=="LIVE"?"":"["+mode+"]  ")+ (s==null ? "저장 상태를 확인해 주세요" : CourseProgressLabel(s)),48f/720f,.81f,624f/720f,.05f,GardenUi.BodySize);
             stateSummary.color=GardenUi.Muted;
             PlacePageHeader(stateSummary,longTitle?266:206,60);
-            if(screen!="placement" && screen!="growth")
+            if(screen!="placement" && screen!="growth" && (s==null || s.MbctProgramChosen))
             {
                 var progress=GardenUi.Box(content,"Course progress",48f/720f,0,624f/720f,0);
                 GardenUi.FromTop(progress.transform,longTitle?342:282,12);
@@ -308,7 +308,9 @@ namespace CapstoneDesign.Runtime
             ? FocusMissionPolicy.CompletedCount(state) : MbctPolicy.CompletedCount(state);
         int DisplayedCourseTotal(GardenState state) => UsesFocusCourseProgress
             ? FocusMissionPolicy.TotalPracticesFor(state.MbctProgramId) : MbctPolicy.PracticeCount(MbctPolicy.ActiveProgram(state));
-        string CourseProgressLabel(GardenState state) => "코인 "+state.Coins+"  ·  "+MbctPolicy.ProgramWeeks(MbctPolicy.ActiveProgram(state))+"주 코스 "+DisplayedCourseProgress(state)+" / "+DisplayedCourseTotal(state);
+        string CourseProgressLabel(GardenState state) => "코인 "+state.Coins+"  ·  "+(!state.MbctProgramChosen
+            ? "아직 선택한 코스가 없어요."
+            : MbctPolicy.ProgramWeeks(MbctPolicy.ActiveProgram(state))+"주 코스 "+DisplayedCourseProgress(state)+" / "+DisplayedCourseTotal(state));
         static void TraceScreen(string name,double milliseconds,long snapshots)
         {
             if(Debug.isDebugBuild)Debug.Log("MBCT_UI "+name+" buildMs="+milliseconds.ToString("F2",System.Globalization.CultureInfo.InvariantCulture)+" snapshots="+snapshots);

@@ -185,8 +185,11 @@ namespace CapstoneDesign.Runtime
             if(TemporarySettingsButton!=null)return;
             TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",568,24,104,96,OpenSettings,GardenUi.Pale,GardenUi.Green,26);
             TemporarySettingsButton.name="TemporarySettingsButton";
-            GardenThemeSurface.Apply(TemporarySettingsButton.gameObject,GardenThemeSurface.Style.Wood);
-            TemporarySettingsButton.GetComponentInChildren<Text>().color=GardenThemeSurface.WoodInk;
+            // Keep the original generous touch rectangle, with only a text affordance.
+            TemporarySettingsButton.GetComponent<Image>().color=Color.clear;
+            var decoration=TemporarySettingsButton.transform.Find("Garden theme surface");
+            if(decoration!=null)decoration.gameObject.SetActive(false);
+            TemporarySettingsButton.GetComponentInChildren<Text>().color=GardenUi.Green;
             var rect=(RectTransform)TemporarySettingsButton.transform;
             rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(.5f,.5f);rect.anchoredPosition=new Vector2(-100,-72);
             if(date!=null && backgroundPreview==null)
@@ -232,6 +235,11 @@ namespace CapstoneDesign.Runtime
             if(dailyStatus!=null)dailyStatus.color=GardenUi.Muted;
             if(missionName!=null)missionName.color=GardenUi.Ink;
             GardenButtonBotanicals.Apply(shopButton, true);
+            if(shopButton!=null)
+            {
+                var face=shopButton.GetComponentInChildren<GardenThemeSurface>();
+                if(face!=null){face.textureZoom=2f;face.SetVerticesDirty();}
+            }
             if(shopButton!=null)foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.color=Color.white;
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
@@ -334,6 +342,11 @@ namespace CapstoneDesign.Runtime
             Color ink=OverlayTextColor(sky!=null?sky.Daylight:hour>=6&&hour<18?1:0);
             Color32 edge = ink == Color.white ? new Color(0,0,0,.52f) : new Color(1,1,1,.68f);
             ApplyOverlayInk(title,ink,edge);ApplyOverlayInk(date,ink,edge);ApplyOverlayInk(guide,ink,edge);
+            if(TemporarySettingsButton!=null)
+            {
+                var label=TemporarySettingsButton.GetComponentInChildren<Text>();
+                if(label!=null && label.color!=ink)label.color=ink;
+            }
         }
 
         static void ApplyOverlayInk(TMP_Text label,Color ink,Color32 edge)

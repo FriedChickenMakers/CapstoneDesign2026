@@ -1,0 +1,6 @@
+Wood092
+Source: https://ambientcg.com/view?id=Wood092
+Creator: ambientCG / Lennart Demes
+License: Creative Commons CC0 1.0 Universal
+License text: https://creativecommons.org/publicdomain/zero/1.0/
+Modified: normal/roughness lighting baked offline, per-material color grading and UI atlas packing.

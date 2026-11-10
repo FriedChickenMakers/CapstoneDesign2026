@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -7,8 +8,10 @@ namespace CapstoneDesign.Runtime
 {
     // A stylized local-clock sky, not astronomical/geolocation tracking.
     // The garden remains lit at night; neither time nor weather affects rewards.
+    [DefaultExecutionOrder(2000)]
     public sealed class GardenSkyEnvironment : MonoBehaviour
     {
+        static readonly List<GardenSkyEnvironment> activeEnvironments = new List<GardenSkyEnvironment>();
         Camera view;
         Light key;
         Material sky, cloudMaterial;
@@ -17,6 +20,8 @@ namespace CapstoneDesign.Runtime
         readonly ParticleSystem.Particle[] particles = new ParticleSystem.Particle[24];
         double? previewHour;
         float nextRender, nextLighting;
+        bool renderRequested;
+        int lastRenderedFrame = -1;
         public float Daylight { get; private set; }
         public Vector3 SunDirection { get; private set; }
         public Vector3 MoonDirection => -SunDirection;
@@ -27,6 +32,8 @@ namespace CapstoneDesign.Runtime
 
         void OnEnable()
         {
+            if (!activeEnvironments.Contains(this)) activeEnvironments.Add(this);
+            CapstoneDesign.Prototype.PrototypeIslandDrag.DeferredRenderRequest = RequestViewRender;
             GardenVisualClock.Changed += RefreshClock;
             RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
             RenderPipelineManager.beginCameraRendering += PrepareSkyProjection;
@@ -34,12 +41,19 @@ namespace CapstoneDesign.Runtime
         }
         void OnDisable()
         {
+            activeEnvironments.Remove(this);
+            if (activeEnvironments.Count == 0) CapstoneDesign.Prototype.PrototypeIslandDrag.DeferredRenderRequest = null;
+            renderRequested = false;
             GardenVisualClock.Changed -= RefreshClock;
             RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
         }
         void PrepareSkyProjection(ScriptableRenderContext context, Camera camera)
         {
-            if (camera != view || sky == null) return;
+            if (camera != view) return;
+            // Home/state refreshes can explicitly render before LateUpdate.
+            // Count those too so one input frame never renders this garden twice.
+            lastRenderedFrame = Time.frameCount;
+            if (sky == null) return;
             // Unity's orthographic sky pass uses its own square projection and
             // replaces built-in aspect data. Preserve the final RawImage aspect,
             // including cards that stretch a shared RT, before every render.
@@ -55,6 +69,22 @@ namespace CapstoneDesign.Runtime
             // light and sky on this frame without re-entering the SRP camera pass.
             nextRender = 0;
             nextLighting = 0;
+            renderRequested = true;
+        }
+
+        // Pointer input may deliver several drag/zoom changes in one frame.
+        // Commit their final camera pose once, after the composition layout has
+        // settled. Standalone previews and Editor captures retain immediate draws.
+        public static bool RequestViewRender(Camera camera)
+        {
+            if (!Application.isPlaying || camera == null) return false;
+            foreach (var environment in activeEnvironments)
+            {
+                if (environment == null || environment.view != camera || !environment.isActiveAndEnabled) continue;
+                environment.renderRequested = true;
+                return true;
+            }
+            return false;
         }
 
         public static GardenSkyEnvironment Ensure(Camera camera, Transform visualRoot)
@@ -250,14 +280,24 @@ namespace CapstoneDesign.Runtime
             if (!Application.isPlaying || view == null || !view.gameObject.activeInHierarchy) return;
             float now = Time.unscaledTime;
             if (now >= nextLighting) { nextLighting = now + 15; ApplyTime(previewHour ?? GardenVisualClock.CurrentHour); }
-            if (now < nextRender) return;
-            nextRender = now + .1f;
-            UpdateClouds(now);
-            if (!view.enabled && view.targetTexture != null) view.Render();
+            if (now >= nextRender)
+            {
+                nextRender = now + .1f;
+                UpdateClouds(now);
+                renderRequested = true;
+            }
+            if (!renderRequested) return;
+            if (view.enabled) { renderRequested = false; return; }
+            if (view.targetTexture == null || lastRenderedFrame == Time.frameCount) return;
+            PreviewLayout?.Apply();
+            renderRequested = false;
+            view.Render();
         }
 
         void OnDestroy()
         {
+            activeEnvironments.Remove(this);
+            if (activeEnvironments.Count == 0) CapstoneDesign.Prototype.PrototypeIslandDrag.DeferredRenderRequest = null;
             RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
             if (RenderSettings.sun == key) RenderSettings.sun = null;
             if (sky != null) { if (Application.isPlaying) Destroy(sky); else DestroyImmediate(sky); }

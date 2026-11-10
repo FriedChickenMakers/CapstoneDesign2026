@@ -420,6 +420,7 @@ namespace CapstoneDesign.Runtime
                 var arrow=GardenUi.Icon(button.transform,CapstoneDesign.Prototype.PrototypeUiIcon.Symbol.Arrow,1,.5f,0,0,GardenUi.Muted);
                 arrow.rectTransform.pivot=new Vector2(1,.5f);
                 arrow.rectTransform.sizeDelta=new Vector2(28,28);
+                arrow.rectTransform.anchoredPosition=new Vector2(-12,0);
             }
         }
 
@@ -427,14 +428,18 @@ namespace CapstoneDesign.Runtime
         {
             var button=GardenUi.Button(parent,text,0,0,1,1,action);
             PlaceRow(button,parent,text,false);
-            button.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-156,0);
+            // Keep the complete control inside the paper row's inset rule. The
+            // old right-edge anchor placed the switch on the card border.
+            button.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-168,0);
             var state=GardenUi.Label(button.transform,"",1,0,0,1,GardenUi.CaptionSize);
+            state.name="Switch state";
             state.alignment=TextAnchor.MiddleRight;
-            state.rectTransform.offsetMin=new Vector2(-152,0);
-            state.rectTransform.offsetMax=new Vector2(-80,0);
+            state.rectTransform.offsetMin=new Vector2(-164,0);
+            state.rectTransform.offsetMax=new Vector2(-92,0);
             var track=GardenUi.Box(button.transform,"Switch track",1,.5f,0,0);
             var trackRect=(RectTransform)track.transform;
             trackRect.pivot=new Vector2(1,.5f);trackRect.sizeDelta=new Vector2(64,36);
+            trackRect.anchoredPosition=new Vector2(-12,0);
             var trackImage=track.AddComponent<Image>();GardenUi.Round(trackImage,GardenUi.Muted);trackImage.raycastTarget=false;
             GardenThemeSurface.Apply(track,GardenThemeSurface.Style.ProgressTrack);
             var thumb=GardenUi.Box(track.transform,"Switch thumb",0,.5f,0,0);
@@ -449,7 +454,8 @@ namespace CapstoneDesign.Runtime
             if(!switches.TryGetValue(button,out var visual))return;
             visual.Track.color=enabled?GardenUi.Green:GardenUi.Muted;
             GardenThemeSurface.Apply(visual.Track.gameObject,enabled?GardenThemeSurface.Style.ProgressFill:GardenThemeSurface.Style.ProgressTrack);
-            visual.Thumb.anchoredPosition=new Vector2(enabled?46:18,0);
+            float inset=4+visual.Thumb.rect.width*.5f;
+            visual.Thumb.anchoredPosition=new Vector2(enabled?visual.Track.rectTransform.rect.width-inset:inset,0);
             visual.State.text=enabled?"켜짐":"꺼짐";
             visual.State.color=GardenUi.Muted;
         }
