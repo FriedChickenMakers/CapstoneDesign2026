@@ -1,6 +1,6 @@
 # P01–P28 목적·단계·허용범위 재매핑 — content v5, 2026-11-09
 
-현재 로컬 통합 후보의 **코드와 기존 근거 문서 연결을 완료한 표**다. 새 문헌 조사, 전문가 심사, 임상 효과·실습량 검증을 수행한 보고서가 아니다. `misssion`은 merge 진행 중이며 이 파일도 아직 commit/push하지 않았다. 상담사 추가 문의는 사용자가 이번 개발의 선행 작업에서 제외했다.
+2026-11-09 통합한 content v5의 **코드와 기존 근거 문서 연결을 완료한 표**다. 새 문헌 조사, 전문가 심사, 임상 효과·실습량 검증을 수행한 보고서가 아니다. 2026-11-10 QA 게시에서는 근거 문서 링크와 Git 상태 설명만 갱신했다. 상담사 추가 문의는 사용자가 이번 개발의 선행 작업에서 제외했다.
 
 코드의 `Purpose`는 개발팀이 정한 좁은 활동 목표다. 표의 ‘보존’도 제품 설계 계약이며, 전문가가 승인한 임상 최소 절차를 뜻하지 않는다. 현재 30/45/60/120초는 **앱 기본 추천값**이다. 공식 MBCT 권장량·임상적 최소 시간으로 표현하지 않는다.
 
@@ -18,8 +18,8 @@
 
 | 식별자 | 실제 확인한 기존 문서·위치 | 이 표에서 사용하는 범위 |
 | --- | --- | --- |
-| D1 | Docs evidence worktree `기획서/미션별 목적·대체 검토표 2026-11-05.md`, P01–P28 각 행 | 원형과 좁은 앱 목표의 차이, 보존 쟁점, 당시 제안/누락. 전문가 의견란은 미검토였으며 승인 자료로 바꾸지 않음 |
-| D2 | 같은 worktree `기획서/MBCT 실습 대체와 목적 보존 근거 2026-11-05.md`, 1–3절 | 목적 이름뿐 아니라 과정·태도·순서를 보존하고 변형을 별도 평가해야 한다는 검토틀. 아래 세부 번호를 사용 |
+| D1 | [미션별 목적·대체 검토표 — 당시 조사 기록](https://github.com/FriedChickenMakers/CapstoneDesign2026-Docs/blob/codex/qa-release-20261110/%EA%B8%B0%ED%9A%8D%EC%84%9C/%EB%AF%B8%EC%85%98%EB%B3%84%20%EB%AA%A9%EC%A0%81%C2%B7%EB%8C%80%EC%B2%B4%20%EA%B2%80%ED%86%A0%ED%91%9C%202026-11-05.md), P01–P28 각 행 | 원형과 좁은 앱 목표의 차이, 보존 쟁점, 당시 제안/누락. 전문가 의견란은 미검토였으며 승인 자료로 바꾸지 않음 |
+| D2 | [실습 대체·목적 보존 근거 — 당시 조사 기록](https://github.com/FriedChickenMakers/CapstoneDesign2026-Docs/blob/codex/qa-release-20261110/%EA%B8%B0%ED%9A%8D%EC%84%9C/MBCT%20%EC%8B%A4%EC%8A%B5%20%EB%8C%80%EC%B2%B4%EC%99%80%20%EB%AA%A9%EC%A0%81%20%EB%B3%B4%EC%A1%B4%20%EA%B7%BC%EA%B1%B0%202026-11-05.md), 1–3절 | 목적 이름뿐 아니라 과정·태도·순서를 보존하고 변형을 별도 평가해야 한다는 검토틀. 아래 세부 번호를 사용 |
 | D2-좌선 | D2의 MBI:TAC p.43 정리 | 호흡·접촉·소리 등 기준점 선택에 관한 기존 근거 연결. 앱의 모든 감각 교환을 일괄 승인하지 않음 |
 | D2-움직임 | D2의 MBI:TAC p.44 정리 | 신체 한계·자세·유지 시간 조절. 걷기를 하지 않고 걸음수 목표를 달성했다고 처리하는 근거가 아님 |
 | D2-세단계 | D2의 MBI:TAC p.45 정리 | 알아차림→기준점에 모음→몸 전체로 확장이라는 구조. 현재 앱에 없는 발/손 대체를 구현 완료로 표시하지 않음 |
@@ -27,7 +27,7 @@
 | D3 | Docs evidence worktree `기획서/단축·변형 MBCT 근거 재검토 2026-10-31.md` | 기간·전달 방식의 설계 배경. 개별 P의 초수나 현재 앱 효과를 뒷받침하지 않음 |
 | D4 | [확정 정책 구현 기록](CONFIRMED_POLICY_IMPLEMENTATION_20261106.md), [현재 통합 기록](QA_RELEASE_READINESS_20261109.md) | 사용자 결정·코드·검증 사실. 임상 근거 자료와 구분 |
 
-Docs evidence worktree의 기준 HEAD는 `3f80bfb7a6120ea51ea6b5c24d0cfa3a9d4bcb67`이다. **D1/D2는 그 위의 미게시 초안**임을 실제 Git 상태에서 확인했다. 존재하지 않는 GitHub 링크를 만들지 않고 문서명·절·미션 번호로 연결했다. 검토한 로컬 위치는 `/workspace/CapstoneDesign2026-Docs-evidence/기획서/`다. D3는 해당 기준 커밋의 문서다.
+최초 재매핑 시 D1/D2는 Docs 기준 `3f80bfb7a6120ea51ea6b5c24d0cfa3a9d4bcb67` 위의 미게시 조사 기록이었다. 이번 게시에서 당시 원문과 작성 시점의 한계를 보존해 `codex/qa-release-20261110`에 연결한다. 게시 자체를 전문가 승인이나 효과 검증으로 해석하지 않는다. D3는 기존 기준 커밋의 문서이며, 과거 참여 보상 제안보다 이 표의 v5 실행 계약이 우선한다.
 
 D2에 이미 정리된 공개 출처는 [Crane 등 변형 프레임워크](https://doi.org/10.1017/S0033291716003317), [Loucks 등 변형 절차](https://pmc.ncbi.nlm.nih.gov/articles/PMC8811951/), [MBI:TAC 공식 자료](https://mbitac.bangor.ac.uk/documents/MBITACFullPAGESFINAL6.7.21.pdf), [UMass 산 명상 설명](https://www.ummhealth.org/services-treatments/center-mindfulness/meditations), [Oxford appreciation 소개](https://oxfordmindfulness.org/can-mindfulness-improve-romantic-relationships)다. 이번 작업에서는 기존 문서의 해석 범위를 연결했으며 원문을 새로 조사·재심사한 것으로 표시하지 않는다.
 

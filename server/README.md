@@ -36,7 +36,8 @@ configuration examples or screenshots. Store the enrollment file with mode 0600
 inside a private directory. Do not use device identifiers or contact details as
 participant IDs.
 
-App enrollment is provisioned separately as `personalization-enrollment.json` in
+For the manual workflow (including the verified S24 build 1010), app enrollment
+is provisioned separately as `personalization-enrollment.json` in
 the Android application's private files directory. Its only fields are
 `endpoint` and `token`. The endpoint is an HTTPS origin without a path, query,
 fragment or embedded credentials. Debug builds permit HTTP only for loopback
@@ -46,7 +47,10 @@ app does not inspect a signed form and no new marker or enrollment schema is add
 A valid registered LIVE app activates recommendation and measurement collection
 from the initial garden screen, without visiting missions or settings and without
 an in-app consent card, toggle or extra confirmation. Unregistered apps
-remain local and do not export these records. A token is never bundled in the APK.
+remain local and do not export these records. A participant's bearer token is
+never bundled in the APK. The optional automatic-registration contract below
+uses a separate shared distribution key; it does not replace existing manual
+registrations or claim strong device authentication.
 
 Existing authorized queues and collection-start boundaries are preserved. A newly
 activated measurement scope starts at activation time and excludes earlier selected
@@ -104,9 +108,90 @@ See [OPERATIONS.md](OPERATIONS.md)
 for details. The analysis PNG is generated outside the app, not added as a new
 in-app chart.
 
+## Automatic install registration
+
+**Implementation status:** source release `qa-auto-20261110-7249cb5ad7c1` is
+deployed with the key file and exact proxy route. Local/remote server tests and
+synthetic HTTPS protocol checks passed; see [operations](OPERATIONS.md).
+Existing manual S24/A7 registrations remain valid. New APK/device results must
+be established separately from these server checks.
+
+An authorized QA build creates a random per-install token locally before it has
+network access. Its events and timestamps can enter the existing persistent
+outbox. On an upload's 401, the native client may register that same token and
+retry the same batch once; it must not replace the token or recreate events.
+A manual registration has no automatic-registration key and retains its operator
+workflow. Client implementation/real-device validation are separate from server
+unit tests.
+
+Configure the server with `CAPSTONE_ENROLLMENT_KEY_FILE=/private/path/enrollment-key`.
+The owner-private regular file contains exactly 64 lowercase hex characters
+(32 random bytes), optionally followed by a newline. Use mode 0600. The API
+reads it at startup; an unset path closes registration with 404, while a
+configured unreadable/malformed/non-private file fails startup safely. Never
+put the actual key in Git, command arguments, logs or documentation. The key
+from private build configuration must match this server file. A key rotation
+does not invalidate already registered bearer tokens; it affects new registration.
+
+| Request/response | Contract |
+| --- | --- |
+| Request | `POST /enrollments`, `Content-Type: application/json`, `X-Enrollment-Key: <distribution key>` |
+| Body | Exactly `token` (64 lowercase hex characters) and `app_version` (`[A-Za-z0-9._-]{1,48}`); maximum 1,024 bytes |
+| Success | HTTP 200 with exactly `{"registered":true}`; no participant identity or token returned |
+| Closed/invalid key | 404 when unconfigured; 401 for a missing or invalid shared key |
+| Invalid/revoked | 400 for invalid fields/duplicate JSON fields; 413 for excess body size; 403 for a withdrawn token |
+| New-registration budget | Global 240/hour and 1,000/day; 429 with `Retry-After: 60`. No per-IP identity or IP rate bucket, so one school's NAT is not treated as one participant |
+
+An installation can withdraw before its first successful registration/upload.
+For **only this unknown-token deletion**, `DELETE /participant` may include both
+`Authorization: Bearer <local 64-lowercase-hex token>` and the valid
+`X-Enrollment-Key`. The server atomically creates a hashed identity and revokes
+it, returning the existing `deleted: true, enrollment_revoked: true` response
+without accepting any activity or measurement. Later registration of that token
+returns 403. A missing/invalid distribution key returns 401 for this unknown
+token; malformed tokens with a valid gate return 400.
+
+First-time pre-registration withdrawals share the new-registration budget. Their
+identity metadata uses the internal marker `withdraw-before-registration`, not
+an observed app version. Repeated deletion is idempotent and does not consume
+that budget. Already registered or revoked tokens retain normal deletion without
+the distribution key, even if it has rotated or automatic registration is closed.
+The shared key never grants an unknown token access to measurement/policy routes.
+
+`automatic_enrollments` stores only SHA-256(token), a random UUID subject, first
+registration time and app version. A SQLite immediate transaction makes lookup,
+new-registration limits and insertion atomic across threads/processes. Existing
+tokens return the same subject on retries/restarts and do not consume or fail the
+new-registration budget. A matching manual token preserves its existing subject.
+The distribution key comparison uses constant-time digest comparison.
+
+Withdrawal retains subject and token-hash tombstones. A withdrawn manual token
+cannot regain access by being removed from the operator mapping and submitted
+as a new automatic token. Those minimal tombstones/identity mappings remain
+after event retention; deleting them would permit identity reset or resurrection.
+Managed backups carry the token-hash tombstones as well as subject revocations.
+Previously removed manual mappings cannot be reconstructed if no token mapping
+was available during migration; retain current manual mappings during upgrade.
+
+The shared APK key can be extracted. It is a basic unwanted-ingestion gate,
+not device attestation or proof that the client is genuine. Existing body,
+connection and new-registration limits still apply. A newly generated token
+after an intentional reinstall is a new anonymous installation, not a permanent
+hardware identity.
+
+An actor holding the shared key can exhaust the global new-identity budget and
+delay legitimate new registration or a first pre-registration withdrawal. This
+is an accepted availability limitation of the minimal gate for a controlled QA
+distribution, not a claim of abuse-proof public enrollment. Existing registered
+uploads and idempotent registration/deletion retries are outside that budget.
+For key rotation and its effect on not-yet-registered offline installations,
+see [the operational procedure](OPERATIONS.md#distribution-key-rotation-and-availability).
+
 ## API contract
 
-All routes require `Authorization: Bearer <operator-provisioned token>`.
+Data/policy routes require `Authorization: Bearer <registered token>`. Deletion
+also supports the narrowly gated pre-registration case above. Only the optional
+`/enrollments` route uses `X-Enrollment-Key` instead of a bearer token.
 Responses use JSON and `Cache-Control: no-store`. Redirects are not part of the
 protocol. The client does not forward bearer credentials to redirected hosts.
 
@@ -174,6 +259,10 @@ performs catch-up before serving. SQLite secure deletion is enabled, but this
 does not remove separately retained filesystem snapshots, exports or backups.
 Those require an operator-managed retention/deletion process. Revocation
 tombstones remain to prevent old credentials from restoring deleted events.
+The deployed hourly maintenance job now manages a private set of seven daily
+SQLite online snapshots and scrubs revoked/expired rows from them. It does not
+touch earlier operator archives or exports. Run and verify maintenance as part
+of withdrawal; see [operations](OPERATIONS.md#backup-recovery-and-withdrawal).
 
 ## Evaluate without deploying
 
@@ -257,6 +346,13 @@ Notification rows record due/planned time, accepted-post time, click time, polic
 and clock metadata. Activity rows contain catalog ID, pseudonymous session key
 and selected/started/completed/ended timestamps. Raw notes, health values and
 unrecognized fields are rejected. The operator must confirm the written scope before provisioning registration.
+`app_session_started` adds a random foreground-session key and native timestamp,
+elapsed clock and boot count. Its activity/notification IDs are empty and its
+policy/reason are `none`; it contains no hardware identifier, screen text or
+health value. A session starts at process launch or return after at least 30
+seconds in the background. This is an observed app visit, not proof of attention.
+The Android event is subject to the same enrollment, outbox, expiry and quality
+contract as the other measurements.
 The valid registered LIVE app activates this producer without additional UI; it
 preserves any existing measurement boundary and starts new measurements at first
 activation. The retained `consent_version` values describe existing wire contracts,
@@ -264,6 +360,13 @@ not a new in-app procedure.
 
 Read [implementation, evaluation rules and remaining beta operating steps](../docs/QA_BETA_MEASUREMENT_PLAN.md).
 Run `python3 -m server.analyze_measurements --help` for the read-only export tool.
+The report's `app_sessions` section deduplicates foreground-session keys and
+reports D7/D14 return in elapsed 24-hour windows from the **first observed** visit.
+It excludes unfinished, incomplete and unconfirmed follow-up from rate
+denominators, and keeps synthetic/live datasets separate. These are not install
+cohorts or clinical-effect estimates. The first-day launch-to-activity interval
+is a wall-clock temporal association; without an explicit task/session join and
+clock validation it must not be labeled an exact usability task duration.
 Real notification delivery, Unity upload and deletion were validated on a device
 for the prior in-app-consent baseline. The written-consent activation change passed its current-source Editor network
 checks (18 client and 2 server checks with cleanup), plus unregistered/registered
