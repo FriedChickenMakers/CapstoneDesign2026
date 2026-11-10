@@ -23,6 +23,50 @@ def percentile(values, fraction):
     return values[low] + (values[math.ceil(index)] - values[low]) * (index - low)
 
 
+def analyze_app_sessions(records, quality, as_of, dataset):
+    """Descriptive return to the first observed app session, not an install cohort."""
+    visits, activities = {}, {}
+    for subject, collection, event in records:
+        if event["dataset"] != dataset or not as_of - 90 * DAY <= event["occurred_utc_ms"] <= as_of:
+            continue
+        if event["kind"] == "app_session_started":
+            visits.setdefault(subject, {})[(collection, event["session_key"])] = event
+        elif event["kind"] == "activity_started":
+            activities.setdefault(subject, []).append(event["occurred_utc_ms"])
+    rows = []
+    for subject, sessions in sorted(visits.items()):
+        first = min(event["occurred_utc_ms"] for event in sessions.values())
+        collections = {collection for collection, _ in sessions}
+        incomplete = any(any(quality.get((subject, collection), {}).get(k, 0)
+                             for k in ("dropped", "expired", "storage_error")) for collection in collections)
+        complete = min(quality.get((subject, collection), {}).get("complete_through", 0) for collection in collections)
+        starts = [at for at in activities.get(subject, []) if first <= at < first + DAY]
+        row = {"subject": subject, "first_observed_session_utc_ms": first, "foreground_sessions": len(sessions),
+               "first_day_launch_to_activity_wall_ms": min(starts) - first if starts else None,
+               "collection_incomplete": incomplete, "complete_through_utc_ms": complete}
+        for day in (7, 14):
+            start, end = first + day * DAY, first + (day + 1) * DAY
+            returned = any(start <= event["occurred_utc_ms"] < end for event in sessions.values())
+            outcome = ("window_open" if end > as_of else "collection_incomplete" if incomplete
+                       else "awaiting_upload_confirmation" if complete < end
+                       else "returned" if returned else "no_observed_return")
+            row["d" + str(day)] = {"observed_return": returned, "outcome": outcome,
+                                    "eligible": outcome in ("returned", "no_observed_return")}
+        rows.append(row)
+    summary = {}
+    for day in (7, 14):
+        key = "d" + str(day)
+        eligible = [row[key] for row in rows if row[key]["eligible"]]
+        returned = sum(row["observed_return"] for row in eligible)
+        summary[key] = {"closed_complete_participants": len(eligible), "returned": returned,
+                        "return_rate": returned / len(eligible) if eligible else None,
+                        "outcomes": {name: sum(row[key]["outcome"] == name for row in rows)
+                                     for name in sorted({row[key]["outcome"] for row in rows})}}
+    return {"participants": len(rows), "foreground_sessions": sum(row["foreground_sessions"] for row in rows),
+            "returns": summary, "cohorts": rows, "causal_or_clinical_evidence": False,
+            "limitation": "D7/D14 are elapsed 24-hour windows from first observed app session, not installation or local calendar-day cohorts. Incomplete/unconfirmed follow-up is excluded, not non-return. Launch-to-activity is a first-day wall-clock temporal association, not an exact task duration; clock changes are not resolved."}
+
+
 def analyze_focus_recommendations(records, quality, as_of, dataset, window=DAY):
     """Observed funnel only. Missing exposure/upload cannot become a rejected suggestion."""
     groups = {}
@@ -200,9 +244,11 @@ def analyze(records, quality, as_of, dataset, window=DAY):
                              "Activity counts are observed session counts, not clinical improvement or retention estimates.",
                              "Policy groups are descriptive, not randomized; no reduction is assumed."]}
     report["focus_recommendations"] = analyze_focus_recommendations(records, quality, as_of, dataset, window)
+    report["app_sessions"] = analyze_app_sessions(records, quality, as_of, dataset)
     focus_subjects = {r["subject"] for r in report["focus_recommendations"]["decisions"]}
     report["focus_recommendation_participants"] = len(focus_subjects)
-    report["participants"] = len(focus_subjects | {r["subject"] for r in rows} | {subject for subject,_ in sessions})
+    report["participants"] = len(focus_subjects | {r["subject"] for r in rows} | {subject for subject,_ in sessions}
+                                 | {r["subject"] for r in report["app_sessions"]["cohorts"]})
     return report, rows
 
 

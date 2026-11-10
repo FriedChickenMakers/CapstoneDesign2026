@@ -1,7 +1,8 @@
 """Authenticated event/policy API. Run behind TLS for any non-local deployment.
 
-No enrollment credentials are shipped in the application. Tokens are supplied by
-the operator through CAPSTONE_ENROLLMENTS_FILE, outside the publishable tree.
+Manual registrations come from CAPSTONE_ENROLLMENTS_FILE. Optional automatic
+registration accepts an app-generated install token using a private distribution
+key file; it stores only token hashes. No credentials belong in the source tree.
 The standard-library HTTP adapter is a development server, not a TLS endpoint.
 """
 from __future__ import annotations
@@ -13,12 +14,15 @@ import math
 import os
 from pathlib import Path
 import re
+import socket
 import sqlite3
 import threading
 import time
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from uuid import UUID
+
+from server.enrollments import AutomaticEnrollments, MAX_ENROLLMENT_BODY, load_key
 
 KINDS = frozenset({"recommendation_shown", "activity_started", "activity_completed",
                    "activity_ended", "notification_eligible", "notification_scheduled",
@@ -30,11 +34,13 @@ BASELINE = {"schema_version": 1, "policy_id": "local-rules-v1", "model_type": "r
             "expires_utc_ms": 0, "training_rows": 0}
 MAX_BODY = 128 * 1024
 MAX_BATCH = 100
+MAX_CONNECTIONS = 16
+REQUEST_TIMEOUT_SECONDS = 10
 
 
 class ApiError(Exception):
-    def __init__(self, status: int, code: str):
-        self.status, self.code = status, code
+    def __init__(self, status: int, code: str, retry_after=None):
+        self.status, self.code, self.retry_after = status, code, retry_after
 
 
 def canonical(value):
@@ -101,17 +107,19 @@ def validate_policy(policy, now_ms):
 
 
 class EventService:
-    def __init__(self, database, enrollments, policy_file=None, clock=time.time):
+    def __init__(self, database, enrollments, policy_file=None, clock=time.time,
+                 enrollment_key=None, enrollment_limits=(240, 1000)):
         self.database, self.clock, self.policy_file = str(database), clock, policy_file
         self.lock = threading.RLock()
         # Mapping is token -> a pseudonymous study identity. No contact details.
-        if not isinstance(enrollments, dict) or not enrollments or any(not identifier(subject) or not isinstance(token, str) or len(token) < 32
+        if not isinstance(enrollments, dict) or any(not identifier(subject) or not isinstance(token, str) or len(token) < 32
                                   for token, subject in enrollments.items()):
             raise ValueError("Valid external enrollment configuration required")
         if len(set(enrollments.values())) != len(enrollments):
             raise ValueError("Each enrollment must have a unique subject")
         self.enrollments = [(hashlib.sha256(token.encode()).digest(), subject)
                             for token, subject in enrollments.items()]
+        self.automatic_enrollments = AutomaticEnrollments(enrollment_key, ApiError, enrollment_limits)
         Path(self.database).parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
             db.executescript("""
@@ -137,6 +145,7 @@ class EventService:
             # that a backlog was drained, so migrated collections remain unconfirmed.
             if "complete_through" not in {row[1] for row in db.execute("PRAGMA table_info(measurement_quality)")}:
                 db.execute("ALTER TABLE measurement_quality ADD COLUMN complete_through INTEGER NOT NULL DEFAULT 0")
+            self.automatic_enrollments.initialize(db, self.enrollments)
             self._purge_expired(db, int(self.clock() * 1000))
         os.chmod(self.database, 0o600)
 
@@ -169,21 +178,57 @@ class EventService:
         for expected, subject in self.enrollments:
             if hmac.compare_digest(digest, expected):
                 return subject
+        with self.lock, self.connect() as db:
+            subject = self.automatic_enrollments.subject(db, digest)
+        if subject:
+            return subject
         raise ApiError(401, "authentication_required")
 
-    def handle(self, method, path, authorization, body=None):
-        subject = self.authenticate(authorization)
+    def authorize_withdrawal(self, authorization, enrollment_key):
+        try:
+            # Already registered/revoked tokens do not depend on the current
+            # distribution key and retain the old idempotent deletion contract.
+            return self.authenticate(authorization)
+        except ApiError as error:
+            if error.status != 401:
+                raise
+        try:
+            self.automatic_enrollments.authorize(enrollment_key)
+        except ApiError:
+            raise ApiError(401, "authentication_required") from None
+        if (not isinstance(authorization, str)
+                or not re.fullmatch(r"Bearer [a-f0-9]{64}", authorization)):
+            raise ApiError(400, "enrollment_token")
+        return None  # Valid gate, but no identity is created during HTTP precheck.
+
+    def handle(self, method, path, authorization, body=None, enrollment_key=None):
+        if path == "/enrollments":
+            if method != "POST":
+                raise ApiError(404, "not_found")
+            self.automatic_enrollments.authorize(enrollment_key)
+            with self.lock, self.connect() as db:
+                return self.automatic_enrollments.register(db, body, self.enrollments, int(self.clock() * 1000))
+        withdrawal = method == "DELETE" and path == "/participant"
+        subject = (self.authorize_withdrawal(authorization, enrollment_key) if withdrawal
+                   else self.authenticate(authorization))
         now_ms = int(self.clock() * 1000)
         with self.lock, self.connect() as db:
             self._purge_expired(db, now_ms)
             # Retention is independent of the request's transaction. A rejected
             # batch must roll back its inserts without undoing expired-row removal.
             db.commit()
-            if method == "DELETE" and path == "/participant":
+            if withdrawal:
+                if subject is None:
+                    # A local install may withdraw before its first successful
+                    # upload/registration. Allocate and revoke atomically; no
+                    # active interval or event upload is needed to finish it.
+                    subject = self.automatic_enrollments.pending_withdrawal_subject(
+                        db, authorization[7:], self.enrollments, now_ms)
                 db.execute("DELETE FROM events WHERE subject=?", (subject,))
                 db.execute("DELETE FROM measurements WHERE subject=?", (subject,))
                 db.execute("DELETE FROM measurement_quality WHERE subject=?", (subject,))
                 db.execute("INSERT OR IGNORE INTO revoked VALUES (?)", (subject,))
+                self.automatic_enrollments.revoke(db, hashlib.sha256(authorization[7:].encode()).digest(), subject)
                 # Tombstone prevents late retries from recreating erased records.
                 return {"deleted": True, "enrollment_revoked": True}
             if db.execute("SELECT 1 FROM revoked WHERE subject=?", (subject,)).fetchone():
@@ -222,9 +267,16 @@ class EventService:
             return {"accepted_event_ids": accepted}
 
 
-def make_server(service, address=("127.0.0.1", 0)):
+def make_server(service, address=("127.0.0.1", 0), max_connections=MAX_CONNECTIONS,
+                request_timeout=REQUEST_TIMEOUT_SECONDS):
     class Handler(BaseHTTPRequestHandler):
         server_version = "GardenPersonalization"
+
+        def setup(self):
+            # Limit a stalled peer before BaseHTTPRequestHandler reads headers,
+            # not only after it has parsed a complete request.
+            self.request.settimeout(request_timeout)
+            super().setup()
 
         def log_message(self, *_args):
             pass  # Paths, bearer headers and behavioral bodies must not enter logs.
@@ -239,24 +291,43 @@ def make_server(service, address=("127.0.0.1", 0)):
             self.respond("DELETE")
 
         def respond(self, method):
-            self.connection.settimeout(10)
+            retry_after = None
             try:
                 if self.headers.get("Transfer-Encoding"):
                     raise ApiError(400, "unsupported_transfer")
                 length = int(self.headers.get("Content-Length", "0"))
-                if length < 0 or length > MAX_BODY:
+                enrollment_route = self.path == "/enrollments"
+                if length < 0 or length > (MAX_ENROLLMENT_BODY if enrollment_route else MAX_BODY):
                     raise ApiError(413, "body_too_large")
                 if method == "POST" and self.headers.get_content_type() != "application/json":
                     raise ApiError(415, "content_type")
                 # Authenticate before reading an attacker-controlled body.
                 authorization = self.headers.get("Authorization")
-                service.authenticate(authorization)
+                enrollment_key = None
+                if enrollment_route:
+                    if method != "POST":
+                        raise ApiError(404, "not_found")
+                    keys = self.headers.get_all("X-Enrollment-Key", [])
+                    enrollment_key = keys[0] if len(keys) == 1 else None
+                    service.automatic_enrollments.authorize(enrollment_key)
+                elif method == "DELETE" and self.path == "/participant":
+                    keys = self.headers.get_all("X-Enrollment-Key", [])
+                    enrollment_key = keys[0] if len(keys) == 1 else None
+                    service.authorize_withdrawal(authorization, enrollment_key)
+                else:
+                    service.authenticate(authorization)
                 raw = self.rfile.read(length) if length else b""
-                body = json.loads(raw) if raw else None
-                value = service.handle(method, self.path, authorization, body)
+                def unique_fields(pairs):
+                    result = dict(pairs)
+                    if len(result) != len(pairs):
+                        raise ValueError("Duplicate enrollment field")
+                    return result
+                body = json.loads(raw, object_pairs_hook=unique_fields) if raw and enrollment_route else json.loads(raw) if raw else None
+                value = service.handle(method, self.path, authorization, body, enrollment_key=enrollment_key)
                 status = 200
             except ApiError as exc:
                 value, status = {"error": exc.code}, exc.status
+                retry_after = exc.retry_after
             except (ValueError, UnicodeError, RecursionError):
                 value, status = {"error": "invalid_json"}, 400
             except (OSError, sqlite3.Error):
@@ -266,13 +337,62 @@ def make_server(service, address=("127.0.0.1", 0)):
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
             self.send_header("Content-Length", str(len(encoded)))
+            if retry_after is not None:
+                self.send_header("Retry-After", str(retry_after))
             self.end_headers()
             self.wfile.write(encoded)
 
     class RetentionServer(ThreadingHTTPServer):
         def __init__(self, *args, **kwargs):
+            if type(max_connections) is not int or max_connections < 1:
+                raise ValueError("Positive maximum connection count required")
+            self.connection_slots = threading.BoundedSemaphore(max_connections)
             super().__init__(*args, **kwargs)
             self.next_retention_check = 0.0
+
+        def process_request(self, request, client_address):
+            # The shared host's systemd TasksMax is a last resort. Reject excess
+            # work promptly instead of spawning enough threads to reach it.
+            if not self.connection_slots.acquire(blocking=False):
+                try:
+                    request.settimeout(1)
+                    request.sendall(b"HTTP/1.1 503 Service Unavailable\r\n"
+                                    b"Connection: close\r\nRetry-After: 5\r\n"
+                                    b"Cache-Control: no-store\r\nContent-Length: 0\r\n\r\n")
+                    # Closing with unread request bytes can replace the 503 with
+                    # a TCP reset. Half-close writes first, then briefly drain
+                    # in-flight input. Both work and time remain bounded; slow
+                    # or oversized peers must not block the accept loop.
+                    request.shutdown(socket.SHUT_WR)
+                    request.settimeout(.05)
+                    deadline = time.monotonic() + .05
+                    remaining = MAX_BODY + 16384
+                    while remaining > 0 and time.monotonic() < deadline:
+                        chunk = request.recv(min(remaining, 8192))
+                        if not chunk:
+                            break
+                        remaining -= len(chunk)
+                except OSError:
+                    pass
+                finally:
+                    self.shutdown_request(request)
+                return
+            try:
+                super().process_request(request, client_address)
+            except BaseException:
+                self.connection_slots.release()
+                raise
+
+        def process_request_thread(self, request, client_address):
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                self.connection_slots.release()
+
+        def handle_error(self, request, client_address):
+            # Transport failures can include peer addresses in stdlib tracebacks.
+            # Clients keep unacknowledged batches and retry; log no request data.
+            pass
 
         def service_actions(self):
             # serve_forever calls this hook even when there are no requests.
@@ -293,8 +413,13 @@ def main():
     enrollment_path = os.environ.get("CAPSTONE_ENROLLMENTS_FILE")
     if not enrollment_path:
         raise SystemExit("Set CAPSTONE_ENROLLMENTS_FILE to a private enrollment mapping.")
+    try:
+        enrollment_key = load_key(os.environ.get("CAPSTONE_ENROLLMENT_KEY_FILE"))
+    except (OSError, ValueError, UnicodeError):
+        raise SystemExit("Invalid private automatic enrollment key configuration.") from None
     service = EventService(os.environ.get("CAPSTONE_EVENTS_DB", "artifacts/personalization/events.sqlite"),
-                           json.loads(Path(enrollment_path).read_text()), os.environ.get("CAPSTONE_POLICY_FILE"))
+                           json.loads(Path(enrollment_path).read_text()), os.environ.get("CAPSTONE_POLICY_FILE"),
+                           enrollment_key=enrollment_key)
     address = ("127.0.0.1", int(os.environ.get("CAPSTONE_API_PORT", "8091")))
     with make_server(service, address) as server:
         print("Development personalization API listening on loopback; authentication required.", flush=True)

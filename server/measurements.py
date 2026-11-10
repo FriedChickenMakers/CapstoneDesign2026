@@ -5,6 +5,7 @@ import re
 NOTIFICATION_KINDS = {"notification_due", "notification_post_accepted", "notification_post_recovered",
                       "notification_blocked", "notification_failed", "notification_opened"}
 ACTIVITY_KINDS = {"activity_selected", "activity_started", "activity_completed", "activity_ended"}
+SESSION_KINDS = {"app_session_started"}
 FOCUS_KINDS = {"focus_recommendation_shown", "focus_recommendation_selected", "focus_recommendation_started",
                "focus_recommendation_completed", "focus_recommendation_ended"}
 FOCUS_FIELDS = {"decision_id", "recommended_activity_id"}
@@ -29,7 +30,7 @@ def integer(value, low, high):
 def validate(event, now):
     if not isinstance(event, dict) or set(event) not in (FIELDS, FIELDS | FOCUS_FIELDS):
         return False
-    if not identifier(event["event_id"]) or not isinstance(event["kind"], str) or event["kind"] not in NOTIFICATION_KINDS | ACTIVITY_KINDS | FOCUS_KINDS:
+    if not identifier(event["event_id"]) or not isinstance(event["kind"], str) or event["kind"] not in NOTIFICATION_KINDS | ACTIVITY_KINDS | FOCUS_KINDS | SESSION_KINDS:
         return False
     for field, low, high in (("occurred_utc_ms", now - 90 * 86400000, now + 300000),
                              ("scheduled_utc_ms", 0, now + 86400000), ("elapsed_ms", -1, 2**63-1),
@@ -55,6 +56,11 @@ def validate(event, now):
                 if event["kind"] == "focus_recommendation_shown" else identifier(event["session_key"]))
     if set(event) != FIELDS or event["reason"] not in REASONS:
         return False
+    if event["kind"] in SESSION_KINDS:
+        return (identifier(event["session_key"]) and event["notification_id"] == event["activity_id"] == ""
+                and event["policy_id"] == event["reason"] == "none" and event["scheduled_utc_ms"] == 0
+                and event["preferred_minute"] == event["effective_minute"] == -1
+                and event["learned_samples"] == 0 and event["elapsed_ms"] >= 0)
     if event["kind"] in NOTIFICATION_KINDS:
         return identifier(event["notification_id"]) and event["session_key"] == event["activity_id"] == ""
     return (identifier(event["session_key"]) and event["notification_id"] == ""

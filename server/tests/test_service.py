@@ -3,6 +3,7 @@ import copy
 import json
 from pathlib import Path
 import secrets
+import socket
 import sqlite3
 import tempfile
 import threading
@@ -210,6 +211,59 @@ class ServiceTests(unittest.TestCase):
             urlopen(Request(url + "/events/batch", b"bad", {"Content-Type": "application/json"}), timeout=2)
         self.assertEqual(caught.exception.code, 401)
         self.assertEqual(json.load(caught.exception), {"error": "authentication_required"})
+
+    def test_slow_headers_are_bounded_and_retry_succeeds_after_peer_disconnect(self):
+        server = make_server(self.service, max_connections=1, request_timeout=1)
+        admitted, released = threading.Event(), threading.Event()
+        original = server.process_request_thread
+
+        def observe_request(request, address):
+            admitted.set()
+            try:
+                original(request, address)
+            finally:
+                released.set()
+
+        server.process_request_thread = observe_request
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(server.shutdown)
+        stalled = socket.create_connection(server.server_address, timeout=2)
+        self.addCleanup(stalled.close)
+        stalled.sendall(b"GET /policy/current HTTP/1.1\r\n")
+        # Observe admission without taking the semaphore away from the server.
+        self.assertTrue(admitted.wait(2), "Stalled connection was not admitted")
+        url = "http://127.0.0.1:" + str(server.server_port) + "/policy/current"
+        for payload in (None, b"synthetic-unread-body" * 3200):
+            with self.subTest(has_body=payload is not None), self.assertRaises(HTTPError) as caught:
+                urlopen(Request(url, data=payload, headers={"Authorization": self.authorization}), timeout=2)
+            self.assertEqual(caught.exception.code, 503)
+            self.assertEqual(caught.exception.headers["Retry-After"], "5")
+        # The header read times out even though respond() never ran.
+        self.assertEqual(stalled.recv(1), b"")
+        self.assertTrue(released.wait(2))
+        with urlopen(Request(url, headers={"Authorization": self.authorization}), timeout=2) as response:
+            self.assertEqual(response.status, 200)
+
+    def test_ack_lost_on_disconnect_is_safe_to_replay(self):
+        server = make_server(self.service)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(thread.join, 2)
+        self.addCleanup(server.shutdown)
+        item = event()
+        payload = json.dumps({"schema_version": 1, "consent_version": 1, "events": [item]}).encode()
+        peer = socket.create_connection(server.server_address, timeout=2)
+        request = ("POST /events/batch HTTP/1.1\r\nHost: localhost\r\nAuthorization: "
+                   + self.authorization + "\r\nContent-Type: application/json\r\nContent-Length: "
+                   + str(len(payload)) + "\r\n\r\n").encode() + payload
+        peer.sendall(request)
+        peer.close()  # No ACK observed, as during a mobile-network interruption.
+        self.post([item])
+        self.assertEqual(self.count(), 1)
 
 
 if __name__ == "__main__":
