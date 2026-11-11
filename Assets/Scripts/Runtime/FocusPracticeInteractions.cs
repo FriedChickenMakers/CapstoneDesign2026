@@ -56,6 +56,7 @@ namespace CapstoneDesign.Runtime
     public sealed class FocusDrawingSurface:MaskableGraphic,IPointerDownHandler,IDragHandler,IPointerUpHandler
     {
         public bool ReadOnly;
+        public Func<bool> CanInteract;
         public Action<string> Changed;
         public Action StrokeEnded;
         List<List<FocusDrawingPoint>> strokes=new List<List<FocusDrawingPoint>>();
@@ -64,10 +65,10 @@ namespace CapstoneDesign.Runtime
         public string Value=>FocusDrawingData.Encode(strokes);
         public void Load(string value){strokes=FocusDrawingData.Decode(value);undo.Clear();SetVerticesDirty();}
         void Remember(){if(undo.Count>=64)undo.RemoveAt(0);undo.Add(Value);}
-        public void Clear(){if(ReadOnly||strokes.Count==0)return;Remember();strokes.Clear();drawing=false;Notify();StrokeEnded?.Invoke();}
+        public void Clear(){if(ReadOnly||CanInteract!=null&&!CanInteract()||strokes.Count==0)return;Remember();strokes.Clear();drawing=false;Notify();StrokeEnded?.Invoke();}
         public void Undo()
         {
-            if(ReadOnly)return;
+            if(ReadOnly||CanInteract!=null&&!CanInteract())return;
             if(undo.Count>0){strokes=FocusDrawingData.Decode(undo[undo.Count-1]);undo.RemoveAt(undo.Count-1);}
             else if(strokes.Count>0)strokes.RemoveAt(strokes.Count-1);
             else return;
@@ -75,11 +76,11 @@ namespace CapstoneDesign.Runtime
         }
         public void OnPointerDown(PointerEventData data)
         {
-            if(ReadOnly||data.button!=PointerEventData.InputButton.Left||strokes.Count>=FocusDrawingData.MaximumStrokes)return;
+            if(ReadOnly||CanInteract!=null&&!CanInteract()||data.button!=PointerEventData.InputButton.Left||strokes.Count>=FocusDrawingData.MaximumStrokes)return;
             Remember();strokes.Add(new List<FocusDrawingPoint>());drawing=true;Add(data);
         }
-        public void OnDrag(PointerEventData data){if(drawing)Add(data);}
-        public void OnPointerUp(PointerEventData data){if(!drawing)return;drawing=false;StrokeEnded?.Invoke();}
+        public void OnDrag(PointerEventData data){if(drawing&&(CanInteract==null||CanInteract()))Add(data);}
+        public void OnPointerUp(PointerEventData data){if(!drawing)return;drawing=false;if(CanInteract==null||CanInteract())StrokeEnded?.Invoke();}
         void Add(PointerEventData data)
         {
             if(strokes.Sum(s=>s.Count)>=FocusDrawingData.MaximumPoints)return;

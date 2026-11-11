@@ -21,20 +21,20 @@ namespace CapstoneDesign.EditorTools
                 check(f.Service.BeginFocusSession(id,code),f.Service.LastError);
                 f.Invoke("SelectFocusSession",id);
                 check(string.IsNullOrEmpty(f.Latest.StartedUtc),"Opening the overview is not a session start.");
-                string actionName = code == "M01" ? "Focus.IconAction" : "Focus.Action";
+                string actionName = "Focus.IconAction";
                 f.Click(actionName);
                 string started = f.Latest.StartedUtc;
                 check(!string.IsNullOrEmpty(started),"The existing overview action still starts the session.");
                 if (code == "M01") f.Click(actionName); // Optional method choice -> the original single light action.
                 int target = code == "M03" || code == "M06" || code == "M16" ? 1 : 0;
-                while (f.Latest.InstructionStep < target) f.Click("Focus.Action");
+                while (f.Latest.InstructionStep < target) f.Click(actionName);
                 f.Invoke("ShowFocusPractice");
                 check(f.Ui.GetComponentsInChildren<Button>(false).All(b=>b.name!="Focus.PracticeStart"),
                     code+": no duplicate untimed start control.");
                 check(f.Ui.GetComponentsInChildren<Button>(false).Count(b=>b.name==actionName)==1,
                     code+": exactly one completion action, using its current footer or illustrated presentation.");
-                if (code == "M01") check(f.Ui.GetComponentsInChildren<Button>(false).All(b=>b.name!="Focus.Action"),
-                    "M01: the illustrated action has no duplicate footer completion button.");
+                check(f.Ui.GetComponentsInChildren<Button>(false).All(b=>b.name!="Focus.Action"),
+                    code + ": the illustrated action has no duplicate footer completion button.");
                 check(f.Ui.GetComponentInChildren<FocusPracticeClock>(false)==null,
                     code+": an untimed activity does not acquire a countdown.");
                 check(f.Latest.StartedUtc==started && string.IsNullOrEmpty(f.Latest.FocusStepRecords[target].PracticeStartedUtc),
@@ -61,7 +61,7 @@ namespace CapstoneDesign.EditorTools
             {
                 check(f.Service.BeginFocusSession("timed-action-preserved","M17"),f.Service.LastError);
                 f.Invoke("SelectFocusSession","timed-action-preserved");
-                f.Click("Focus.Action");f.Click("Focus.Action");
+                f.Click("Focus.IconAction");f.Click("Focus.IconAction");
                 var clock=f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
                 var shorten=f.Ui.GetComponentsInChildren<Button>(false).Single(b=>b.name=="Focus.TooLong");
                 check(clock!=null && !clock.HasStarted && !clock.Running && !shorten.interactable,

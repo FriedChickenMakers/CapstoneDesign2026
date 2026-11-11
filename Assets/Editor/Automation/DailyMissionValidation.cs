@@ -305,10 +305,10 @@ namespace CapstoneDesign.EditorTools
                     ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerExitHandler);ExecuteEvents.Execute(button.gameObject,data,ExecuteEvents.pointerUpHandler);
                     f.Select(null,false);button.gameObject.SetActive(false);button.gameObject.SetActive(true);f.Layout();
                     Assert(rect.localScale==normal&&Snapshot(f.Service)==before,"Disable/reentry restores the target without altering the practice.");
-                    var ordinary=f.Button("Focus.Action");var ordinaryBounds=f.Bounds((RectTransform)ordinary.transform);var ordinaryBefore=f.Pixels();
+                    var ordinary=f.Button("Basic.HelpToggle");var ordinaryBounds=f.Bounds((RectTransform)ordinary.transform);var ordinaryBefore=f.Pixels();
                     f.Select(ordinary,false);f.Capture("water-keyboard-ordinary-action");var ordinaryAfter=f.Pixels();
                     Assert(f.ChangedPixels(ordinaryBefore,ordinaryAfter,ordinaryBounds,10)<=8&&f.ChangedPixels(ordinaryBefore,ordinaryAfter,ordinaryBounds,-5)>=4,
-                        "Keyboard focus on the ordinary filled action also preserves its interior and has a visible border.");
+                        "Keyboard focus on the ordinary help action also preserves its interior and has a visible border.");
                     f.Select(null,false);var retained=button.onClick;f.Click("Focus.IconAction");
                     Assert(f.Session(session.SessionId).InstructionStep==2,"A normal click after cancelled gestures confirms the drinking step once.");
                     string finished=Snapshot(f.Service);int committedSaves=f.Store.Saves;retained.Invoke();f.Layout();
@@ -601,11 +601,13 @@ namespace CapstoneDesign.EditorTools
                     var sandbox=f.Ui.Service;
                     var active=f.Ui.Service.Snapshot.Sessions.Single(s=>FocusMissionPolicy.IsActive(s));
                     bool guided=FocusMissionCatalog.IsGuided(active);
-                    bool basicSlides=active.FocusVersion>=3&&mission.Role==FocusMissionCatalog.BasicRole&&!guided;
-                    Assert(active.MissionId==mission.Id && active.Status==(guided||basicSlides?ParticipationState.Selected:ParticipationState.InProgress)
+                    bool basicSlides=active.FocusVersion>=3&&mission.Role==FocusMissionCatalog.BasicRole&&!guided
+                        || active.FocusVersion>=FocusMissionCatalog.GuidedVersion&&FocusAdditionalSlideContent.Supports(mission.Code);
+                    bool walkingDebug = mission.Code == "M15"; // Existing sandbox pre-starts its synthetic walking target.
+                    Assert(active.MissionId==mission.Id && active.Status==(!walkingDebug&&(guided||basicSlides)?ParticipationState.Selected:ParticipationState.InProgress)
                         && Screen(f.Ui)=="focus-practice","Developer "+mission.Code+" enters its requested mission at the appropriate initial state");
                     if(guided)StartGuidedPractice(f);
-                    else if(basicSlides)
+                    else if(basicSlides&&!walkingDebug)
                     {
                         Assert(f.Text("Basic.Overview")!=null&&f.Text("Basic.Body")==null
                             &&f.Ui.GetComponentInChildren<FocusPracticeClock>(false)==null,"Developer "+mission.Code+" opens its overview before practice starts");
@@ -615,6 +617,9 @@ namespace CapstoneDesign.EditorTools
                             &&started.Status==ParticipationState.InProgress&&started.InstructionStep==0,
                             "Developer "+mission.Code+" starts the first saved practice step from the central icon");
                     }
+                    else if(walkingDebug)
+                        Assert(f.Text("Basic.Body")!=null&&f.Text("Basic.Overview")==null&&active.WalkingGoalSteps>0,
+                            "Developer M15 retains its pre-started synthetic target and opens the illustrated walking step");
                     Assert(Snapshot(f.Service)==original && f.Store.Saves==originalWrites,"Developer "+mission.Code+" entry leaves original saved progress/wallet/plant byte-identical");
                     if(new[]{"P01","P28","M03","M15","M17"}.Contains(mission.Code))f.Capture("development-"+mission.Code);
                     if(mission.Code=="P01"||mission.Code=="M03")

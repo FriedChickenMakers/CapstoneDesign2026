@@ -468,6 +468,7 @@ namespace CapstoneDesign.EditorTools
                     Assert(Screen(f.Ui) != "focus-practice" && f.Session(id).Status == ParticipationState.InProgress,
                         code + " actual exit leaves practice unfinished");
                     f.Ui.SelectFocusSession(id); f.Layout(); f.AssertSlide("Guided.PracticeHint", FocusGuidedPracticeContent.PracticeHint(code));
+                    f.AssertIcon(anchor);
                     Assert(f.Session(id).FocusStepRecords[0].Value == chosen && f.Session(id).FocusStepRecords[1].Value == reflection
                         && f.Session(id).FocusStepRecords[0].ElapsedSeconds == expectedElapsed, code + " reentry preserves chosen branch, optional response and elapsed time");
                     var finishClock = f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
@@ -744,6 +745,7 @@ namespace CapstoneDesign.EditorTools
                 bool soundIllustration = Screen(Ui) == "focus-practice" && Ui.GetComponentInChildren<P02SoundIllustration>(false) != null;
                 bool measuredIllustration = soundIllustration || Screen(Ui) == "focus-practice" && (Ui.GetComponentInChildren<P01BreathIllustration>(false) != null
                     || Ui.GetComponentInChildren<FocusPracticeIllustration>(false) != null);
+                bool practice = Text("Guided.PracticeHint") != null;
                 bool constrained = ((RectTransform)slide.transform).rect.height < 672
                     || slide.Notice != null && slide.Notice.gameObject.activeInHierarchy
                     || measuredIllustration && (slide.Heading != null && slide.Heading.preferredHeight > 42.5f || slide.Copy != null && slide.Copy.preferredHeight > 64);
@@ -760,13 +762,20 @@ namespace CapstoneDesign.EditorTools
                     float designHeight = ((RectTransform)slide.transform).rect.height;
                     float down = Mathf.Lerp(14, 32, Mathf.InverseLerp(692, 844, designHeight));
                     float minimumTop = Mathf.Max(254, copyBottom + 18) + down;
-                    float minimumAnswers = soundIllustration ? 100 : 86;
+                    // f4a8548 added the 146-point timer/shorten controls. Only
+                    // Practice adapts its image to keep this whole footer visible.
+                    float minimumAnswers = practice ? 146 : soundIllustration ? 100 : 86;
+                    Assert(slide.KeepAnswersVisible == practice && Mathf.Abs(slide.MinimumAnswerHeight - minimumAnswers) < .1f,
+                        "Only timed practice reserves its complete 146-point control area; reading slides retain their larger illustration contract.");
+                    if (practice)
+                        minimumTop = Mathf.Min(minimumTop, Mathf.Max(copyBottom + 18, lowerEdge - 40 - minimumAnswers - 160));
                     float expectedSize = Mathf.Clamp(lowerEdge - minimumTop - 40 - minimumAnswers, 160, 280);
                     Assert(Mathf.Abs(rect.rect.width - expectedSize) < .1f,
                         "Illustrated guidance fills available reading space up to 280 points while retaining its body, action hint and " + minimumAnswers + "-point answer area: expected "
                         + expectedSize + ", actual " + rect.rect.width);
                     float actualTop = -FigmaMissionUi.TopLeftPosition(rect).y;
                     float expectedTop = Mathf.Max(minimumTop, designHeight * .48f - expectedSize / 2 + down);
+                    if (practice) expectedTop = Mathf.Min(expectedTop, lowerEdge - minimumAnswers - 40 - expectedSize);
                     Assert(Mathf.Abs(actualTop - expectedTop) < .1f,
                         "Measured guidance moves its central illustration down responsively without taking space from the text or answers.");
                 }
@@ -777,9 +786,34 @@ namespace CapstoneDesign.EditorTools
                 var body = Ui.GetComponentsInChildren<Text>(false).Single(text => new[] { "Guided.Overview", "Guided.Preparation", "Guided.ChoiceTitle", "Guided.Cue.0", "Guided.Cue.1", "Guided.Cue.2", "Guided.PracticeHint", "Guided.ReflectionPrompt", "Guided.Help" }.Contains(text.name));
                 Assert(ScreenRect(body.rectTransform).yMin >= bounds.yMax-.75f,"Enlarged icon leaves current guidance unobscured");
                 Assert(bounds.width >= 44 && bounds.height >= 44, "Icon target is at least 44 pixels");
-                if (expected.HasValue && !constrained) Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f
-                    && Vector2.Distance(bounds.size, expected.Value.size) < .75f, "All slides retain the same central icon rectangle");
+                if (practice) AssertPracticeControls(slide);
+                if (expected.HasValue && !constrained && !practice) Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f
+                    && Vector2.Distance(bounds.size, expected.Value.size) < .75f, "Reading slides retain the same central icon rectangle");
                 return bounds;
+            }
+            void AssertPracticeControls(FocusGuidedSlideLayout slide)
+            {
+                // Inspect without RevealRect: scrolling to a clipped control must
+                // never make this no-scroll practice-screen check pass.
+                Assert(Mathf.Abs(slide.ContentHeight - 146) < .1f && slide.Viewport.rect.height >= 146 - .1f,
+                    "Practice reserves all authored timer, reflection and shorten controls in its visible answer area.");
+                Assert(slide.Content.rect.height <= slide.Viewport.rect.height + .1f && Mathf.Abs(slide.Content.anchoredPosition.y) < .1f,
+                    "Practice controls are fully visible without local answer scrolling.");
+                var timerStatus = Text("Focus.TimerStatus");
+                Assert(timerStatus != null, "Practice timer status exists.");
+                AssertFullyVisible(timerStatus.rectTransform, "Practice timer status");
+                foreach (var name in new[] { "Focus.TimerToggle", "Guided.ReflectionToggle", "Focus.TooLong" })
+                {
+                    var control = Button(name, false);
+                    Assert(control != null && control.gameObject.activeInHierarchy, "Practice control exists: " + name);
+                    AssertFullyVisible((RectTransform)control.transform, "Practice control " + name);
+                }
+                var answers = ScreenRect(slide.Viewport);
+                var hint = ScreenRect(slide.ActionHint);
+                var lower = ScreenRect(slide.Notice != null && slide.Notice.gameObject.activeInHierarchy
+                    ? slide.Notice.rectTransform : slide.Navigation);
+                Assert(answers.yMax <= hint.yMin + .75f && answers.yMin >= lower.yMax - .75f,
+                    "The complete practice controls stay between the action hint and navigation or save notice without overlap.");
             }
             public void AssertP02Illustration(P02SoundIllustration.Stage stage)
             {

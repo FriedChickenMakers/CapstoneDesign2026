@@ -19,8 +19,8 @@ namespace CapstoneDesign.Runtime
             var active=ActiveSession();
             if(active==null||active.InstructionStep!=focusInteractionStep||active.Status==ParticipationState.Selected||active.Status==ParticipationState.RewardCommitted||active.Status==ParticipationState.Ended)return true;
             if(focusPlanPersist!=null&&!focusPlanPersist())return false;
-            if(UsesBasicFocusSlides(active))return SaveBasicFocusActivity(active);
             if(focusDrawing!=null){focusAnswer=focusDrawing.Value;focusDirty=true;}
+            if(UsesBasicFocusSlides(active))return SaveBasicFocusActivity(active);
             return focusPracticeClock==null||focusPracticeClock.Flush();
         }
         void AttachAllFocusClock(Transform root,FocusMissionDefinition mission,int step)

@@ -58,26 +58,26 @@ namespace CapstoneDesign.Runtime
             Curve(A(Paper, .34f), 1.7f, 105, 165, 101, 182, 103, 201, 107, 212);
             Curve(A(Blue, .32f), 1.4f, 148, 199, 153, 205, 160, 208, 169, 209);
             Curve(A(Blue, .3f), 1.3f, 79, 187, 82, 197, 85, 204, 89, 208);
-            // Back hair gives the exposed ear a clear warm/cool silhouette.
+            Curve(A(Paper, .4f), 1.2f, 90, 151, 96, 145, 100, 145, 105, 145);
+            Curve(A(Blue, .3f), 1.15f, 160, 148, 169, 154, 172, 162, 173, 173);
+            Curve(A(Paper, .28f), 1.1f, 116, 225, 132, 227, 148, 227, 158, 225);
+            // Both ears use the same small silhouette behind the face.
             Fill(new Path(99, 59).Curve(98, 42, 112, 28, 131, 30).Curve(151, 28, 169, 40, 172, 58)
                 .Curve(177, 80, 168, 103, 158, 117).Line(107, 117)
                 .Curve(98, 100, 92, 79, 99, 59), C(97, 112, 116), C(68, 87, 94));
+            Ellipse(107, 97, 5.5f, 10, SkinShade);
             Ellipse(164, 97, 5.5f, 10, SkinShade);
             Fill(new Path(110, 66).Curve(111, 49, 124, 43, 140, 46).Curve(155, 49, 164, 63, 164, 82)
                 .Line(162, 105).Curve(160, 124, 147, 136, 133, 135).Curve(119, 134, 108, 122, 107, 103)
                 .Line(110, 66), C(245, 218, 190), Skin);
-            // Broad swept hair leaves the near ear visible instead of hiding it.
+            // The swept hair stays above the small ears.
             Fill(new Path(99, 75).Curve(93, 57, 101, 39, 117, 33).Curve(136, 23, 158, 32, 167, 47)
                 .Curve(174, 58, 173, 72, 169, 82).Line(160, 75).Curve(159, 64, 153, 55, 144, 52)
                 .Curve(134, 64, 121, 71, 109, 72).Line(106, 87).Line(99, 88)
                 .Line(99, 75), C(105, 119, 121), C(72, 91, 98));
             Curve(A(C(153, 165, 161), .55f), 1.5f, 108, 48, 120, 34, 142, 33, 156, 44);
             Curve(A(C(143, 159, 158), .4f), 1.2f, 115, 60, 127, 56, 137, 49, 142, 43);
-            // A small, soft ear with one suggestion of a fold rather than anatomy.
-            Fill(new Path(107, 91).Curve(100, 86, 92, 90, 93, 99).Curve(93, 107, 97, 114, 103, 114)
-                .Curve(109, 113, 110, 108, 109, 102).Curve(109, 97, 111, 94, 107, 91), C(241, 209, 181), C(232, 193, 165));
-            Curve(A(C(206, 162, 141), .75f), 1.15f, 98, 96, 103, 92, 107, 99, 103, 102);
-            // Relaxed expression, slightly turned towards the visible ear.
+            // Listening is indicated by waves, without enlarged ear anatomy.
             Curve(C(116, 103, 91), 1.25f, 116, 86, 120, 83, 124, 83, 128, 85);
             Curve(C(116, 103, 91), 1.25f, 142, 84, 147, 81, 151, 82, 154, 85);
             Curve(Ink, 1.5f, 116, 94, 120, 97, 124, 97, 128, 94);
@@ -133,6 +133,9 @@ namespace CapstoneDesign.Runtime
         void SoundWave(float centerY, float amplitude, float width)
         {
             float bend = amplitude * 4f / 3f;
+            // Each of the three waves is one smooth path, strongest at the top.
+            // A faint baseline clarifies amplitude without becoming a live meter.
+            Curve(A(Blue, .10f), 1, 185, centerY, 200, centerY, 222, centerY, 237, centerY);
             Curve(Blue, width, 185, centerY, 193, centerY - bend, 203, centerY - bend, 211, centerY);
             Curve(Blue, width, 211, centerY, 219, centerY + bend, 229, centerY + bend, 237, centerY);
         }
@@ -143,9 +146,14 @@ namespace CapstoneDesign.Runtime
             Curve(A(Paper, .75f), 1.8f, 36, 39, 39, 33, 43, 33, 47, 35);
             Ellipse(49, 67, 3.5f, 3, C(157, 186, 197));
             Ellipse(54, 75, 2, 2, Blue);
-            Curve(Blue, 3.1f, 44, 83, 37, 108, 65, 115, 88, 101);
-            Curve(Blue, 3.1f, 78, 98, 82, 99, 86, 100, 88, 101);
-            Curve(Blue, 3.1f, 84, 111, 85, 107, 87, 103, 88, 101);
+            Curve(Blue, 2.8f, 44, 83, 37, 108, 65, 115, 88, 101);
+            var tip = new Vector2(88, 101);
+            var tangent = (tip - new Vector2(65, 115)).normalized;
+            var normal = new Vector2(-tangent.y, tangent.x);
+            var a = tip - tangent * 8 + normal * 4.3f;
+            var b = tip - tangent * 8 - normal * 4.3f;
+            Curve(Blue, 2.8f, a.x, a.y, a.x, a.y, tip.x, tip.y, tip.x, tip.y);
+            Curve(Blue, 2.8f, b.x, b.y, b.x, b.y, tip.x, tip.y, tip.x, tip.y);
         }
         void DrawNote()
         {
@@ -155,6 +163,7 @@ namespace CapstoneDesign.Runtime
             Curve(Blue, 2.1f, 38, 163, 44, 163, 53, 164, 60, 165);
             Curve(A(Blue, .8f), 1.8f, 37, 172, 44, 172, 52, 173, 58, 174);
             Curve(A(Teal, .8f), 1.8f, 36, 182, 40, 182, 45, 183, 50, 184);
+            Curve(A(Blue, .24f), 1, 34, 195, 43, 196, 54, 197, 62, 198);
         }
         void DrawBook()
         {
@@ -165,6 +174,8 @@ namespace CapstoneDesign.Runtime
             Curve(A(Teal, .85f), 1.5f, 195, 162, 200, 160, 204, 161, 207, 163);
             Curve(A(Teal, .7f), 1.5f, 195, 170, 200, 168, 204, 169, 207, 171);
             Curve(A(Teal, .85f), 1.5f, 217, 163, 222, 161, 226, 163, 230, 165);
+            Curve(A(Teal, .65f), 1.3f, 217, 172, 221, 170, 225, 172, 229, 174);
+            Curve(A(Blue, .25f), 1, 191, 186, 199, 183, 205, 184, 211, 187);
         }
 
         sealed class Path

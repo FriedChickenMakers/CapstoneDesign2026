@@ -66,6 +66,7 @@ namespace CapstoneDesign.Runtime
                 .Curve(231, 214, 215, 226, 195, 228).Curve(146, 237, 67, 231, 35, 224)
                 .Curve(18, 218, 19, 207, 31, 202), C(235, 226, 201), C(219, 207, 177));
             Curve(A(Paper, .72f), 1.6f, 35, 212, 78, 218, 160, 222, 206, 214);
+            Curve(A(Wood, .12f), 1.1f, 48, 222, 93, 225, 146, 225, 187, 221);
             if (bright)
             {
                 Fill(new Path(74, 150).Line(123, 150).Line(199, 223).Line(110, 221)
@@ -100,6 +101,11 @@ namespace CapstoneDesign.Runtime
             Rounded(57, 40, 147, 170, 6, A(Wood, .09f), A(Wood, .02f));
             Rounded(54, 35, 148, 169, 5, C(200, 178, 141), Wood);
             Rounded(62, 43, 132, 151, 2, C(207, 226, 223), C(238, 238, 205));
+            // An inset edge and restrained diagonal reflection read as glazing,
+            // while the landscape remains quiet behind the curtain action.
+            Curve(A(SageDark, .17f), 1.2f, 64, 46, 64, 88, 64, 143, 64, 191);
+            Curve(A(Paper, .3f), 3, 143, 52, 153, 64, 165, 78, 177, 94);
+            Curve(A(Paper, .24f), 1.6f, 153, 52, 163, 62, 175, 76, 184, 87);
             // The quiet outdoors is entirely inside the frame.
             Ellipse(160, 74, 17, 17, C(244, 219, 157));
             Ellipse(160, 74, 12, 12, C(250, 231, 179));
@@ -111,6 +117,7 @@ namespace CapstoneDesign.Runtime
             Rounded(124, 43, 7, 151, 1, C(226, 212, 179), C(184, 158, 118));
             Rounded(62, 116, 132, 6, 1, C(226, 212, 179), C(191, 168, 132));
             Rounded(48, 195, 160, 10, 3, C(220, 201, 165), C(174, 148, 110));
+            Curve(A(Wood, .25f), 1.2f, 59, 207, 103, 211, 160, 211, 199, 207);
             Curve(A(Paper, .6f), 1.4f, 54, 198, 98, 198, 159, 198, 201, 198);
             // Separate fabric planes and folds make the curtains recognizable
             // without relying on an arrow or a label in the introductory scene.
@@ -126,6 +133,8 @@ namespace CapstoneDesign.Runtime
                 Curve(A(SageDark, .45f), 1.4f, 66, 126, 63, 145, 63, 168, 63, 186);
                 Curve(A(Paper, .5f), 1.8f, 195, 47, 194, 76, 200, 97, 201, 115);
                 Curve(A(SageDark, .42f), 1.4f, 192, 129, 195, 149, 195, 171, 194, 187);
+                Curve(A(Paper, .35f), 1, 47, 185, 52, 187, 60, 188, 66, 187);
+                Curve(A(Paper, .35f), 1, 190, 187, 197, 189, 205, 188, 209, 186);
                 Curve(C(161, 144, 96), 3.4f, 47, 121, 53, 125, 61, 125, 66, 122);
                 Curve(C(161, 144, 96), 3.4f, 190, 122, 195, 125, 203, 125, 209, 121);
             }
@@ -157,8 +166,11 @@ namespace CapstoneDesign.Runtime
         {
             if (lit)
             {
-                Ellipse(128, 126, 70, 69, A(Sunlight, .085f));
-                Ellipse(128, 128, 54, 52, A(Sunlight, .11f));
+                // Layered low-opacity light has a softer edge than two flat discs.
+                Ellipse(128, 126, 74, 72, A(Sunlight, .045f));
+                Ellipse(128, 127, 65, 63, A(Sunlight, .055f));
+                Ellipse(128, 128, 55, 53, A(Sunlight, .07f));
+                Ellipse(128, 129, 44, 42, A(Sunlight, .08f));
                 Fill(new Path(101, 124).Line(157, 124).Line(190, 211).Curve(154, 220, 102, 220, 66, 211)
                     .Line(101, 124), A(Sunlight, .43f), A(Sunlight, .06f));
                 Ellipse(128, 213, 59, 6, A(Sunlight, .13f));
@@ -178,16 +190,18 @@ namespace CapstoneDesign.Runtime
                 .Line(145, 68), lit ? C(241, 216, 164) : C(224, 208, 168), C(195, 169, 116));
             Curve(A(Paper, .58f), 1.5f, 118, 73, 115, 88, 111, 105, 108, 121);
             Curve(A(Brass, .22f), 1.1f, 140, 72, 144, 89, 147, 105, 151, 122);
+            Curve(A(Paper, .22f), .9f, 127, 74, 127, 89, 126, 106, 126, 125);
             Ellipse(128, 68, 24, 4, C(222, 205, 164));
             Ellipse(128, 67, 22, 2.6f, lit ? C(251, 238, 201) : Paper);
             Curve(C(172, 147, 100), 2.3f, 83, 125, 106, 134, 151, 134, 173, 125);
             if (lit) Ellipse(128, 130, 8, 3.5f, C(255, 242, 194));
             Curve(Brass, 1.5f, 158, 131, 158, 141, 158, 150, 158, 160);
             Ellipse(158, 164, 3.8f, 6, SageDark);
+            Curve(A(Paper, .48f), 1, 157, 160, 156, 163, 156, 165, 157, 166);
             if (switchCue)
             {
                 Ellipse(158, 164, 10, 13, A(Sage, .15f));
-                Arrow(216, 153, 196, 146, 174, 161, SageDark);
+                Arrow(216, 153, 195, 146, 170, 162, SageDark);
                 // A restrained three-ray halo emphasizes the newly lit shade.
                 Curve(A(Brass, .75f), 2.1f, 74, 85, 72, 83, 69, 81, 66, 79);
                 Curve(A(Brass, .75f), 2.1f, 181, 86, 184, 84, 188, 82, 191, 80);
@@ -251,12 +265,13 @@ namespace CapstoneDesign.Runtime
                 .Line(x, y + radius).Curve(x, y, x, y, x + radius, y), top, bottom);
         void Arrow(float x, float y, float controlX, float controlY, float endX, float endY, Color tint)
         {
-            Curve(tint, 2.7f, x, y, controlX, controlY, controlX, controlY, endX, endY);
+            const float width = 2.6f;
+            Curve(tint, width, x, y, controlX, controlY, controlX, controlY, endX, endY);
             var direction = (new Vector2(endX, endY) - new Vector2(controlX, controlY)).normalized;
             var normal = new Vector2(-direction.y, direction.x); var tip = new Vector2(endX, endY);
-            var a = tip - direction * 8 + normal * 4; var b = tip - direction * 8 - normal * 4;
-            Curve(tint, 2.7f, a.x, a.y, a.x, a.y, endX, endY, endX, endY);
-            Curve(tint, 2.7f, b.x, b.y, b.x, b.y, endX, endY, endX, endY);
+            var a = tip - direction * 7 + normal * 4; var b = tip - direction * 7 - normal * 4;
+            Curve(tint, width, a.x, a.y, a.x, a.y, endX, endY, endX, endY);
+            Curve(tint, width, b.x, b.y, b.x, b.y, endX, endY, endX, endY);
         }
 
         sealed class Path

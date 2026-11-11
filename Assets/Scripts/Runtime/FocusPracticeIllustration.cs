@@ -12,6 +12,8 @@ namespace CapstoneDesign.Runtime
     public sealed class FocusPracticeIllustration : MaskableGraphic
     {
         public string MissionCode = "", StepKey = "", Choice = "";
+        string contextTrigger = "", contextActivity = "", contextPeriod = "";
+        bool contextCurrentReview;
         Color accent = C(80, 115, 139);
         static readonly Color Paper = C(247, 244, 231), Skin = C(235, 199, 169), SkinShade = C(209, 164, 140);
         static readonly Color Ink = C(66, 87, 83), Wood = C(169, 145, 118), Sky = C(158, 188, 193);
@@ -27,7 +29,18 @@ namespace CapstoneDesign.Runtime
         {
             code = code ?? ""; key = key ?? ""; choice = choice ?? "";
             if (MissionCode == code && StepKey == key && Choice == choice && accent == themeAccent) return;
+            if (MissionCode != code)
+            { contextTrigger = contextActivity = contextPeriod = ""; contextCurrentReview = false; }
             MissionCode = code; StepKey = key; Choice = choice; accent = themeAccent; SetVerticesDirty();
+        }
+        // Display context supplied by the presenter. No service or saved state is owned here.
+        public void ConfigureContext(string trigger, string activity, string period, bool currentReview = false)
+        {
+            trigger = trigger ?? ""; activity = activity ?? ""; period = period ?? "";
+            if (contextTrigger == trigger && contextActivity == activity && contextPeriod == period
+                && contextCurrentReview == currentReview) return;
+            contextTrigger = trigger; contextActivity = activity; contextPeriod = period;
+            contextCurrentReview = currentReview; SetVerticesDirty();
         }
         protected override void OnEnable() { base.OnEnable(); raycastTarget = false; }
         protected override void OnPopulateMesh(VertexHelper helper)
@@ -90,24 +103,28 @@ namespace CapstoneDesign.Runtime
             if (front)
             {
                 At(130, 132, .91f, Person); Ground(58, 209, 198);
-                if (Is("contact", "notice")) { Contact(94, 210, 13); Contact(162, 210, 13); }
+                if (Is("contact", "notice")) { Contact(94, 210, 16); Contact(162, 210, 16); }
                 if (StepKey == "notice") At(207, 84, .21f, Leaf);
             }
             else
             {
                 Chair();
                 if (StepKey == "overview") At(211, 191, .24f, Leaf);
-                if (Is("cue0", "cue1")) { Contact(88, 138, 15); Contact(157, 213, 15); }
+                if (Is("cue0", "cue1")) { Contact(86, 146, 14); Contact(157, 216, 19); }
                 if (StepKey == "cue1") Curve(accent, 2.4f, 184, 173, 194, 180, 194, 198, 184, 206);
                 if (StepKey == "cue2") { At(199, 58, .27f, Cloud); Arrow(207, 89, 223, 150, 170, 204); }
-                if (StepKey == "practice") Contact(157, 213, 13);
+                if (StepKey == "practice") Contact(157, 216, 17);
             }
         }
         void DrinkScene()
         {
             Cup();
             if (!Is("overview", "preparation")) At(131, 173, .74f, Hands);
-            if (Is("overview", "cue0")) Steam(119, 53);
+            if (Is("overview", "cue0"))
+            {
+                Curve(A(accent, .48f), 2.1f, 87, 56, 105, 48, 147, 48, 164, 56);
+                if (StepKey == "cue0") Contact(86, 181, 13);
+            }
             if (StepKey == "preparation") Ground(67, 211, 191);
             if (StepKey == "cue1") { At(205, 80, .23f, Drop); Arrow(191, 117, 215, 100, 207, 89); }
             if (StepKey == "cue2") { Ellipse(128, 197, 45, 5, A(accent, .11f)); Curve(accent, 2.2f, 190, 91, 204, 109, 204, 128, 193, 144); }
@@ -116,16 +133,16 @@ namespace CapstoneDesign.Runtime
         {
             if (thoughtFirst)
             {
-                At(112, 109, .85f, Cloud); At(135, 188, .36f, Breath);
+                At(110, 107, .77f, Cloud); At(137, 184, .47f, Breath);
                 if (Is("overview", "thought")) At(191, 64, .24f, Cloud);
-                if (Is("return", "breath")) Arrow(191, 111, 218, 165, 156, 185);
+                if (Is("return", "breath")) Arrow(190, 109, 220, 156, 166, 178);
                 if (StepKey == "notice") At(197, 190, .23f, Note);
             }
             else
             {
                 At(127, 140, .85f, Person);
                 if (Is("overview", "cue1", "cue2")) At(202, 57, .31f, Cloud);
-                if (Is("cue0", "practice")) Air(62, 94, .7f);
+                if (Is("cue0", "practice")) Air(60, 100, .86f);
                 if (StepKey == "cue2") Arrow(217, 89, 230, 133, 156, 145);
             }
         }
@@ -135,7 +152,8 @@ namespace CapstoneDesign.Runtime
             bool dishes = Chosen("설거지");
             if (dishes) At(130, 155, .72f, Plate);
             else At(128, 166, .92f, Hands);
-            if (Is("overview", "choice") && string.IsNullOrEmpty(Choice)) At(201, 182, .32f, Plate);
+            if (Is("overview", "choice") && string.IsNullOrEmpty(Choice)) At(204, 185, .36f, Plate);
+            Ellipse(128, 211, 74, 6, A(Sky, .16f));
             if (!Is("preparation", "help", "reflection"))
             {
                 At(112, 114, .13f, Drop); At(127, 132, .11f, Drop); At(141, 115, .13f, Drop);
@@ -149,44 +167,52 @@ namespace CapstoneDesign.Runtime
         }
         void SelectionScene(int kind)
         {
-            if (kind == 21) Cushion();
             if (kind == 18)
             {
-                At(84, 126, .52f, Breath); At(177, 126, .52f, Ear);
-                if (StepKey == "practice" && !string.IsNullOrEmpty(Choice))
-                { SoftFrame(Chosen("호흡") ? 84 : 177, 125, 42, 57); }
+                TargetPad(81, 126, 43, 64); TargetPad(179, 126, 43, 64);
+                At(81, 126, .58f, Breath); At(179, 126, .58f, Ear);
+                if (StepKey == "practice" && (Chosen("호흡") || Chosen("주변 소리")))
+                { SoftFrame(Chosen("호흡") ? 81 : 179, 125, 44, 64); }
                 if (Is("overview", "activity", "practice"))
                 { Arrow(75, 59, 123, 31, 176, 59); Arrow(179, 196, 129, 220, 78, 196); }
             }
             else if (string.IsNullOrEmpty(Choice) || !KnownTarget())
             {
-                At(74, 111, .42f, Breath); At(178, 111, .42f, Ear); At(128, 180, .39f, Chair);
-                if (StepKey == "overview")
-                { Curve(A(accent, .45f), 2, 84, 160, 97, 177, 110, 184, 114, 185); Curve(A(accent, .45f), 2, 173, 158, 161, 174, 148, 182, 142, 185); }
+                TargetPad(73, 102, 43, 54); TargetPad(181, 102, 43, 54); TargetPad(128, 188, 39, 44);
+                At(73, 102, .49f, Breath); At(181, 102, .49f, Ear); At(128, 188, .43f, Chair);
             }
             else At(128, 122, .92f, Target);
-            if (kind == 14) At(201, 202, .26f, Frequency);
+            if (kind == 14 && !Is("guide-help", "help")) At(211, 203, .30f, Frequency);
             if (kind == 20)
             {
                 At(59, 198, .25f, Heart);
                 if (StepKey == "action") At(202, 197, .25f, Note);
             }
-            if (kind == 21 && StepKey == "save") At(204, 76, .30f, Bookmark);
-            if (kind == 7 && StepKey == "cue2") { At(204, 57, .24f, Cloud); Arrow(218, 90, 230, 135, 174, 149); }
-            if (Is("preference", "notice")) At(203, 200, .24f, Note);
+            if (kind == 21 && Is("overview", "save")) At(211, 202, .28f, Bookmark);
+            if (kind == 7 && StepKey == "preparation") At(128, 36, .21f, Cloud);
+            if (kind == 7 && StepKey == "cue2") { At(221, 44, .24f, Cloud); Arrow(218, 77, 230, 135, 174, 149); }
+            if (kind != 14 && Is("preference", "notice")) At(203, 200, .24f, Note);
         }
-        bool KnownTarget() => Chosen("호흡") || Chosen("몸의 접촉") || Chosen("주변 소리") || Chosen("소리") || Chosen("잠시 멈춤");
+        string TargetChoice => (MissionCode == "P27" || MissionCode == "P28"
+            && (Is("next-activity", "time") || StepKey == "review" && !contextCurrentReview))
+            && !string.IsNullOrEmpty(contextActivity) ? contextActivity : Choice;
+        bool KnownTarget() => TargetChoice == "호흡" || TargetChoice == "몸의 접촉" || TargetChoice == "주변 소리" || TargetChoice == "소리" || TargetChoice == "잠시 멈춤";
         void Target()
         {
-            if (Chosen("호흡")) Breath();
-            else if (Chosen("몸의 접촉")) Chair();
-            else if (Chosen("주변 소리") || Chosen("소리")) { Ear(); if (!Quiet) SoundExamples(); }
-            else if (Chosen("잠시 멈춤")) Rest();
+            if (TargetChoice == "호흡") Breath();
+            else if (TargetChoice == "몸의 접촉") Chair();
+            else if (TargetChoice == "주변 소리" || TargetChoice == "소리") { Ear(); if (!Quiet) SoundExamples(); }
+            else if (TargetChoice == "잠시 멈춤") Rest();
             else { At(80, 117, .48f, Breath); At(175, 117, .48f, Ear); }
         }
         void FeelingScene()
         {
-            At(128, 133, .94f, Bubble); At(128, 121, .49f, Heart);
+            At(128, 133, .94f, Bubble);
+            // A neutral feeling symbol does not turn every answer into a happy heart.
+            Ellipse(128, 113, 34, 32, A(Middle, .72f));
+            Curve(accent, 2.6f, 110, 114, 114, 110, 119, 110, 123, 114);
+            Curve(accent, 2.6f, 134, 114, 138, 110, 143, 110, 147, 114);
+            Curve(A(accent, .7f), 2.2f, 118, 131, 124, 132, 132, 132, 138, 131);
             if (StepKey == "overview") At(201, 194, .26f, Note);
             if (StepKey == "feeling") { Curve(accent, 2.3f, 89, 173, 112, 175, 139, 175, 160, 173); }
             if (StepKey == "breath") { Air(48, 99, .7f); Air(194, 175, .5f); }
@@ -202,14 +228,16 @@ namespace CapstoneDesign.Runtime
                 return;
             }
             At(128, 131, .88f, Person);
-            if (kind == 13)
+            if (kind == 13 && Is("overview", "before", "after"))
             {
-                At(43, 149, .24f, Heart); At(211, 149, .24f, Heart);
-                if (Is("before", "after")) SoftFrame(StepKey == "before" ? 43 : 211, 149, 21, 24);
+                TargetPad(43, 149, 23, 29); TargetPad(211, 149, 23, 29);
+                Curve(A(accent, .66f), 2.2f, 30, 151, 38, 140, 46, 160, 56, 148);
+                Curve(A(accent, .66f), 2.2f, 198, 151, 206, 140, 214, 160, 224, 148);
+                if (Is("before", "after")) SoftFrame(StepKey == "before" ? 43 : 211, 149, 25, 31);
             }
-            if (kind == 17) { At(48, 194, .23f, Cup); At(211, 194, .23f, Window); }
+            if (kind == 17 && StepKey == "overview") { At(48, 194, .23f, Cup); At(211, 194, .23f, Window); }
             if (Is("awareness", "overview")) At(205, 59, .26f, Cloud);
-            if (StepKey == "breath") Air(53, 102, .8f);
+            if (StepKey == "breath") Air(50, 110, .88f);
             if (StepKey == "expand")
             {
                 Curve(accent, 2.8f, 65, 78, 34, 111, 35, 166, 64, 196);
@@ -223,14 +251,15 @@ namespace CapstoneDesign.Runtime
             else if (Chosen("음악")) { At(128, 126, .92f, Ear); SoundExamples(); }
             else if (Chosen("다른 경험")) { At(128, 140, .85f, Hands); At(128, 95, .49f, Leaf); }
             else Window();
-            if (StepKey == "observe") { Curve(A(accent, .75f), 2.5f, 49, 156, 36, 125, 42, 95, 53, 85); }
+            if (StepKey == "observe" && !Chosen("음악"))
+            { Curve(A(accent, .78f), 2.6f, 42, 153, 32, 125, 35, 97, 46, 85); Curve(A(accent, .55f), 2.2f, 210, 83, 219, 100, 221, 120, 215, 135); }
             if (StepKey == "notice") At(202, 200, .26f, Note);
         }
         void KindWordScene()
         {
             At(107, 148, .72f, Person); At(180, 80, .58f, Bubble); At(181, 76, .25f, Heart);
             if (StepKey == "breath") Air(41, 111, .63f);
-            if (StepKey == "kindness") { Curve(accent, 2.5f, 170, 113, 171, 130, 156, 144, 145, 149); }
+            if (StepKey == "kindness") Arrow(181, 119, 178, 146, 146, 153);
             if (StepKey == "prepare") Ground(56, 224, 183);
         }
         void PostureScene()
@@ -238,7 +267,7 @@ namespace CapstoneDesign.Runtime
             Chair();
             if (StepKey == "adjust")
             { Arrow(57, 101, 42, 130, 61, 154); Arrow(163, 217, 184, 231, 199, 215); }
-            if (StepKey == "contact") { Contact(87, 138, 15); Contact(157, 213, 15); }
+            if (StepKey == "contact") { Contact(86, 146, 15); Contact(157, 216, 19); }
             if (StepKey == "notice") At(207, 78, .26f, Note);
             if (StepKey == "overview") At(207, 181, .28f, Cushion);
         }
@@ -252,7 +281,7 @@ namespace CapstoneDesign.Runtime
                 Mountain();
                 if (Is("overview", "mountain-shape")) At(192, 65, .28f, Sun);
                 if (Is("mountain-weather", "mountain-change"))
-                { At(184, 69, .4f, Cloud); At(180, 108, .10f, Drop); At(198, 117, .10f, Drop); }
+                { At(184, 69, .4f, Cloud); At(177, 109, .13f, Drop); At(199, 120, .12f, Drop); }
                 if (StepKey == "mountain-change") At(64, 64, .30f, Cloud);
                 if (StepKey == "mountain-return") At(128, 190, .29f, Breath);
                 if (StepKey == "mountain-prepare") Ground(50, 217, 210);
@@ -268,7 +297,7 @@ namespace CapstoneDesign.Runtime
             if (StepKey == "activity" && string.IsNullOrEmpty(Choice)) At(200, 199, .28f, Chair);
             if (StepKey == "contact")
             {
-                if (seated) { Contact(87, 138, 15); Contact(157, 213, 15); }
+                if (seated) { Contact(86, 146, 15); Contact(157, 216, 19); }
                 else { Contact(101, 181, 23); Contact(166, 137, 18); }
             }
             if (StepKey == "move")
@@ -281,7 +310,8 @@ namespace CapstoneDesign.Runtime
         void EatingScene()
         {
             Plate(); At(130, 128, .75f, Food);
-            if (Is("observe", "overview")) Steam(125, 52);
+            if (Is("observe", "overview"))
+            { Curve(A(accent, .62f), 2.3f, 91, 69, 106, 63, 144, 63, 160, 71); }
             if (StepKey == "bite") { At(206, 77, .19f, Food); Arrow(176, 105, 204, 93, 205, 88); }
             if (StepKey == "sensation") At(202, 198, .25f, Note);
             if (StepKey == "prepare") Ground(58, 220, 198);
@@ -290,8 +320,8 @@ namespace CapstoneDesign.Runtime
         {
             if (Chosen("상대의 이야기"))
             { At(88, 153, .57f, Person); At(174, 151, .57f, Person); At(129, 66, .48f, Bubble); }
-            else { At(126, 135, .94f, Book); At(201, 67, .29f, Ear); }
-            if (StepKey == "listen") Air(39, 111, .65f);
+            else { At(126, 139, .94f, Book); At(198, 65, .40f, Speaker); }
+            if (StepKey == "listen") Air(39, 111, .72f);
             if (StepKey == "transcript") At(125, 127, .62f, Note);
             if (StepKey == "notice") At(54, 188, .25f, Note);
         }
@@ -299,7 +329,7 @@ namespace CapstoneDesign.Runtime
         {
             At(127, 119, .96f, Bubble);
             if (Is("overview", "pause")) At(128, 112, .48f, Pause);
-            else At(127, 112, .43f, Note);
+            else At(127, 112, .57f, SpeechLines);
             if (StepKey == "speak") { At(205, 188, .30f, Bubble); Arrow(150, 177, 178, 202, 194, 193); }
             if (StepKey == "check") At(196, 196, .25f, Leaf);
         }
@@ -311,16 +341,19 @@ namespace CapstoneDesign.Runtime
             else if (Chosen("물건")) Cup(); else if (Chosen("환경")) Window();
             else { At(128, 166, .92f, Hands); At(128, 88, .59f, Leaf); }
             if (StepKey == "check") At(204, 196, .26f, Note);
-            if (StepKey == "help") SoftFrame(128, 116, 72, 81);
+            if (StepKey == "help")
+            { Curve(A(accent, .75f), 2.5f, 48, 119, 33, 148, 38, 185, 63, 201); Curve(A(accent, .75f), 2.5f, 210, 119, 225, 148, 220, 185, 195, 201); }
         }
         void RoutineScene()
         {
-            if (Chosen("샤워 후")) At(72, 108, .48f, Drop);
-            else if (Chosen("식사 후")) At(72, 109, .48f, Plate);
-            else At(72, 109, .48f, Bookmark);
-            At(180, 144, .49f, Target);
-            if (StepKey == "wait") At(127, 111, .24f, Pause);
-            else Arrow(104, 103, 132, 90, 153, 118);
+            string trigger = string.IsNullOrEmpty(contextTrigger) ? Choice : contextTrigger;
+            TargetPad(69, 110, 43, 58); TargetPad(176, 148, 43, 67);
+            if (trigger == "샤워 후") At(69, 108, .54f, Drop);
+            else if (trigger == "점심 후" || trigger == "식사 후") At(69, 109, .54f, Plate);
+            else At(69, 109, .54f, Bookmark);
+            At(176, 148, .60f, Target);
+            if (StepKey == "wait") At(127, 108, .23f, Pause);
+            else Arrow(101, 107, 120, 90, 133, 121);
             Ground(42, 208, 211);
             if (StepKey == "trigger") At(192, 64, .25f, Note);
             if (StepKey == "practice") Curve(accent, 2.5f, 176, 200, 198, 201, 216, 186, 220, 167);
@@ -329,15 +362,16 @@ namespace CapstoneDesign.Runtime
         void PlanningScene()
         {
             Calendar();
-            At(127, 135, .47f, Target);
-            if (Is("time", "review"))
+            Rounded(69, 104, 117, 88, 10, A(Paper, .94f), A(Paper, .90f));
+            At(127, 148, .57f, Target);
+            if (StepKey == "time" || StepKey == "review" && !contextCurrentReview)
             {
-                if (Chosen("저녁")) At(202, 193, .25f, Moon);
-                else if (Chosen("아침") || Chosen("점심")) At(202, 193, .25f, Sun);
+                string period = string.IsNullOrEmpty(contextPeriod) ? Choice : contextPeriod;
+                if (period == "저녁") At(203, 202, .30f, Moon);
+                else if (period == "아침" || period == "점심") At(203, 202, .30f, Sun);
                 else At(202, 193, .25f, Bookmark);
             }
             if (StepKey == "next-activity") Arrow(80, 201, 125, 225, 170, 201);
-            if (StepKey == "practice") Air(39, 126, .55f);
         }
 
         void Person()
@@ -358,6 +392,9 @@ namespace CapstoneDesign.Runtime
             Fill(new Path(162, 124).Curve(173, 134, 180, 158, 174, 174).Line(160, 170)
                 .Curve(165, 156, 153, 134, 162, 124), Light, Middle);
             Ellipse(92, 175, 13, 6, Skin); Ellipse(162, 175, 13, 6, Skin);
+            Curve(A(SkinShade, .7f), 1.2f, 85, 175, 90, 178, 96, 178, 101, 176);
+            Curve(A(SkinShade, .7f), 1.2f, 153, 176, 158, 178, 164, 178, 169, 175);
+            Curve(A(Paper, .34f), 1.3f, 146, 141, 151, 154, 152, 171, 149, 183);
             Curve(A(Paper, .5f), 1.2f, 86, 197, 108, 201, 127, 214, 153, 212);
             Face();
         }
@@ -375,6 +412,8 @@ namespace CapstoneDesign.Runtime
             Curve(Ink, 1.4f, 135, 76, 139, 79, 143, 79, 146, 76);
             Curve(C(191, 143, 118), 1.1f, 129, 78, 128, 82, 127, 86, 132, 86);
             Curve(C(158, 114, 99), 1.2f, 123, 94, 127, 97, 133, 97, 138, 92);
+            Ellipse(113, 86, 4, 2, A(C(214, 149, 129), .22f));
+            Ellipse(143, 86, 4, 2, A(C(214, 149, 129), .22f));
         }
         void Chair()
         {
@@ -383,30 +422,53 @@ namespace CapstoneDesign.Runtime
             Rounded(71, 153, 92, 17, 7, C(189, 174, 146), Wood);
             Rounded(73, 165, 10, 55, 4, Wood, C(143, 122, 102));
             Rounded(147, 165, 10, 55, 4, Wood, C(143, 122, 102));
+            Curve(A(Paper, .42f), 1.4f, 69, 91, 70, 108, 70, 131, 70, 148);
+            Curve(A(Paper, .38f), 1.3f, 78, 158, 101, 160, 132, 160, 153, 157);
             Rounded(118, 91, 18, 23, 6, Skin, SkinShade);
             Fill(new Path(104, 105).Curve(90, 111, 88, 132, 88, 149).Curve(104, 155, 124, 155, 139, 151)
                 .Line(142, 126).Curve(138, 110, 125, 105, 104, 105), Light, Middle);
+            // A quieter far leg and shoe keep the seated silhouette human, not a single block.
+            Fill(new Path(104, 153).Line(139, 156).Curve(146, 172, 142, 193, 139, 209)
+                .Line(123, 209).Line(122, 174).Line(104, 169).Line(104, 153), Color.Lerp(Middle, Paper, .12f), Middle);
+            Fill(new Path(123, 205).Line(139, 205).Curve(145, 209, 156, 214, 153, 217)
+                .Curve(146, 221, 127, 220, 119, 216).Line(123, 205), C(207, 203, 180), C(170, 168, 149));
             Fill(new Path(89, 148).Curve(106, 148, 136, 146, 154, 154).Curve(163, 167, 163, 188, 163, 207)
                 .Line(145, 207).Line(137, 171).Curve(115, 172, 97, 168, 90, 164).Line(89, 148), Middle, accent);
             Fill(new Path(145, 204).Line(164, 204).Curve(169, 209, 182, 211, 184, 216)
                 .Curve(180, 222, 154, 221, 144, 217).Line(145, 204), C(224, 216, 194), C(179, 172, 151));
             Curve(A(Paper, .55f), 1.5f, 98, 116, 95, 128, 96, 140, 101, 145);
             Curve(Skin, 9, 128, 128, 129, 140, 143, 143, 151, 145);
+            Ellipse(152, 146, 7, 4, Skin);
+            Curve(A(SkinShade, .72f), 1.1f, 148, 146, 151, 148, 155, 148, 159, 146);
+            Curve(A(Paper, .35f), 1.4f, 101, 158, 116, 158, 131, 158, 142, 163);
+            Curve(A(Paper, .32f), 1.3f, 153, 173, 155, 182, 155, 193, 155, 201);
             At(126, 113, .72f, Face);
         }
-        void Ear()
+        void Ear() { ListeningPortrait(); }
+        void ListeningPortrait(bool listening = true)
         {
             Ellipse(128, 224, 61, 5, A(accent, .08f));
             Fill(new Path(110, 128).Curve(87, 136, 78, 162, 75, 216).Curve(104, 230, 160, 230, 184, 216)
                 .Curve(181, 165, 171, 137, 147, 129).Curve(137, 143, 121, 143, 110, 128), Light, Middle);
             Rounded(115, 112, 28, 30, 10, Skin, SkinShade);
+            // Face already draws a matching pair of small ears. Listening uses
+            // the surrounding sound cues, not an extra enlarged ear overlay.
             At(128, 139, 1.18f, Face);
-            Fill(new Path(101, 83).Curve(94, 79, 89, 86, 92, 94).Curve(94, 103, 100, 108, 105, 104)
-                .Curve(109, 100, 107, 88, 101, 83), C(239, 207, 179), Skin);
-            Curve(A(SkinShade, .9f), 1.2f, 97, 89, 102, 86, 105, 94, 101, 96);
             Curve(A(Paper, .42f), 1.7f, 104, 156, 98, 174, 99, 194, 104, 207);
+            if (listening)
+            {
+                // A one-sided sound cue distinguishes listening from the chest
+                // breathing symbol without suggesting a required hand gesture.
+                Curve(A(accent, .82f), 2.8f, 67, 83, 57, 95, 57, 112, 66, 124);
+                Curve(A(accent, .48f), 2.1f, 55, 75, 40, 93, 41, 116, 54, 132);
+            }
         }
-        void Breath() { Ear(); Air(58, 91, .78f); }
+        void Breath()
+        {
+            ListeningPortrait(false);
+            Ellipse(128, 170, 35, 23, A(Paper, .30f));
+            Air(121, 165, 1.12f);
+        }
         void Rest() { Cushion(); At(128, 126, .83f, Person); }
         void Cushion()
         {
@@ -421,9 +483,11 @@ namespace CapstoneDesign.Runtime
             Curve(Middle, 13, 172, 91, 222, 83, 221, 153, 170, 149);
             Fill(new Path(75, 76).Curve(102, 68, 151, 68, 178, 76).Line(172, 170)
                 .Curve(170, 198, 84, 199, 81, 171).Line(75, 76), Light, Middle);
-            Ellipse(127, 77, 51, 11, Paper); Ellipse(127, 78, 43, 7, C(151, 122, 92));
+            Ellipse(127, 77, 51, 11, Paper); Ellipse(127, 78, 43, 7, C(150, 187, 186));
+            Curve(A(Paper, .75f), 1.6f, 94, 78, 112, 72, 146, 73, 160, 79);
             Curve(A(Paper, .62f), 3, 90, 96, 91, 125, 91, 151, 96, 167);
             Curve(A(accent, .3f), 1.4f, 105, 183, 126, 190, 151, 186, 161, 177);
+            Curve(A(Paper, .35f), 1.8f, 184, 97, 205, 100, 206, 132, 183, 139);
         }
         void Hands()
         {
@@ -435,6 +499,10 @@ namespace CapstoneDesign.Runtime
                 .Curve(171, 168, 185, 171, 196, 169).Line(210, 135), C(245, 214, 183), SkinShade);
             Curve(A(C(170, 120, 101), .55f), 1.2f, 76, 139, 88, 139, 96, 142, 103, 146);
             Curve(A(C(170, 120, 101), .55f), 1.2f, 180, 139, 168, 139, 160, 142, 153, 146);
+            Curve(A(SkinShade, .72f), 1.2f, 72, 149, 82, 150, 90, 153, 97, 154);
+            Curve(A(SkinShade, .72f), 1.2f, 184, 149, 174, 150, 166, 153, 159, 154);
+            Curve(A(Paper, .48f), 1.8f, 55, 138, 61, 134, 70, 128, 77, 124);
+            Curve(A(Paper, .48f), 1.8f, 201, 138, 195, 134, 186, 128, 179, 124);
         }
         void Faucet()
         {
@@ -458,6 +526,7 @@ namespace CapstoneDesign.Runtime
             Ellipse(128, 150, 79, 46, C(250, 248, 235));
             Ellipse(128, 151, 63, 33, C(224, 234, 225));
             Curve(A(accent, .35f), 1.5f, 66, 168, 94, 190, 159, 192, 189, 169);
+            Curve(A(Paper, .80f), 1.8f, 62, 138, 83, 116, 112, 112, 145, 116);
         }
         void Food()
         {
@@ -465,6 +534,8 @@ namespace CapstoneDesign.Runtime
                 .Curve(147, 169, 102, 169, 78, 152).Line(75, 117), C(220, 168, 108), C(184, 125, 72));
             Fill(new Path(79, 111).Curve(97, 88, 150, 86, 174, 110).Curve(154, 136, 100, 135, 79, 111), C(245, 218, 162), C(226, 182, 119));
             Curve(A(Paper, .65f), 2, 100, 106, 113, 97, 137, 96, 151, 104);
+            Curve(A(C(166, 111, 65), .48f), 2, 112, 96, 111, 103, 108, 110, 104, 114);
+            Curve(A(C(166, 111, 65), .48f), 2, 137, 94, 138, 102, 135, 111, 131, 116);
             At(173, 145, .25f, Leaf);
         }
         void Window()
@@ -478,6 +549,8 @@ namespace CapstoneDesign.Runtime
             Rounded(57, 124, 142, 8, 2, C(225, 216, 193), C(180, 169, 145));
             Rounded(40, 204, 177, 12, 4, C(214, 201, 174), Wood);
             Curve(A(Paper, .6f), 2, 67, 63, 66, 79, 66, 98, 67, 110);
+            Curve(A(Paper, .30f), 1.4f, 76, 61, 76, 72, 76, 88, 76, 96);
+            Curve(A(C(95, 139, 121), .48f), 1.4f, 65, 186, 82, 173, 102, 170, 115, 174);
         }
         void Mountain()
         {
@@ -489,6 +562,8 @@ namespace CapstoneDesign.Runtime
             Fill(new Path(120, 67).Curve(124, 57, 131, 57, 136, 67).Line(160, 110).Line(140, 102)
                 .Line(130, 111).Line(118, 99).Line(103, 113).Line(120, 67), C(236, 240, 226), C(208, 223, 211));
             Fill(new Path(135, 69).Line(221, 216).Curve(190, 221, 172, 222, 153, 221).Line(135, 69), A(C(82, 122, 117), .38f), A(C(69, 112, 108), .4f));
+            Curve(A(Paper, .30f), 1.7f, 115, 122, 104, 150, 95, 175, 87, 197);
+            Curve(A(C(61, 105, 101), .30f), 1.6f, 148, 129, 161, 153, 166, 177, 174, 204);
             At(48, 197, .24f, Leaf); At(203, 200, .22f, Leaf);
         }
         void Shoe()
@@ -502,6 +577,9 @@ namespace CapstoneDesign.Runtime
             Curve(Paper, 3, 126, 122, 134, 123, 143, 123, 148, 121);
             Curve(Paper, 3, 139, 132, 145, 133, 154, 133, 160, 131);
             Curve(A(Paper, .4f), 1.5f, 80, 113, 75, 130, 76, 144, 82, 154);
+            Curve(A(accent, .52f), 2, 77, 101, 91, 104, 105, 101, 117, 95);
+            Curve(A(accent, .34f), 1.4f, 146, 146, 165, 143, 187, 146, 196, 155);
+            Curve(A(Paper, .72f), 1.5f, 82, 174, 115, 181, 166, 182, 194, 174);
         }
         void Bubble()
         {
@@ -543,10 +621,15 @@ namespace CapstoneDesign.Runtime
         }
         void Book()
         {
+            Fill(new Path(40, 73).Curve(74, 64, 104, 67, 128, 80).Curve(156, 64, 187, 67, 218, 80)
+                .Line(211, 202).Curve(177, 187, 151, 188, 128, 202).Curve(102, 187, 73, 186, 38, 196)
+                .Line(40, 73), Middle, Color.Lerp(accent, Wood, .45f));
             Fill(new Path(45, 67).Curve(75, 57, 107, 61, 128, 73).Curve(153, 59, 183, 61, 213, 73)
                 .Line(205, 194).Curve(176, 181, 150, 181, 128, 194).Curve(104, 181, 73, 179, 44, 187)
                 .Line(45, 67), Paper, C(214, 226, 215));
             Curve(accent, 2.7f, 128, 76, 128, 111, 128, 155, 128, 190);
+            Curve(A(Paper, .8f), 1.4f, 51, 181, 79, 174, 104, 179, 122, 187);
+            Fill(new Path(178, 66).Line(189, 69).Line(186, 115).Line(181, 109).Line(175, 112).Line(178, 66), Middle, accent);
             for (int i = 0; i < 4; i++)
             {
                 float y = 91 + i * 21;
@@ -556,6 +639,7 @@ namespace CapstoneDesign.Runtime
         }
         void Calendar()
         {
+            Rounded(43, 52, 170, 165, 15, A(Wood, .13f), A(Wood, .08f));
             Rounded(45, 47, 166, 166, 14, Paper, C(218, 228, 213));
             Rounded(45, 47, 166, 44, 13, Light, Middle);
             Curve(accent, 6, 77, 42, 73, 48, 73, 57, 77, 63);
@@ -573,6 +657,19 @@ namespace CapstoneDesign.Runtime
         {
             Rounded(77, 58, 35, 144, 13, Light, Middle);
             Rounded(144, 58, 35, 144, 13, Light, Middle);
+        }
+        void Speaker()
+        {
+            Ellipse(128, 128, 100, 100, A(Paper, .90f));
+            Fill(new Path(60, 108).Line(89, 108).Line(128, 74).Line(128, 183).Line(89, 149).Line(60, 149).Line(60, 108), Middle, accent);
+            Curve(accent, 6, 151, 101, 170, 117, 170, 141, 151, 157);
+            Curve(A(accent, .65f), 4.5f, 170, 80, 204, 106, 204, 151, 170, 178);
+        }
+        void SpeechLines()
+        {
+            Curve(accent, 7, 69, 96, 95, 96, 151, 96, 187, 96);
+            Curve(A(accent, .8f), 6, 69, 126, 95, 126, 139, 126, 166, 126);
+            Curve(A(accent, .6f), 5, 69, 156, 88, 156, 112, 156, 137, 156);
         }
         void Sun()
         {
@@ -597,7 +694,13 @@ namespace CapstoneDesign.Runtime
         void Ground(float x, float y, float end)
         { Ellipse((x+end)/2, y+2, (end-x)/2, 3, A(accent, .08f)); Curve(A(accent, .35f), 1.5f, x, y, x+20, y, end-20, y, end, y); }
         void Contact(float x, float y, float radius)
-        { Ellipse(x, y, radius, 4, A(Paper, .75f)); Curve(accent, 2.3f, x-radius, y, x-4, y+5, x+4, y+5, x+radius, y); }
+        {
+            Ellipse(x, y+1, radius+4, 7, A(Paper, .64f));
+            Curve(accent, 2.7f, x-radius, y, x-4, y+5, x+4, y+5, x+radius, y);
+            Curve(A(accent, .43f), 1.9f, x-radius-3, y+5, x-4, y+11, x+4, y+11, x+radius+3, y+5);
+        }
+        void TargetPad(float x, float y, float rx, float ry)
+        { Ellipse(x, y+2, rx, ry, A(accent, .07f)); Ellipse(x, y, rx-2, ry-2, A(Paper, .64f)); }
         void SoftFrame(float x, float y, float rx, float ry)
         {
             var tint = A(accent, .7f);
@@ -626,12 +729,17 @@ namespace CapstoneDesign.Runtime
         }
         void Arrow(float x, float y, float cx, float cy, float ex, float ey)
         {
-            Curve(accent, 2.7f, x, y, cx, cy, cx, cy, ex, ey);
+            // A narrow paper keyline separates the direction cue from colored
+            // objects. Rounded joins remain legible at the smallest phone scale.
+            Curve(A(Paper, .82f), 5.4f, x, y, cx, cy, cx, cy, ex, ey);
+            Curve(accent, 3.1f, x, y, cx, cy, cx, cy, ex, ey);
             var direction = (new Vector2(ex, ey) - new Vector2(cx, cy)).normalized;
             var normal = new Vector2(-direction.y, direction.x); var tip = new Vector2(ex, ey);
-            var a = tip - direction*9 + normal*4.5f; var b = tip - direction*9 - normal*4.5f;
-            Curve(accent, 2.7f, a.x, a.y, a.x, a.y, ex, ey, ex, ey);
-            Curve(accent, 2.7f, b.x, b.y, b.x, b.y, ex, ey, ex, ey);
+            var a = tip - direction*9.5f + normal*4.8f; var b = tip - direction*9.5f - normal*4.8f;
+            Curve(A(Paper, .82f), 5.4f, a.x, a.y, a.x, a.y, ex, ey, ex, ey);
+            Curve(A(Paper, .82f), 5.4f, b.x, b.y, b.x, b.y, ex, ey, ex, ey);
+            Curve(accent, 3.1f, a.x, a.y, a.x, a.y, ex, ey, ex, ey);
+            Curve(accent, 3.1f, b.x, b.y, b.x, b.y, ex, ey, ex, ey);
         }
         sealed class Path
         {

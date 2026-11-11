@@ -231,8 +231,10 @@ namespace CapstoneDesign.EditorTools
             {
                 Check(f.Service.BeginFocusSession("plan","M10") && f.Service.StartSession("plan"),f.Service.LastError);
                 f.Invoke("SelectFocusSession","plan");
-                Check(f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.PlanActivity.0") && f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.PlanPeriod.0"),"M10 exposes activity and time-period options.");
-                f.Click("Focus.PlanActivity.0");f.Click("Focus.PlanPeriod.0");
+                Check(f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.PlanActivity.0") && !f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.PlanPeriod.0"),"M10 first shows only the activity choice.");
+                f.Click("Focus.PlanActivity.0");f.Click("Focus.IconAction");
+                Check(f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.PlanPeriod.0") && !f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.PlanActivity.0"),"M10 then shows the comfortable-period choice separately.");
+                f.Click("Focus.PlanPeriod.0");
                 var plan=Session(f.Service,"plan").FocusStepRecords[0];
                 Check(!string.IsNullOrEmpty(plan.PlanActivity) && !string.IsNullOrEmpty(plan.PlanTimePeriod),"Separate selected activity and comfortable period persist.");
                 f.Capture("qa-m10-plan-choices",capture);

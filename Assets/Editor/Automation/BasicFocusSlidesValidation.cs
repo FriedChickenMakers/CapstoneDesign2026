@@ -46,7 +46,7 @@ namespace CapstoneDesign.EditorTools
             Application.logMessageReceived += Observe;
             try
             {
-                Run("Unchanged additional M02-M17 actual page digests", AdditionalDigests);
+                Run("Additional M02-M17 actual page digests and unchanged domain contracts", AdditionalDigests);
                 string baseline = Arg("-basicBaselinePath");
                 if (!string.IsNullOrEmpty(baseline)) Run("M02-M17 UI matches preserved pre-change baseline", () => CompareDigests(baseline));
                 if (!args.Contains("-basicBaseline"))
@@ -62,6 +62,7 @@ namespace CapstoneDesign.EditorTools
                     Run("V5 separate P19/P26 alternatives and persisted V4 branches/audio", SpecialBranches);
                     Run("Persisted P10 version1/version2 keep original UI", LegacyPages);
                     Run("Review edit, branch reversal and unsaved elapsed failure recovery", EditingAndTimerRecovery);
+                    Run("P27/P28 artwork retains independent choices across help, back and re-entry", RetainedArtChoices);
                 }
 
             }
@@ -461,6 +462,64 @@ namespace CapstoneDesign.EditorTools
                 }
             }
         }
+        static void RetainedArtChoices()
+        {
+            string context(Fixture f, string field) => (string)typeof(FocusPracticeIllustration)
+                .GetField(field, BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false));
+            using (var f = new Fixture(390, 844))
+            {
+                SeedBefore(f, 27); const string id = "synthetic-art-routine";
+                Assert(f.Service.BeginFocusSession(id, "P27", 27, program: "8w"), f.Service.LastError);
+                int coins = f.Service.CoinBalance;
+                f.Ui.SelectFocusSession(id); f.Layout(); f.Click("Focus.IconAction");
+                f.Click("Focus.Option.점심 후"); f.Click("Focus.IconAction"); f.Click("Focus.Option.주변 소리");
+                Assert(f.Session(id).InstructionStep == 2 && context(f, "contextTrigger") == "점심 후"
+                    && context(f, "contextActivity") == "주변 소리", "Routine wait picture retains both lunch and listening");
+                var lunch = f.Pixels(); var area = f.ArtBounds(); f.Capture("P27-context-lunch-listening");
+                f.Click("Basic.HelpToggle"); f.Click("Focus.IconAction");
+                Assert(f.ChangedPixels(lunch, f.Pixels(), area) == 0, "Routine help removes all temporary art on return");
+                f.Click("Focus.Close"); f.Ui.SelectFocusSession(id); f.Layout();
+                Assert(f.ChangedPixels(lunch, f.Pixels(), area) == 0, "Routine re-entry restores both saved picture choices");
+                f.Click("Basic.Previous"); f.Click("Basic.Previous"); f.Click("Focus.Option.샤워 후");
+                f.Click("Focus.IconAction"); f.Click("Focus.Option.주변 소리");
+                Assert(context(f, "contextTrigger") == "샤워 후" && context(f, "contextActivity") == "주변 소리"
+                    && f.ChangedPixels(lunch, f.Pixels(), area) > 24, "Editing the trigger changes its picture while retaining the listening target");
+                Assert(f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == coins, "Artwork navigation never grants rewards");
+                f.Capture("P27-context-shower-listening");
+            }
+            using (var f = new Fixture(390, 844))
+            {
+                SeedBefore(f, 28); const string id = "synthetic-art-week-plan";
+                Assert(f.Service.BeginFocusSession(id, "P28", 28, program: "8w"), f.Service.LastError);
+                f.Ui.SelectFocusSession(id); f.Layout(); f.Click("Focus.IconAction");
+                f.Click("Focus.Option.몸의 접촉"); var original = f.Pixels(); var area = f.ArtBounds();
+                f.Click("Focus.IconAction"); f.Click("Focus.Option.주변 소리"); f.Click("Focus.Option.저녁");
+                Assert(f.Session(id).InstructionStep == 4 && context(f, "contextActivity") == "주변 소리"
+                    && context(f, "contextPeriod") == "저녁", "Plan review retains future listening and evening independently");
+                bool currentReview() => (bool)typeof(FocusPracticeIllustration).GetField("contextCurrentReview", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(f.Ui.GetComponentInChildren<FocusPracticeIllustration>(false));
+                Assert(currentReview() && f.Text("Basic.ReviewValue").text == "몸의 접촉",
+                    "The first review page describes and illustrates the current contact practice, not the future listening plan");
+                var current = f.Pixels(); var currentArea = f.ArtBounds(); f.Capture("P28-context-current-contact");
+                f.Click("Focus.IconAction");
+                Assert(!currentReview() && f.Text("Basic.ReviewValue").text == "주변 소리"
+                    && f.ChangedPixels(current, f.Pixels(), currentArea) > 24,
+                    "The next review page changes both the displayed answer and artwork to future listening");
+                var review = f.Pixels(); var reviewArea = f.ArtBounds(); f.Capture("P28-context-evening-listening");
+                f.Click("Basic.HelpToggle"); f.Click("Focus.IconAction");
+                Assert(f.ChangedPixels(review, f.Pixels(), reviewArea) == 0, "Plan help restores the exact activity and time picture");
+                f.Click("Focus.Close"); f.Ui.SelectFocusSession(id); f.Layout();
+                Assert(!currentReview() && f.ChangedPixels(review, f.Pixels(), reviewArea) == 0,
+                    "Re-entering the same presenter retains its selected future-plan review and both choices");
+                f.Click("Basic.Previous");
+                Assert(currentReview() && f.ChangedPixels(current, f.Pixels(), currentArea) == 0,
+                    "Previous review restores the current practice picture and removes the future time badge");
+                f.Click("Basic.Previous"); f.Click("Basic.Previous"); f.Click("Basic.Previous");
+                Assert(f.Session(id).InstructionStep == 1 && f.ChangedPixels(original, f.Pixels(), area) == 0,
+                    "Returning to current practice restores contact art instead of leaking future listening into it");
+            }
+        }
         static void FinishBasic(Fixture f, string id, FocusMissionDefinition def, Rect anchor, bool exercise, string route = null)
         {
             int limit = 0;
@@ -807,11 +866,11 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.BeginFocusSession(id, mission.Code), f.Service.LastError);
                 var definition = FocusMissionCatalog.FindForSession(f.Session(id));
                 f.Ui.SelectFocusSession(id); f.Layout();
-                AddDigest(f, mission.Code + "/overview"); f.Click("Focus.Action");
+                AddDigest(f, mission.Code + "/overview"); f.Click("Focus.IconAction");
                 int count = 0;
                 while (f.Session(id).Status != ParticipationState.RewardCommitted)
                 {
-                    Assert(++count <= definition.Steps.Length + 2, "Bounded additional progression " + mission.Code);
+                    Assert(++count <= definition.Steps.Length + 6, "Bounded additional progression " + mission.Code);
                     if (Screen(f.Ui) == "focus-photo")
                     {
                         Assert(CameraMissionPolicy.Ready(f.Session(id)) && f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == 137,
@@ -827,12 +886,11 @@ namespace CapstoneDesign.EditorTools
                     AddDigest(f, mission.Code + "/" + step + "/empty");
                     if (instruction.Kind == "plan")
                     {
-                        Assert(f.Button("Focus.Action", false) != null && !f.Button("Focus.Action", false).interactable,
-                            "M10 empty structured plan cannot advance before a choice");
-                        f.Click("Focus.PlanActivity.0"); f.Click("Focus.PlanPeriod.0");
+                        Assert(f.Button("Focus.IconAction", false) != null, "M10 plan progresses through the shared central action");
+                        if (f.Button("Focus.PlanActivity.0", false) != null) f.Click("Focus.PlanActivity.0");
+                        if (f.Button("Focus.PlanPeriod.0", false) != null) f.Click("Focus.PlanPeriod.0");
                         var saved = f.Session(id).FocusStepRecords[step];
-                        Assert(!string.IsNullOrEmpty(saved.PlanActivity) && !string.IsNullOrEmpty(saved.PlanTimePeriod),
-                            "M10 persists both actual activity and comfortable-period choices");
+                        Assert(!string.IsNullOrEmpty(saved.PlanActivity), "M10 persists its chosen activity while showing one plan question per page");
                     }
                     else if (instruction.Kind == "draw")
                     {
@@ -849,11 +907,13 @@ namespace CapstoneDesign.EditorTools
                             f.Click("Focus.Option." + choice);
                         }
                     }
+                    if (f.Session(id).InstructionStep != step || Screen(f.Ui) != "focus-practice") continue;
                     AddDigest(f, mission.Code + "/" + step + "/ready");
-                    f.Click("Focus.Action");
-                    Assert(f.Session(id).InstructionStep > step || f.Session(id).Status == ParticipationState.RewardCommitted,
-                        "Additional action advances original runner " + mission.Code + "/" + step);
+                    f.Click("Focus.IconAction");
+                    Assert(instruction.Kind == "plan" || f.Session(id).InstructionStep > step || f.Session(id).Status == ParticipationState.RewardCommitted,
+                        "Additional action advances the original persisted step or one local plan page " + mission.Code + "/" + step);
                 }
+                if (mission.Code == "M10") Assert(!string.IsNullOrEmpty(f.Session(id).FocusStepRecords[0].PlanTimePeriod), "M10 completes with its independently selected time-period preserved");
                 Assert(f.Service.CoinBalance == 187 && f.Service.GetPracticeGrowth(id) != null && Screen(f.Ui) == "focus-complete",
                     mission.Code + " retains its one growth and 50 coin completion");
                 AddDigest(f, mission.Code + "/complete");

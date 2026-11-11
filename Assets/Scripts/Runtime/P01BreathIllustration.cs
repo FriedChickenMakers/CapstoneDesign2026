@@ -94,6 +94,12 @@ namespace CapstoneDesign.Runtime
                 .Curve(176, 174, 175, 172, 172, 170), Skin, SkinShade);
             Curve(A(C(155, 113, 94), .6f), .8f, 86, 175, 91, 179, 97, 181, 101, 180);
             Curve(A(C(155, 113, 94), .6f), .8f, 169, 176, 165, 179, 159, 181, 155, 180);
+            // Short cuff seams and soft thumb folds keep the resting hands readable
+            // at phone size without outlining every finger.
+            Curve(A(SageDark, .48f), 1.15f, 79, 166, 83, 169, 87, 171, 91, 170);
+            Curve(A(SageDark, .48f), 1.15f, 166, 170, 170, 171, 175, 168, 177, 165);
+            Curve(A(Paper, .44f), 1.2f, 83, 172, 87, 172, 91, 175, 94, 176);
+            Curve(A(Paper, .38f), 1.2f, 170, 173, 167, 173, 164, 176, 161, 177);
             // Face, ears and soft hair silhouette.
             Ellipse(104, 77, 5, 9, SkinShade); Ellipse(152, 77, 5, 9, SkinShade);
             Fill(new Path(105, 59).Curve(105, 40, 117, 32, 130, 33).Curve(147, 34, 153, 46, 152, 63)
@@ -122,6 +128,9 @@ namespace CapstoneDesign.Runtime
                     .Line(64, 143).Curve(57, 140, 53, 140, 49, 143).Curve(43, 139, 37, 138, 31, 140)
                     .Line(33, 119), C(242, 235, 210), C(214, 217, 190));
                 Curve(Attention, 2, 49, 122, 49, 128, 49, 135, 49, 140);
+                Curve(A(Attention, .48f), 1.1f, 36, 124, 40, 123, 43, 124, 46, 126);
+                Curve(A(Attention, .38f), 1.1f, 35, 131, 39, 130, 43, 131, 46, 133);
+                Curve(A(Attention, .48f), 1.1f, 53, 126, 57, 124, 60, 125, 63, 127);
             }
             if (CurrentStage == Stage.Return || CurrentStage == Stage.Help && HelpPage >= 2)
             {
@@ -133,9 +142,9 @@ namespace CapstoneDesign.Runtime
                 // Skipping the choice must not imply that the chest was selected.
                 if (!Target.HasValue) return;
                 var target = Target.Value;
-                Curve(Attention, 3.2f, 220, 82, 237, 116, 197, target.y + 14, target.x + 25, target.y);
-                Curve(Attention, 3.2f, target.x + 35, target.y - 6, target.x + 31, target.y - 4, target.x + 28, target.y - 2, target.x + 25, target.y);
-                Curve(Attention, 3.2f, target.x + 35, target.y + 7, target.x + 31, target.y + 5, target.x + 28, target.y + 2, target.x + 25, target.y);
+                float edge = FocusArea == "코" ? 22 : 28;
+                AttentionArrow(new Vector2(220, 82), new Vector2(237, 116),
+                    new Vector2(197, target.y + 14), new Vector2(target.x + edge, target.y));
                 return;
             }
             if (CurrentStage == Stage.Reflection)
@@ -204,13 +213,24 @@ namespace CapstoneDesign.Runtime
         }
         void Mark(Vector2 point, bool selected)
         {
-            Ellipse(point.x, point.y, selected ? 6.5f : 4.2f, selected ? 6.5f : 4.2f, Paper);
-            Ellipse(point.x, point.y, selected ? 3.5f : 2.2f, selected ? 3.5f : 2.2f, Attention);
+            Ellipse(point.x, point.y, selected ? 5.6f : 4.2f, selected ? 5.6f : 4.2f, Paper);
+            Ellipse(point.x, point.y, selected ? 3.0f : 2.2f, selected ? 3.0f : 2.2f, Attention);
         }
         void Guide(Vector2 point, float endY)
         {
             Curve(A(Attention, .85f), 2.2f, point.x + 9, point.y, 157, point.y, 174, endY, 192, endY);
             Ellipse(195, endY, 3.2f, 3.2f, Attention);
+        }
+        void AttentionArrow(Vector2 start, Vector2 controlA, Vector2 controlB, Vector2 tip)
+        {
+            const float width = 2.8f;
+            Curve(Attention, width, start.x, start.y, controlA.x, controlA.y, controlB.x, controlB.y, tip.x, tip.y);
+            var tangent = (tip - controlB).normalized;
+            var normal = new Vector2(-tangent.y, tangent.x);
+            var left = tip - tangent * 8 + normal * 4.4f;
+            var right = tip - tangent * 8 - normal * 4.4f;
+            Curve(Attention, width, left.x, left.y, left.x, left.y, tip.x, tip.y, tip.x, tip.y);
+            Curve(Attention, width, right.x, right.y, right.x, right.y, tip.x, tip.y, tip.x, tip.y);
         }
 
         sealed class Path

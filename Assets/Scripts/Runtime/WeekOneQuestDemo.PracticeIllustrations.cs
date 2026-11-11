@@ -39,12 +39,37 @@ namespace CapstoneDesign.Runtime
             illustration = FigmaMissionUi.Rect(button.transform, "Focus.Illustration", 0, 0, 180, 180);
             illustration.anchorMin = illustration.anchorMax = illustration.pivot = new Vector2(.5f, .5f);
             illustration.anchoredPosition = Vector2.zero;
-            var art = FigmaMissionUi.Rect(illustration, "Focus.PracticeIllustration", 0, 0, 180, 180)
-                .gameObject.AddComponent<FocusPracticeIllustration>();
-            art.Configure(mission.Code, key, choice, FocusAccent(mission));
+            if (FocusAdditionalSlideContent.Supports(mission.Code))
+                FigmaMissionUi.Rect(illustration, "Focus.AdditionalIllustration", 0, 0, 180, 180)
+                    .gameObject.AddComponent<AdditionalMissionIllustration>().Configure(mission.Code, key, choice, FocusAccent(mission));
+            else
+            {
+                var art = FigmaMissionUi.Rect(illustration, "Focus.PracticeIllustration", 0, 0, 180, 180)
+                    .gameObject.AddComponent<FocusPracticeIllustration>();
+                art.Configure(mission.Code, key, choice, FocusAccent(mission));
+                ApplyPracticeIllustrationContext(art, mission, ActiveSession());
+            }
             if (Application.isPlaying && !FigmaMissionUi.ReducedMotion)
                 illustration.gameObject.AddComponent<FocusMissionEntrance>();
             return button;
+        }
+
+        void ApplyPracticeIllustrationContext(FocusPracticeIllustration art, FocusMissionDefinition mission, ActivitySession session)
+        {
+            // A routine and a future plan have independent choices. Passing only
+            // the last answer lost the earlier trigger/target in their drawings.
+            string value(string key)
+            {
+                if (session == null) return "";
+                int index = Array.FindIndex(mission.Steps, step => step.Key == key);
+                if (index >= 0 && focusDraftSession == session.SessionId && focusDraftStep == index) return focusAnswer ?? "";
+                return session.FocusStepRecords.FirstOrDefault(record => record.Key == key && !record.Skipped)?.Value ?? "";
+            }
+            art.ConfigureContext(mission.Code == "P27" ? value("trigger") : "",
+                mission.Code == "P27" ? value("activity") : mission.Code == "P28" ? value("next-activity") : "",
+                mission.Code == "P28" ? value("time") : "",
+                mission.Code == "P28" && session != null && art.StepKey == "review"
+                    && BasicReviewRecords(session, session.InstructionStep).ElementAtOrDefault(basicReviewPage)?.Key == "activity");
         }
     }
 }

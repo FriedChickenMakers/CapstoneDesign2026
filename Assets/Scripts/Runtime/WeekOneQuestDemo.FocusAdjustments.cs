@@ -33,10 +33,16 @@ namespace CapstoneDesign.Runtime
             panel.pivot=new Vector2(.5f,.5f);panel.anchoredPosition=Vector2.zero;
             FigmaMissionUi.Label(panel,title,24,24,294,60,22,FigmaMissionUi.Ink,true);
             FigmaMissionUi.Label(panel,detail,24,96,294,80,16,FigmaMissionUi.Muted);
-            Action cancel=()=>{focusAdjustmentCancel=null;if(overlay!=null){overlay.gameObject.SetActive(false);if(Application.isPlaying)Destroy(overlay.gameObject);else DestroyImmediate(overlay.gameObject);}if(resume&&clock!=null&&!clock.Running)clock.ToggleRunning();if(resumeAudio&&audio!=null)audio.ResumePlayback();};
+            string owner = sessionId;
+            bool valid = true;
+            Action cancel = null;
+            Func<bool> current = () => valid && root != null && view == root.gameObject && isActiveAndEnabled
+                && root.gameObject.activeInHierarchy && sessionId == owner && overlay != null && overlay.gameObject.activeInHierarchy
+                && focusAdjustmentCancel == cancel;
+            cancel=()=>{if(!current())return;valid=false;focusAdjustmentCancel=null;if(overlay!=null){overlay.gameObject.SetActive(false);if(Application.isPlaying)Destroy(overlay.gameObject);else DestroyImmediate(overlay.gameObject);}if(resume&&clock!=null&&!clock.Running)clock.ToggleRunning();if(resumeAudio&&audio!=null)audio.ResumePlayback();};
             focusAdjustmentCancel=cancel;
             FigmaMissionUi.Button(panel,"취소",24,204,140,56,cancel,Color.white,FigmaMissionUi.Brown).name="Focus.AdjustmentCancel";
-            FigmaMissionUi.Button(panel,confirm,178,204,140,56,()=>{focusAdjustmentCancel=null;if(!apply()){focusAdjustmentCancel=cancel;return;}if(overlay!=null){overlay.gameObject.SetActive(false);if(Application.isPlaying)Destroy(overlay.gameObject);else DestroyImmediate(overlay.gameObject);}},FocusAccent(mission)).name="Focus.AdjustmentConfirm";
+            FigmaMissionUi.Button(panel,confirm,178,204,140,56,()=>{if(!current())return;focusAdjustmentCancel=null;if(!apply()){focusAdjustmentCancel=cancel;return;}valid=false;if(overlay!=null){overlay.gameObject.SetActive(false);if(Application.isPlaying)Destroy(overlay.gameObject);else DestroyImmediate(overlay.gameObject);}},FocusAccent(mission)).name="Focus.AdjustmentConfirm";
             overlay.SetAsLastSibling();
         }
 
@@ -74,7 +80,10 @@ namespace CapstoneDesign.Runtime
 
         void ShowFocusEndPrompt(Transform root,FocusMissionDefinition mission,string id)
         {
-            ShowFocusAdjustmentPrompt(root,mission,"이번 미션을 미뤄둘까요?","완료로 기록하지 않아요. 기본 코스의 현재 회차는 그대로 두고 다른 활동을 고를 수 있어요.","미뤄두기",()=>
+            bool additional = mission.Role == FocusMissionCatalog.AdditionalRole;
+            ShowFocusAdjustmentPrompt(root,mission,"이번 미션을 미뤄둘까요?",additional
+                ? "완료나 보상 없이 미뤄둬요.\n오늘의 추가 미션 횟수는 사용하지 않아요."
+                : "완료로 기록하지 않아요. 기본 코스의 현재 회차는 그대로 두고 다른 활동을 고를 수 있어요.","미뤄두기",()=>
             {
                 if(!FocusSaved(Service.EndFocusParticipation(id)))return false;
                 focusDirty=false;focusPracticeClock=null;focusDrawing=null;ShowFocusHome();return true;

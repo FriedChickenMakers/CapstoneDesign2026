@@ -233,12 +233,16 @@ namespace CapstoneDesign.Runtime
         public float MinimumAnswerHeight = 86;
         public float ContentHeight;
         public bool KeepAnswersVisible;
+        // Optional uniform space for a mission's slides. Error notices use the
+        // current controls instead, so retry stays accessible on small phones.
+        public float StableAnswerHeight, StableReadingBottom;
         void OnEnable(){Canvas.preWillRenderCanvases+=Refresh;}
         void OnDisable(){Canvas.preWillRenderCanvases-=Refresh;}
         public void Refresh()
         {
             float height=((RectTransform)transform).rect.height;
             float bottom=height-72;
+            bool showingNotice = Notice != null && Notice.gameObject.activeSelf;
             if(Navigation!=null)FigmaMissionUi.SetRect(Navigation,24,height-64,342,48);
             if(Notice!=null&&Notice.gameObject.activeSelf)
             {
@@ -264,10 +268,12 @@ namespace CapstoneDesign.Runtime
                 float copyHeight = Mathf.Max(54, Mathf.Ceil(Copy.preferredHeight));
                 FigmaMissionUi.SetRect(Copy.rectTransform,24,copyTop,342,copyHeight);
                 readingBottom = copyTop + copyHeight + 18;
+                if (!showingNotice) readingBottom = Mathf.Max(readingBottom, StableReadingBottom);
                 minTop = Mathf.Max(254, readingBottom) + illustrationOffset;
                 actionGap = 40;
             }
             float answerHeight = reading ? MinimumAnswerHeight : 72;
+            if (!showingNotice) answerHeight = Mathf.Max(answerHeight, StableAnswerHeight);
             // Timer actions are always visible. On short/error layouts use the
             // spare gap below the copy, then reduce only this slide's image.
             if (KeepAnswersVisible)
