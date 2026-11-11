@@ -228,6 +228,8 @@ namespace CapstoneDesign.Runtime
                 .Line(99, 159), C(216, 183, 145), C(183, 145, 107));
             Ellipse(128, 159, 29, 6, C(226, 195, 158));
             Ellipse(128, 158, 22, 3, C(137, 118, 86));
+            // The stem enters the soil; the pot rim must not cut it off.
+            Curve(SageDark, 3, 128, 153, 128, 155, 128, 157, 128, 159);
             Curve(A(Paper, .4f), 2.3f, 111, 170, 111, 182, 112, 192, 114, 198);
         }
 

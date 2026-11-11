@@ -78,7 +78,7 @@ namespace CapstoneDesign.Runtime
             var frame = activityFrame;
             Func<bool> current = () => opened && screen == ActivityJournalScreen && frame != null
                 && frame == activityFrame && frame.activeInHierarchy && !GardenMemoPopup.IsOpen;
-            FigmaHeader(root, "활동 일지", "오전 4시 기준으로 하루를 묶어요.");
+            FigmaHeader(root, "활동 일지", "");
             var body = FigmaScroll(root, 132, 628, 900);
             pageViewport.name = "ActivityJournal.Scroll";
             int offset = (int)activityJournalMonth.DayOfWeek;
@@ -115,6 +115,17 @@ namespace CapstoneDesign.Runtime
                         RenderActivityJournal(true);
                     }, selected ? FigmaMissionUi.Soft : Color.clear, FigmaMissionUi.Green);
                 button.name = "ActivityJournal.Day." + key;
+                if (day.Date == today.Date)
+                {
+                    // Outline duplicates the whole transparent button mesh and
+                    // fills the cell when today is unselected. Draw only edges.
+                    var border = FigmaMissionUi.Rect(button.transform, "ActivityJournal.TodayBorder", 0, 0, cellWidth, 50);
+                    Color red = new Color32(196, 76, 68, 255);
+                    FigmaMissionUi.Box(border, "Top", 2, 2, cellWidth - 4, 2, red);
+                    FigmaMissionUi.Box(border, "Bottom", 2, 46, cellWidth - 4, 2, red);
+                    FigmaMissionUi.Box(border, "Left", 2, 4, 2, 42, red);
+                    FigmaMissionUi.Box(border, "Right", cellWidth - 4, 4, 2, 42, red);
+                }
                 FigmaMissionUi.Label(button.transform, number.ToString(CultureInfo.InvariantCulture), 0, 2, cellWidth, 23,
                     15, FigmaMissionUi.Green, selected || day == today, TextAnchor.MiddleCenter);
                 if (index.ForDate(key).Count > 0)
@@ -126,15 +137,6 @@ namespace CapstoneDesign.Runtime
                 }
             }
             float y = calendarHeight + 24;
-            FigmaMissionUi.Label(body, "새싹이 있는 날에 기록이 있어요.", 24, y, 250, 42, 14, FigmaMissionUi.Muted)
-                .name = "ActivityJournal.Legend";
-            FigmaMissionUi.Button(body, "오늘", 286, y - 4, 80, 44, () => {
-                if (!current()) return;
-                var now = JournalToday(); activityJournalDate = ActivityJournal.Key(now);
-                activityJournalMonth = new DateTime(now.Year, now.Month, 1); activityJournalUndated = false;
-                activityJournalScroll = 1; RenderActivityJournal(true);
-            }, Color.clear, FigmaMissionUi.Green, 14).name = "ActivityJournal.Today";
-            y += 50;
             var selectedDay = activityJournalUndated ? index.Undated : index.ForDate(activityJournalDate);
             float dayY = y;
             float dayHeight = BuildActivityJournalDay(body, state, selectedDay, y, current);

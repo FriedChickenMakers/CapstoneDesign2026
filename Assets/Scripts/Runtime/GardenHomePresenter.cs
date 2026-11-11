@@ -59,6 +59,7 @@ namespace CapstoneDesign.Runtime
         Transform additions;
         string additionsSignature;
         string plantSignature;
+        PrototypeUiIcon coinBalanceIcon;
         PrototypeGardenPreviewLayout backgroundPreview;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
@@ -140,6 +141,7 @@ namespace CapstoneDesign.Runtime
                     }
                     if(content.Find("GardenAndGrowth")!=null)content.Find("GardenAndGrowth").gameObject.SetActive(visible);
                     foreach(var label in new[]{title,date,stage,guide})if(label!=null)label.gameObject.SetActive(visible);
+                    if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(visible);
                 }
                 RefreshMissionStatus();
                 if (backgroundPreview != null) backgroundPreview.gameObject.SetActive(visible);
@@ -240,7 +242,8 @@ namespace CapstoneDesign.Runtime
                 var face=shopButton.GetComponentInChildren<GardenThemeSurface>();
                 if(face!=null){face.textureZoom=2f;face.SetVerticesDirty();}
             }
-            if(shopButton!=null)foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.color=Color.white;
+            if(shopButton!=null)foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))
+            { label.text="정원 상점";label.color=Color.white; }
             backgroundPreview = homeCanvas.GetComponentInChildren<PrototypeGardenPreviewLayout>(true);
             if (backgroundPreview == null) return;
             backgroundPreview.MemoClicked-=OpenPlantMemo;
@@ -267,7 +270,8 @@ namespace CapstoneDesign.Runtime
             var home = content.Find("GardenAndGrowth");
             PlaceOverlayText(title,content,48,32,460,58,40,false);
             PlaceOverlayText(date,content,48,96,360,40,25,false);
-            PlaceOverlayText(guide,content,48,128,190,40,24,true);
+            PlaceOverlayText(guide,content,48,128,144,40,24,true);
+            EnsureCoinBalanceIcon(content);
             var growth=home.Find("Growth surface") as RectTransform;
             if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,GardenUi.Background).transform;
             growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),GardenUi.Background);
@@ -330,6 +334,25 @@ namespace CapstoneDesign.Runtime
             if (label is TextMeshProUGUI uiLabel) _ = uiLabel.canvasRenderer;
             label.outlineWidth = .12f;
             label.raycastTarget=false;
+        }
+
+        void EnsureCoinBalanceIcon(Transform parent)
+        {
+            var existing=parent.Find("Garden coin balance icon");
+            if(existing!=null)coinBalanceIcon=existing.GetComponent<PrototypeUiIcon>();
+            if(coinBalanceIcon==null)
+            {
+                var iconObject=new GameObject("Garden coin balance icon",typeof(RectTransform));
+                var rect=(RectTransform)iconObject.transform;
+                rect.SetParent(parent,false);
+                rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(1,1);
+                rect.anchoredPosition=new Vector2(-200,-132);
+                rect.sizeDelta=new Vector2(32,32);
+                coinBalanceIcon=iconObject.AddComponent<PrototypeUiIcon>();
+            }
+            coinBalanceIcon.symbol=PrototypeUiIcon.Symbol.Coin;
+            coinBalanceIcon.color=Color.white;
+            coinBalanceIcon.raycastTarget=false;
         }
 
         public static Color OverlayTextColor(float daylight)=>daylight>=.5f?Color.black:Color.white;
@@ -463,6 +486,7 @@ namespace CapstoneDesign.Runtime
                 if (gardenVisuals != null) gardenVisuals.SetActive(false);
                 if (title != null) title.text = "저장 상태 확인 필요";
                 if (guide != null) guide.text = "기존 데이터를 보존했습니다. 저장 공간을 확인해 주세요.";
+                if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(false);
                 if (stage != null) stage.text = "";
                 if (dailyStatus != null) dailyStatus.text = "정원을 표시할 수 없어요";
                 if (missionName != null) missionName.text = "활동 화면에서 자세한 안내를 확인해 주세요";
@@ -479,7 +503,8 @@ namespace CapstoneDesign.Runtime
             RetirePaperMemos();
             if (date != null) date.text = CurrentDateText();
             if (title != null) title.text = hasCurrent?CurrentPlantName(RenderedRecipe):"새 식물을 기다려요";
-            if (guide != null) guide.text = "코인 " + saved.Coins + "개";
+            if (guide != null) guide.text = saved.Coins.ToString("N0");
+            if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(true);
             if (stage != null) stage.text = shownPlant?.Completed==true ? "완성 · 사진첩 보관"
                 :hasCurrent?new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage]:"다음 실습을 기다려요";
             if (progressDots != null)

@@ -532,6 +532,9 @@ namespace CapstoneDesign.Runtime
             Shadow(); Ellipse(129,212,102,13,C(216,230,200));
             Curve(Cream,17,65,229,91,207,139,218,192,195);
             Tree(76,197,.95f); Tree(202,180,.62f);
+            // Both back slats attach to the same supports beneath the seat.
+            // Draw the posts first so they are behind the wooden boards.
+            Line(Ink,4,117,149,117,169); Line(Ink,4,198,149,198,169);
             Rounded(111,145,92,10,2,C(197,170,131),Wood); Rounded(111,159,92,10,2,C(197,170,131),Wood);
             Rounded(105,181,104,8,2,Cream,Wood); Line(Ink,4,117,169,114,207); Line(Ink,4,198,169,201,207);
             Line(A(Paper,.6f),1.3f,116,147,198,147); Line(A(Paper,.5f),1.2f,116,161,198,161);

@@ -57,7 +57,7 @@ namespace CapstoneDesign.EditorTools
                 var shopButton = shopObject.GetComponent<Button>();
                 ClearPersistent(shopButton);
                 FullButton(shopButton.GetComponent<RectTransform>());
-                shopButton.GetComponentInChildren<TMP_Text>(true).text = "정원 가꾸기";
+                shopButton.GetComponentInChildren<TMP_Text>(true).text = "정원 상점";
                 // Activity remains available once, in the bottom navigation.
                 UnityEngine.Object.DestroyImmediate(missionButton.gameObject);
 

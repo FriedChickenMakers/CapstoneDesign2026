@@ -16,6 +16,13 @@ namespace CapstoneDesign.EditorTools
     // Batch entry point; never enters Play mode, modifies PlayerPrefs, or uses FileStateStore.
     public static class LocalLoopValidation
     {
+        // Selected by the dedicated synthetic shop runner; the wider legacy
+        // mission suite is independent of the storefront presentation.
+        public static void ValidateShopPurchaseRegressions()
+        {
+            Placement();
+            PreviewAvailability();
+        }
         [Serializable] public sealed class CaseResult { public string name, status, detail; }
         [Serializable] public sealed class Report
         {
@@ -199,7 +206,7 @@ namespace CapstoneDesign.EditorTools
                     && !service.GrowPlant("retired-paid-growth", "plant:P06")
                     && StateCodec.Encode(service.Snapshot) == finished,
                     "Repeated practice or retired paid growth changed completed state.");
-                nav.ShowActivities(); loop.ShowShop(); Click(loop, "사진첩으로 이동");
+                nav.ShowActivities(); loop.PreviewGrowth(); Click(loop, "사진첩으로 이동");
                 Assert(loop.CurrentScreen == "plant-album" && StateCodec.Encode(service.Snapshot) == finished,
                     "Completed growth did not route to the album without another charge.");
                 nav.ShowIsland();
@@ -887,7 +894,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.CoinBalance == 1 && f.Service.Snapshot.RewardReceipts.Count == 1 && f.Service.Snapshot.PracticeGrowthRecords.Count == 1,
                     "M15 practice must grow once without granting mission coins.");
                 CreateNavigation(f); // Open the real active surface before clicking its guarded purchase action.
-                f.Ui.ShowShop(); Click(f.Ui, "미션으로 식물 키우기");
+                f.Ui.PreviewGrowth();
                 var garden = f.Service.Snapshot;
                 Assert(garden.Coins == 1 && garden.PlantAppearance.Recipe.GrowthStep == 1 && garden.PurchaseReceipts.Count == 0,
                     "M15 practice did not grow once without spending debug coins.");

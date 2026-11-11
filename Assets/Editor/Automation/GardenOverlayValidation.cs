@@ -142,7 +142,9 @@ namespace CapstoneDesign.EditorTools
             string expectedDate=TimeZoneInfo.ConvertTime(f.Service.CurrentUtc,f.Service.CurrentTimeZone).ToString("M월 d일",System.Globalization.CultureInfo.InvariantCulture);
             Require(home.date.text==expectedDate,"The restored date does not match the app's effective local date.");
             Require(home.title.fontSize>home.date.fontSize&&home.title.rectTransform.parent==content,"The plant name is not the primary upper label.");
-            Require(home.guide.text.Contains("코인")&&home.guide.text.Contains("37")&&!home.guide.text.Contains("영양제"),"The preserved balance is not shown as coins.");
+            var coinIcon=content.GetComponentsInChildren<PrototypeUiIcon>(true).Single(icon=>icon.name=="Garden coin balance icon");
+            Require(home.guide.text=="37"&&coinIcon.symbol==PrototypeUiIcon.Symbol.Coin&&coinIcon.gameObject.activeSelf,
+                "The preserved balance must show the coin icon followed by its number without a currency label.");
             Require(home.guide.fontSize<home.title.fontSize,"The coin count is not visually secondary.");
             Require(home.stage.text=="새싹","The restored stage caption no longer matches the synthetic legacy .1 growth state.");
             Require(home.NavigationBar!=null&&home.TemporarySettingsButton!=null&&home.TemporarySettingsButton.gameObject.activeInHierarchy,"Home navigation or temporary settings entry disappeared.");

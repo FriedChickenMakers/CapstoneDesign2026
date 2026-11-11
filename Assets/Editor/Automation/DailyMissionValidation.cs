@@ -118,9 +118,16 @@ namespace CapstoneDesign.EditorTools
                 Assert(navigation.CourseButton!=null&&ReferenceEquals(f.Button(navigation.CourseButton.name),navigation.CourseButton),
                     "Mission context exposes the actual shared record-tab button.");
                 f.Click(navigation.CourseButton.name);
+                Assert(Screen(f.Ui)=="course"&&f.Button("Focus.CourseRecords.8w")!=null&&f.Button("PlantAlbum.Open")!=null,
+                    "The shared record tab opens the record hub, preserving access to course records and the album.");
+                f.Capture("record-hub-from-mission-tab");
+                f.Click("DailyEmotion.History");
                 Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.Month").text=="2026년 11월"
-                    &&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","Mission record-tab click opens the calendar at the actual current app day and month.");
-                f.Capture("journal-from-mission-record-tab");
+                    &&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","The record hub's explicit activity journal entry opens the current app day and month.");
+                Assert(f.Button("ActivityJournal.Today",false)==null
+                    &&!f.Ui.GetComponentsInChildren<Text>(false).Any(text=>text.name=="ActivityJournal.Legend"
+                        ||text.text=="오전 4시 기준으로 하루를 묶어요."),"Removed calendar shortcut and helper text stay absent.");
+                f.Capture("journal-from-record-hub");
                 bool HasSprout(string date)=>f.Ui.GetComponentsInChildren<PrototypeUiIcon>(false).Any(icon=>icon.name=="ActivityJournal.Sprout."+date);
                 void VerifySprout(string date)
                 {
@@ -141,8 +148,34 @@ namespace CapstoneDesign.EditorTools
                 }
                 void OneDayCard()=>Assert(f.Ui.GetComponentsInChildren<Transform>(false).Count(node=>node.name=="ActivityJournal.DateCard")==1,
                     "The selected date has one combined record box.");
+                void VerifyTodayBorder(bool selected)
+                {
+                    var cell=f.Button("ActivityJournal.Day.2026-11-01");
+                    var border=cell.transform.Find("ActivityJournal.TodayBorder");
+                    Assert(border!=null&&border.gameObject.activeInHierarchy,"The current app date retains its visible border regardless of selection.");
+                    Assert(border.GetComponentsInChildren<Graphic>(false).All(graphic=>!graphic.raycastTarget),
+                        "The current-day decoration never intercepts calendar taps.");
+                    Assert(selected?cell.GetComponent<Image>().color.a>.9f:cell.GetComponent<Image>().color.a<.01f,
+                        "Date selection changes the cell fill without making an unselected current day opaque.");
+                    var calendarScroll=cell.GetComponentInParent<ScrollRect>();float position=calendarScroll.verticalNormalizedPosition;
+                    try
+                    {
+                        f.RevealRect((RectTransform)cell.transform);var area=f.Bounds((RectTransform)cell.transform);
+                        f.AssertFullyVisible((RectTransform)cell.transform,"Current date is visible for border verification");
+                        var shown=f.Pixels();Color32[] hidden;
+                        try{border.gameObject.SetActive(false);hidden=f.Pixels();}
+                        finally{border.gameObject.SetActive(true);}
+                        Assert(f.ChangedPixels(shown,hidden,area,-1)>10,
+                            "Current-day border contributes visible GPU pixels in selected and unselected states.");
+                        Assert(f.ChangedPixels(shown,hidden,area,6)==0,
+                            "Current-day border leaves the cell interior clear instead of filling it red.");
+                        f.Capture(selected?"journal-today-selected-border":"journal-today-unselected-border");
+                    }
+                    finally{calendarScroll.verticalNormalizedPosition=position;f.Layout();}
+                }
                 OneDayCard();Assert(HasSprout("2026-11-01")&&!HasSprout("2026-11-02"),"Recorded date has a sprout; an empty date does not.");
                 VerifySprout("2026-11-01");
+                VerifyTodayBorder(true);
                 Assert(f.Button("ActivityJournal.Mission.journal-nov-basic")!=null&&f.Button("ActivityJournal.Mission.journal-nov-additional")!=null,
                     "Selected and ongoing mission records remain accessible, not only completed missions.");
                 f.Capture("journal-current-month");
@@ -182,8 +215,10 @@ namespace CapstoneDesign.EditorTools
                     &&!f.Ui.GetComponentsInChildren<Button>(false).Any(button=>button.name.StartsWith("ActivityJournal.Mission.",StringComparison.Ordinal)
                         ||button.name.StartsWith("DailyEmotion.HistoryRow.",StringComparison.Ordinal)),"Empty date has clear guidance and no stale record buttons.");
                 f.RevealAndRead(f.Text("ActivityJournal.Empty"));f.Capture("journal-empty-day");
-                f.Click("ActivityJournal.Today");Assert(f.Text("ActivityJournal.Month").text=="2026년 11월"
-                    &&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","Today returns to the current app date.");
+                VerifyTodayBorder(false);
+                f.Click("ActivityJournal.Day.2026-11-01");Assert(f.Text("ActivityJournal.Month").text=="2026년 11월"
+                    &&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","The ordinary date cell returns to the current app date without a separate shortcut.");
+                VerifyTodayBorder(true);
                 f.Click("ActivityJournal.Mission.journal-nov-additional");Assert(Screen(f.Ui)=="focus-record","Ongoing record is still readable from calendar.");
                 Assert(f.Ui.TryNavigateBack(),"Existing back navigation handles calendar record detail.");f.Layout();
                 Assert(Screen(f.Ui)=="daily-emotion-history"&&f.Text("ActivityJournal.SelectedDate").text=="2026.11.01","Back retains the current calendar selection.");

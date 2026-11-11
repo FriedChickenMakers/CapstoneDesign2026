@@ -137,14 +137,14 @@ namespace CapstoneDesign.EditorTools
                 Require(StateCodec.Encode(service.Snapshot) == saved, "Course display altered stored data: " + name);
                 report.checks.Add(name + ": summary/progress/state preserved");
             }
-            Check("course-summary-unchosen-shop", ui.ShowShop, "코인 0  ·  아직 선택한 코스가 없어요.", false);
+            Check("shop-wallet-unchosen", ui.ShowShop, service.CoinBalance.ToString("N0") + " 코인", false);
             Check("course-summary-unchosen-placement", () => ui.PreviewEnvironment("environment:E01"), "코인 0  ·  아직 선택한 코스가 없어요.", false);
             foreach (string program in new[] { "2w", "4w", "8w" })
             {
                 Require(service.SelectMbctProgram(program), service.LastError);
                 int weeks = MbctPolicy.ProgramWeeks(program), total = FocusMissionPolicy.TotalPracticesFor(program);
                 string expected = "코인 0  ·  " + weeks + "주 코스 0 / " + total;
-                Check("course-summary-" + program + "-shop", ui.ShowShop, expected, true);
+                Check("shop-wallet-" + program, ui.ShowShop, service.CoinBalance.ToString("N0") + " 코인", false);
                 Check("course-summary-" + program + "-placement", () => ui.PreviewEnvironment("environment:E01"), expected, false);
             }
         }

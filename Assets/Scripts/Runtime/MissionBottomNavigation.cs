@@ -29,7 +29,9 @@ namespace CapstoneDesign.Runtime
             rect.GetComponent<Image>().raycastTarget=true;
             GardenThemeSurface.Apply(rect.gameObject,GardenThemeSurface.Style.Shelf);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
-            bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);return bar;
+            bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);
+            if (active == "기록") bar.UseEdgeToEdgeBackground();
+            return bar;
         }
 
         void Build(Action home,Action missions,Action course)
@@ -76,10 +78,19 @@ namespace CapstoneDesign.Runtime
         public void UseCombineAppearance()
         {
             GardenThemeSurface.UseCombineAppearance(transform);
+            // Keep the same button faces as the garden and records tabs. The
+            // mission page's dark timber treatment belongs to the backing only.
+            foreach (var button in new[] { HomeButton, MissionButton, CourseButton })
+                button?.GetComponentInChildren<GardenThemeSurface>(true)?.SetCombineAppearance(false);
+            UseEdgeToEdgeBackground();
+        }
+        void UseEdgeToEdgeBackground()
+        {
             // Keep the current safe-area button positions and separated touch
-            // targets. Only the dark rectangular decoration reaches the edges.
+            // targets. Only the rectangular decoration reaches the edges.
             var shelf = transform.Find("Garden theme surface")?.GetComponent<GardenThemeSurface>();
             if (shelf == null) return;
+            shelf.SetSquareShelfCorners(true);
             shelf.rectTransform.offsetMin = new Vector2(-SideInset, -BottomInset);
             shelf.rectTransform.offsetMax = new Vector2(SideInset, 0);
         }

@@ -29,15 +29,18 @@ namespace CapstoneDesign.Runtime
         }
         void FigmaHeader(Transform p,string title,string subtitle,GardenThemeSurface.Tone tone=GardenThemeSurface.Tone.Default)
         {
-            var plaque=FigmaMissionUi.Box(p,"정원 제목표",12,42,366,48,FigmaMissionUi.Warm,10);
+            var plaque=FigmaMissionUi.Box(p,"정원 제목표",FigmaMissionUi.PageHeaderPlaqueX,FigmaMissionUi.PageHeaderPlaqueY,
+                FigmaMissionUi.PageHeaderPlaqueWidth,FigmaMissionUi.PageHeaderPlaqueHeight,FigmaMissionUi.Warm,10);
             GardenThemeSurface.Apply(plaque.gameObject,GardenThemeSurface.Style.Header,tone);
-            FigmaMissionUi.Label(p,title,24,52,342,38,28,GardenThemeSurface.WoodInk,true);
-            if(!string.IsNullOrEmpty(subtitle))FigmaMissionUi.Label(p,subtitle,24,98,342,30,14,FigmaMissionUi.Muted);
+            var heading=FigmaMissionUi.Label(p,title,FigmaMissionUi.PageHeaderTitleX,FigmaMissionUi.PageHeaderTitleY,
+                FigmaMissionUi.PageHeaderTitleWidth,FigmaMissionUi.PageHeaderTitleHeight,28,GardenThemeSurface.WoodInk,true);
+            var subheading=string.IsNullOrEmpty(subtitle)?null:FigmaMissionUi.Label(p,subtitle,FigmaMissionUi.PageHeaderSubtitleX,
+                FigmaMissionUi.PageHeaderSubtitleY,FigmaMissionUi.PageHeaderSubtitleWidth,FigmaMissionUi.PageHeaderSubtitleHeight,14,FigmaMissionUi.Muted);
+            FigmaMissionUi.LayoutPageHeader(plaque,heading.rectTransform,subheading==null?null:subheading.rectTransform);
         }
         void FigmaNavigation(Transform p,string active)
         {
-            Action records = active == "미션" ? ShowDailyEmotionHistory : ShowFocusCourse;
-            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,records,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
+            MissionBottomNavigation.Create(p,active,GoGarden,ShowHome,ShowFocusCourse,opened?(bool?)FocusNavigationStatus.NeedsAttention(Service.Snapshot):null,opened&&FocusNavigationStatus.HasOptional(Service.Snapshot));
         }
         void RefreshMissionNavigation()
         {

@@ -10,6 +10,12 @@ namespace CapstoneDesign.Runtime
     public static class FigmaMissionUi
     {
         public static readonly Color Background=GardenThemePalette.Background, Ink=Hex("243C2F"), Muted=Hex("647468"), Green=Hex("315B48"), Soft=Hex("E3EED8"), Border=Hex("D9E1D7"), Warm=Hex("F9EEE1"), Brown=Hex("8E5D3A");
+        // Mission and records screens share one title frame contract. Adjust
+        // these values only here so the responsive mission home stays aligned.
+        public const float PageHeaderPlaqueX=12, PageHeaderPlaqueY=42, PageHeaderPlaqueWidth=366, PageHeaderPlaqueHeight=48;
+        public const float PageHeaderTitleX=24, PageHeaderTitleY=52, PageHeaderTitleWidth=342, PageHeaderTitleHeight=38;
+        public const float PageHeaderSubtitleX=24, PageHeaderSubtitleY=98, PageHeaderSubtitleWidth=342, PageHeaderSubtitleHeight=30;
+        public const float PageHeaderContentTop=110;
         public static Color Hex(string value){Color c;ColorUtility.TryParseHtmlString("#"+value.TrimStart('#'),out c);return c;}
         public static bool ReducedMotion { get => PlayerPrefs.GetInt("ui.reduce-motion",0)==1; set {PlayerPrefs.SetInt("ui.reduce-motion",value?1:0);PlayerPrefs.Save();} }
         public static T Find<T>(Transform root,string name) where T:Component => root.GetComponentsInChildren<T>(true).FirstOrDefault(item=>item.name==name);
@@ -29,6 +35,12 @@ namespace CapstoneDesign.Runtime
         public static void SetRect(RectTransform rect,float x,float y,float width,float height)
         {
             rect.sizeDelta=new Vector2(width,height);SetTopLeftPosition(rect,new Vector2(x,-y));
+        }
+        public static void LayoutPageHeader(RectTransform plaque,RectTransform title,RectTransform subtitle=null)
+        {
+            if(plaque!=null)SetRect(plaque,PageHeaderPlaqueX,PageHeaderPlaqueY,PageHeaderPlaqueWidth,PageHeaderPlaqueHeight);
+            if(title!=null)SetRect(title,PageHeaderTitleX,PageHeaderTitleY,PageHeaderTitleWidth,PageHeaderTitleHeight);
+            if(subtitle!=null)SetRect(subtitle,PageHeaderSubtitleX,PageHeaderSubtitleY,PageHeaderSubtitleWidth,PageHeaderSubtitleHeight);
         }
         public static void CenterPivot(RectTransform rect)
         {

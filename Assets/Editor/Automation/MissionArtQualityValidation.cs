@@ -143,6 +143,57 @@ namespace CapstoneDesign.EditorTools
         static IEnumerable<Variant> Representative(FocusMissionDefinition mission)
         {
             foreach (string key in Keys(mission)) yield return new Variant(mission.Code, key);
+            // Capture choices where they actually change the illustration. The
+            // complete mesh matrix above remains broader than these visual sheets.
+            if (mission.Code == "P17")
+            {
+                foreach (var activity in new[] { "물 마시기", "쉬기", "창밖 보기" })
+                    yield return new Variant("P17", "action", activity);
+                yield break;
+            }
+            if (mission.Code == "P22")
+            {
+                foreach (var activity in new[] { "걷기", "앉아서 살피기" })
+                    foreach (var key in new[] { "contact", "move" })
+                        yield return new Variant("P22", key, activity);
+                yield break;
+            }
+            if (mission.Code == "P24")
+            {
+                foreach (var route in new[] { "상대의 이야기", "앱의 짧은 이야기" })
+                    yield return new Variant("P24", "listen", route);
+                yield break;
+            }
+            if (mission.Code == "P26")
+            {
+                foreach (var help in new[] { "사람", "물건", "환경" })
+                    foreach (var key in new[] { "help", "check" })
+                        yield return new Variant("P26", key, help);
+                yield return new Variant("P26", "check", "아직 없어요");
+                yield break;
+            }
+            if (mission.Code == "P27")
+            {
+                foreach (var trigger in new[] { "점심 후", "샤워 후" })
+                    foreach (var activity in new[] { "호흡", "몸의 접촉", "주변 소리" })
+                        yield return new Variant("P27", "practice", activity) { Trigger = trigger, Activity = activity };
+                yield return new Variant("P27", "wait", "몸의 접촉") { Trigger = "샤워 후", Activity = "몸의 접촉" };
+                yield return new Variant("P27", "notice", "주변 소리") { Trigger = "샤워 후", Activity = "주변 소리" };
+                yield break;
+            }
+            if (mission.Code == "P28")
+            {
+                foreach (var activity in new[] { "호흡", "몸의 접촉", "주변 소리", "잠시 멈춤" })
+                {
+                    yield return new Variant("P28", "practice", activity);
+                    yield return new Variant("P28", "review", "저녁") { Activity = activity, Period = "저녁" };
+                }
+                foreach (var period in new[] { "아침", "나중에 정하기" })
+                    yield return new Variant("P28", "time", period) { Activity = "몸의 접촉", Period = period };
+                yield return new Variant("P28", "next-activity", "호흡") { Activity = "몸의 접촉" };
+                yield return new Variant("P28", "review", "몸의 접촉") { Activity = "주변 소리", Period = "저녁", CurrentReview = true };
+                yield break;
+            }
             string[] choices = mission.Code == "P01" ? new[] { "코", "가슴", "배" }
                 : mission.Steps.Where(s => new[] { "practice", "activity", "experience", "route", "next-activity", "notice" }.Contains(s.Key))
                     .SelectMany(s => s.Options).Distinct().Take(5).ToArray();
@@ -151,18 +202,10 @@ namespace CapstoneDesign.EditorTools
                     : mission.Code == "P06" || mission.Code == "P07" ? "cue0"
                     : mission.Code == "M02" || mission.Code == "M12" ? "notice"
                     : mission.Steps.FirstOrDefault(s => s.Kind == "focus" || s.Kind == "breathe")?.Key ?? "overview", choice);
-            if (mission.Code == "P27")
-                foreach (var activity in new[] { "호흡", "몸의 접촉", "주변 소리" })
-                    yield return new Variant("P27", "practice", activity) { Trigger = "점심 후", Activity = activity };
-            if (mission.Code == "P28")
-                foreach (var activity in new[] { "호흡", "몸의 접촉", "주변 소리", "잠시 멈춤" })
-                    yield return new Variant("P28", "review", activity) { Activity = activity, Period = "저녁" };
             if (mission.Code == "M13")
                 foreach (var key in new[] { "recall", "word" }) yield return new Variant("M13", key, "잘 모르겠어요");
             if (mission.Code == "M17")
                 foreach (float motion in new[] { -3f, 3f }) yield return new Variant("M17", "breath") { Motion = motion };
-            if (mission.Code == "P28")
-                yield return new Variant("P28", "review", "몸의 접촉") { Activity = "주변 소리", Period = "저녁", CurrentReview = true };
         }
         static void Configure(MaskableGraphic graphic, Variant variant)
         {
@@ -220,7 +263,19 @@ namespace CapstoneDesign.EditorTools
                     var background = FigmaMissionUi.Box(scene.Root.transform, "Theme", x, y, tile, tile + 36, FigmaMissionUi.Hex(mission.BackgroundHex), 0);
                     background.GetComponent<Image>().raycastTarget = false;
                     scene.Add(item, x + 10, y + 30, tile - 20);
-                    FigmaMissionUi.Label(scene.Root.transform, item.Code + " · " + item.Key + (item.Choice.Length == 0 ? "" : "\n" + item.Choice),
+                    string title = item.Code + " · " + item.Key, detail = item.Choice;
+                    if (item.Code == "P27" && item.Trigger.Length > 0)
+                        detail = item.Trigger + " · " + item.Activity;
+                    if (item.Code == "P28" && item.Activity.Length > 0)
+                    {
+                        if (item.CurrentReview) { title += " · 현재"; detail = item.Choice + " / 다음: " + item.Activity; }
+                        else
+                        {
+                            if (item.Key == "review") title += " · 계획";
+                            detail = item.Activity + (item.Period.Length == 0 ? "" : " · " + item.Period);
+                        }
+                    }
+                    FigmaMissionUi.Label(scene.Root.transform, title + (detail.Length == 0 ? "" : "\n" + detail),
                         x + 4, y + 4, tile - 8, 32, 11, FigmaMissionUi.Ink, false, TextAnchor.UpperCenter);
                 }
                 string path = Path.Combine(output, name + ".png"); scene.Save(path); report.captures.Add(path);

@@ -239,7 +239,7 @@ namespace CapstoneDesign.Runtime
             destinations.gameObject.AddComponent<ContentSizeFitter>().verticalFit=ContentSizeFitter.FitMode.PreferredSize;
             ActivityListItem(destinations,MbctPolicy.ProgramWeeks(program)+"주 코스 둘러보기",null,ShowLegacyCourse,PrototypeUiIcon.Symbol.Journal);
             ActivityListItem(destinations,"배운 활동 다시 하기",null,ShowLegacyFree,PrototypeUiIcon.Symbol.Leaf);
-            ActivityListItem(destinations,"정원 가꾸기",null,ShowShop,PrototypeUiIcon.Symbol.Leaf);
+            ActivityListItem(destinations,"정원 상점",null,ShowShop,PrototypeUiIcon.Symbol.Leaf);
             ActivityListItem(destinations,"참여 기록과 나의 계획",null,ShowGardenJournal,PrototypeUiIcon.Symbol.Journal);
             AddOptionalRecommendation(destinations,s);
         }
@@ -441,26 +441,7 @@ namespace CapstoneDesign.Runtime
             }
             AddStoredGrowthGuide(p, state);
             DockAction("정원으로",GoGarden,true);
-            DockAction("정원 가꾸기",ShowShop);
-        }
-        public void ShowShop()
-        {
-            if(!opened){ShowHome();return;}
-            var current=Service.Snapshot;
-            RefreshNewPlantAttempt(current);
-            EnterPage("shop",ShowShop);ClearGhost();var p=Page("정원을 가꾸어요");
-            var shopPage=pageViewport;
-            bool hasCurrent=GardenPlantVisuals.HasCurrentPlant(current);
-            bool completed=GardenPlantVisuals.IsCompleted(current);
-            string archivedSource=current.PlantAppearance?.Recipe?.InstanceId;
-            GardenUi.Label(p,!hasCurrent?"다음 실습에서 새 씨앗과 함께해요.":completed?"완성한 모습은 사진첩에 남겼어요.\n다음 실습에서 새 씨앗이 자라요.":
-                "미션을 완료하면 식물이 자라요.\n코인은 꽃밭과 쉼터를 꾸밀 때 사용해요.",.07f,.64f,.86f,.14f,28);
-            GardenUi.Button(p,!hasCurrent?"새 식물 키우기":completed?"사진첩으로 이동":"미션으로 식물 키우기",.07f,.52f,.86f,.085f,
-                ()=>{if(!IsPlantPageCurrent(shopPage,"shop"))return;
-                    if(!hasCurrent)StartNewGardenPlant(archivedSource);else if(GardenPlantVisuals.IsCompleted(Service.Snapshot))ShowPlantAlbum();else PreviewGrowth();});
-            GardenUi.Button(p,"꽃밭 미리보기 · "+Balance.EnvironmentCost+" 코인",.07f,.40f,.86f,.085f,()=>PreviewEnvironment("environment:E01"));
-            GardenUi.Button(p,"쉼터 미리보기 · "+Balance.EnvironmentCost+" 코인",.07f,.28f,.86f,.085f,()=>PreviewEnvironment("environment:E02"));
-            GardenUi.Button(p,"돌아가기",.07f,.16f,.86f,.075f,ShowHome);
+            DockAction("정원 상점",ShowShop);
         }
         public void PreviewEnvironment(string id)
         {
@@ -709,7 +690,7 @@ namespace CapstoneDesign.Runtime
         {
             var nav=transform.root.GetComponent<MockupNavigation>(); if(nav==null)return;
             islandStatus=GardenUi.Label(nav.islandPanel.transform,"",.07f,.17f,.86f,.11f,27);
-            GardenUi.Button(nav.islandPanel.transform,"정원 가꾸기",.07f,.30f,.40f,.055f,()=>{nav.ShowActivities();ShowShop();});
+            GardenUi.Button(nav.islandPanel.transform,"정원 상점",.07f,.30f,.40f,.055f,()=>{nav.ShowActivities();ShowShop();});
             GardenUi.Button(nav.islandPanel.transform,"방문 감상",.53f,.30f,.40f,.055f,()=>{if(islandStatus!=null)islandStatus.text=VisitorText()+"\n조용히 함께 쉬어요.";});
             UpdateGarden();
         }

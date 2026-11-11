@@ -83,6 +83,10 @@ namespace CapstoneDesign.Runtime
             ClearPracticeDraft();
             if (opened && !Service.Snapshot.MbctProgramChosen) { ShowFocusProgramSelection(); return; }
             var root = BeginFigmaPage("home", ShowFocusHome, FigmaMissionUi.Background, true);
+            // Keep the existing grain, with a lighter value than the dark shelf
+            // so the page/backing separation mirrors the records tab.
+            GardenThemeSurface.Apply(activityFrame, GardenThemeSurface.Style.Backdrop).color = new Color32(94, 94, 94, 255);
+            notice.color = new Color32(255, 221, 200, 255);
             root.GetComponent<FocusMobilePageLayout>().FixedContent = true;
             FigmaHeader(root, "오늘의 미션", "");
             if (!opened) { FigmaMissionUi.Label(root, "저장된 내용을 불러오지 못했어요.\n기존 기록을 보존하고 있습니다.", 24, 170, 342, 100); return; }
@@ -105,16 +109,16 @@ namespace CapstoneDesign.Runtime
             string courseLabel = active != null && (!FocusMissionPolicy.IsFocus(active) || FocusMissionPolicy.ProgramFor(active) != program)
                 ? (FocusMissionPolicy.IsFocus(active) ? FocusProgramTitle(FocusMissionPolicy.ProgramFor(active)) : "이전 미션 이어가기")
                 : FocusProgramTitle(program) + " · " + done + " / " + total;
-            var badge = FigmaMissionUi.Label(card, courseLabel, 56, 20, 262, 24, 14, Color.white, true);
-            var title = FigmaMissionUi.Label(card, active != null ? FocusSessionTitle(active) : todayBasic != null ? FocusSessionTitle(todayBasic) : finished ? "과정을 마쳤어요" : mission.Title, 24, 56, 294, 52, 22, Color.white, true);
+            var badge = FigmaMissionUi.Label(card, courseLabel, 56, 20, 262, 24, 16, Color.white, true);
+            var title = FigmaMissionUi.Label(card, active != null ? FocusSessionTitle(active) : todayBasic != null ? FocusSessionTitle(todayBasic) : finished ? "과정을 마쳤어요" : mission.Title, 24, 56, 294, 56, 24, Color.white, true);
             string context = needsPlant ? "새 씨앗을 심으면 미션을 시작할 수 있어요." : active != null ? "멈춘 곳부터 이어가요." : finished ? "쌓인 실천을 돌아봐요." : practicedToday ? "오늘의 기본 미션 실습을 마쳤어요." : unavailable != null ? "이번 주 실습을 마쳤어요. 다음 주에 이어가요." : "식물 성장 · 완료 보상 50코인";
-            var detail = FigmaMissionUi.Label(card, context, 24, 112, 294, 40, 14, Color.white);
+            var detail = FigmaMissionUi.Label(card, context, 24, 112, 294, 40, 16, Color.white);
             string action = active != null ? "기본 미션 이어서 하기" : finished ? "과정 기록 보기" : doneToday ? "오늘 완료했어요" : practicedToday ? "내일 이어가요" : unavailable != null ? "다음 주에 이어가요" : "기본 미션 시작하기";
             var start = FigmaMissionUi.Button(card, needsPlant ? "새 식물 키우기" : action, 24, 156, 294, 48,
                 needsPlant ? (Action)(() => StartNewGardenPlant(archivedSource)) : active == null && finished ? (Action)(() => ShowFocusProgram(program)) : StartFocusBasic, Color.white, FigmaMissionUi.Green, tone: GardenThemeSurface.Tone.Growth);
             start.name = needsPlant ? "Mission.StartNewPlant" : "Focus.BasicAction";
             start.interactable = needsPlant || finished || active != null || unavailable == null;
-            var basic = new FocusMissionHomeLayout.Card { Root=card, Icon=icon.rectTransform, Badge=badge, Title=title, Detail=detail, Action=start, TitleSize=22 };
+            var basic = new FocusMissionHomeLayout.Card { Root=card, Icon=icon.rectTransform, Badge=badge, Title=title, Detail=detail, Action=start, TitleSize=24, DetailSize=16, CenterText=true };
             var additional = BuildRecommendationCard(body, state, 292);
             var emotion = BuildDailyEmotionCard(body, state, 452);
             BuildMissionDebugLauncher(root);
@@ -139,16 +143,16 @@ namespace CapstoneDesign.Runtime
             bool completed = FocusMissionPolicy.AdditionalAvailability(state) != null;
             var box = FigmaMissionUi.Box(root, "추가 미션", 24, y, 342, 144, FigmaMissionUi.Warm, 20);
             var icon = FigmaMissionUi.Asset(box, mission.IconAsset, 16, 12, 24, 24);
-            var badge = FigmaMissionUi.Label(box, "추가 미션", 48, 12, 278, 24, 14, FigmaMissionUi.Muted, true);
-            var title = FigmaMissionUi.Label(box, active != null ? FocusSessionTitle(active) : today != null ? FocusSessionTitle(today) : mission.Title, 16, 40, 310, 44, 18, null, true);
-            var detail = FigmaMissionUi.Label(box, active != null ? "멈춘 곳부터 이어가요" : completed ? "다음 추가 미션은 내일 열려요" : "식물 성장 · 완료 보상 50코인", 16, 86, 310, 22, 14, FigmaMissionUi.Brown);
+            var badge = FigmaMissionUi.Label(box, "추가 미션", 48, 12, 278, 24, 16, FigmaMissionUi.Muted, true);
+            var title = FigmaMissionUi.Label(box, active != null ? FocusSessionTitle(active) : today != null ? FocusSessionTitle(today) : mission.Title, 16, 40, 310, 48, 22, null, true);
+            var detail = FigmaMissionUi.Label(box, active != null ? "멈춘 곳부터 이어가요" : completed ? "다음 추가 미션은 내일 열려요" : "식물 성장 · 완료 보상 50코인", 16, 86, 310, 24, 16, FigmaMissionUi.Brown);
             var snapshot = active == null && !completed ? PrepareFocusRecommendation(state) : null;
             var visibility = snapshot == null ? null : ObserveFocusRecommendation(box, snapshot, root);
             var button = FigmaMissionUi.Button(box, active != null ? "이어서 하기" : completed ? "오늘 완료했어요" : "시작하기", 16, 88, 310, 48,
                 () => { visibility?.ReportVisible(); StartFocusAdditional(); }, Color.white, FigmaMissionUi.Green);
             button.name = "Focus.AdditionalAction";
             button.interactable = active != null || !completed;
-            return new FocusMissionHomeLayout.Card { Root=box, Icon=icon.rectTransform, Badge=badge, Title=title, Detail=detail, Action=button, TitleSize=18 };
+            return new FocusMissionHomeLayout.Card { Root=box, Icon=icon.rectTransform, Badge=badge, Title=title, Detail=detail, Action=button, TitleSize=22, DetailSize=16, CenterText=true };
         }
 
         static string FocusMissionEffort(FocusMissionDefinition mission)

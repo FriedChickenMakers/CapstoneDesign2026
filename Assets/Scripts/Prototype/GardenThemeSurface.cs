@@ -21,6 +21,7 @@ namespace CapstoneDesign.Prototype
         // Mission home opts into its reviewed dark timber treatment. Other pages
         // keep the current garden material without a global theme switch.
         public bool CombineAppearance { get; private set; }
+        public bool SquareShelfCorners { get; private set; }
         const string SurfaceName = "Garden theme surface";
         Selectable ownerSelectable;
         GardenThemePointerState pointer;
@@ -108,9 +109,7 @@ namespace CapstoneDesign.Prototype
             if (root == null) return;
             foreach (var surface in root.GetComponentsInChildren<GardenThemeSurface>(true))
             {
-                surface.CombineAppearance = true;
-                surface.UpdateIvy();
-                surface.SetAllDirty();
+                surface.SetCombineAppearance(true);
                 // Captions belong to the original controls. Only timber captions
                 // need light ink; nested paper cards retain their readable colors.
                 var owner = surface.transform.parent;
@@ -118,6 +117,22 @@ namespace CapstoneDesign.Prototype
                     foreach (var label in owner.GetComponentsInChildren<Text>(true))
                         if (label.transform.parent == owner) label.color = CombineWoodInk;
             }
+        }
+
+        // Change one decorative surface without restyling its owner or children.
+        public void SetCombineAppearance(bool enabled)
+        {
+            if (CombineAppearance == enabled) return;
+            CombineAppearance = enabled;
+            UpdateIvy();
+            SetAllDirty();
+        }
+
+        public void SetSquareShelfCorners(bool square)
+        {
+            if (SquareShelfCorners == square) return;
+            SquareShelfCorners = square;
+            SetVerticesDirty();
         }
 
         public static GardenThemeSurface Apply(GameObject owner, Style style, Tone tone = Tone.Default)
@@ -434,12 +449,13 @@ namespace CapstoneDesign.Prototype
                 if (SurfaceTexture == null) WoodGrain(mesh, r, u);
                 return;
             }
-            // The inset navigation shelf has transparent rounded corners; the
-            // parent keeps the touch rectangle separate from this decoration.
-            Shadow(mesh, r, 15 * u, 4 * u);
+            // Shape is independent of the texture: records uses a rectangular
+            // backing while retaining the light timber material.
+            float radius = SquareShelfCorners ? 0 : 15 * u;
+            Shadow(mesh, r, radius, 4 * u);
             if(SurfaceTexture!=null)
-                LitRounded(mesh,r,15*u,new Color(.96f,.91f,.83f),true,r);
-            else TimberFace(mesh, r, 15 * u);
+                LitRounded(mesh,r,radius,new Color(.96f,.91f,.83f),true,r);
+            else TimberFace(mesh, r, radius);
             if (SurfaceTexture == null) WoodGrain(mesh, r, u);
         }
 

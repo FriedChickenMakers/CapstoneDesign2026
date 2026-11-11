@@ -130,7 +130,7 @@ namespace CapstoneDesign.EditorTools
                 Check(report, "Development settings add exactly 100 coins per click and preserve all other saved data", () => SettingsTestCoins(report, request.capture));
                 Check(report, "Focused-input keyboard geometry keeps entry and done controls visible and separate", KeyboardGeometry);
                 Check(report, "Learned MBCT recommendation settings and selected candidate remain reachable", () => LearnedRecommendations(report, request.capture));
-                Check(report, "Garden shop progress and linked history preserve Focus and legacy meanings", () => GardenProgressAndRecordTitles(report, request.capture));
+                Check(report, "Garden shop wallet and linked history preserve Focus and legacy meanings", () => GardenProgressAndRecordTitles(report, request.capture));
                 Check(report, "2/4/8 week course selection preserves its independent progress", () => CourseSelections(report, request.capture));
                 Check(report, "All 45 missions retain overview, interaction, completion and restart records", () => AllMissionFlows(report, request.capture));
             }
@@ -701,9 +701,12 @@ namespace CapstoneDesign.EditorTools
                     "Fixture does not distinguish the new Focus course from legacy MBCT progress.");
                 string before = StateCodec.Encode(f.Service.Snapshot);
                 f.Invoke("ShowShop");
-                Assert(f.VisibleText.Contains("2주 코스 1 / 12"), "Garden shop displayed legacy zero progress after a Focus completion.");
-                f.Capture("focus-progress-in-garden-shop", capture);
-                f.Click("미션으로 식물 키우기");
+                Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(text => text.name == "Shop.Coins"
+                    && text.text == f.Service.CoinBalance.ToString("N0") + " 코인")
+                    && !f.Ui.GetComponentsInChildren<Transform>(false).Any(node => node.name == "Course progress"),
+                    "Garden shop must show its wallet without an unrelated course-progress block.");
+                f.Capture("focus-wallet-in-garden-shop", capture);
+                f.Invoke("PreviewGrowth");
                 Assert(f.Has("미션으로 이동") && !f.Has("확정")
                     && f.Ui.GetComponentsInChildren<Text>(false).Any(text => text.name == "PlantGrowth.MissionGuidance"),
                     "Read-only growth guidance retained a paid confirmation or omitted the mission entry.");

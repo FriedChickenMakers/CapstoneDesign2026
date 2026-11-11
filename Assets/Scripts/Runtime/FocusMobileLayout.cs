@@ -122,7 +122,8 @@ namespace CapstoneDesign.Runtime
             public RectTransform Root, Icon;
             public Text Badge, Title, Detail;
             public Button Action;
-            public int TitleSize;
+            public int TitleSize, DetailSize;
+            public bool CenterText;
             internal bool Side;
             internal float TextWidth, BadgeHeight, TitleHeight, DetailHeight, CopyHeight, ButtonHeight, Height;
             internal Text ActionText;
@@ -145,7 +146,12 @@ namespace CapstoneDesign.Runtime
         {
             card.Side = side;
             card.TextWidth = CardWidth - Padding * 2 - (side ? SideActionWidth + 12 : 0);
-            card.Title.fontSize = side ? Mathf.Min(18, card.TitleSize) : card.TitleSize;
+            card.Title.fontSize = side ? Mathf.Min(20, card.TitleSize) : card.TitleSize;
+            if (card.CenterText && card.Detail != null)
+                card.Detail.fontSize = side ? Mathf.Min(15, card.DetailSize) : card.DetailSize;
+            if (card.Badge != null) card.Badge.alignment = card.CenterText ? TextAnchor.MiddleCenter : TextAnchor.UpperLeft;
+            if (card.Title != null) card.Title.alignment = card.CenterText ? TextAnchor.MiddleCenter : TextAnchor.UpperLeft;
+            if (card.Detail != null) card.Detail.alignment = card.CenterText ? TextAnchor.MiddleCenter : TextAnchor.UpperLeft;
             card.BadgeHeight = card.Badge == null ? 0 : Mathf.Max(24, TextHeight(card.Badge, card.TextWidth - (card.Icon == null ? 0 : 28)));
             card.TitleHeight = TextHeight(card.Title, card.TextWidth);
             card.DetailHeight = TextHeight(card.Detail, card.TextWidth);
@@ -161,10 +167,8 @@ namespace CapstoneDesign.Runtime
         {
             if (Body == null || Cards == null || Cards.Length == 0) return;
             float height = ((RectTransform)transform).rect.height;
-            float headerTop = Mathf.Lerp(16, 36, Mathf.InverseLerp(680, 844, height));
-            if (Header != null) FigmaMissionUi.SetRect(Header, 12, headerTop, 366, 48);
-            if (Heading != null) FigmaMissionUi.SetRect(Heading, 24, headerTop + 7, 342, 38);
-            float top = headerTop + 68;
+            FigmaMissionUi.LayoutPageHeader(Header,Heading);
+            float top = FigmaMissionUi.PageHeaderContentTop;
             bool debug = DebugLauncher != null && DebugLauncher.gameObject.activeSelf;
             bool message = Notice != null && Notice.gameObject.activeSelf;
             float noticeWidth = debug ? 236 : 342;
@@ -195,17 +199,36 @@ namespace CapstoneDesign.Runtime
                 if (natural <= available) break;
             }
             float extra = Mathf.Max(0, available - natural) / Cards.Length;
-            float y = 0;
+            float remaining = Mathf.Max(0, available - natural - extra);
+            float breathing = Mathf.Min(16, remaining / (Cards.Length + 1));
+            float cardGap = Gap + breathing;
+            float y = breathing;
             foreach (var card in Cards)
             {
-                float cardHeight = card.Height + extra;
+                float cardHeight = card.Height + (card.CenterText ? 0 : extra);
                 FigmaMissionUi.SetRect(card.Root, 24, y, CardWidth, cardHeight);
-                float copyY = card.Side ? (cardHeight - card.CopyHeight) / 2 : Padding;
+                float freeCopySpace = cardHeight - 2 * Padding - card.CopyHeight - card.ButtonHeight - Gap;
+                float copyY = card.Side ? (cardHeight - card.CopyHeight) / 2
+                    : card.CenterText ? Padding + Mathf.Max(0, freeCopySpace / 2) : Padding;
                 if (card.Badge != null)
                 {
-                    float badgeX = Padding + (card.Icon == null ? 0 : 28);
-                    FigmaMissionUi.SetRect(card.Badge.rectTransform, badgeX, copyY, card.TextWidth - (badgeX - Padding), card.BadgeHeight);
-                    if (card.Icon != null) FigmaMissionUi.SetRect(card.Icon, Padding, copyY + (card.BadgeHeight - 24) / 2, 24, 24);
+                    float badgeX, badgeWidth;
+                    if (card.CenterText)
+                    {
+                        float iconWidth = card.Icon == null ? 0 : 28;
+                        badgeWidth = Mathf.Min(card.TextWidth - iconWidth, Mathf.Max(40, card.Badge.preferredWidth));
+                        float groupWidth = badgeWidth + iconWidth;
+                        badgeX = Padding + (card.TextWidth - groupWidth) / 2 + iconWidth;
+                        if (card.Icon != null)
+                            FigmaMissionUi.SetRect(card.Icon, badgeX - iconWidth, copyY + (card.BadgeHeight - 24) / 2, 24, 24);
+                    }
+                    else
+                    {
+                        badgeX = Padding + (card.Icon == null ? 0 : 28);
+                        badgeWidth = card.TextWidth - (badgeX - Padding);
+                        if (card.Icon != null) FigmaMissionUi.SetRect(card.Icon, Padding, copyY + (card.BadgeHeight - 24) / 2, 24, 24);
+                    }
+                    FigmaMissionUi.SetRect(card.Badge.rectTransform, badgeX, copyY, badgeWidth, card.BadgeHeight);
                     copyY += card.BadgeHeight + 4;
                 }
                 FigmaMissionUi.SetRect(card.Title.rectTransform, Padding, copyY, card.TextWidth, card.TitleHeight);
@@ -216,7 +239,7 @@ namespace CapstoneDesign.Runtime
                 float actionY = card.Side ? (cardHeight - card.ButtonHeight) / 2 : cardHeight - Padding - card.ButtonHeight;
                 FigmaMissionUi.SetRect((RectTransform)card.Action.transform, actionX, actionY, actionWidth, card.ButtonHeight);
                 FigmaMissionUi.SetRect(card.ActionText.rectTransform, 8, 0, actionWidth - 16, card.ButtonHeight);
-                y += cardHeight + Gap;
+                y += cardHeight + cardGap;
             }
         }
     }
