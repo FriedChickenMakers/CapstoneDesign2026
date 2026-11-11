@@ -14,7 +14,10 @@ namespace CapstoneDesign.Runtime
             var panel=GetComponent<Image>();if(panel!=null)panel.color=background;
             activityFrame=GardenUi.Box(transform,"Figma mission surface",0,0,1,1,background);
             if(navigation)FigmaMissionUi.UseGardenShell(activityFrame);
-            else GardenThemeSurface.Apply(activityFrame,GardenThemeSurface.Style.Backdrop);
+            // Practice illustrations and short instructions retain their mission's
+            // plain color. Controls and their current actions are independent of it.
+            else if(key!="focus-practice" && key!="focus-story" && key!="focus-complete" && key!="focus-photo")
+                GardenThemeSurface.Apply(activityFrame,GardenThemeSurface.Style.Backdrop);
             var design=FigmaMissionUi.Rect(activityFrame.transform,"Figma 390 x 844",0,0,390,844);
             var fit=activityFrame.AddComponent<FigmaMissionCanvasFit>();fit.Design=design;fit.Fit();view=design.gameObject;
             if(navigation)FigmaNavigation(design,activeTab);

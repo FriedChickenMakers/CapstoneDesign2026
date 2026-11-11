@@ -659,7 +659,8 @@ namespace CapstoneDesign.EditorTools
                 Assert(Screen(f.Ui)=="focus-complete"&&f.Service.Snapshot.Sessions.Single().Status==ParticipationState.RewardCommitted,"Actual guided P finish commits directly to completion");f.Click("Focus.ConfirmHome");
                 Assert(!f.Button("DailyEmotion.CardAction",false).IsInteractable(),"One finished role keeps third card locked");
                 f.Click("Focus.AdditionalAction");Assert(Screen(f.Ui)=="focus-practice","Additional starts directly while the completed P remains intact");
-                for(int attempt=0;Screen(f.Ui)=="focus-practice"&&attempt<6;attempt++)f.Click("Focus.Action");
+                for(int attempt=0;Screen(f.Ui)=="focus-practice"&&attempt<6;attempt++)
+                    f.Click(f.Button("Focus.Action",false)!=null?"Focus.Action":"Focus.IconAction");
                 if(Screen(f.Ui)=="focus-photo")f.Click("Photo.Skip");
                 Assert(Screen(f.Ui)=="focus-complete"&&f.Service.Snapshot.Sessions.Count(s=>s.Status==ParticipationState.RewardCommitted)==2,"Actual M actions complete the second role without emotion/note detour");f.Click("Focus.ConfirmHome");
                 f.AssertFullyVisible((RectTransform)f.Button("DailyEmotion.CardAction").transform,"Unlocked third action is visible without scrolling");f.Capture("emotion-unlocked");

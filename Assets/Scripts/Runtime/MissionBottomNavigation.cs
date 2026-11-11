@@ -73,6 +73,16 @@ namespace CapstoneDesign.Runtime
                 MissionBadge.text=hasPending.Value?"!":hasOptional?"·":"✓";
             }
         }
+        public void UseCombineAppearance()
+        {
+            GardenThemeSurface.UseCombineAppearance(transform);
+            // Keep the current safe-area button positions and separated touch
+            // targets. Only the dark rectangular decoration reaches the edges.
+            var shelf = transform.Find("Garden theme surface")?.GetComponent<GardenThemeSurface>();
+            if (shelf == null) return;
+            shelf.rectTransform.offsetMin = new Vector2(-SideInset, -BottomInset);
+            shelf.rectTransform.offsetMax = new Vector2(SideInset, 0);
+        }
         void OnEnable(){Canvas.preWillRenderCanvases+=Fit;Fit();}
         void OnDisable(){Canvas.preWillRenderCanvases-=Fit;}
         void Fit()

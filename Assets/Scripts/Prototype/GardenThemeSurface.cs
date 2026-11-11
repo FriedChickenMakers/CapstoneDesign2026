@@ -18,6 +18,9 @@ namespace CapstoneDesign.Prototype
         public enum Tone { Default, Growth, Additional, Reflection, Utility }
         public Style style = Style.Paper;
         public Tone tone = Tone.Default;
+        // Mission home opts into its reviewed dark timber treatment. Other pages
+        // keep the current garden material without a global theme switch.
+        public bool CombineAppearance { get; private set; }
         const string SurfaceName = "Garden theme surface";
         Selectable ownerSelectable;
         GardenThemePointerState pointer;
@@ -32,6 +35,13 @@ namespace CapstoneDesign.Prototype
             (backdropTexture = Resources.Load<Texture2D>("UI/Textures/Wood096Background"));
         static Texture2D woodTexture;
         static Texture2D denseLeafTexture;
+        static Texture2D combineWoodTexture, combineHeaderTexture, combineLeafTexture;
+        static Texture2D CombineWoodTexture => combineWoodTexture != null ? combineWoodTexture :
+            (combineWoodTexture = Resources.Load<Texture2D>("UI/Textures/CombineWoodButtonUI"));
+        static Texture2D CombineHeaderTexture => combineHeaderTexture != null ? combineHeaderTexture :
+            (combineHeaderTexture = Resources.Load<Texture2D>("UI/Textures/Wood062LitUI"));
+        static Texture2D CombineLeafTexture => combineLeafTexture != null ? combineLeafTexture :
+            (combineLeafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024DenseUI"));
         static Texture2D DenseLeafTexture => denseLeafTexture != null ? denseLeafTexture :
             (denseLeafTexture = Resources.Load<Texture2D>("UI/Textures/LeafSet024LitNavigation"));
         static Texture2D homeTexture;
@@ -76,17 +86,38 @@ namespace CapstoneDesign.Prototype
             }
         }
         bool UsesTexture => style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
-        Texture2D SurfaceTexture => style == Style.NavigationLeaf ? DenseLeafTexture : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
+        Texture2D SurfaceTexture => style == Style.NavigationLeaf ? (CombineAppearance ? CombineLeafTexture : DenseLeafTexture)
+            : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture
+            : CombineAppearance ? (style == Style.Shelf || style == Style.Header ? CombineHeaderTexture : CombineWoodTexture)
+            : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
         public override Texture mainTexture => UsesTexture && SurfaceTexture != null ? SurfaceTexture : base.mainTexture;
         public static readonly Color WoodInk = new Color32(31, 56, 40, 255);
+        public static readonly Color CombineWoodInk = new Color32(249, 247, 237, 255);
         public static Color Foreground(Transform parent, Color fallback)
         {
             for (var node = parent; node != null; node = node.parent)
             {
                 var surface = node.Find(SurfaceName)?.GetComponent<GardenThemeSurface>();
-                if (surface != null) return surface.UsesWood ? WoodInk : fallback;
+                if (surface != null) return surface.UsesWood ? (surface.CombineAppearance ? CombineWoodInk : WoodInk) : fallback;
             }
             return fallback;
+        }
+
+        public static void UseCombineAppearance(Transform root)
+        {
+            if (root == null) return;
+            foreach (var surface in root.GetComponentsInChildren<GardenThemeSurface>(true))
+            {
+                surface.CombineAppearance = true;
+                surface.UpdateIvy();
+                surface.SetAllDirty();
+                // Captions belong to the original controls. Only timber captions
+                // need light ink; nested paper cards retain their readable colors.
+                var owner = surface.transform.parent;
+                if (surface.UsesWood && owner != null)
+                    foreach (var label in owner.GetComponentsInChildren<Text>(true))
+                        if (label.transform.parent == owner) label.color = CombineWoodInk;
+            }
         }
 
         public static GardenThemeSurface Apply(GameObject owner, Style style, Tone tone = Tone.Default)
@@ -174,7 +205,9 @@ namespace CapstoneDesign.Prototype
             switch (style)
             {
                 case Style.Backdrop: Backdrop(mesh, r); break;
-                case Style.NavigationLeaf: LitNavigation(mesh, r, unit); break;
+                case Style.NavigationLeaf:
+                    if (CombineAppearance) Primary(mesh, r, unit); else LitNavigation(mesh, r, unit);
+                    break;
                 case Style.Home: Primary(mesh, r, unit); break;
                 case Style.Primary: Primary(mesh, r, unit); break;
                 case Style.TabWood:
@@ -221,6 +254,22 @@ namespace CapstoneDesign.Prototype
 
         void Timber(VertexHelper mesh, Rect r, float u, bool header)
         {
+            if (CombineAppearance)
+            {
+                float legacyRadius = Mathf.Min(header ? 11 : 14, r.height * .2f) * u;
+                Shadow(mesh, r, legacyRadius, (pressed ? 1 : 4) * u);
+                if (header) Rounded(mesh, r, legacyRadius, TimberBorder);
+                Rect legacyFace = header ? Inset(r, 2 * u) : r;
+                if (pressed) legacyFace = Offset(legacyFace, 0, -1.5f * u);
+                TimberFace(mesh, legacyFace, header ? Mathf.Max(1, legacyRadius - 2 * u) : legacyRadius);
+                if (SurfaceTexture == null) WoodGrain(mesh, legacyFace, u);
+                if (header && r.width >= 170)
+                {
+                    Circle(mesh, new Vector2(r.xMin + 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
+                    Circle(mesh, new Vector2(r.xMax - 12 * u, r.center.y), 2.2f * u, GardenThemePalette.WoodDark);
+                }
+                return;
+            }
             if (SurfaceTexture == null) { TimberFace(mesh, r, 10); return; }
             float radius = Mathf.Min(10, r.height * .20f);
             const float bevel = 2.8f;
@@ -249,7 +298,7 @@ namespace CapstoneDesign.Prototype
 
         void UpdateIvy()
         {
-            bool timber=style==Style.Wood || style==Style.Header;
+            bool timber=!CombineAppearance && (style==Style.Wood || style==Style.Header);
             for(int i=0;i<2;i++)
             {
                 string name=i==0?"Lit ivy right":"Lit ivy left";
@@ -378,6 +427,13 @@ namespace CapstoneDesign.Prototype
 
         void Shelf(VertexHelper mesh, Rect r, float u)
         {
+            if (CombineAppearance)
+            {
+                Shadow(mesh, r, 0, 4 * u);
+                TimberFace(mesh, r, 0);
+                if (SurfaceTexture == null) WoodGrain(mesh, r, u);
+                return;
+            }
             // The inset navigation shelf has transparent rounded corners; the
             // parent keeps the touch rectangle separate from this decoration.
             Shadow(mesh, r, 15 * u, 4 * u);
@@ -401,7 +457,7 @@ namespace CapstoneDesign.Prototype
                 style == Style.Shelf ? new Color(.46f, .45f, .42f) : new Color(.85f, .87f, .83f));
             texturedFace = false;
             TextureWash(mesh, face, radius, style == Style.Shelf ? ShelfWash :
-                style == Style.Wood || style == Style.TabWood ? ButtonWash : TimberWash);
+                !CombineAppearance && (style == Style.Wood || style == Style.TabWood) ? ButtonWash : TimberWash);
         }
 
         void TextureWash(VertexHelper mesh, Rect face, float radius, Color tint)
@@ -639,7 +695,7 @@ namespace CapstoneDesign.Prototype
                 // more of the source instead of enlarging the same small crop.
                 // Enlarge only the shelf grain 2.5x; the approved shelf geometry,
                 // icon positions, button gaps and all other texture crops stay fixed.
-                float coverage = style == Style.Shelf ? .94f / 2.5f : style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
+                float coverage = style == Style.Shelf && !CombineAppearance ? .94f / 2.5f : style == Style.Backdrop ? .80f : style == Style.Wood || style == Style.TabWood || style == Style.Header ? .94f / 3f : .94f;
                 float scale = coverage / Mathf.Max(textureFaceRect.width, textureFaceRect.height) / Mathf.Max(1,textureZoom);
                 if (style == Style.Wood || style == Style.TabWood || style == Style.Header)
                     scale = Mathf.Min(1f / 480f, .94f / Mathf.Max(textureFaceRect.width, textureFaceRect.height));

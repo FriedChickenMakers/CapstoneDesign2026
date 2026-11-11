@@ -21,21 +21,25 @@ namespace CapstoneDesign.EditorTools
                 check(f.Service.BeginFocusSession(id,code),f.Service.LastError);
                 f.Invoke("SelectFocusSession",id);
                 check(string.IsNullOrEmpty(f.Latest.StartedUtc),"Opening the overview is not a session start.");
-                f.Click("Focus.Action");
+                string actionName = code == "M01" ? "Focus.IconAction" : "Focus.Action";
+                f.Click(actionName);
                 string started = f.Latest.StartedUtc;
                 check(!string.IsNullOrEmpty(started),"The existing overview action still starts the session.");
+                if (code == "M01") f.Click(actionName); // Optional method choice -> the original single light action.
                 int target = code == "M03" || code == "M06" || code == "M16" ? 1 : 0;
                 while (f.Latest.InstructionStep < target) f.Click("Focus.Action");
                 f.Invoke("ShowFocusPractice");
                 check(f.Ui.GetComponentsInChildren<Button>(false).All(b=>b.name!="Focus.PracticeStart"),
                     code+": no duplicate untimed start control.");
-                check(f.Ui.GetComponentsInChildren<Button>(false).Count(b=>b.name=="Focus.Action")==1,
-                    code+": exactly one footer completion action.");
+                check(f.Ui.GetComponentsInChildren<Button>(false).Count(b=>b.name==actionName)==1,
+                    code+": exactly one completion action, using its current footer or illustrated presentation.");
+                if (code == "M01") check(f.Ui.GetComponentsInChildren<Button>(false).All(b=>b.name!="Focus.Action"),
+                    "M01: the illustrated action has no duplicate footer completion button.");
                 check(f.Ui.GetComponentInChildren<FocusPracticeClock>(false)==null,
                     code+": an untimed activity does not acquire a countdown.");
                 check(f.Latest.StartedUtc==started && string.IsNullOrEmpty(f.Latest.FocusStepRecords[target].PracticeStartedUtc),
                     code+": rerender preserves session start and does not invent a step-start observation.");
-                var action=f.Ui.GetComponentsInChildren<Button>(false).Single(b=>b.name=="Focus.Action");
+                var action=f.Ui.GetComponentsInChildren<Button>(false).Single(b=>b.name==actionName);
                 var actionBounds=Bounds((RectTransform)action.transform);
                 foreach(var other in action.transform.parent.GetComponentsInChildren<Button>(false).Where(b=>b!=action))
                     check(!Overlaps(actionBounds,Bounds((RectTransform)other.transform)),code+": completion overlaps footer control "+other.name);
@@ -43,7 +47,7 @@ namespace CapstoneDesign.EditorTools
                     .Where(t=>t.transform.parent==action.transform.parent))
                     check(!Overlaps(actionBounds,Bounds(text.rectTransform)),code+": completion overlaps its footer hint.");
                 if(code=="M03" || code=="M04")f.Capture("qa-untimed-single-action-"+code+"-"+height,capture);
-                f.Click("Focus.Action");
+                f.Click(actionName);
                 var saved=f.Latest.FocusStepRecords[target];
                 check(!string.IsNullOrEmpty(saved.ConfirmedUtc),code+": existing completion works without a new mandatory start tap.");
                 check(string.IsNullOrEmpty(saved.PracticeStartedUtc),code+": completion must not fabricate an earlier step start.");

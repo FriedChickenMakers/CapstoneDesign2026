@@ -46,11 +46,17 @@ namespace CapstoneDesign.EditorTools
             Application.logMessageReceived += Observe;
             try
             {
-                Run("Additional M01-M17 actual page digests", AdditionalDigests);
+                Run("Unchanged additional M02-M17 actual page digests", AdditionalDigests);
                 string baseline = Arg("-basicBaselinePath");
-                if (!string.IsNullOrEmpty(baseline)) Run("M UI matches preserved pre-change baseline", () => CompareDigests(baseline));
+                if (!string.IsNullOrEmpty(baseline)) Run("M02-M17 UI matches preserved pre-change baseline", () => CompareDigests(baseline));
                 if (!args.Contains("-basicBaseline"))
                 {
+                    foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(360, 640), new Vector2Int(390, 844) })
+                        Run("M01 illustrated light guidance " + size.x + "x" + size.y, () => M01Flows(size.x, size.y));
+                    Run("M01 atomic retry, restart and duplicate completion", M01FailureAndRestart);
+                    Run("M01 legacy saved sessions keep original guidance", M01LegacyPages);
+                    Run("M01 saved v4 and current v5 retain their light contract through restart", M01CompatibleSavedPages);
+                    Run("M01 skip modal guards, retry and unconsumed daily quota", M01SkipFlows);
                     foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(360, 640), new Vector2Int(390, 844) })
                         Run("P08-P28 complete fixed-icon slide flow " + size.x + "x" + size.y, () => BasicFlows(size.x, size.y));
                     Run("V5 separate P19/P26 alternatives and persisted V4 branches/audio", SpecialBranches);
@@ -102,6 +108,287 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Service.CompletePracticeSession(id), f.Service.LastError);
             }
             NextDay(f);
+        }
+        static void M01Flows(int width, int height)
+        {
+            foreach (var method in new[] { "Curtain", "Lamp", "Brighten" })
+            using (var f = new Fixture(width, height))
+            {
+                string id = "synthetic-m01-" + method;
+                Assert(f.Service.SelectMbctProgram("8w"), f.Service.LastError);
+                Assert(f.Service.BeginFocusSession(id, "M01"), f.Service.LastError);
+                f.Ui.SelectFocusSession(id); f.Layout();
+                Rect anchor = f.AssertM01(M01LightIllustration.Stage.Overview);
+                var overview = f.Pixels(); Rect area = f.M01ArtBounds();
+                f.Capture("M01-" + method + "-overview"); f.AssertCenteredPress();
+                f.AssertM01CancelledGesture(id);
+                var oldStart = f.Button("Focus.IconAction").onClick;
+                f.Ui.gameObject.SetActive(false); oldStart.Invoke(); f.Ui.gameObject.SetActive(true); f.Layout();
+                Assert(f.Session(id).Status == ParticipationState.Selected, "Hidden M01 introduction callback cannot start a session");
+                f.Click("Focus.IconAction"); oldStart.Invoke(); f.Layout();
+                f.AssertM01(M01LightIllustration.Stage.Choice, anchor);
+                Assert(f.Session(id).Status == ParticipationState.InProgress && f.Session(id).InstructionStep == 0,
+                    "M01 introduction starts once and extra local guidance does not confirm its persisted light step");
+                var choice = f.Pixels();
+                Assert(f.ChangedPixels(overview, choice, area) > 128, "M01 method guidance changes the rendered room illustration");
+                f.Capture("M01-" + method + "-choice");
+                f.Click("M01.Previous"); f.AssertM01(M01LightIllustration.Stage.Overview, anchor);
+                Assert(f.ChangedPixels(overview, f.Pixels(), area) == 0, "M01 previous restores the original overview without stage effects");
+                string started = f.Session(id).StartedUtc;
+                f.Click("Focus.IconAction"); f.AssertM01(M01LightIllustration.Stage.Choice, anchor);
+                Assert(f.Session(id).StartedUtc == started && f.Session(id).InstructionStep == 0,
+                    "Returning from overview does not start or confirm M01 again");
+                f.Click("M01.HelpToggle"); f.AssertM01(M01LightIllustration.Stage.Help, anchor);
+                Assert(f.Text("M01.Body").text.Split('\n').Length <= 4 && f.Session(id).InstructionStep == 0,
+                    "M01 help is a single concise page with no domain progress");
+                f.Capture("M01-" + method + "-help");
+                f.Click("Focus.IconAction"); f.AssertM01(M01LightIllustration.Stage.Choice, anchor);
+                Assert(f.ChangedPixels(choice, f.Pixels(), area) == 0, "M01 help returns to the exact clean method picture");
+                if (method == "Brighten") f.Click("Focus.IconAction"); else f.Click("M01.Choice." + method);
+                var stage = (M01LightIllustration.Stage)Enum.Parse(typeof(M01LightIllustration.Stage), method);
+                f.AssertM01(stage, anchor); var action = f.Pixels();
+                Assert(f.ChangedPixels(choice, action, area) > 128, "M01 action has a visibly different light illustration for " + method);
+                f.Capture("M01-" + method + "-action");
+                var staleFinish = f.Button("Focus.IconAction").onClick;
+                f.Click("M01.HelpToggle"); f.AssertM01(M01LightIllustration.Stage.Help, anchor);
+                f.Click("M01.Previous"); f.AssertM01(stage, anchor);
+                Assert(f.ChangedPixels(action, f.Pixels(), area) == 0, "M01 help previous restores the selected action picture");
+                staleFinish.Invoke(); f.Layout();
+                Assert(f.Session(id).InstructionStep == 0 && f.Service.GetPracticeGrowth(id) == null,
+                    "A replaced M01 action callback cannot complete the current page");
+                f.Click("M01.Previous"); f.AssertM01(M01LightIllustration.Stage.Choice, anchor);
+                Assert(f.ChangedPixels(choice, f.Pixels(), area) == 0,
+                    "Returning from " + method + " removes action-only light rays and emphasis");
+                // Reversing an explicit selection must replace the illustration instead of accumulating it.
+                string other = method == "Curtain" ? "Lamp" : "Curtain";
+                f.Click("M01.Choice." + other);
+                f.AssertM01((M01LightIllustration.Stage)Enum.Parse(typeof(M01LightIllustration.Stage), other), anchor);
+                var otherPixels = f.Pixels();
+                Assert(f.ChangedPixels(action, otherPixels, area) > 128, "Switching method replaces the actual light illustration");
+                f.Click("M01.Previous");
+                if (method == "Brighten")
+                {
+                    // Fresh presenter below covers the no-choice path. Keep this flow on its last explicit choice.
+                    f.Click("M01.Choice." + other); stage = (M01LightIllustration.Stage)Enum.Parse(typeof(M01LightIllustration.Stage), other);
+                }
+                else f.Click("M01.Choice." + method);
+                f.AssertM01(stage, anchor);
+                f.Click("Focus.Close"); Assert(Screen(f.Ui) == "home", "M01 exit opens the mission home");
+                f.Ui.SelectFocusSession(id); f.Layout(); f.AssertM01(stage, anchor);
+                Assert(f.Session(id).FocusStepRecords.Count == 1 && f.Session(id).FocusStepRecords[0].Key == "light"
+                    && string.IsNullOrEmpty(f.Session(id).FocusStepRecords[0].ConfirmedUtc),
+                    "M01 local guidance retains the existing single unconfirmed light record");
+                var before = f.Service.Snapshot; int coins = f.Service.CoinBalance;
+                var finish = f.Button("Focus.IconAction").onClick;
+                f.Click("Focus.IconAction"); finish.Invoke(); oldStart.Invoke(); f.Layout();
+                AssertM01Completed(f, id, before, coins);
+                f.Capture("M01-" + method + "-complete");
+                f.Click("Focus.ViewRecord");
+                Assert(Screen(f.Ui) == "daily-emotion-history" && f.Ui.GetComponentsInChildren<Text>(false).Any(t => t.text.Contains("주변 밝히기")),
+                    "M01 completed record opens its dated activity journal");
+            }
+        }
+        static void AssertM01Completed(Fixture f, string id, GardenState before, int coins)
+        {
+            var state = f.Service.Snapshot; var growth = f.Service.GetPracticeGrowth(id);
+            Assert(f.Session(id).Status == ParticipationState.RewardCommitted && Screen(f.Ui) == "focus-complete"
+                && f.Service.CoinBalance == coins + 50 && f.Session(id).RewardAmount == 50,
+                "M01 completed exactly once with its existing 50 coin reward");
+            Assert(growth != null && growth.Outcome == PracticeGrowthOutcome.Grown && growth.AfterStep == growth.BeforeStep + 1
+                && state.PracticeGrowthRecords.Count == before.PracticeGrowthRecords.Count + 1
+                && state.PlantCollection.Decisions.Count == before.PlantCollection.Decisions.Count + 1
+                && WeeklyPlants.Active(state).Id == growth.PlantInstanceId && state.StoredGrowthSteps == before.StoredGrowthSteps,
+                "M01 completion grants one growth receipt to the identified active plant");
+            var art = f.Ui.GetComponentInChildren<M01LightIllustration>(false);
+            Assert(art != null && art.CurrentStage == M01LightIllustration.Stage.Complete && !art.raycastTarget,
+                "M01 completion shows the illustrated brightened room without blocking its controls");
+        }
+        static void M01FailureAndRestart()
+        {
+            Store store;
+            using (var f = new Fixture(320, 568))
+            {
+                const string id = "synthetic-m01-recovery";
+                Assert(f.Service.SelectMbctProgram("8w"), f.Service.LastError);
+                Assert(f.Service.BeginFocusSession(id, "M01"), f.Service.LastError);
+                f.Ui.SelectFocusSession(id); f.Layout(); string initial = StateCodec.Encode(f.Service.Snapshot);
+                f.Store.Fail = true; f.Click("Focus.IconAction"); f.Store.Fail = false;
+                Assert(StateCodec.Encode(f.Service.Snapshot) == initial && f.Session(id).Status == ParticipationState.Selected,
+                    "M01 failed start preserves selected state and all balances");
+                f.AssertM01(M01LightIllustration.Stage.Overview); f.AssertM01SaveNotice(); f.Capture("M01-start-save-failed");
+                f.Click("Focus.IconAction"); f.AssertM01(M01LightIllustration.Stage.Choice);
+                f.Click("M01.Choice.Lamp"); f.AssertM01(M01LightIllustration.Stage.Lamp);
+                string inProgress = StateCodec.Encode(f.Service.Snapshot);
+                f.Store.Fail = true; f.Click("Focus.IconAction"); f.Store.Fail = false;
+                Assert(StateCodec.Encode(f.Service.Snapshot) == inProgress && f.Session(id).InstructionStep == 0
+                    && f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == 137,
+                    "M01 failed confirmation grants neither progress, growth nor coins");
+                f.AssertM01(M01LightIllustration.Stage.Lamp); f.AssertM01SaveNotice(); f.Capture("M01-confirm-save-failed");
+                f.Click("Focus.Close"); Assert(Screen(f.Ui) == "home", "Failed M01 confirmation can exit safely without being completed");
+                store = f.Store;
+            }
+            using (var f = new Fixture(390, 844, store))
+            {
+                const string id = "synthetic-m01-recovery";
+                f.Ui.SelectFocusSession(id); f.Layout(); f.AssertM01(M01LightIllustration.Stage.Choice);
+                Assert(f.Session(id).Status == ParticipationState.InProgress && f.Session(id).InstructionStep == 0 && f.Service.CoinBalance == 137,
+                    "Fresh presenter restores saved started M01 at method guidance without inventing a saved answer");
+                f.Click("Focus.IconAction"); f.AssertM01(M01LightIllustration.Stage.Brighten);
+                f.Capture("M01-restored-no-required-choice");
+                var before = f.Service.Snapshot; int coins = f.Service.CoinBalance;
+                f.Store.FailAfterWrites = 1; f.Click("Focus.IconAction");
+                Assert(Screen(f.Ui) == "practice-complete-error" && f.Session(id).InstructionStep == 1
+                    && !string.IsNullOrEmpty(f.Session(id).FocusStepRecords[0].ConfirmedUtc)
+                    && f.Service.GetPracticeGrowth(id) == null && f.Service.CoinBalance == coins,
+                    "M01 completion-save failure preserves its confirmed action but awards nothing");
+                f.Capture("M01-completion-save-failed"); f.Store.FailAfterWrites = -1;
+                var retry = f.Button("PracticeCompletion.Retry").onClick;
+                f.Click("PracticeCompletion.Retry"); retry.Invoke(); f.Layout(); AssertM01Completed(f, id, before, coins);
+                int receipts = f.Service.Snapshot.PracticeGrowthRecords.Count;
+                Assert(f.Service.CompletePracticeSession(id), f.Service.LastError);
+                f.Ui.SelectFocusSession(id); f.Layout();
+                Assert(f.Service.CoinBalance == coins + 50 && f.Service.Snapshot.PracticeGrowthRecords.Count == receipts
+                    && Screen(f.Ui) == "focus-complete", "Duplicate domain command and completed reentry preserve one growth and reward");
+                Assert(!f.Service.BeginFocusSession("synthetic-second-m01-today", "M01"), "Completed M01 still obeys the existing daily additional limit");
+                f.Capture("M01-completion-recovered");
+            }
+            using (var restored = new Fixture(390, 844, store))
+            {
+                restored.Ui.SelectFocusSession("synthetic-m01-recovery"); restored.Layout();
+                Assert(Screen(restored.Ui) == "focus-complete" && restored.Service.CoinBalance == 187
+                    && restored.Service.Snapshot.PracticeGrowthRecords.Count == 1,
+                    "Fresh presenter after reward recovery restores the completed M01 exactly once");
+            }
+        }
+        static void M01LegacyPages()
+        {
+            Assert(FocusMissionCatalog.Find("M01", 1) == null,
+                "Version 1 has no M01 definition; migration must not invent a historical M01 contract");
+            foreach (int version in new[] { 2, 3 })
+            {
+                Store store;
+                using (var f = new Fixture(390, 844))
+                {
+                    Assert(f.Service.BeginFocusSession("synthetic-legacy-m01", "M01"), f.Service.LastError);
+                    var saved = f.Service.Snapshot; var session = saved.Sessions.Single(s => s.SessionId == "synthetic-legacy-m01");
+                    var definition = FocusMissionCatalog.Find("M01", version); Assert(definition != null, "Retained M01 catalog version exists");
+                    session.FocusVersion = version; session.MissionTitleSnapshot = definition.Title; session.MissionDescriptionSnapshot = definition.Overview;
+                    session.FocusStepRecords = definition.Steps.Select((step, index) => new FocusStepRecord { Step = index, Key = step.Key, Title = step.Title, Prompt = step.Body }).ToList();
+                    store = new Store(); store.Save(saved);
+                }
+                using (var f = new Fixture(390, 844, store))
+                {
+                    f.Ui.SelectFocusSession("synthetic-legacy-m01"); f.Layout();
+                    Assert(f.Ui.GetComponentInChildren<M01LightIllustration>(false) == null && f.Button("Focus.Action") != null,
+                        "M01 version " + version + " retains its saved introduction renderer");
+                    f.Click("Focus.Action");
+                    Assert(f.Ui.GetComponentInChildren<M01LightIllustration>(false) == null && f.Button("Focus.Action") != null
+                        && f.Session("synthetic-legacy-m01").FocusVersion == version && f.Session("synthetic-legacy-m01").InstructionStep == 0,
+                        "M01 version " + version + " retains its original light step and saved contract");
+                }
+            }
+        }
+        static Store M01VersionStore(int version, string id, bool started)
+        {
+            using (var seed = new Fixture(390, 844))
+            {
+                Assert(seed.Service.SelectMbctProgram("8w"), seed.Service.LastError);
+                Assert(seed.Service.BeginFocusSession(id, "M01"), seed.Service.LastError);
+                if (started) Assert(seed.Service.StartSession(id), seed.Service.LastError);
+                var saved = seed.Service.Snapshot; var session = saved.Sessions.Single(s => s.SessionId == id);
+                var definition = FocusMissionCatalog.Find("M01", version);
+                Assert(definition != null && definition.Steps.Length == 1 && definition.Steps[0].Key == "light",
+                    "Compatible M01 versions share the single persisted light step");
+                session.FocusVersion = version;
+                session.MissionTitleSnapshot = definition.Title; session.MissionDescriptionSnapshot = definition.Overview;
+                session.FocusStepRecords = definition.Steps.Select((step, index) => new FocusStepRecord
+                    { Step = index, Key = step.Key, Title = step.Title, Prompt = step.Body }).ToList();
+                var store = new Store(); store.Save(saved); return store;
+            }
+        }
+        static void M01CompatibleSavedPages()
+        {
+            foreach (int version in new[] { FocusMissionCatalog.GuidedVersion, FocusMissionCatalog.Version })
+            foreach (bool started in new[] { false, true })
+            {
+                string id = "synthetic-m01-v" + version + (started ? "-started" : "-selected");
+                var store = M01VersionStore(version, id, started);
+                string title = store.Load().Sessions.Single(s => s.SessionId == id).FocusStepRecords[0].Title;
+                string prompt = store.Load().Sessions.Single(s => s.SessionId == id).FocusStepRecords[0].Prompt;
+                string startedUtc;
+                using (var f = new Fixture(390, 844, store))
+                {
+                    string saved = StateCodec.Encode(f.Service.Snapshot);
+                    f.Ui.SelectFocusSession(id); f.Layout();
+                    f.AssertM01(started ? M01LightIllustration.Stage.Choice : M01LightIllustration.Stage.Overview);
+                    Assert(StateCodec.Encode(f.Service.Snapshot) == saved,
+                        "Opening a saved M01 changes neither its version, original records nor balances");
+                    if (!started) f.Click("Focus.IconAction");
+                    f.AssertM01(M01LightIllustration.Stage.Choice);
+                    f.Click("M01.Choice.Lamp"); f.AssertM01(M01LightIllustration.Stage.Lamp);
+                    startedUtc = f.Session(id).StartedUtc;
+                    f.Click("Focus.Close"); f.Ui.SelectFocusSession(id); f.Layout();
+                    f.AssertM01(M01LightIllustration.Stage.Lamp);
+                    Assert(f.Session(id).StartedUtc == startedUtc && f.Session(id).InstructionStep == 0,
+                        "Same-presenter reentry retains only local guidance and never restarts the saved mission");
+                    f.Capture("M01-v" + version + (started ? "-started" : "-selected") + "-reentry");
+                }
+                using (var f = new Fixture(390, 844, store))
+                {
+                    f.Ui.SelectFocusSession(id); f.Layout(); f.AssertM01(M01LightIllustration.Stage.Choice);
+                    Assert(f.Session(id).StartedUtc == startedUtc && f.Session(id).FocusVersion == version,
+                        "Fresh presenter restores unfinished v4/v5 M01 without migrating the saved content version");
+                    f.Click("Focus.IconAction"); f.AssertM01(M01LightIllustration.Stage.Brighten);
+                    var before = f.Service.Snapshot; int coins = f.Service.CoinBalance;
+                    var finish = f.Button("Focus.IconAction").onClick;
+                    f.Click("Focus.IconAction"); finish.Invoke(); f.Layout();
+                    AssertM01Completed(f, id, before, coins);
+                    var record = f.Session(id).FocusStepRecords.Single();
+                    Assert(f.Session(id).FocusVersion == version && record.Key == "light" && record.Title == title && record.Prompt == prompt,
+                        "Completing the illustrated guide preserves each saved M01 step snapshot and version");
+                    f.Capture("M01-v" + version + (started ? "-started" : "-selected") + "-completed");
+                }
+            }
+        }
+        static void M01SkipFlows()
+        {
+            foreach (int version in new[] { FocusMissionCatalog.GuidedVersion, FocusMissionCatalog.Version })
+            foreach (var stage in new[] { M01LightIllustration.Stage.Overview, M01LightIllustration.Stage.Choice, M01LightIllustration.Stage.Lamp })
+            using (var f = new Fixture(360, 640, M01VersionStore(version, "synthetic-m01-skip", false)))
+            {
+                const string id = "synthetic-m01-skip";
+                f.Ui.SelectFocusSession(id); f.Layout();
+                if (stage != M01LightIllustration.Stage.Overview) f.Click("Focus.IconAction");
+                if (stage == M01LightIllustration.Stage.Lamp) f.Click("M01.Choice.Lamp");
+                f.AssertM01(stage);
+                string saved = StateCodec.Encode(f.Service.Snapshot);
+                int coins = f.Service.CoinBalance, receipts = f.Service.Snapshot.PracticeGrowthRecords.Count;
+                var staleIcon = f.Button("Focus.IconAction").onClick;
+                f.Click("Focus.EndParticipation"); staleIcon.Invoke(); f.Layout();
+                Assert(f.Button("Focus.AdjustmentConfirm") != null && StateCodec.Encode(f.Service.Snapshot) == saved,
+                    "M01 skip confirmation blocks underlying illustration callbacks without changing progress");
+                f.Capture("M01-v" + version + "-skip-" + stage + "-modal");
+                f.Click("Focus.AdjustmentCancel"); f.AssertM01(stage);
+                Assert(StateCodec.Encode(f.Service.Snapshot) == saved,
+                    "Cancelling M01 skip returns to the same guidance and saved state");
+                f.Click("Focus.EndParticipation"); f.Store.Fail = true;
+                f.Click("Focus.AdjustmentConfirm"); f.Store.Fail = false;
+                Assert(StateCodec.Encode(f.Service.Snapshot) == saved && f.Button("Focus.AdjustmentConfirm") != null,
+                    "M01 failed skip commit retains its session and offers the same confirmation for retry");
+                staleIcon.Invoke(); f.Layout();
+                Assert(StateCodec.Encode(f.Service.Snapshot) == saved, "Underlying M01 callbacks remain blocked after skip save failure");
+                f.Click("Focus.AdjustmentConfirm"); staleIcon.Invoke(); f.Layout();
+                Assert(Screen(f.Ui) == "home" && f.Session(id).Status == ParticipationState.Ended && f.Session(id).FocusEndReason == "skipped",
+                    "Confirmed M01 skip ends only this participation and returns home");
+                Assert(f.Service.CoinBalance == coins && f.Service.Snapshot.PracticeGrowthRecords.Count == receipts
+                    && FocusMissionPolicy.AdditionalAvailability(f.Service.Snapshot) == null,
+                    "Skipped M01 consumes no growth, coins or additional daily completion slot");
+                const string restart = "synthetic-m01-after-skip";
+                Assert(f.Service.BeginFocusSession(restart, "M01"), f.Service.LastError);
+                f.Ui.SelectFocusSession(restart); f.Layout(); f.AssertM01(M01LightIllustration.Stage.Overview);
+                Assert(f.Session(restart).Status == ParticipationState.Selected && f.Session(restart).InstructionStep == 0,
+                    "A new M01 starts at its overview without leaking the ended guide's method or page");
+            }
         }
         static void BasicFlows(int width, int height)
         {
@@ -513,7 +800,7 @@ namespace CapstoneDesign.EditorTools
         }
         static void AdditionalDigests()
         {
-            foreach (var mission in FocusMissionCatalog.Additional)
+            foreach (var mission in FocusMissionCatalog.Additional.Where(m => m.Code != "M01"))
             using (var f = new Fixture(390, 844))
             {
                 string id = "synthetic-digest-" + mission.Code;
@@ -603,16 +890,18 @@ namespace CapstoneDesign.EditorTools
         static void CompareDigests(string path)
         {
             var baseline = JsonUtility.FromJson<Report>(File.ReadAllText(path));
-            Assert(baseline.failed == 0 && baseline.digests.Count == report.digests.Count, "Pre-change baseline is complete and has equal page count");
+            var retained = baseline.digests.Where(d => !d.key.StartsWith("M01/", StringComparison.Ordinal)).ToArray();
+            Assert(baseline.failed == 0 && retained.Length == report.digests.Count, "Pre-change M02-M17 baseline is complete and has equal page count");
             foreach (var current in report.digests)
             {
-                var before = baseline.digests.Single(d => d.key == current.key);
+                var before = retained.Single(d => d.key == current.key);
                 Assert(current.sha256 == before.sha256, "Additional UI content/component/layout mismatch: " + current.key);
             }
         }
         sealed class Store : IStateStore
-        { string xml; public bool Fail; public GardenState Load() => xml == null ? null : StateCodec.Decode(xml);
-          public void Save(GardenState value) { if (Fail) throw new IOException("Synthetic guided UI save failure"); xml = StateCodec.Encode(value); } }
+        { string xml; public bool Fail; public int FailAfterWrites = -1; public GardenState Load() => xml == null ? null : StateCodec.Decode(xml);
+          public void Save(GardenState value) { if (Fail || FailAfterWrites == 0) throw new IOException("Synthetic guided UI save failure");
+              if (FailAfterWrites > 0) FailAfterWrites--; xml = StateCodec.Encode(value); } }
         sealed class Clock : IClock
         { public DateTimeOffset Time = DateTimeOffset.Parse("2026-11-09T03:00:00Z"); public DateTimeOffset UtcNow => Time; public TimeZoneInfo TimeZone => TimeZoneInfo.Utc; }
         sealed class Fixture : IDisposable
@@ -692,6 +981,98 @@ namespace CapstoneDesign.EditorTools
                 ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerUpHandler);
                 ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerClickHandler);
                 report.clicks++; Layout();
+            }
+            public Rect M01ArtBounds() => ScreenRect(Ui.GetComponentInChildren<M01LightIllustration>(false).rectTransform);
+            public Rect AssertM01(M01LightIllustration.Stage stage, Rect? expected = null)
+            {
+                Layout(); var art = Ui.GetComponentsInChildren<M01LightIllustration>(false);
+                Assert(art.Length == 1 && art[0].CurrentStage == stage && !art[0].raycastTarget,
+                    "M01 has exactly one matching non-intercepting illustration: " + stage);
+                var body = Text("M01.Body"); Assert(body != null && !string.IsNullOrWhiteSpace(body.text), "M01 has one concrete current instruction");
+                Assert(Ui.GetComponentsInChildren<Text>(false).Count(t => t.name == "M01.Body") == 1
+                    && body.fontSize == 22 && new[] { TextAnchor.UpperCenter, TextAnchor.MiddleCenter, TextAnchor.LowerCenter }.Contains(body.alignment),
+                    "M01 instruction is a single centered 22-point reading area");
+                AssertFullyVisible(body.rectTransform, "M01 instruction");
+                Assert(body.preferredHeight <= body.rectTransform.rect.height + .75f, "M01 current instruction fits without truncation");
+                var title = Text("M01.Title");
+                if (stage == M01LightIllustration.Stage.Overview)
+                {
+                    Assert(title != null && title.text == FocusMissionCatalog.Find("M01").Title && title.fontSize == 30,
+                        "M01 introduction keeps its clear mission title");
+                    AssertFullyVisible(title.rectTransform, "M01 introduction title");
+                    Assert(title.preferredHeight <= title.rectTransform.rect.height + .75f && ScreenRect(title.rectTransform).yMin >= ScreenRect(body.rectTransform).yMax - .75f,
+                        "M01 introduction title and overview do not overlap");
+                }
+                else Assert(title == null, "M01 practice and help do not repeat the mission title");
+                Assert(!Ui.GetComponentsInChildren<Text>(false).Any(t => System.Text.RegularExpressions.Regex.IsMatch(t.text ?? "", @"\b[PM]\d{2}\b")),
+                    "M01 product guidance contains no developer mission code");
+                Assert(Button("Focus.Action", false) == null && Button("Focus.Close").GetComponentInChildren<Text>().text == "나가기",
+                    "M01 advances through its illustration and distinguishes exit from previous");
+                Assert(Button("Focus.EndParticipation").GetComponentInChildren<Text>().text == "미션 넘기기",
+                    "Illustrated M01 keeps the current mission-skipping control on every guidance page");
+                var icon = (RectTransform)Button("Focus.IconAction").transform; var bounds = ScreenRect(icon);
+                AssertFullyVisible(icon, "M01 central icon"); AssertFullyVisible(art[0].rectTransform, "M01 illustration");
+                Assert(Vector2.Distance(icon.pivot, new Vector2(.5f, .5f)) < .001f && Mathf.Abs(icon.rect.width - icon.rect.height) < .01f
+                    && bounds.width >= width * .4f && Mathf.Abs(bounds.center.x - width * .5f) < .75f,
+                    "M01 illustration stays large, square and centered with a central press pivot");
+                Assert(ScreenRect(body.rectTransform).yMin >= bounds.yMax - .75f,
+                    "M01 reading area remains above the large illustration");
+                foreach (var button in Ui.GetComponentsInChildren<Button>(false).Where(b => b.gameObject.activeInHierarchy))
+                    AssertFullyVisible((RectTransform)button.transform, "M01 control " + button.name);
+                var controls = Ui.GetComponentsInChildren<Button>(false).Where(b => b.gameObject.activeInHierarchy).ToArray();
+                for (int i = 0; i < controls.Length; i++)
+                    for (int j = i + 1; j < controls.Length; j++)
+                    {
+                        var a = ScreenRect((RectTransform)controls[i].transform); var b = ScreenRect((RectTransform)controls[j].transform);
+                        Assert(Mathf.Min(a.xMax, b.xMax) - Mathf.Max(a.xMin, b.xMin) <= .75f
+                            || Mathf.Min(a.yMax, b.yMax) - Mathf.Max(a.yMin, b.yMin) <= .75f,
+                            "M01 touch targets remain separate: " + controls[i].name + " / " + controls[j].name);
+                    }
+                Assert(!Ui.GetComponentsInChildren<ScrollRect>(false).Any(s => s.enabled && s.vertical && s.content != null && s.viewport != null
+                    && s.content.rect.height > s.viewport.rect.height + .75f), "M01 guidance fits a single viewport without scrolling");
+                if (expected.HasValue && Text("Focus.SaveNotice") == null)
+                    Assert(Vector2.Distance(bounds.center, expected.Value.center) < .75f && Vector2.Distance(bounds.size, expected.Value.size) < .75f,
+                        "M01 slides keep the central illustration at one stable position");
+                var shown = Pixels(); Color32[] hidden;
+                try { art[0].enabled = false; hidden = Pixels(); }
+                finally { art[0].enabled = true; Layout(); }
+                int painted = ChangedPixels(hidden, shown, M01ArtBounds());
+                report.visualMeasurements.Add(width + "x" + height + " M01/" + stage + ": " + painted + " painted pixels");
+                Assert(painted >= 512, "M01 current room illustration paints a substantial visible GPU area");
+                return bounds;
+            }
+            public void AssertM01SaveNotice()
+            {
+                var notice = Text("Focus.SaveNotice"); Assert(notice != null && !string.IsNullOrWhiteSpace(notice.text), "M01 failed save shows its retry guidance");
+                AssertFullyVisible(notice.rectTransform, "M01 save failure guidance");
+                Assert(notice.preferredHeight <= notice.rectTransform.rect.height + .75f, "M01 save failure text is completely readable");
+                var icon = ScreenRect((RectTransform)Button("Focus.IconAction").transform); var error = ScreenRect(notice.rectTransform);
+                Assert(icon.yMin >= error.yMax - .75f, "M01 save failure guidance does not obscure the current illustration");
+            }
+            public void AssertM01CancelledGesture(string id)
+            {
+                var button = Button("Focus.IconAction"); var rect = (RectTransform)button.transform;
+                var pixels = Pixels(); var area = M01ArtBounds(); var original = ScreenRect(rect); string state = StateCodec.Encode(Service.Snapshot);
+                var point = camera.WorldToScreenPoint(rect.TransformPoint(rect.rect.center));
+                var data = new PointerEventData(events) { position = point, pressPosition = point, button = PointerEventData.InputButton.Left };
+                var hits = new List<RaycastResult>(); raycaster.Raycast(data, hits); report.raycasts++;
+                Assert(hits.Count > 0 && (hits[0].gameObject == button.gameObject || hits[0].gameObject.transform.IsChildOf(button.transform)),
+                    "M01 actual central icon receives the pointer before its decorative layers");
+                ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerDownHandler); Layout();
+                Color pressed = button.targetGraphic.color;
+                Assert(pressed.a <= .13f && pressed.r > .99f && pressed.g > .99f && pressed.b > .99f,
+                    "M01 press feedback stays a subtle white highlight instead of an opaque colored box");
+                data.position = new Vector2(width - 1, height - 1); data.dragging = true; data.eligibleForClick = false;
+                ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.beginDragHandler);
+                ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.dragHandler);
+                ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerExitHandler);
+                ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.pointerUpHandler);
+                ExecuteEvents.Execute(button.gameObject, data, ExecuteEvents.endDragHandler); Layout();
+                Assert(StateCodec.Encode(Service.Snapshot) == state && Session(id).Status == ParticipationState.Selected && button.targetGraphic.color.a < .01f
+                    && Vector2.Distance(ScreenRect(rect).center, original.center) < .01f
+                    && Vector2.Distance(ScreenRect(rect).size, original.size) < .01f && ChangedPixels(pixels, Pixels(), area) == 0,
+                    "Cancelled M01 drag restores its image and centered size without starting or awarding anything");
+                Capture("M01-drag-cancelled");
             }
             public void AssertBasicBody(string name)
             {

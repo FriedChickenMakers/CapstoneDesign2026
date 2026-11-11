@@ -232,6 +232,7 @@ namespace CapstoneDesign.Runtime
         public Text Heading, Copy;
         public float MinimumAnswerHeight = 86;
         public float ContentHeight;
+        public bool KeepAnswersVisible;
         void OnEnable(){Canvas.preWillRenderCanvases+=Refresh;}
         void OnDisable(){Canvas.preWillRenderCanvases-=Refresh;}
         public void Refresh()
@@ -249,6 +250,7 @@ namespace CapstoneDesign.Runtime
             // phones; reserve answer space when a storage notice is visible.
             bool reading = Copy != null;
             float minTop = 254, actionGap = 50;
+            float readingBottom = 0;
             float illustrationOffset = reading ? Mathf.Lerp(14,32,Mathf.InverseLerp(692,844,height)) : 0;
             if (reading)
             {
@@ -261,11 +263,20 @@ namespace CapstoneDesign.Runtime
                 }
                 float copyHeight = Mathf.Max(54, Mathf.Ceil(Copy.preferredHeight));
                 FigmaMissionUi.SetRect(Copy.rectTransform,24,copyTop,342,copyHeight);
-                minTop = Mathf.Max(254, copyTop + copyHeight + 18) + illustrationOffset;
+                readingBottom = copyTop + copyHeight + 18;
+                minTop = Mathf.Max(254, readingBottom) + illustrationOffset;
                 actionGap = 40;
             }
-            float size=Mathf.Clamp(bottom-minTop-actionGap-(reading?MinimumAnswerHeight:72),reading?160:180,reading?280:224);
+            float answerHeight = reading ? MinimumAnswerHeight : 72;
+            // Timer actions are always visible. On short/error layouts use the
+            // spare gap below the copy, then reduce only this slide's image.
+            if (KeepAnswersVisible)
+                minTop = Mathf.Min(minTop, Mathf.Max(readingBottom, bottom-actionGap-answerHeight-160));
+            float availableSize = bottom-minTop-actionGap-answerHeight;
+            float minimumSize = KeepAnswersVisible ? Mathf.Min(160, Mathf.Max(96, availableSize)) : reading ? 160 : 180;
+            float size=Mathf.Clamp(availableSize,minimumSize,reading?280:224);
             float iconTop=Mathf.Max(minTop,height*.48f-size/2+illustrationOffset);
+            if (KeepAnswersVisible) iconTop = Mathf.Min(iconTop, bottom-answerHeight-actionGap-size);
             if(Icon!=null)FigmaMissionUi.SetRect(Icon,(390-size)/2,iconTop,size,size);
             if(Illustration!=null)Illustration.localScale=Vector3.one*(size/180);
             if(ActionHint!=null)FigmaMissionUi.SetRect(ActionHint,24,iconTop+size+(reading?6:12),342,28);

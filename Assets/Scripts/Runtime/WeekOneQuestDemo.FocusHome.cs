@@ -91,7 +91,7 @@ namespace CapstoneDesign.Runtime
             string archivedSource = state.PlantAppearance?.Recipe?.InstanceId;
             int total = FocusMissionPolicy.TotalPracticesFor(program), done = FocusMissionPolicy.CompletedCount(state, program);
             var active = FocusMissionPolicy.Active(state, FocusMissionCatalog.BasicRole, program)
-                ?? state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
+                ?? state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
             var todayBasic = FocusMissionPolicy.TodayPractice(state, FocusMissionCatalog.BasicRole);
             var mission = active != null ? FocusMissionCatalog.FindForSession(active)
                 : FocusMissionCatalog.Find(todayBasic?.MissionId) ?? FocusMissionPolicy.MissionAt(FocusMissionPolicy.NextOrder(state, program), program);
@@ -126,6 +126,9 @@ namespace CapstoneDesign.Runtime
             layout.DebugLauncher = root.Find("Focus.DebugLauncher") as RectTransform;
             layout.Cards = new[] { basic, additional, emotion };
             layout.Refresh();
+            GardenThemeSurface.UseCombineAppearance(root);
+            layout.Heading.GetComponent<Text>().color = GardenThemeSurface.CombineWoodInk;
+            root.GetComponentInChildren<MissionBottomNavigation>()?.UseCombineAppearance();
         }
 
         FocusMissionHomeLayout.Card BuildRecommendationCard(RectTransform root, GardenState state, float y)

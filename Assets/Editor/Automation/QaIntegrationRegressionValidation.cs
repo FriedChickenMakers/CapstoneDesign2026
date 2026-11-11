@@ -46,6 +46,7 @@ namespace CapstoneDesign.EditorTools
                 Run("Saved photo has one image, one deletion control and one deletion effect", PhotoRecord);
                 Run("Valid base-plus-photo reward is shown and invalid photo-only state is rejected", PhotoRewardContract);
                 Run("Guided timer modal pauses, cancel resumes, shortened completion preserves actual time", GuidedAdjustment);
+                Run("Guided timer actions fit short phones before scrolling, including a save error", GuidedTimerBounds);
                 Run("Skipping basic mission preserves course order and grants no reward", SkipBasic);
                 Run("M10 offers separate activity and comfortable-period choices", PlanChoices);
                 Run("Existing guided v4 timers keep their original recommendation and remain startable", LegacyGuidedTimer);
@@ -159,6 +160,56 @@ namespace CapstoneDesign.EditorTools
                 Check(completed.FocusStepRecords[0].EndReason=="too_long" && completed.FocusStepRecords[0].ElapsedSeconds==12,"Shortened record retains actual elapsed time and reason.");
                 Check(completed.FocusStepRecords.All(s=>!string.IsNullOrEmpty(s.ConfirmedUtc)),"Guided required records remain confirmed.");
                 Check(completed.Status==ParticipationState.RewardCommitted && completed.RewardAmount==50,"Valid short completion uses the normal reward.");
+            }
+        }
+        static void GuidedTimerBounds()
+        {
+            foreach (var size in new[] { new Vector2Int(360,640), new Vector2Int(390,844) })
+            using (var f = new FocusMissionValidation.Fixture(report))
+            {
+                f.Resize(size.x,size.y);
+                Check(f.Service.SelectMbctProgram("8w") && f.Service.BeginFocusSession("timer-layout","P01",1),f.Service.LastError);
+                f.Invoke("SelectFocusSession","timer-layout");
+                for (int i=0;i<8 && f.Ui.GetComponentInChildren<FocusPracticeClock>(false)==null;i++) f.Click("Focus.IconAction");
+                var clock=f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
+                Check(clock!=null && clock.Running,"Synthetic timer begins through its real guide controls.");
+                var layout=f.Ui.GetComponentInChildren<FocusGuidedSlideLayout>(false);
+                int coins=f.Service.CoinBalance,growth=f.Service.Snapshot.PracticeGrowthRecords.Count;
+                void Inspect(string state)
+                {
+                    Canvas.ForceUpdateCanvases();layout.Refresh();Canvas.ForceUpdateCanvases();
+                    Check(Mathf.Abs(layout.Content.anchoredPosition.y)<.1f,"Timer starts at the top; no reveal/scroll may hide a clipped control.");
+                    foreach (string name in new[] {"Focus.TimerToggle","Guided.ReflectionToggle","Focus.TooLong"})
+                    {
+                        var button=Button(f.Ui,name);
+                        var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.Viewport,button.transform);
+                        var visible=layout.Viewport.rect;
+                        Check(bounds.min.x>=visible.xMin-.5f && bounds.max.x<=visible.xMax+.5f
+                            && bounds.min.y>=visible.yMin-.5f && bounds.max.y<=visible.yMax+.5f,
+                            name+" is fully visible before scrolling on "+size+" / "+state);
+                        Check(((RectTransform)button.transform).rect.height>=48,"Timer action retains its full touch height.");
+                    }
+                    var copyBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Copy.transform);
+                    var iconBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Icon);
+                    Check(iconBounds.max.y<=copyBounds.min.y-8,"Compact timer illustration does not overlap the instruction.");
+                    if (layout.Notice.gameObject.activeSelf)
+                    {
+                        var viewportBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Viewport);
+                        var noticeBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Notice.transform);
+                        Check(viewportBounds.min.y>=noticeBounds.max.y-.5f,"Timer actions remain above the save error notice.");
+                    }
+                    f.Capture("qa-timer-visible-"+state+"-"+size.x+"x"+size.y,capture);
+                }
+                Inspect("normal");
+                clock.ElapsedSeconds=7;f.Clock.UtcNow=f.Clock.UtcNow.AddSeconds(7);f.Store.FailNextSaves=1;
+                Check(!clock.Flush() && layout.Notice.gameObject.activeSelf,"An actual synthetic save failure shows its notice.");
+                Inspect("save-error");
+                f.Click("Focus.TooLong");
+                Check(!clock.Running,"The visible short-phone shortening action opens its real pause modal.");
+                f.Click("Focus.AdjustmentCancel");
+                Check(clock.Running,"Cancel resumes the timer after the failed save is retried.");
+                Check(f.Service.CoinBalance==coins && f.Service.Snapshot.PracticeGrowthRecords.Count==growth,
+                    "Layout and cancelled shortening do not complete or reward the mission.");
             }
         }
         static void SkipBasic()
@@ -340,10 +391,31 @@ namespace CapstoneDesign.EditorTools
                         && FocusMissionPolicy.NextOrder(snapshot)==before && f.Service.CoinBalance==coins,"Alternative selection does not complete or reward its source course occurrence.");
                     Check(!snapshot.PracticeGrowthRecords.Any(item=>item.SessionId==sourceId),"Original deferred mission receives no growth.");
                     f.Capture("qa-"+code.ToLowerInvariant()+"-additional-p02",capture);
+                    void CheckHomeCards()
+                    {
+                        string saved=StateCodec.Encode(f.Service.Snapshot);
+                        f.Invoke("ShowHome");
+                        var basic=Button(f.Ui,"Focus.BasicAction");
+                        var additional=Button(f.Ui,"Focus.AdditionalAction");
+                        var expected=FocusMissionPolicy.MissionAt(before,f.Service.Snapshot.MbctProgramId);
+                        Check(basic.transform.parent.GetComponentsInChildren<Text>(false).Any(label=>label.text==expected.Title)
+                            && basic.GetComponentInChildren<Text>().text=="기본 미션 시작하기",
+                            "Home basic card presents its actual next course mission, not the additional P02 support activity.");
+                        Check(additional.transform.parent.GetComponentsInChildren<Text>(false).Any(label=>label.text==support.MissionTitleSnapshot)
+                            && additional.GetComponentInChildren<Text>().text=="이어서 하기",
+                            "Only the additional card resumes the separate P02 support activity.");
+                        Check(StateCodec.Encode(f.Service.Snapshot)==saved,"Home card display does not mutate the source or support session.");
+                        f.Capture("qa-"+code.ToLowerInvariant()+"-support-home-"+Session(f.Service,support.SessionId).Status,capture);
+                        f.Click("Focus.AdditionalAction");
+                        Check(Text(f.Ui,"Guided.Mission").text=="추가 활동" && StateCodec.Encode(f.Service.Snapshot)==saved,
+                            "Additional card resumes the same saved support activity without starting a second session.");
+                    }
+                    CheckHomeCards();
                     // The visible route was selected through UI. Finish the
                     // separate synthetic activity through its real domain APIs
                     // to check the role's quota, not an audio/timer simulation.
                     Check(f.Service.StartGuidedFocusSession(support.SessionId,""),f.Service.LastError);
+                    CheckHomeCards();
                     Check(f.Service.StartFocusPracticeStep(support.SessionId,0),f.Service.LastError);
                     f.Clock.UtcNow=f.Clock.UtcNow.AddSeconds(1);
                     Check(f.Service.CompleteGuidedFocusPractice(support.SessionId,"","",1),f.Service.LastError);

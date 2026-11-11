@@ -151,6 +151,11 @@ namespace CapstoneDesign.Runtime
             layout.Heading = headingLabel; layout.Copy = copy;
             // P02 has an 88-point optional text field; reserve room to see it in full.
             if (soundGuide) layout.MinimumAnswerHeight = 100;
+            if (guidedSlide == GuidedSlide.Practice)
+            {
+                layout.MinimumAnswerHeight = contentHeight;
+                layout.KeepAnswersVisible = true;
+            }
             layout.Refresh();
         }
 

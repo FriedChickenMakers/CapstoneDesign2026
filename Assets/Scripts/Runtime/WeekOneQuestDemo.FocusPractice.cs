@@ -88,6 +88,7 @@ namespace CapstoneDesign.Runtime
             if (screen == "focus-complete") { ShowHome(); return true; }
             if (screen == "focus-save-error") { ShowFocusNote(); return true; }
             var session = ActiveSession();
+            if (screen == "focus-practice" && UsesM01LightGuide(session)) return TryM01LightBack();
             if (screen == "focus-practice" && FocusMissionCatalog.IsGuided(session) && session.InstructionStep == 0)
                 return TryGuidedPrevious();
             if (screen == "focus-practice" && UsesBasicFocusSlides(session)) return TryBasicFocusBack();
@@ -147,6 +148,12 @@ namespace CapstoneDesign.Runtime
             BindFocusDraft(session, step);
             focusAnswerInput = null; focusNoteInput = null;focusPlanPersist=null;
             var root = BeginFigmaPage("focus-practice", ShowFocusPractice, FigmaMissionUi.Hex(mission.BackgroundHex));
+            if (UsesM01LightGuide(session))
+            {
+                BuildM01LightGuide(root, mission, session);
+                FocusEnter(root);
+                return;
+            }
             if (UsesBasicFocusSlides(session))
             {
                 BuildBasicFocusSlides(root, mission, session, step);
@@ -506,6 +513,11 @@ namespace CapstoneDesign.Runtime
             {
                 var illustration = FigmaMissionUi.Rect(root, "P02.CompletedIllustration", 55, 319.5f, 280, 280);
                 illustration.gameObject.AddComponent<P02SoundIllustration>().Configure(P02SoundIllustration.Stage.Reflection);
+            }
+            else if (UsesM01LightGuide(session))
+            {
+                var illustration = FigmaMissionUi.Rect(root, "M01.CompletedIllustration", 55, 319.5f, 280, 280);
+                illustration.gameObject.AddComponent<M01LightIllustration>().Configure(M01LightIllustration.Stage.Complete);
             }
             else if (FocusMissionCatalog.IsGuided(session) || UsesBasicFocusSlides(session))
             {

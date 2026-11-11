@@ -14,3 +14,7 @@ Reproducer: Assets/Editor/Automation/TimberLightingBake.cs. Supply the
 Wood026 1K NormalGL/Roughness maps and the unlit NavigationBackingUI.png
 from commit e2342e89b033a070d597dc6380b7c5ae62c4cb42 via the named
 environment variables. Never use the baked output as its own base atlas.
+
+2026-11-11: CombineWoodButtonUI.png preserves the pre-bake button atlas from
+codex/combine-garden-20261107 commit 10717a314e719f0e963f5b71972fe67af9e3ffe4
+for the selected mission-home appearance. The current garden atlas is retained.

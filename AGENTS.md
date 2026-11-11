@@ -21,9 +21,11 @@ and do not clear app data or logcat unless explicitly requested.
 
 # Repository privacy and remote synchronization
 
-The active project branch is `misssion` (three s characters), as requested by the user.
-Continue implementation work there. Keep `main` at the integration merge unless
-the user explicitly requests another merge or branch change.
+The active project branch is `main`, as requested by the user on 2026-11-11.
+The local integration includes `misssion` (three s characters), the remaining
+`codex/combine-garden-20261107` M01 guide, and the reviewed UI selections.
+Preserve the source branches. Do not push until the user explicitly requests
+publication; local integration does not authorize remote changes.
 
 Before each commit and push, inspect the changed files and run
 `python3 scripts/check-repo-privacy.py` for the publishable working tree, then
