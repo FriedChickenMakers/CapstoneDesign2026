@@ -174,7 +174,7 @@ namespace CapstoneDesign.EditorTools
                 var section = content.Find(name);
                 Check(section != null && section.gameObject.activeInHierarchy, scenario + "-normal-section-" + name);
             }
-            Check(new[] { "활동 추천 알림", "배경음악", "정원의 시간", "심박 차트 보기", "앱 연결 및 권한" }.All(copy.Contains),
+            Check(new[] { "활동 알림", "배경 음악", "효과음 음량", "정원의 시간", "심박 차트 보기", "데이터 접근 권한" }.All(copy.Contains),
                 scenario + "-normal-settings-controls-intact");
             CaptureSettings(sensor);
             Check(client == PersonalizationClient.Instance && client.PendingCount == 0 && !client.enabled,

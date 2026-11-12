@@ -33,9 +33,9 @@ namespace CapstoneDesign.Runtime
                 FigmaMissionUi.PageHeaderPlaqueWidth,FigmaMissionUi.PageHeaderPlaqueHeight,FigmaMissionUi.Warm,10);
             GardenThemeSurface.Apply(plaque.gameObject,GardenThemeSurface.Style.Header,tone);
             var heading=FigmaMissionUi.Label(p,title,FigmaMissionUi.PageHeaderTitleX,FigmaMissionUi.PageHeaderTitleY,
-                FigmaMissionUi.PageHeaderTitleWidth,FigmaMissionUi.PageHeaderTitleHeight,28,GardenThemeSurface.WoodInk,true);
+                FigmaMissionUi.PageHeaderTitleWidth,FigmaMissionUi.PageHeaderTitleHeight,28,GardenThemeSurface.WoodInk,true,TextAnchor.MiddleCenter);
             var subheading=string.IsNullOrEmpty(subtitle)?null:FigmaMissionUi.Label(p,subtitle,FigmaMissionUi.PageHeaderSubtitleX,
-                FigmaMissionUi.PageHeaderSubtitleY,FigmaMissionUi.PageHeaderSubtitleWidth,FigmaMissionUi.PageHeaderSubtitleHeight,14,FigmaMissionUi.Muted);
+                FigmaMissionUi.PageHeaderSubtitleY,FigmaMissionUi.PageHeaderSubtitleWidth,FigmaMissionUi.PageHeaderSubtitleHeight,14,FigmaMissionUi.Muted,false,TextAnchor.MiddleCenter);
             FigmaMissionUi.LayoutPageHeader(plaque,heading.rectTransform,subheading==null?null:subheading.rectTransform);
         }
         void FigmaNavigation(Transform p,string active)
@@ -54,10 +54,11 @@ namespace CapstoneDesign.Runtime
             var content=FigmaMissionUi.Rect(viewport,"스크롤 내용",0,0,390,Mathf.Max(height,contentHeight));
             var scroll=viewport.gameObject.AddComponent<ScrollRect>();scroll.viewport=viewport;scroll.content=content;scroll.horizontal=false;scroll.movementType=ScrollRect.MovementType.Clamped;scroll.scrollSensitivity=30;
             // Follow the responsive viewport, including short phones and save notices.
-            var track=FigmaMissionUi.Box(viewport,"수첩 스크롤",382,4,4,height-8,GardenThemePalette.Border,2);
+            bool sage=GardenThemeSurface.IsSageScope(p);
+            var track=FigmaMissionUi.Box(viewport,"수첩 스크롤",382,4,4,height-8,sage?GardenSagePalette.Border:GardenThemePalette.Border,2);
             track.anchorMin=new Vector2(1,0);track.anchorMax=Vector2.one;
             track.offsetMin=new Vector2(-8,4);track.offsetMax=new Vector2(-4,-4);
-            var handle=FigmaMissionUi.Box(track,"손잡이",0,0,4,height-8,GardenThemePalette.WoodDark,2);
+            var handle=FigmaMissionUi.Box(track,"손잡이",0,0,4,height-8,sage?GardenSagePalette.Muted:GardenThemePalette.WoodDark,2);
             handle.anchorMin=Vector2.zero;handle.anchorMax=Vector2.one;handle.offsetMin=handle.offsetMax=Vector2.zero;
             var scrollbar=track.gameObject.AddComponent<Scrollbar>();scrollbar.direction=Scrollbar.Direction.BottomToTop;
             scrollbar.handleRect=handle;scrollbar.targetGraphic=handle.GetComponent<Image>();scrollbar.navigation=new Navigation{mode=Navigation.Mode.None};

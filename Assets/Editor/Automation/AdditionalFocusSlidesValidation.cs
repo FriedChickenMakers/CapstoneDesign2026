@@ -170,8 +170,8 @@ namespace CapstoneDesign.EditorTools
         static void AssertCompleted(Fixture f, string id)
         {
             var receipt = f.Service.GetPracticeGrowth(id);
-            Assert(f.Session(id).Status == ParticipationState.RewardCommitted && f.Service.CoinBalance == 187
-                && f.Session(id).RewardAmount == 50 && Screen(f.Ui) == "focus-complete", "Final normal completion pays exactly 50 coins once");
+            Assert(f.Session(id).Status == ParticipationState.RewardCommitted && f.Service.CoinBalance == 167
+                && f.Session(id).RewardAmount == 30 && Screen(f.Ui) == "focus-complete", "Final additional completion pays exactly 30 coins once");
             Assert(receipt != null && receipt.AfterStep == receipt.BeforeStep + 1
                 && f.Service.Snapshot.PracticeGrowthRecords.Count(r => r.SessionId == id) == 1, "Final completion grows the identified plant exactly once");
         }

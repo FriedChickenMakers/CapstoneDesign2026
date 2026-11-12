@@ -130,7 +130,11 @@ namespace CapstoneDesign.Runtime
             if (lightGuidePage == LightPage.Help) lightGuidePage = lightHelpReturn;
             else if (lightGuidePage == LightPage.Overview)
             {
-                if (session.Status == ParticipationState.Selected && !FocusSaved(Service.StartSession(id))) return;
+                if (session.Status == ParticipationState.Selected)
+                {
+                    if(!FocusSaved(Service.StartSession(id)))return;
+                    GardenSfxPlayer.Play(GardenSfxCue.PracticeStart);
+                }
                 lightGuidePage = LightPage.Choice;
             }
             else if (lightGuidePage == LightPage.Choice) lightGuidePage = LightPage.Action;

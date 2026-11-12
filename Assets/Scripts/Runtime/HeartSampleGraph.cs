@@ -9,19 +9,22 @@ namespace CapstoneDesign.Runtime
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class HeartSampleGraph : MaskableGraphic
     {
+        public const float PlotPadding=8;
         public HeartRateSampleSnapshot[] Samples=Array.Empty<HeartRateSampleSnapshot>();
         public long WindowStart,WindowEnd;
+        public double AxisMinimum=>Samples.Length==0?0:Samples.Min(s=>s.beatsPerMinute)-5;
+        public double AxisMaximum=>Samples.Length==0?0:Samples.Max(s=>s.beatsPerMinute)+5;
         protected override void OnPopulateMesh(VertexHelper vh)
         {
             vh.Clear();if(WindowEnd<=WindowStart || Samples.Length==0)return;
             var rect=rectTransform.rect;
-            double min=Samples.Min(s=>s.beatsPerMinute)-5, max=Samples.Max(s=>s.beatsPerMinute)+5;
+            double min=AxisMinimum, max=AxisMaximum;
             foreach(var group in Samples.GroupBy(s=>s.sourcePackage+"|"+s.segmentId))
             {
                 Vector2? previous=null;long previousTime=0;
                 foreach(var sample in group.OrderBy(s=>s.measuredAtEpochMs))
                 {
-                    var point=new Vector2(rect.xMin+8+(rect.width-16)*(float)((double)(sample.measuredAtEpochMs-WindowStart)/(WindowEnd-WindowStart)),rect.yMin+8+(rect.height-16)*(float)((sample.beatsPerMinute-min)/(max-min)));
+                    var point=new Vector2(rect.xMin+PlotPadding+(rect.width-2*PlotPadding)*(float)((double)(sample.measuredAtEpochMs-WindowStart)/(WindowEnd-WindowStart)),rect.yMin+PlotPadding+(rect.height-2*PlotPadding)*(float)((sample.beatsPerMinute-min)/(max-min)));
                     Quad(vh,point-new Vector2(3,3),point+new Vector2(3,-3),point+new Vector2(3,3),point+new Vector2(-3,3));
                     if(previous.HasValue && sample.measuredAtEpochMs-previousTime<=300000)
                     {

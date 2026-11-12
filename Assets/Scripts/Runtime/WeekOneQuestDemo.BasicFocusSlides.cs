@@ -344,6 +344,7 @@ namespace CapstoneDesign.Runtime
             toggle.onClick.RemoveAllListeners();
             var ownedClock = focusPracticeClock;
             toggle.onClick.AddListener(() => { if (current()) ownedClock.ToggleRunning(); });
+            GardenSfxButton.Attach(toggle);
             if (basicResumeClock) { basicResumeClock = false; focusPracticeClock.ToggleRunning(); }
             return top + 84;
         }

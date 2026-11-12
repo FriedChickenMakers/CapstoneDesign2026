@@ -68,6 +68,9 @@ namespace CapstoneDesign.EditorTools
                 Run("Scaled text layout, atlas callbacks and input metrics", ScreenDensityTextValidation.Run);
                 Run("Garden/album leaf input and atomic record lifecycle 360x640", () => MobileFlow(360, 640));
                 Run("Garden/album leaf input and atomic record lifecycle 390x844", () => MobileFlow(390, 844));
+                foreach(var size in new[]{new Vector2Int(320,568),new Vector2Int(390,844),new Vector2Int(1200,2000)})
+                    Run("Album fixed context, bounded paging and independent detail regions "+size,()=>AlbumCollectionFlow(size.x,size.y));
+                Run("Album view pose and record position survive editing, failure and deletion",AlbumMemoryReturnFlow);
                 Run("21-stage v6 species bounds, 60-leaf paging, deterministic nature and low angles", StressRender);
                 }
                 Run("All shared studio resources released", () => {
@@ -169,7 +172,7 @@ namespace CapstoneDesign.EditorTools
                     for(int j=0;j<i;j++)Assert(!Overlap(bounds,f.Bounds(labels[j].rectTransform)),"Information labels do not cover each other.");
                 }
                 var shop=f.Bounds((RectTransform)home.shopButton.transform);
-                Assert(Contains(footer,shop)&&!Overlap(shop,f.Bounds(home.stage.rectTransform)),"Garden action fits inside its footer beside the growth status.");
+                Assert(Contains(footer,shop)&&!Overlap(shop,f.Bounds(home.stage.rectTransform)),"The separate bottom garden action stays below the upper growth status.");
                 AssertHomeInformation(f);
                 var buttons=new[]{home.TemporarySettingsButton,home.shopButton,home.NavigationBar.HomeButton,home.NavigationBar.MissionButton,home.NavigationBar.CourseButton};
                 foreach(var button in buttons)
@@ -186,8 +189,8 @@ namespace CapstoneDesign.EditorTools
                     f.ClickButton(home.TemporarySettingsButton);Assert(home.navigation.settingsPanel.activeInHierarchy,"Settings button reaches the actual settings panel.");
                     f.ClickButton(home.NavigationBar.HomeButton);f.Render();f.ClickButton(home.shopButton);
                     Assert(Screen(f.Ui)=="shop","Footer garden action reaches the real garden shop.");
-                    f.Click("돌아가기");
-                    f.ClickButton(f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single().HomeButton);f.Render();
+                    f.Click("Shop.Back");
+                    f.ClickButton(home.NavigationBar.HomeButton);f.Render();
                     Assert(home.IsGardenVisible,"The bottom home tab returns from garden actions.");
                 }
                 Assert(camera==home.gardenCamera&&target==camera.targetTexture&&Resources.FindObjectsOfTypeAll<Camera>().Length==cameras,
@@ -200,22 +203,45 @@ namespace CapstoneDesign.EditorTools
         {
             var home=f.Home;var plant=WeeklyPlants.Active(f.Service.Snapshot);
             Assert(plant.Completed?home.stage.text=="완성 · 사진첩 보관":new[]{"작은 씨앗","새싹","봉오리","꽃이 피었어요"}.Contains(home.stage.text),
-                "Restored home shows its original compact stage caption.");
+                "The upper information panel retains the individual's original growth caption.");
             Assert(Find<Text>("GardenHome.PlantStatusDetail")==null&&Find<Button>("GardenHome.MemoryRecords")==null&&Find<Button>("GardenHome.Album")==null,
                 "Home-only status detail and added record/album actions have been removed.");
-            Assert(Mathf.Abs(f.Preview.lowerBoundary.rect.height-160)<.5f,"Restored home uses the original 160-unit growth card.");
-            var surface=f.Bounds(f.Preview.lowerBoundary);
-            var stage=f.Bounds(home.stage.rectTransform);var shop=f.Bounds((RectTransform)home.shopButton.transform);
-            Assert(Contains(surface,stage)&&Contains(surface,shop)&&!Overlap(stage,shop),"Original stage caption and garden action fit without overlap.");
+            var panel=home.OverlayTopBoundary;var shopRect=(RectTransform)home.shopButton.transform;
+            Assert(panel!=null&&panel==f.Preview.upperBoundary&&f.Preview.lowerBoundary==shopRect,
+                "Garden framing reserves the upper plant information and separate bottom shop.");
+            Assert(panel.parent.name=="GardenAndGrowth"&&panel.anchorMin==new Vector2(0,1)&&panel.anchorMax==new Vector2(0,1)
+                &&Vector2.Distance(panel.rect.size,new Vector2(624,184))<.5f,"The plant information occupies its compact upper panel.");
+            var backdrop=panel.GetComponent<Image>();var decoration=panel.Find("Garden theme surface");
+            Assert(backdrop!=null&&backdrop.color.a<.01f&&(decoration==null||!decoration.gameObject.activeInHierarchy),
+                "The plant information panel keeps its transparent fill.");
+            var frame=panel.Find("Garden outline frame")?.GetComponent<MaskableGraphic>();
+            Assert(frame!=null&&frame.isActiveAndEnabled&&!frame.raycastTarget,"The upper panel has a visible decorative border.");
+            Assert(home.title.transform.parent==panel&&home.stage.transform.parent==panel&&home.shopButton.transform.parent==panel.parent,
+                "Plant name and growth share the top panel while the shop remains a separate bottom action.");
+            var surface=f.Bounds(panel);var name=f.Bounds(home.title.rectTransform);
+            var stage=f.Bounds(home.stage.rectTransform);var shop=f.Bounds(shopRect);
+            Assert(Contains(surface,name)&&Contains(surface,stage)&&!Overlap(name,stage)&&!Overlap(surface,shop),
+                "Plant name and growth caption fit on separate rows above the independent shop.");
+            var navigation=f.Bounds((RectTransform)home.NavigationBar.transform);
+            Assert(Mathf.Abs(shop.center.x-surface.center.x)<.75f&&shop.yMin>=navigation.yMax-.75f&&shop.yMax<surface.yMin,
+                "The bottom shop is centered above the unchanged shared tabs.");
             Assert(home.progressDots!=null&&home.progressDots.Length==4,"Four original growth icons remain available.");
-            var occupied=new List<Rect>{stage,shop};
+            var occupied=new List<Rect>{name,stage};
             foreach(var dot in home.progressDots)
             {
-                Assert(dot!=null&&dot.gameObject.activeInHierarchy&&dot.GetComponentInChildren<PrototypeUiIcon>()!=null,"Original stage icon is visibly mounted.");
+                Assert(dot!=null&&dot.gameObject.activeInHierarchy&&dot.transform.parent==panel&&dot.GetComponentInChildren<PrototypeUiIcon>()!=null,"Original stage icon is visibly mounted in the top panel.");
                 var bounds=f.Bounds((RectTransform)dot.transform);
-                Assert(Contains(surface,bounds)&&occupied.All(other=>!Overlap(bounds,other)),"Original icons occupy their own row without covering the caption or garden action.");occupied.Add(bounds);
+                Assert(Contains(surface,bounds)&&occupied.All(other=>!Overlap(bounds,other)),"Original icons occupy their own row without covering the plant name or caption.");occupied.Add(bounds);
             }
             Assert(home.shopButton.IsInteractable(),"Original garden action remains enabled.");f.AssertButtonHit(home.shopButton);
+            var album=panel.GetComponent<Button>();Assert(album!=null&&album.IsInteractable(),"The information panel retains its album action.");f.AssertButtonHit(album);
+            string before=StateCodec.Encode(f.Service.Snapshot);int writes=f.Store.Writes;
+            f.ClickButton(album);
+            Assert(Screen(f.Ui)=="plant-album"&&!panel.gameObject.activeInHierarchy&&!home.shopButton.gameObject.activeInHierarchy,
+                "Tapping plant information opens the existing album and hides garden-only controls.");
+            home.navigation.ShowIsland();f.Render();
+            Assert(panel.gameObject.activeInHierarchy&&home.shopButton.IsActive(),"Returning home restores the top information and bottom shop.");
+            Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes,"Opening the information panel's album changes no saved plants, records or rewards.");
         }
         static void OpenAlbumFromHome(Fixture f)
         {
@@ -363,6 +389,7 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(width, height))
             {
+                GardenVisualClock.SetOverrideMinutes(720);f.Render();
                 var state = f.Service.Snapshot; var original = WeeklyPlants.Active(state); string plantId = original.Id;
                 var memory = original.Memories.Single(); string organId = memory.OrganId, memoId = memory.RecordId;
                 string recipe = PlantCodec.Encode(original.Recipe), photoId = original.PhotoId;
@@ -461,6 +488,224 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
+        static GardenState albumSeed;
+        static DateTimeOffset albumSeedTime;
+        static GardenState AlbumCollectionSeed()
+        {
+            if(albumSeed!=null)return albumSeed;
+            var store=new Store();var clock=new Clock();
+            using(var service=new GardenStateService(store,clock,new DemoBalanceConfig{VisitorChancePercent=0}))
+            {
+                Assert(service.Open(),service.LastError);
+                Complete(service,"album-seed-basic","course:P01");Complete(service,"album-seed-additional","free-mission:M17");
+                Assert(service.BeginDailyEmotion(service.CurrentCycleId)
+                    &&service.CompleteDailyEmotion(DailyEmotionPolicy.RecordId(service.CurrentCycleId),"편안함","합성 첫 식물 기록")
+                    &&service.SetPlantCompleted(WeeklyPlants.Active(service.Snapshot).Id,true),service.LastError);
+                for(int i=1;i<25;i++)
+                {
+                    clock.Now=clock.Now.AddDays(1);Complete(service,"album-seed-growth-"+i,"free-mission:M17");
+                    if(i==1)for(int record=0;record<45;record++)
+                    {
+                        clock.Now=clock.Now.AddMinutes(1);
+                        Assert(service.SaveExperience("album-experience-"+record,"즐거움","사진첩 합성 경험 "+record,"차분한 느낌","편안함","합성 생각"),service.LastError);
+                    }
+                    Assert(service.SetPlantCompleted(WeeklyPlants.Active(service.Snapshot).Id,true),service.LastError);
+                }
+                albumSeed=service.Snapshot;albumSeedTime=clock.Now;
+                Assert(albumSeed.PlantPhotos.Count==25&&albumSeed.PlantCollection.Plants.Count==25,
+                    "Collection fixture uses twenty-five independently created and completed individuals.");
+                StateCodec.Validate(albumSeed);
+            }
+            return albumSeed;
+        }
+        static GardenPlantPhoto[] OrderedPhotos(GardenState state) => state.PlantPhotos.OrderByDescending(photo=>photo.SavedUtc,StringComparer.Ordinal).ToArray();
+        static Vector4 PhotoPose(GardenPlantPhotoView view) => new Vector4(view.Yaw,view.Pitch,view.Zoom,view.MemoryPage);
+        static bool SameBounds(Rect a,Rect b) => Mathf.Abs(a.x-b.x)<.5f&&Mathf.Abs(a.y-b.y)<.5f
+            &&Mathf.Abs(a.width-b.width)<.5f&&Mathf.Abs(a.height-b.height)<.5f;
+        static void AssertPhotoResources(int maximum)
+        {
+            Assert(GardenPlantPhotoView.ActiveViewCount<=maximum&&GardenPlantPhotoView.OwnedTextureCount<=maximum
+                &&GardenPlantPhotoView.SharedCameraCount==1,"Visible album views bound texture ownership and share one rendering camera.");
+        }
+        static void AlbumCollectionFlow(int width,int height)
+        {
+            var seed=AlbumCollectionSeed();
+            using(var f=new Fixture(width,height,1,seed,albumSeedTime))
+            {
+                GardenVisualClock.SetOverrideMinutes(720);f.Render();
+                string saved=StateCodec.Encode(f.Service.Snapshot);int writes=f.Store.Writes;
+                var photos=OrderedPhotos(f.Service.Snapshot);OpenAlbumFromHome(f);f.Render();
+                var title=f.Ui.GetComponentsInChildren<Text>(false).Single(text=>text.text=="식물 사진첩").rectTransform;
+                var current=Find<RectTransform>("PlantAlbum.Current");var count=Find<Text>("PlantAlbum.SavedCount").rectTransform;
+                var pager=Find<RectTransform>("PlantAlbum.Pager");var grid=Find<ScrollRect>("PlantAlbum.Scroll");
+                var navigation=f.Ui.GetComponentInChildren<MissionBottomNavigation>(false);var nav=(RectTransform)navigation.transform;
+                Assert(grid!=null&&f.Ui.GetComponentsInChildren<ScrollRect>(false).Length==1,
+                    "Only the saved-plant grid scrolls; current plant and paging stay fixed.");
+                var screen=new Rect(0,0,width,height);
+                foreach(var node in new[]{title,current,count,pager,nav})
+                    Assert(node!=null&&node.GetComponentInParent<ScrollRect>()==null&&Contains(screen,f.Bounds(node)),"Album context and paging remain visible without scrolling.");
+                Assert(Find<Text>("PlantAlbum.SavedCount").text.Contains("25")&&Find<Text>("PlantAlbum.PageNumber").text=="1 / 3",
+                    "Saved count includes all photos while the page indicator reports the visible slice.");
+                Assert(!Overlap(f.Bounds(current),f.Bounds(grid.viewport))&&!Overlap(f.Bounds(pager),f.Bounds(grid.viewport))
+                    &&!Overlap(f.Bounds(pager),f.Bounds(nav)),"Current summary, grid, pager and navigation occupy separate regions.");
+                var tiles=f.Ui.GetComponentsInChildren<Button>(false).Where(button=>button.name.StartsWith("PlantAlbum.Photo.",StringComparison.Ordinal)).ToArray();
+                Assert(tiles.Length==12&&tiles.Select(tile=>tile.name).SequenceEqual(photos.Take(12).Select(photo=>"PlantAlbum.Photo."+photo.Id)),
+                    "The first page contains exactly the newest twelve saved individuals.");
+                Assert(f.Ui.GetComponentsInChildren<GardenPlantPhotoView>(false).Count(view=>view.name.StartsWith("PlantAlbum.Thumbnail.",StringComparison.Ordinal))==12,
+                    "The album never instantiates hidden thumbnails beyond its twelve-item page.");
+                if(width==320&&height==568)
+                    foreach(var firstRowTile in tiles.Take(2))
+                        Assert(Contains(f.Bounds(grid.viewport),f.Bounds((RectTransform)firstRowTile.transform)),
+                            "The initial pair of saved plants, including their names and periods, fits fully on the short phone before scrolling.");
+                AssertPhotoResources(13); // Twelve saved previews plus the one current-plant preview.
+                f.Capture("album-collection-top");
+                var fixedBounds=new[]{f.Bounds(title),f.Bounds(current),f.Bounds(count),f.Bounds(pager)};
+                grid.verticalNormalizedPosition=0;f.Layout();
+                Assert(SameBounds(fixedBounds[0],f.Bounds(title))&&SameBounds(fixedBounds[1],f.Bounds(current))
+                    &&SameBounds(fixedBounds[2],f.Bounds(count))&&SameBounds(fixedBounds[3],f.Bounds(pager)),"Grid scrolling leaves every context label and paging action fixed.");
+                f.AssertButtonHit(Find<Button>("PlantAlbum.NextPage"));f.Capture("album-fixed-first-page");
+                var oldNext=Find<Button>("PlantAlbum.NextPage").onClick;f.Click("PlantAlbum.NextPage");f.Render();
+                Assert(Find<Text>("PlantAlbum.PageNumber").text=="2 / 3"&&Find<ScrollRect>("PlantAlbum.Scroll").content.anchoredPosition.y<.5f,
+                    "Page change shows the correct collection slice from its top.");
+                oldNext.Invoke();f.Layout();Assert(Find<Text>("PlantAlbum.PageNumber").text=="2 / 3","A stale page callback cannot advance the rebuilt album twice.");
+                AssertPhotoResources(13);
+                grid=Find<ScrollRect>("PlantAlbum.Scroll");grid.verticalNormalizedPosition=0;f.Layout();
+                string photoId=photos[23].Id;var tile=Find<Button>("PlantAlbum.Photo."+photoId);
+                f.AssertButtonHit(tile);float offset=grid.content.anchoredPosition.y;Assert(offset>20,"Detail entry comes from a genuinely scrolled second page.");
+                f.ClickButton(tile);f.Render();AssertAlbumDetailRegions(f,photos[23],width,height);
+                Find<ScrollRect>("PlantAlbum.RecordsViewport").verticalNormalizedPosition=1;f.Render();
+                var firstRecord=f.Ui.GetComponentsInChildren<Button>(false).First(button=>button.name.StartsWith("PlantAlbum.Record.",StringComparison.Ordinal));
+                Assert(Contains(f.Bounds(Find<ScrollRect>("PlantAlbum.RecordsViewport").viewport),f.Bounds((RectTransform)firstRecord.transform)),
+                    "The first memory record, including both mission lines, is visible with the leaf pager on short displays.");
+                AssertPhotoResources(1);f.Capture("album-detail-fixed-regions");
+                f.Click("PlantAlbum.DetailBack");f.Render();
+                AssertAlbumReturn(f,photoId,offset);
+                f.ClickButton(Find<Button>("PlantAlbum.Photo."+photoId));f.Render();
+                Assert(f.Ui.TryNavigateBack(),"System Back handles the saved-plant detail.");f.Render();AssertAlbumReturn(f,photoId,offset);
+                f.Click("PlantAlbum.NextPage");f.Render();
+                Assert(Find<Text>("PlantAlbum.PageNumber").text=="3 / 3"
+                    &&f.Ui.GetComponentsInChildren<Button>(false).Count(button=>button.name.StartsWith("PlantAlbum.Photo.",StringComparison.Ordinal))==1
+                    &&!Find<Button>("PlantAlbum.NextPage").interactable,"The final partial page remains reachable without duplicates or an enabled next page.");
+                AssertPhotoResources(2);
+                var finalGrid=Find<ScrollRect>("PlantAlbum.Scroll");
+                Assert(finalGrid.verticalScrollbar.gameObject.activeSelf==(finalGrid.content.rect.height>finalGrid.viewport.rect.height+.5f),
+                    "The final short page shows a scrollbar only when it actually overflows its viewport.");
+                f.Capture("album-final-page");
+                f.Ui.ShowFocusCourse();f.Render();
+                Assert(GardenPlantPhotoView.ActiveViewCount==0&&GardenPlantPhotoView.OwnedTextureCount==0&&GardenPlantPhotoView.SharedCameraCount==0,
+                    "Leaving the album releases its previews and the temporary shared camera.");
+                Assert(StateCodec.Encode(f.Service.Snapshot)==saved&&f.Store.Writes==writes,"Collection paging, detail viewing and returns never change saved records, recipes, growth or coins.");
+            }
+        }
+        static void AssertAlbumReturn(Fixture f,string photoId,float offset)
+        {
+            Assert(Screen(f.Ui)=="plant-album"&&Find<Text>("PlantAlbum.PageNumber").text=="2 / 3"
+                &&Mathf.Abs(Find<ScrollRect>("PlantAlbum.Scroll").content.anchoredPosition.y-offset)<.5f,
+                "Returning to the album restores its exact page and grid reading position.");
+            Assert(EventSystem.current.currentSelectedGameObject==Find<Button>("PlantAlbum.Photo."+photoId).gameObject,
+                "Album return restores the selected saved-plant tile for keyboard navigation.");
+        }
+        static void AssertAlbumDetailRegions(Fixture f,GardenPlantPhoto photo,int width,int height)
+        {
+            var view=Find<GardenPlantPhotoView>("PlantAlbum.DetailPreview");var list=Find<ScrollRect>("PlantAlbum.RecordsViewport");
+            var name=Find<Text>("PlantAlbum.DetailName");var period=Find<Text>("PlantAlbum.DetailPeriod");
+            var heading=Find<Text>("PlantAlbum.RecordHeading");var back=Find<Button>("PlantAlbum.DetailBack");
+            var nav=(RectTransform)f.Ui.GetComponentInChildren<MissionBottomNavigation>(false).transform;
+            Assert(name.text==photo.DisplayName&&period.text==PlantAlbumHistory.Period(photo,f.Service.CurrentTimeZone),"Detail identifies the exact saved individual and its original growing period.");
+            Assert(name.preferredHeight<=name.rectTransform.rect.height+.5f&&period.preferredHeight<=period.rectTransform.rect.height+.5f,
+                "Plant identity and dates have enough measured space for their complete wrapped text.");
+            var screen=new Rect(0,0,width,height);var picture=(RectTransform)view.transform;
+            foreach(var node in new[]{name.rectTransform,period.rectTransform,picture,heading.rectTransform,list.viewport,(RectTransform)back.transform,nav})
+                Assert(Contains(screen,f.Bounds(node)),"Each saved-plant detail region stays inside the actual rendered display.");
+            Assert(!Overlap(f.Bounds(name.rectTransform),f.Bounds(period.rectTransform))&&!Overlap(f.Bounds(period.rectTransform),f.Bounds(picture))
+                &&!Overlap(f.Bounds(picture),f.Bounds(heading.rectTransform))&&!Overlap(f.Bounds(picture),f.Bounds(list.viewport))
+                &&!Overlap(f.Bounds(list.viewport),f.Bounds(nav)),"Identity, 3D plant, records and navigation never overlap.");
+            Assert(picture.GetComponentInParent<ScrollRect>()==null&&f.Ui.GetComponentsInChildren<ScrollRect>(false).Length==1,
+                "Only saved records scroll; orbit gestures target an independent 3D region.");
+            var pictureBounds=f.Bounds(picture);var before=PhotoPose(view);list.verticalNormalizedPosition=0;f.Layout();
+            Assert(SameBounds(pictureBounds,f.Bounds(picture))&&PhotoPose(view)==before,"Scrolling records cannot move or rotate the displayed plant.");
+            float offset=list.content.anchoredPosition.y;f.Drag(view.GetComponent<RawImage>(),pictureBounds.center);
+            Assert(!GardenMemoPopup.IsOpen&&Mathf.Abs(list.content.anchoredPosition.y-offset)<.5f,
+                "Orbit drag neither opens a memory nor scrolls the record list.");
+            f.AssertButtonHit(back);
+        }
+
+        static void AssertAlbumPhotoReturn(Fixture f,string photoId,Vector4 pose,float position)
+        {
+            f.Render();var view=Find<GardenPlantPhotoView>("PlantAlbum.DetailPreview");var scroll=Find<ScrollRect>("PlantAlbum.RecordsViewport");
+            float expected=Mathf.Clamp(position,0,Mathf.Max(0,scroll.content.rect.height-scroll.viewport.rect.height));
+            Assert(Screen(f.Ui)=="plant-photo:"+photoId&&view!=null&&Vector4.Distance(PhotoPose(view),pose)<.001f,
+                "Returning from memory actions preserves this individual's rotation, elevation, zoom and leaf page.");
+            Assert(Mathf.Abs(scroll.content.anchoredPosition.y-expected)<.5f,"Memory return restores the exact record reading offset, clamped only when a row was deleted.");
+            AssertPhotoResources(1);
+        }
+        static void AlbumMemoryReturnFlow()
+        {
+            var seed=AlbumCollectionSeed();
+            using(var f=new Fixture(320,568,1,seed,albumSeedTime))
+            {
+                var photo=OrderedPhotos(f.Service.Snapshot)[23];string photoId=photo.Id,plantId=photo.SourcePlantInstanceId;
+                var records=PlantAlbumHistory.Records(f.Service.Snapshot,photo);string memoId=records.Last().Id;
+                var memory=PlantAlbumHistory.Memory(f.Service.Snapshot,plantId,memoId);
+                Assert(records.Length==45&&memory.Kind==MemoryRecordKind.Experience,"Memo return fixture has three leaf pages and many independently saved experience records.");
+                string recipe=PlantCodec.Encode(photo.Recipe),active=WeeklyPlants.Active(f.Service.Snapshot).Id;
+                string growth=PlantCodec.Encode(f.Service.Snapshot.PracticeGrowthRecords);int coins=f.Service.CoinBalance;
+                OpenAlbumFromHome(f);f.Click("PlantAlbum.NextPage");
+                var grid=Find<ScrollRect>("PlantAlbum.Scroll");grid.verticalNormalizedPosition=0;f.Layout();
+                f.ClickButton(Find<Button>("PlantAlbum.Photo."+photoId));f.Render();
+                var view=Find<GardenPlantPhotoView>("PlantAlbum.DetailPreview");view.Rotate(67);view.SetZoom(.82f);SetPitch(view,-12);view.SetMemoryPage(2);f.Render();
+                Vector4 pose=PhotoPose(view);Assert(view.MemoryPage==2&&view.MemoryPageCount==3,"The viewer has a nondefault leaf page, orbit and zoom to preserve.");
+                var list=Find<ScrollRect>("PlantAlbum.RecordsViewport");list.verticalNormalizedPosition=0;f.Layout();
+                float position=list.content.anchoredPosition.y;Assert(position>500,"Memory actions begin near the end of a long record list.");
+                string before=StateCodec.Encode(f.Service.Snapshot);int writes=f.Store.Writes;
+                f.ClickButton(Find<Button>("PlantAlbum.Record."+memoId));f.Click("GardenMemoPopup.Edit");
+                Find<InputField>("PlantMemory.EditField.0").text="취소할 합성 변경";
+                f.Click("PlantMemory.Cancel");AssertAlbumPhotoReturn(f,photoId,pose,position);
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes,"Cancelling a memory edit preserves all source records and rewards.");
+
+                f.ClickButton(Find<Button>("PlantAlbum.Record."+memoId));f.Click("GardenMemoPopup.Edit");
+                Find<InputField>("PlantMemory.EditField.0").text="사진첩에서 수정한 합성 경험";
+                var staleSave=Find<Button>("PlantMemory.Save").onClick;
+                f.Store.Fail=true;f.Click("PlantMemory.Save");f.Store.Fail=false;
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes
+                    &&Find<InputField>("PlantMemory.EditField.0").text=="사진첩에서 수정한 합성 경험"
+                    &&!string.IsNullOrEmpty(Find<Text>("PlantMemory.Error").text),"Failed memory edit keeps unsaved input, saved data and reward state available for retry.");
+                f.Click("PlantMemory.Save");AssertAlbumPhotoReturn(f,photoId,pose,position);
+                Assert(PlantAlbumHistory.MemoryRecord(f.Service.Snapshot,plantId,memoId).Note.Contains("사진첩에서 수정한 합성 경험")
+                    &&f.Store.Writes==writes+1,"Memory retry commits exactly one update to the chosen historical record.");
+                before=StateCodec.Encode(f.Service.Snapshot);writes=f.Store.Writes;staleSave.Invoke();
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes,"A former memory-editor callback cannot save again after returning to the photo.");
+                f.Capture("album-memo-edit-pose-restored");
+
+                f.ClickButton(Find<Button>("PlantAlbum.Record."+memoId));f.Click("GardenMemoPopup.Delete");
+                f.Click("PlantMemory.Cancel");AssertAlbumPhotoReturn(f,photoId,pose,position);
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes,"Cancelling deletion preserves the record and the exact view context.");
+                f.ClickButton(Find<Button>("PlantAlbum.Record."+memoId));f.Click("GardenMemoPopup.Delete");
+                var staleDelete=Find<Button>("PlantMemory.DeleteConfirm").onClick;
+                f.Store.Fail=true;f.Click("PlantMemory.DeleteConfirm");f.Store.Fail=false;
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes
+                    &&PlantAlbumHistory.MemoryRecord(f.Service.Snapshot,plantId,memoId)!=null,"Failed memory deletion loses neither text nor its linked historical plant.");
+                f.Click("PlantMemory.DeleteConfirm");AssertAlbumPhotoReturn(f,photoId,pose,position);
+                Assert(PlantAlbumHistory.MemoryRecord(f.Service.Snapshot,plantId,memoId)==null&&Find<Button>("PlantAlbum.Record."+memoId)==null
+                    &&f.Store.Writes==writes+1,"Successful deletion removes precisely the selected record and its reading row.");
+                before=StateCodec.Encode(f.Service.Snapshot);writes=f.Store.Writes;staleDelete.Invoke();
+                Assert(StateCodec.Encode(f.Service.Snapshot)==before&&f.Store.Writes==writes,"A delayed delete callback cannot duplicate mutation after the viewer was rebuilt.");
+                var state=f.Service.Snapshot;var retained=state.PlantCollection.Plants.Single(plant=>plant.Id==plantId).Memories.Single(item=>item.OrganId==memory.OrganId);
+                Assert(retained.Kind==MemoryRecordKind.None&&retained.SlotIndex==memory.SlotIndex
+                    &&PlantCodec.Encode(state.PlantPhotos.Single(item=>item.Id==photoId).Recipe)==recipe
+                    &&WeeklyPlants.Active(state).Id==active&&state.Coins==coins&&PlantCodec.Encode(state.PracticeGrowthRecords)==growth,
+                    "Editing and deleting preserve leaf geometry, exact plant appearance, active growth target, coins and growth receipts.");
+                f.Capture("album-memo-delete-pose-restored");
+                f.Click("PlantAlbum.DetailBack");f.Render();
+                Assert(Find<Text>("PlantAlbum.PageNumber").text=="2 / 3"&&Find<ScrollRect>("PlantAlbum.Scroll").content.anchoredPosition.y>20,
+                    "After memory mutations, album return still identifies the original scrolled collection page.");
+                f.Ui.ShowFocusCourse();f.Render();
+                Assert(GardenPlantPhotoView.ActiveViewCount==0&&GardenPlantPhotoView.OwnedTextureCount==0
+                    &&GardenPlantPhotoView.SharedCameraCount==0&&GardenPlantPhotoView.OwnedEnvironmentMeshCount==0,
+                    "The last photo/list exit releases all owned preview textures and studio geometry.");
+            }
+        }
+
         static T Studio<T>(string name) where T : class
         {
             var studio = typeof(GardenPlantPhotoView).GetField("studio", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
@@ -535,9 +780,10 @@ namespace CapstoneDesign.EditorTools
             public readonly GardenStateService Service; public readonly Store Store = new Store(); public readonly Clock Clock = new Clock();
             public readonly Camera Camera; public readonly PrototypeGardenPreviewLayout Preview;
             readonly EventSystem events; readonly RenderTexture target; readonly int width, height;
-            public Fixture(int width, int height, int compositionStage = 0, GardenState initialState = null)
+            public Fixture(int width, int height, int compositionStage = 0, GardenState initialState = null, DateTimeOffset? instant = null)
             {
                 this.width = width; this.height = height;
+                if(instant.HasValue)Clock.Now=instant.Value;
                 EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity", OpenSceneMode.Single); AndroidPlatformBridge.UseMockProvider();
                 if(initialState!=null)Store.Save(initialState);
                 Service = new GardenStateService(Store, Clock, new DemoBalanceConfig { VisitorChancePercent = 0 }); Assert(Service.Open(), Service.LastError);
@@ -585,6 +831,7 @@ namespace CapstoneDesign.EditorTools
                     Canvas.ForceUpdateCanvases();
                     foreach (var fit in Resources.FindObjectsOfTypeAll<FigmaMissionCanvasFit>().Where(x => x.isActiveAndEnabled)) fit.Fit();
                     foreach (var page in Resources.FindObjectsOfTypeAll<FocusMobilePageLayout>().Where(x => x.isActiveAndEnabled)) page.Refresh();
+                    foreach (var album in Resources.FindObjectsOfTypeAll<GardenPlantAlbumLayout>().Where(x => x.isActiveAndEnabled)) album.Refresh();
                     foreach (var detail in Resources.FindObjectsOfTypeAll<GardenPlantAlbumDetailLayout>().Where(x => x.isActiveAndEnabled)) detail.Refresh();
                     foreach (var popup in Resources.FindObjectsOfTypeAll<GardenMemoPopup>().Where(x => x.isActiveAndEnabled)) popup.Layout();
                     Canvas.ForceUpdateCanvases();

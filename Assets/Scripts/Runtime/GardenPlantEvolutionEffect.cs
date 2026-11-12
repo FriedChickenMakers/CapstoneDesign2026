@@ -143,9 +143,12 @@ namespace CapstoneDesign.Runtime
             if (released) return; released = true; RestoreMaterials();
             if (swirl != null) swirl.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             if (burst != null) burst.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            if (whiteMaterial != null) Destroy(whiteMaterial);
-            if (ribbonMaterial != null) Destroy(ribbonMaterial);
-            if (particleMaterial != null) Destroy(particleMaterial);
+            ReleaseMaterial(whiteMaterial); ReleaseMaterial(ribbonMaterial); ReleaseMaterial(particleMaterial);
+        }
+        static void ReleaseMaterial(Material material)
+        {
+            if (material == null) return;
+            if (Application.isPlaying) Destroy(material); else DestroyImmediate(material);
         }
         void OnDestroy() => Finish();
     }

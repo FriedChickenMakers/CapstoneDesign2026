@@ -12,13 +12,11 @@ namespace CapstoneDesign.Runtime
         public RectTransform RecordViewport, RecordContent, Back, Navigation;
         public Text Notice;
         public float RecordContentHeight;
+        public float MinimumRecordHeight = 136;
 
-        const float HeaderHeight = 132;
-        const float IdentityHeight = 48;
-        const float HeadingHeight = 24;
-        const float BackHeight = 48;
+        const float HeaderHeight = FigmaMissionUi.PageHeaderContentTop;
+        const float HeadingHeight = 28;
         const float NoticeHeight = 56;
-        const float MinimumRecordHeight = 144;
         RectTransform design;
 
         void OnEnable()
@@ -36,26 +34,28 @@ namespace CapstoneDesign.Runtime
             if (design == null) return;
             float height = design.rect.height;
             float navigationTop = height - MissionBottomNavigation.ReservedHeight;
-            float backTop = navigationTop - BackHeight;
             bool showNotice = Notice != null && Notice.gameObject.activeSelf;
-            float recordBottom = backTop - (showNotice ? NoticeHeight : 0);
+            float recordBottom = navigationTop - 8 - (showNotice ? NoticeHeight : 0);
+            float nameHeight = Measure(PlantName, 28);
+            float periodHeight = Measure(Period, 24);
+            float identityHeight = 8 + nameHeight + 4 + periodHeight + 8;
 
             // The removed button row gives its room to the photo. The bottom
             // shelf keeps the same inset and spacing as home and mission pages.
             // Reserve readable records first when a notice or short window needs room.
-            float free = Mathf.Max(0, recordBottom - HeaderHeight - IdentityHeight
-                - HeadingHeight - 8);
-            float preferredPreview = Mathf.Clamp(204 + (height - 693) * 84 / 151, 204, 288);
+            float free = Mathf.Max(0, recordBottom - HeaderHeight - identityHeight
+                - HeadingHeight - 12);
+            float preferredPreview = Mathf.Clamp(238 + (height - 692) * 102 / 152, 238, 360);
             float previewHeight = Mathf.Min(preferredPreview, Mathf.Max(0, free - MinimumRecordHeight));
             if (free < MinimumRecordHeight + 96)
                 previewHeight = Mathf.Min(96, free * .4f);
 
-            Place(Card, 24, HeaderHeight, 342, IdentityHeight + previewHeight);
+            Place(Card, 24, HeaderHeight, 342, identityHeight + previewHeight);
             // These three references are Card children; their coordinates are local.
-            Place(PlantName, 16, 2, 310, 24);
-            Place(Period, 16, 26, 310, 20);
-            Place(Preview, 16, IdentityHeight, 310, previewHeight);
-            float headingTop = HeaderHeight + IdentityHeight + previewHeight + 4;
+            Place(PlantName, 16, 8, 310, nameHeight);
+            Place(Period, 16, 12 + nameHeight, 310, periodHeight);
+            Place(Preview, 16, identityHeight, 310, previewHeight);
+            float headingTop = HeaderHeight + identityHeight + previewHeight + 8;
             Place(RecordHeading, 24, headingTop, 342, HeadingHeight);
             float recordTop = headingTop + HeadingHeight + 4;
             float recordHeight = Mathf.Max(0, recordBottom - recordTop);
@@ -67,14 +67,25 @@ namespace CapstoneDesign.Runtime
                 RecordContent.sizeDelta = new Vector2(342, contentHeight);
                 RecordContent.anchoredPosition = new Vector2(0,
                     Mathf.Clamp(RecordContent.anchoredPosition.y, 0, contentHeight - recordHeight));
+                var scroll = RecordViewport == null ? null : RecordViewport.GetComponent<ScrollRect>();
+                if (scroll != null && scroll.verticalScrollbar != null)
+                    scroll.verticalScrollbar.gameObject.SetActive(RecordContentHeight > recordHeight + .5f);
             }
-            Place(Back, 24, backTop, 342, BackHeight);
+            Place(Back, 24, 0, 110, 38);
             MissionBottomNavigation.FitRect(Navigation,height);
             if (showNotice)
             {
                 Place(Notice.rectTransform, 24, recordBottom, 342, NoticeHeight);
                 Notice.transform.SetAsLastSibling();
             }
+        }
+
+        static float Measure(RectTransform target, float minimum)
+        {
+            if (target == null) return minimum;
+            target.sizeDelta = new Vector2(310, target.sizeDelta.y);
+            var text = target.GetComponent<Text>();
+            return text == null ? minimum : Mathf.Max(minimum, Mathf.Ceil(text.preferredHeight));
         }
 
         static void Place(RectTransform target, float x, float y, float width, float height)

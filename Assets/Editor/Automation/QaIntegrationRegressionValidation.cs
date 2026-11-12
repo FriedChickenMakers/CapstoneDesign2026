@@ -123,12 +123,14 @@ namespace CapstoneDesign.EditorTools
             {
                 var provider=new SyntheticPhotos(Path.Combine(output,"reward-photo"));
                 f.Ui.SetPhotoProviderForValidation(provider);
-                Ready(f,"photo-reward");AttachPhoto(f,provider,"photo-reward");
+                Ready(f,"photo-reward");f.Ui.SelectFocusSession("photo-reward");
+                Check(Text(f.Ui,"Photo.Bonus").text.Contains("추가 코인 +10"),"The eligible photo screen quotes the approved ten-coin bonus.");
+                AttachPhoto(f,provider,"photo-reward");
                 Check(f.Service.CompletePracticeSession("photo-reward"),f.Service.LastError);
                 var saved=Session(f.Service,"photo-reward");
-                Check(saved.RewardAmount==50 && saved.PhotoBonusAmount==1,"Actual completion grants the supported 50+1 reward.");
+                Check(saved.RewardAmount==30 && saved.PhotoBonusAmount==10,"Additional completion grants 30 coins plus the confirmed-photo bonus of 10.");
                 f.Invoke("ShowFocusCompletion","photo-reward");
-                Check(Text(f.Ui,"Focus.CoinReward").text=="코인 +51","Completion displays the actual base-plus-photo total.");
+                Check(Text(f.Ui,"Focus.CoinReward").text=="코인 +40","Completion displays the actual additional-plus-photo total.");
                 string original=StateCodec.Encode(f.Service.Snapshot);
                 var invalid=f.Service.Snapshot;invalid.Sessions.Single(s=>s.SessionId=="photo-reward").RewardAmount=0;
                 bool rejected=false;

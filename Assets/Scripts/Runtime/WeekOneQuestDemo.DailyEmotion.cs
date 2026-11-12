@@ -27,11 +27,13 @@ namespace CapstoneDesign.Runtime
         Button dailyEmotionSaveButton;
         bool dailyEmotionCompleting;
         float dailyEmotionScroll;
+        ScrollRect dailyEmotionViewScroll;
+        string dailyEmotionViewId;
 
         static string DailyEmotionRewardSummary(DailyEmotionRecord record)
         {
             if (record == null || record.RewardVersion == 0) return "오늘의 감정을 남겼어요.";
-            string memo = string.IsNullOrEmpty(record.MemoId) ? "기록을 저장했어요" : "메모 1장을 남겼어요";
+            string memo = string.IsNullOrEmpty(record.MemoId) ? "기록을 저장했어요" : "기억 잎 1개를 남겼어요";
             return memo + (record.RewardAmount > 0 ? " · 코인 +" + record.RewardAmount : "");
         }
 
@@ -45,7 +47,7 @@ namespace CapstoneDesign.Runtime
                 available || completed ? FigmaMissionUi.Soft : Color.white, 20);
             var title = FigmaMissionUi.Label(card, "감정 기록", 16, 12, 310, 28, 18, null, true);
             string description = completed ? DailyEmotionRewardSummary(record)
-                : available ? "기억 잎 1개 · 완료 보상 100코인"
+                : available ? "기억 잎 1개 · 완료 보상 " + GardenEconomyPolicy.EmotionRecordCoins + "코인"
                 : "모든 미션 완료 후 열려요.";
             var detail = FigmaMissionUi.Label(card, description, 16, 42, 310, 24, 14, FigmaMissionUi.Muted);
             string id = record?.Id;
@@ -58,13 +60,16 @@ namespace CapstoneDesign.Runtime
                 completed || available ? Color.white : FigmaMissionUi.Muted, 16);
             action.name = "DailyEmotion.CardAction";
             action.interactable = completed || available;
-            return new FocusMissionHomeLayout.Card { Root=card, Title=title, Detail=detail, Action=action, TitleSize=18 };
+            return new FocusMissionHomeLayout.Card { Root=card, Title=title, Detail=detail, Action=action,
+                TitleSize=20, DetailSize=15, CenterText=true };
         }
 
         public void ShowDailyEmotion(string id = null)
         {
             if (!opened || IsMissionDebugActive || !SaveActivePracticeDraft()) return;
-            if (!RefreshCycle()) return;
+            var requested = id == null ? DailyEmotionPolicy.Current(Service.Snapshot) : Service.GetDailyEmotion(id);
+            // Reading a completed or expired record must not write a new day's state.
+            if ((requested == null || !requested.IsCompleted && !Service.IsDailyEmotionExpired(requested.Id)) && !RefreshCycle()) return;
             if (id == null)
             {
                 var state = Service.Snapshot;
@@ -128,6 +133,7 @@ namespace CapstoneDesign.Runtime
 
         void RenderDailyEmotion(DailyEmotionRecord record)
         {
+            RememberDailyEmotionView();
             bool editable = DailyEmotionCanEdit(record.Id);
             dailyEmotionCompleting = false;
             dailyEmotionNoteInput = null;
@@ -136,14 +142,18 @@ namespace CapstoneDesign.Runtime
             var root = BeginFigmaPage("daily-emotion", () => ShowDailyEmotion(record.Id), FigmaMissionUi.Background);
             var frame = activityFrame;
             if (notice != null) notice.name = "DailyEmotion.Error";
-            FigmaHeader(root, "감정 기록", record.CycleId.Replace('-', '.') + " · 나의 마음 돌아보기");
-            var body = FigmaMissionUi.Rect(root, "DailyEmotion.Body", 24, 146, 342, 1);
-            dailyEmotionStatus = FigmaMissionUi.Label(body, "", 0, 0, 342, 64, 15, FigmaMissionUi.Muted);
+            FigmaMissionUi.UseGardenShell(activityFrame);
+            FigmaHeader(root, "감정 기록", record.CycleId.Replace('-', '.'));
+            var content = FigmaScroll(root, 126, 500, 1);
+            pageViewport.name = "DailyEmotion.Scroll";
+            var body = FigmaMissionUi.Rect(content, "DailyEmotion.Body", 24, 0, 342, 1);
+            var footer = FigmaMissionUi.Box(root, "DailyEmotion.Actions", 0, 730, 390, 78, FigmaMissionUi.Background);
+            dailyEmotionStatus = FigmaMissionUi.Label(body, "", 0, 0, 342, 44, 15, FigmaMissionUi.Muted);
             dailyEmotionStatus.name = "DailyEmotion.Status";
-            float y = 72;
+            float y = 52;
             if (editable)
             {
-                y += DailyEmotionText(body, "가까운 감정을 골라요", y, 18, FigmaMissionUi.Ink, true) + 8;
+                y += DailyEmotionText(body, "지금의 감정 · 선택", y, 18, FigmaMissionUi.Ink, true) + 8;
                 var emotions = dailyEmotionDraft.Expanded ? FocusEmotions : DailyEmotionFirstChoices;
                 for (int i = 0; i < emotions.Length; i++)
                 {
@@ -177,13 +187,13 @@ namespace CapstoneDesign.Runtime
                 {
                     if (!DailyEmotionPageIsCurrent(frame, record.Id)) return;
                     SaveDailyEmotionUiDraft(); // Reading more choices must not depend on storage success.
-                    CaptureDailyEmotionScroll(root);
+                    RememberDailyEmotionView();
                     dailyEmotionDraft.Expanded = !dailyEmotionDraft.Expanded;
                     RenderDailyEmotion(Service.GetDailyEmotion(record.Id) ?? record);
                 }, Color.clear, FigmaMissionUi.Green, 14).name = "DailyEmotion.MoreEmotions";
-                y += 58;
+                y += 48;
                 y += DailyEmotionText(body, "한 줄 메모 · 선택", y, 18, FigmaMissionUi.Ink, true) + 8;
-                dailyEmotionNoteInput = FigmaMissionUi.Input(body, "지금 떠오르는 생각을 적어보세요.", 0, y, 342, 140, 500);
+                dailyEmotionNoteInput = FigmaMissionUi.Input(body, "떠오르는 생각을 남겨요.", 0, y, 342, 112, 500);
                 dailyEmotionNoteInput.name = "DailyEmotion.Note";
                 dailyEmotionNoteInput.SetTextWithoutNotify(dailyEmotionDraft.Note);
                 dailyEmotionNoteInput.onValueChanged.AddListener(value =>
@@ -203,12 +213,12 @@ namespace CapstoneDesign.Runtime
                 keyboard.Background = FigmaMissionUi.Background;
                 keyboard.Accent = FigmaMissionUi.Green;
                 keyboard.Save = () => SaveDailyEmotionUiDraft();
-                y += 152;
-                y += DailyEmotionText(body, "감정이나 메모 중 하나만 남겨도 돼요.\n완료하면 기억 잎에 기록이 담기고 100코인을 받아요.\n다음 날 오전 4시까지 작성할 수 있어요.", y, 14, FigmaMissionUi.Muted);
-                dailyEmotionSaveButton = FigmaMissionUi.Button(root, "메모 남기고 완료", 100, 730, 266, 56,
+                y += 124;
+                y += DailyEmotionText(body, "완료하면 기억 잎 1개 · " + GardenEconomyPolicy.EmotionRecordCoins + "코인\n다음 날 오전 4시까지 작성할 수 있어요.", y, 14, FigmaMissionUi.Muted);
+                dailyEmotionSaveButton = FigmaMissionUi.Button(footer, "메모 남기고 완료", 100, 10, 266, 56,
                     () => CompleteDailyEmotionUi(frame, record.Id));
                 dailyEmotionSaveButton.name = "DailyEmotion.Save";
-                FigmaMissionUi.Button(root, "뒤로", 24, 730, 64, 56, () => TryDailyEmotionBack(), Color.white,
+                FigmaMissionUi.Button(footer, "뒤로", 24, 10, 64, 56, () => TryDailyEmotionBack(), Color.white,
                     FigmaMissionUi.Green, 15).name = "DailyEmotion.Back";
             }
             else
@@ -219,18 +229,22 @@ namespace CapstoneDesign.Runtime
                 y += DailyEmotionText(body, "남긴 메모", y, 15, FigmaMissionUi.Muted) + 8;
                 y += DailyEmotionText(body, string.IsNullOrWhiteSpace(dailyEmotionDraft.Note) ? "남긴 메모가 없어요." : dailyEmotionDraft.Note,
                     y, 17, FigmaMissionUi.Ink, name: "DailyEmotion.ReadOnlyNote") + 16;
-                FigmaMissionUi.Button(root, "미션으로", 24, 730, 166, 56, ShowHome, Color.white,
+                FigmaMissionUi.Button(footer, "미션으로", 24, 10, 166, 56, ShowHome, Color.white,
                     FigmaMissionUi.Green, 15).name = "DailyEmotion.Back";
-                FigmaMissionUi.Button(root, "기록 목록", 200, 730, 166, 56, ShowDailyEmotionHistory)
+                FigmaMissionUi.Button(footer, "기록 목록", 200, 10, 166, 56, ShowDailyEmotionHistory)
                     .name = "DailyEmotion.History";
             }
             body.sizeDelta = new Vector2(342, y + 12);
             RefreshDailyEmotionUiDate();
-            FocusEnter(root);
-            var scroll = root.GetComponentInChildren<ScrollRect>();
-            if (scroll != null)
-                scroll.content.anchoredPosition = new Vector2(0, Mathf.Clamp(dailyEmotionScroll, 0,
-                    Mathf.Max(0, scroll.content.rect.height - scroll.viewport.rect.height)));
+            var layout=ConfigureGardenPage(root, content, y + 12, footer, 78, top:126);
+            // Let the fresh scrollbar establish its bounds before applying the
+            // prior pixel offset; its initial top value must not overwrite it.
+            Canvas.ForceUpdateCanvases(); layout.Refresh();
+            dailyEmotionViewScroll = pageViewport.GetComponent<ScrollRect>();
+            dailyEmotionViewId = record.Id;
+            dailyEmotionViewScroll.StopMovement();
+            dailyEmotionViewScroll.content.anchoredPosition = new Vector2(0, Mathf.Clamp(dailyEmotionScroll, 0,
+                Mathf.Max(0, dailyEmotionViewScroll.content.rect.height - dailyEmotionViewScroll.viewport.rect.height)));
         }
 
         static float DailyEmotionText(Transform parent, string value, float y, int size, Color color,
@@ -244,10 +258,11 @@ namespace CapstoneDesign.Runtime
             return height;
         }
 
-        void CaptureDailyEmotionScroll(Transform root)
+        void RememberDailyEmotionView()
         {
-            var scroll = root.GetComponentInChildren<ScrollRect>();
-            dailyEmotionScroll = scroll == null ? 0 : scroll.content.anchoredPosition.y;
+            if (dailyEmotionViewScroll == null || dailyEmotionViewId != dailyEmotionDraftId
+                || !ReferenceEquals(dailyEmotionDraftOwner, Service)) return;
+            dailyEmotionScroll = Mathf.Max(0,dailyEmotionViewScroll.content.anchoredPosition.y);
         }
 
         void SetDailyEmotionError(string message)
@@ -295,8 +310,7 @@ namespace CapstoneDesign.Runtime
             {
                 if (button == null) continue;
                 bool selected = button.name == "DailyEmotion.Emotion." + dailyEmotionDraft.Mood;
-                button.targetGraphic.color = selected ? FigmaMissionUi.Green : Color.white;
-                button.GetComponentInChildren<Text>().color = selected ? Color.white : FigmaMissionUi.Ink;
+                FigmaMissionUi.SetSelected(button, selected);
                 button.interactable = editable && !dailyEmotionCompleting;
             }
             if (dailyEmotionNoteInput != null)
@@ -309,9 +323,9 @@ namespace CapstoneDesign.Runtime
                     && (!string.IsNullOrWhiteSpace(dailyEmotionDraft.Mood) || !string.IsNullOrWhiteSpace(dailyEmotionDraft.Note));
             if (dailyEmotionStatus != null)
                 dailyEmotionStatus.text = record?.IsCompleted == true ? DailyEmotionRewardSummary(record)
-                    : editable ? "감정 또는 메모를 남겨요." + (string.IsNullOrWhiteSpace(dailyEmotionDraft.Mood)
+                    : editable ? "감정·메모 중 하나만 남겨요." + (string.IsNullOrWhiteSpace(dailyEmotionDraft.Mood)
                         ? "" : "\n선택한 감정 · " + dailyEmotionDraft.Mood)
-                    : dailyEmotionDraft.Dirty ? "작성 시간이 지났어요. 저장하지 못한 입력은\n이 화면에만 남아 있어요."
+                    : dailyEmotionDraft.Dirty ? "작성 시간이 지났어요.\n저장 못한 내용은 이 화면에 남아요."
                     : "작성 시간이 지났어요.\n지난 기록은 읽기만 할 수 있어요.";
         }
 
@@ -331,11 +345,12 @@ namespace CapstoneDesign.Runtime
             {
                 dailyEmotionCompleting = false;
                 if (Service.IsDailyEmotionExpired(id)) SetDailyEmotionError(null);
-                else SetDailyEmotionError(Service.LastError);
+                else {SetDailyEmotionError(Service.LastError);GardenSfxPlayer.Play(GardenSfxCue.Error);}
                 RefreshDailyEmotionUiDate();
                 return;
             }
             BindDailyEmotionDraft(Service.GetDailyEmotion(id));
+            GardenSfxPlayer.Play(GardenSfxCue.RecordSaved);
             SetDailyEmotionError(null);
             RefreshDailyEmotionUiDate();
             dailyEmotionCompleting = false;
@@ -369,6 +384,8 @@ namespace CapstoneDesign.Runtime
             dailyEmotionSaveButton = null;
             dailyEmotionCompleting = false;
             dailyEmotionScroll = 0;
+            dailyEmotionViewScroll = null;
+            dailyEmotionViewId = null;
         }
     }
 }

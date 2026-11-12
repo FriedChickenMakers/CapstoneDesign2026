@@ -201,7 +201,7 @@ namespace CapstoneDesign.EditorTools
 
         static void BasicFlows(Report report, bool capture)
         {
-            using (var f = new Fixture(report))
+            using (var f = new Fixture(report, true))
             {
                 foreach (var code in new[] { "P04", "P01", "P03" })
                 {
@@ -219,8 +219,8 @@ namespace CapstoneDesign.EditorTools
                         code + " lost a confirmed step.");
                     Assert(completed.Note == code + " synthetic reflection" && completed.Mood == "편안함", code + " lost reflection.");
                     f.Capture(code + "-completed", capture);
-                    f.Click("Focus.ConfirmHome");
-                    Assert(f.Ui.CurrentScreen == "home", "Completion confirm did not return to mission home.");
+                    MissionCompletionUiValidation.ReturnToMissions(f);
+                    Assert(f.Ui.CurrentScreen == "home", "Garden's mission tab did not return to mission home.");
                     f.Clock.UtcNow = f.Clock.UtcNow.AddDays(1);
                     f.Ui.RefreshCycle();
                     Assert(f.Has("기본 미션 시작하기"), "Home did not reopen the basic mission after day rollover without navigation.");
@@ -326,28 +326,61 @@ namespace CapstoneDesign.EditorTools
         {
             using (var f = new Fixture(report))
             {
-                f.Click("기본 미션 시작하기"); f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
-                f.CompleteReflection("<size=99>synthetic history detail</size>", "뿌듯함", false);
+                f.Click("기본 미션 시작하기"); f.Click("Focus.IconAction");
+                string originalId = f.Latest.SessionId;
+                CompleteCurrentSavedPractice(f, originalId);
+                // Retained saved reflection from an earlier app version remains
+                // readable; current practices no longer ask for this extra form.
+                Assert(f.Service.UpdateReflection(originalId, "뿌듯함", "<size=99>synthetic history detail</size>"), f.Service.LastError);
+                string saved = StateCodec.Encode(f.Service.Snapshot);
+                f.Store.FailNextSaves = 1;
                 f.Invoke("ShowFocusCourse");
-                f.Click("Focus.CourseRecords.2w"); f.Click("저장된 기록 보기");
+                f.Click("Focus.CourseRecords.2w"); f.Click("Focus.Occurrence.2w.1");
                 f.Capture("08-history", capture);
-                f.Click("Focus.Record." + f.Latest.SessionId); f.Click("Focus.RecordStepsToggle");
+                f.Click("Course.DetailSteps");
                 var copy = f.VisibleText;
                 Assert(copy.Contains("synthetic history detail") && copy.Contains("뿌듯함"), "Saved detail omitted reflection fields.");
                 Assert(f.Ui.GetComponentsInChildren<Text>(false).Any(t => t.text.Contains("<size=99>synthetic history detail</size>") && !t.supportRichText),
                     "Saved user markup was interpreted as rich text instead of displayed literally.");
-                Assert(copy.Contains("감촉") && copy.Contains("한 모금"), "Saved detail omitted step content/choice.");
+                Assert(f.Service.Snapshot.Sessions.Single(s => s.SessionId == originalId).FocusStepRecords
+                    .All(step => copy.Contains(step.Title) && copy.Contains(step.Prompt)), "Saved detail omitted step content/choice.");
                 f.Capture("09-record-detail", capture);
                 f.ScrollBottom(); f.Capture("09b-record-reflection", capture);
+                f.Click("Course.DetailClose");
+                Assert(StateCodec.Encode(f.Service.Snapshot) == saved && f.Store.FailNextSaves == 1,
+                    "Course/detail browsing attempted to save or changed a committed record.");
+                f.Store.FailNextSaves = 0;
                 var before = f.Service.Snapshot.Nutrient;
-                f.Click("다시 연습하기 · 하루 3회까지 성장");
-                f.Click("시작"); f.CompletePractice(FocusMissionCatalog.Find("P04"), false);
-                f.CompleteReflection("synthetic review", "", false);
+                // The legacy review entry is retained as a public contract,
+                // while current record screens intentionally omit its old button.
+                f.Invoke("StartFocusReview", FocusMissionPolicy.MissionAt(1,"2w").Id, 1, "2w");
+                f.Click("Focus.IconAction"); CompleteCurrentSavedPractice(f, f.Latest.SessionId);
                 Assert(f.Latest.FocusReview && f.Latest.Status == ParticipationState.RewardCommitted, "Review was not saved separately.");
                 Assert(f.Service.Snapshot.Nutrient == before && FocusMissionPolicy.CompletedCount(f.Service.Snapshot) == 1,
                     "Review changed course progress or awarded a second reward.");
+                string reviewed = StateCodec.Encode(f.Service.Snapshot);
+                Assert(f.Service.CompletePracticeSession(f.Latest.SessionId) && StateCodec.Encode(f.Service.Snapshot) == reviewed,
+                    "Repeating an already completed review changed its reward or record.");
             }
+        }
+
+        static void CompleteCurrentSavedPractice(Fixture f, string id)
+        {
+            var session = f.Service.Snapshot.Sessions.Single(item => item.SessionId == id);
+            if (session.Status == ParticipationState.Selected) Assert(f.Service.StartSession(id), f.Service.LastError);
+            var mission = FocusMissionCatalog.FindForSession(session);
+            if (mission.Code == "M15") Assert(f.Service.EnsureFocusWalkingTarget(id, WalkingPersonalization.Evaluate(null,f.Clock.UtcNow,f.Clock.TimeZone)), f.Service.LastError);
+            while (true)
+            {
+                session = f.Service.Snapshot.Sessions.Single(item => item.SessionId == id);
+                if (session.InstructionStep >= mission.Steps.Length) break;
+                int index = session.InstructionStep; var step = mission.Steps[index];
+                string value = step.Kind == "draw" ? "DRAW1|AA_B" : step.Options.FirstOrDefault()
+                    ?? (step.RequiredAnswer || step.OptionalInput ? "synthetic saved response" : "");
+                Assert(f.Service.ConfirmFocusStep(id, index, value), f.Service.LastError);
+            }
+            if (CameraMissionPolicy.Ready(f.Service.Snapshot.Sessions.Single(item => item.SessionId == id))) Assert(f.Service.SkipPhoto(id), f.Service.LastError);
+            Assert(f.Service.CompletePracticeSession(id), f.Service.LastError);
         }
 
         static void IntegratedShell(Report report, bool capture)
@@ -466,15 +499,14 @@ namespace CapstoneDesign.EditorTools
         {
             using(var f=new Fixture(report,true))
             {
-                f.Click("기본 미션 시작하기");f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("P04"),false);
-                f.CompleteReflection("synthetic completed record before settings reset","만족감",false);
+                f.Click("기본 미션 시작하기"); f.Click("Focus.IconAction");
+                CompleteCurrentSavedPractice(f,f.Latest.SessionId);
                 var settings=f.OpenMissionSettings();
                 Assert(!settings.MissionRefreshButton.gameObject.activeInHierarchy,"Test tools should start collapsed.");
                 f.ClickControl(settings.TestToolsToggleButton);
-                Assert(settings.MissionRefreshButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="미션 기록 초기화")
+                Assert(settings.MissionRefreshButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="전체 초기화")
                     && settings.AdvanceMissionDayButton.GetComponentsInChildren<Text>(false).Any(t=>t.text=="다음 날로 넘기기"),
-                    "Mission management actions do not have their requested settings labels.");
+                    "Development actions must expose full reset and app-only day advance.");
                 f.Capture("20-settings-mission-controls",capture);
                 var original=f.Service.Snapshot;string originalState=StateCodec.Encode(original);
                 string originalDate=settings.MissionDateStatus.text;var rawClock=f.Clock.UtcNow;var effectiveClock=f.Service.CurrentUtc;
@@ -482,9 +514,9 @@ namespace CapstoneDesign.EditorTools
                 Assert(StateCodec.Encode(f.Service.Snapshot)==originalState&&f.Service.CurrentUtc==effectiveClock
                     && settings.MissionDateStatus.text==originalDate,"Failed day advance changed records, date or the settings label.");
                 f.ClickControl(settings.AdvanceMissionDayButton);
-                var advanced=f.Service.Snapshot;string advancedCycle=advanced.LastCycleId;
+                var advanced=f.Service.Snapshot;
                 Assert(f.Clock.UtcNow==rawClock&&f.Service.CurrentUtc==effectiveClock.AddDays(1)
-                    && advancedCycle!=original.LastCycleId,"Next-day control changed the source clock or failed to advance the mission day.");
+                    && advanced.LastCycleId!=original.LastCycleId,"Next-day control changed the source clock or failed to advance the mission day.");
                 Assert(advanced.Sessions.Count==original.Sessions.Count&&advanced.Nutrient==original.Nutrient
                     && PlantCodec.Encode(advanced.PlantAppearance.Recipe)==PlantCodec.Encode(original.PlantAppearance.Recipe),
                     "Day advance erased mission records, changed rewards or modified the saved plant.");
@@ -492,44 +524,54 @@ namespace CapstoneDesign.EditorTools
                     "Settings did not show the newly saved app date.");
                 f.Capture("21-settings-next-day",capture);
                 f.Navigation.ShowActivities();f.Invoke("ShowHome");
-                Assert(f.Has("기본 미션 시작하기")&&f.Has("추천 미션 보기"),"Next day did not reopen both available mission actions.");
+                Assert(f.Has("기본 미션 시작하기")&&f.Has("Focus.AdditionalAction"),"Next day did not reopen both available mission actions.");
                 f.AssertMissionBadge("!");
 
-                f.Click("추천 미션 보기");f.Click("추가 미션 시작하기");f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("Focus.MoreEmotions");f.Click("고마움");f.Click("다음");
-                const string draft="synthetic editable note preserved on failed settings save";f.SetInput(draft);
+                // Today now uses its own daily-emotion draft after both practices.
+                // Populate only this memory store; no former per-mission note UI.
+                Assert(f.Service.BeginFocusSession("settings-next-basic",FocusMissionPolicy.MissionAt(2,"2w").Id,2),f.Service.LastError);
+                CompleteCurrentSavedPractice(f,"settings-next-basic");
+                Assert(f.Service.BeginFocusSession("settings-next-additional","M03"),f.Service.LastError);
+                CompleteCurrentSavedPractice(f,"settings-next-additional");
+                f.Invoke("ShowDailyEmotion");
+                const string draft="synthetic editable note preserved on failed settings save";
+                f.SetInput(draft); Assert(f.Ui.SaveDailyEmotionUiDraft(),f.Service.LastError);
+                string emotionId=f.Service.Snapshot.DailyEmotionRecords.Last().Id;
                 f.Navigation.ShowSettings();
                 string beforeReset=StateCodec.Encode(f.Service.Snapshot);var beforeResetClock=f.Service.CurrentUtc;
                 f.Store.FailNextSaves=1;f.ClickControl(settings.AdvanceMissionDayButton);
                 Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset&&f.Service.CurrentUtc==beforeResetClock,
-                    "Failed day advance changed an editable mission draft.");
+                    "Failed day advance changed an editable daily-emotion draft.");
                 f.ClickControl(settings.MissionRefreshButton);
                 Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset,"Opening reset confirmation erased data.");
                 f.Store.FailNextSaves=1;f.ClickControl(settings.MissionResetConfirmButton);
-                Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset,"Failed mission reset partially removed saved detail or progress.");
-                f.Navigation.ShowActivities();f.Invoke("ShowHome");f.Click("추가 미션 이어서 하기");
-                Assert(f.Input!=null&&f.Input.text==draft,"Failed settings actions destroyed the editable mission note.");
+                Assert(StateCodec.Encode(f.Service.Snapshot)==beforeReset,"Failed full reset partially removed saved detail or progress.");
+                f.Navigation.ShowActivities();f.Invoke("ShowDailyEmotion",emotionId);
+                Assert(f.Input!=null&&f.Input.text==draft,"Failed settings actions destroyed the editable daily-emotion note.");
                 f.Navigation.ShowSettings();var preserved=f.Service.Snapshot;
-                string recipe=PlantCodec.Encode(preserved.PlantAppearance.Recipe);
                 f.ClickControl(settings.MissionRefreshButton);f.ClickControl(settings.MissionResetConfirmButton);var cleared=f.Service.Snapshot;
                 Assert(cleared.Sessions.Count==0&&FocusMissionPolicy.CompletedCount(cleared)==0
-                    && cleared.PracticePreferences.Count==0&&cleared.Experiences.Count==0,
-                    "Mission refresh left saved details, course completions or practice answers behind.");
-                Assert(cleared.Nutrient==preserved.Nutrient&&cleared.GardenXp==preserved.GardenXp
-                    && PlantCodec.Encode(cleared.PlantAppearance.Recipe)==recipe&&cleared.LastCycleId==advancedCycle,
-                    "Mission refresh changed the wallet, saved plant or selected app date.");
+                    && cleared.PracticePreferences.Count==0&&cleared.Experiences.Count==0&&cleared.DailyEmotionRecords.Count==0,
+                    "Full reset left saved details, course completions or practice answers behind.");
+                Assert(cleared.Nutrient==0&&cleared.GardenXp==0&&cleared.Environments.Count==0&&cleared.PlantPhotos.Count==0
+                    && cleared.PlantAppearance.Recipe.GrowthStep==0&&cleared.InstallationId!=preserved.InstallationId
+                    && cleared.PreviewDayOffset==0&&!cleared.MbctProgramChosen&&!cleared.FullResetPending,
+                    "Full reset did not restore wallet, garden, selected course and app date to their initial state.");
+                string reset=StateCodec.Encode(cleared);
+                Assert(f.Ui.ResetAllData(cleared.FullResetRequestId,cleared.FullResetSourceInstallationId)
+                    && StateCodec.Encode(f.Service.Snapshot)==reset,"Repeating a completed reset altered the new garden.");
                 f.Capture("22-settings-reset-complete",capture);
                 f.Navigation.ShowActivities();f.Invoke("ShowHome");
-                Assert(f.Has("기본 미션 시작하기")&&f.Has("추천 미션 보기"),"Mission refresh did not restore fresh mission actions.");
-                f.AssertMissionBadge("!");f.Invoke("ShowFocusHistory",null,0,"2w");
+                f.Click("Focus.SelectProgram.2w");f.Click("Focus.ConfirmProgram.2w");
+                Assert(f.Has("기본 미션 시작하기")&&f.Has("Focus.AdditionalAction"),"Full reset did not restore fresh mission actions after choosing a course.");
+                f.Invoke("ShowFocusHistory",null,0,"2w");
                 Assert(f.VisibleText.Contains("아직 저장된 수행 기록이 없어요")&&!f.VisibleText.Contains(draft),
-                    "Cleared mission details still appear in history.");
+                    "Cleared details still appear in history.");
                 f.Invoke("ShowHome");f.Click("기본 미션 시작하기");
-                Assert(f.Latest.FocusOrder==1&&f.Latest.MissionId==FocusMissionCatalog.Find("P04").Id
+                Assert(f.Latest.FocusOrder==1&&f.Latest.MissionId==FocusMissionPolicy.MissionAt(1,"2w").Id
                     && f.Latest.Status==ParticipationState.Selected,"Reset retained the previous basic occurrence or practice stage.");
-                f.Click("닫기");f.Click("추천 미션 보기");f.Click("추가 미션 시작하기");f.Click("시작");
-                f.CompletePractice(FocusMissionCatalog.Find("M03"),false);f.Click("다음");
-                Assert(f.Input!=null&&f.Input.text=="","A new mission inherited input from the reset draft.");
+                Assert(f.Service.Snapshot.DailyEmotionRecords.Count==0&&f.Service.Snapshot.Sessions.All(s=>string.IsNullOrEmpty(s.Note)),
+                    "A new garden inherited the removed note draft.");
             }
         }
 
@@ -628,11 +670,14 @@ namespace CapstoneDesign.EditorTools
                     }
                 };
                 f.Invoke("ShowFocusCourse");
-                f.Click("정원·건강 기록");
-                Assert(f.Ui.CurrentScreen == "records" && f.Has("식물함 · 성장과 기억"), "New course navigation did not open the retained garden journal.");
+                f.Click("이전 과정·예시 기록");
+                Assert(f.Ui.CurrentScreen == "focus-history" && f.Has("Focus.Record." + id), "The current record hub did not expose retained legacy records.");
                 f.Capture("legacy-garden-journal", capture);
-                f.Click(learned.title);
-                f.AssertScrollStartsAtTop("활동과 측정 기록", "Local garden flow");
+                f.Click("Focus.Record." + id);
+                var healthFrame=f.Ui.GetComponentInChildren<GardenActivityLayout>();
+                Assert(healthFrame!=null && healthFrame.Header.GetComponentsInChildren<Text>().Any(t=>t.text=="활동과 측정 기록"),
+                    "Health detail title must remain in its fixed heading.");
+                f.AssertScrollStartsAtTop("Activity record overview", "Local garden flow");
                 var graph = f.Ui.GetComponentInChildren<HeartSampleGraph>();
                 Assert(f.Ui.CurrentScreen == "record" && graph != null && graph.Samples.Length == 2,
                     "Non-Focus record no longer opens its activity health chart.");
@@ -642,9 +687,12 @@ namespace CapstoneDesign.EditorTools
                 f.Capture("legacy-health-record", capture); // Preserve the untouched initial top/title evidence.
                 f.RevealGraphic(graph);
                 f.Capture("legacy-health-chart-scrolled", capture);
-                f.Click("기록 목록"); f.Click("돌아가기"); f.Click("기록");
-                f.Click("이전 활동 복습·추천");
-                Assert(f.Has("다시 해볼 만한 활동") && f.Has("추가 활동 추천 설정"), "Learned recommendation entry is unreachable from the new course screen.");
+                f.Click("기록 목록");
+                Assert(f.Ui.CurrentScreen == "records" && f.Has(learned.title), "Legacy record back must return to its retained participation journal.");
+                // The user removed this legacy hub from the record tab. Validate
+                // its retained public entry without restoring an obsolete menu.
+                f.Invoke("ShowLearnedPracticeRecommendations");
+                Assert(f.Has("다시 해볼 만한 활동") && f.Has("추가 활동 추천 설정"), "Retained learned recommendation entry did not expose its actions.");
                 f.Capture("learned-recommendation-hub", capture);
                 f.Click("추가 활동 추천 설정");
                 f.Click("호흡 관찰");
@@ -742,7 +790,7 @@ namespace CapstoneDesign.EditorTools
         static void AllMissionFlows(Report report, bool capture)
         {
             var representative = new HashSet<string> { "M07", "M10", "M11", "M15", "P19", "P24", "P26", "P27", "P28" };
-            using (var f = new Fixture(report))
+            using (var f = new Fixture(report, true))
             {
                 foreach (var mission in FocusMissionCatalog.Additional)
                 {
@@ -784,7 +832,7 @@ namespace CapstoneDesign.EditorTools
             f.CompleteReflection("", "", false);
             Assert(f.Latest.Status == ParticipationState.RewardCommitted, "Catalog mission did not complete: " + mission.Code);
             if (representative) f.Capture("catalog-" + mission.Code + "-complete", capture);
-            f.Click("Focus.ConfirmHome");
+            MissionCompletionUiValidation.ReturnToMissions(f);
         }
 
         static void KeyboardGeometry()
@@ -833,6 +881,7 @@ namespace CapstoneDesign.EditorTools
             readonly Canvas canvas;
             readonly GraphicRaycaster raycaster;
             readonly EventSystem pointerContext;
+            readonly Dictionary<Graphic,Canvas> registeredGraphics = new Dictionary<Graphic,Canvas>();
             RenderTexture validationTarget;
             readonly Camera camera, existingCamera;
             readonly Light existingLight;
@@ -879,6 +928,7 @@ namespace CapstoneDesign.EditorTools
                 validationTarget = new RenderTexture(780, 1688, 24);
                 camera.targetTexture = validationTarget; camera.aspect = 780f / 1688;
                 canvas.renderMode = RenderMode.ScreenSpaceCamera; canvas.worldCamera = camera; canvas.planeDistance = 1;
+                canvas.sortingOrder = 20;
                 Navigation = root.AddComponent<MockupNavigation>();
                 Navigation.islandPanel = GardenUi.Box(root.transform, "Synthetic unchanged garden destination", 0, 0, 1, 1);
                 Navigation.settingsPanel = GardenUi.Box(root.transform, "Synthetic settings", 0, 0, 1, 1);
@@ -887,8 +937,12 @@ namespace CapstoneDesign.EditorTools
                 {
                     // Model the existing scene's real non-null presenter branch without loading its save or garden assets.
                     Navigation.home = root.AddComponent<GardenHomePresenter>(); Navigation.home.navigation = Navigation;
-                    var gardenCanvas = new GameObject("Synthetic preserved garden canvas", typeof(RectTransform), typeof(Canvas));
+                    var gardenCanvas = new GameObject("Synthetic preserved garden canvas", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
                     gardenCanvas.transform.SetParent(root.transform, false); Navigation.home.homeCanvas = gardenCanvas.GetComponent<Canvas>();
+                    // MockupMain renders the preserved home/navigation canvas at
+                    // order 30 above the settings/mission root at order 20.
+                    // The fixture nests it only for ownership and cleanup.
+                    Navigation.home.homeCanvas.worldCamera = camera;
                     var gardenRect = (RectTransform)gardenCanvas.transform; gardenRect.anchorMin = Vector2.zero; gardenRect.anchorMax = Vector2.one; gardenRect.offsetMin = gardenRect.offsetMax = Vector2.zero;
                     var safeFrame = GardenUi.Box(gardenCanvas.transform, "SafePortraitFrame", 0, 0, 1, 1);
                     var homeContent = GardenUi.Box(safeFrame.transform, "MainContent", 0, 0, 1, 1);
@@ -925,7 +979,19 @@ namespace CapstoneDesign.EditorTools
                     Ui = Navigation.activitiesPanel.AddComponent<WeekOneQuestDemo>();
                     Ui.Balance = balance; Ui.Initialize(Service, true);
                     if (Navigation.home != null) Navigation.home.activity = Ui;
-                    root.SetActive(true); Navigation.ShowActivities(); Invoke("ShowHome");
+                    root.SetActive(true);
+                    if (Navigation.home != null)
+                    {
+                        // A cold nested preview Canvas inherits the root order
+                        // when it first becomes active. Initialize its native
+                        // canvas before applying the production order, once.
+                        var homeCanvas = Navigation.home.homeCanvas;
+                        homeCanvas.gameObject.SetActive(true); Canvas.ForceUpdateCanvases();
+                        homeCanvas.overrideSorting = true; homeCanvas.sortingOrder = 30;
+                        Assert(homeCanvas.overrideSorting && homeCanvas.sortingOrder == 30,
+                            "The initialized synthetic garden canvas must match MockupMain's order 30.");
+                    }
+                    Navigation.ShowActivities(); Invoke("ShowHome");
                     Assert(ReferenceEquals(Ui.Service, Service), "Fixture did not retain its memory-only service.");
                 }
                 catch { Dispose(); throw; }
@@ -1020,31 +1086,81 @@ namespace CapstoneDesign.EditorTools
             void AssertRaycastTarget(Button button)
             {
                 Layout();
-                foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
-                {
-                    // Graphic lifecycle is not always dispatched in an edit-mode preview scene.
-                    // Register only this fixture's graphics; the user's canvases are untouched.
-                    GraphicRegistry.RegisterGraphicForCanvas(canvas, graphic);
-                    graphic.SetAllDirty(); graphic.Rebuild(CanvasUpdate.PreRender); graphic.Rebuild(CanvasUpdate.LatePreRender);
-                }
-                Canvas.ForceUpdateCanvases(); camera.Render();
+                PrepareRaycastGraphics();
                 Assert(root.GetComponentsInChildren<GardenThemeSurface>(false).All(surface => !surface.raycastTarget),
                     "A decorative garden theme surface intercepts input.");
                 var rect = (RectTransform)button.transform;
                 var point = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(rect.rect.center));
-                var hits = new List<RaycastResult>();
-                // Query only the isolated raycaster, without changing EventSystem.current or the user's input modules.
-                // uGUI clears this scratch buffer only after a successful query. A failed
-                // disposable preview must not leave destroyed graphics in the next query.
-                var scratch = typeof(GraphicRaycaster).GetField("s_SortedGraphics", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as List<Graphic>;
-                scratch?.Clear();
-                try { raycaster.Raycast(new PointerEventData(pointerContext) { position = point }, hits); }
-                finally { scratch?.Clear(); }
-                var hit = hits.OrderByDescending(item => item.depth).FirstOrDefault();
+                var hits = RaycastFixture(new PointerEventData(pointerContext) { position = point });
+                var hit = hits.FirstOrDefault();
                 Assert(hit.gameObject != null && hit.gameObject.GetComponentInParent<Button>() == button,
                     "Button center is blocked or not hittable: " + button.name + " on " + Ui.CurrentScreen
-                    + "; first hit=" + (hit.gameObject == null ? "none" : hit.gameObject.name));
+                    + "; first hit=" + (hit.gameObject == null ? "none" : hit.gameObject.name)
+                    + (hit.gameObject != null && hit.gameObject.GetComponentInParent<Button>() == button ? "" : RaycastDiagnostic(button,point,hits)));
                 report.raycastChecks++;
+            }
+            string RaycastDiagnostic(Button button,Vector2 point,List<RaycastResult> hits)
+            {
+                string CameraInfo(Camera value) => value==null ? "null" : value.name+"/pixelRect="+value.pixelRect
+                    +"/depth="+value.depth+"/target="+(value.targetTexture==null?"none":value.targetTexture.width+"x"+value.targetTexture.height);
+                string CanvasInfo(Canvas value) => value==null ? "null" : value.name+"/active="+value.isActiveAndEnabled
+                    +"/mode="+value.renderMode+"/order="+value.sortingOrder+"/override="+value.overrideSorting+"/camera="+CameraInfo(value.worldCamera);
+                string RectInfo(RectTransform value)
+                {
+                    var corners=new Vector3[4];value.GetWorldCorners(corners);
+                    return "local="+value.rect+"/anchored="+value.anchoredPosition+"/screen="
+                        +RectTransformUtility.WorldToScreenPoint(camera,corners[0])+".."+RectTransformUtility.WorldToScreenPoint(camera,corners[2]);
+                }
+                string allHits=string.Join(" | ",hits.Take(8).Select(item=>(item.gameObject==null?"null":item.gameObject.name)
+                    +"/module="+(item.module==null?"null":item.module.name)+"/order="+item.sortingOrder+"/layer="+item.sortingLayer+"/depth="+item.depth+"/distance="+item.distance));
+                string controls=string.Join(" | ",button.GetComponentsInChildren<Graphic>(true).Where(graphic=>graphic.raycastTarget).Select(graphic=>
+                    graphic.name+"/active="+graphic.isActiveAndEnabled+"/depth="+graphic.depth+"/culled="+graphic.canvasRenderer.cull
+                    +"/canvas="+CanvasInfo(graphic.canvas)+"/registered="+(graphic.canvas!=null&&GraphicRegistry.GetGraphicsForCanvas(graphic.canvas).Contains(graphic))
+                    +"/contains="+RectTransformUtility.RectangleContainsScreenPoint(graphic.rectTransform,point,camera)
+                    +"/filters="+graphic.Raycast(point,camera)+"/"+RectInfo(graphic.rectTransform)));
+                string casters=string.Join(" | ",root.GetComponentsInChildren<GraphicRaycaster>(true).Select(caster=>caster.name
+                    +"/active="+caster.IsActive()+"/eventCamera="+CameraInfo(caster.eventCamera)+"/canvas="+CanvasInfo(caster.GetComponent<Canvas>())
+                    +"/registeredCount="+GraphicRegistry.GetGraphicsForCanvas(caster.GetComponent<Canvas>()).Count));
+                return "; point="+point+" screen="+Screen.width+"x"+Screen.height+" fixtureCamera="+CameraInfo(camera)
+                    +" hits=["+allHits+"] target=["+controls+"] casters=["+casters+"]";
+            }
+            void PrepareRaycastGraphics()
+            {
+                foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
+                {
+                    // Preview-scene lifecycle is incomplete. Register only this
+                    // fixture's graphics, against their real owning canvas.
+                    var owner = graphic.canvas; if (owner == null) continue;
+                    if (registeredGraphics.TryGetValue(graphic, out var previousOwner) && previousOwner != owner)
+                        GraphicRegistry.UnregisterGraphicForCanvas(previousOwner, graphic);
+                    registeredGraphics[graphic] = owner;
+                    GraphicRegistry.RegisterGraphicForCanvas(owner, graphic);
+                    graphic.SetAllDirty(); graphic.Rebuild(CanvasUpdate.PreRender); graphic.Rebuild(CanvasUpdate.LatePreRender);
+                }
+                Canvas.ForceUpdateCanvases(); camera.Render();
+                var homeCanvas = Navigation.home?.homeCanvas;
+                Assert(canvas.sortingOrder == 20 && (homeCanvas == null || !homeCanvas.isActiveAndEnabled
+                    || homeCanvas.overrideSorting && homeCanvas.sortingOrder == 30),
+                    "Synthetic canvas ordering changed after navigation: root must stay 20 and active garden must stay 30.");
+            }
+            List<RaycastResult> RaycastFixture(PointerEventData pointer)
+            {
+                var hits = new List<RaycastResult>();
+                var scratch = typeof(GraphicRaycaster).GetField("s_SortedGraphics", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as List<Graphic>;
+                scratch?.Clear();
+                try
+                {
+                    // Use only this fixture's active canvases, without touching
+                    // EventSystem.current or the user's raycaster registration.
+                    foreach (var caster in root.GetComponentsInChildren<GraphicRaycaster>(false))
+                        if (caster.IsActive()) caster.Raycast(pointer, hits);
+                }
+                finally { scratch?.Clear(); }
+                // Use uGUI's own canvas-priority, sorting-layer/order, depth and
+                // distance ordering; depth alone is meaningless across canvases.
+                var compare = typeof(EventSystem).GetField("s_RaycastComparer", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as Comparison<RaycastResult>;
+                Assert(compare != null, "The installed uGUI EventSystem raycast ordering is unavailable.");
+                hits.Sort(compare); return hits;
             }
             public void ClickBack()
             {
@@ -1151,18 +1267,8 @@ namespace CapstoneDesign.EditorTools
                 var rect = surface.rectTransform; var center = rect.TransformPoint(rect.rect.center);
                 var data = new PointerEventData(pointerContext) { button = PointerEventData.InputButton.Left,
                     position = RectTransformUtility.WorldToScreenPoint(camera, center), pointerPressRaycast = new RaycastResult { module = raycaster } };
-                foreach (var graphic in root.GetComponentsInChildren<Graphic>(false))
-                {
-                    GraphicRegistry.RegisterGraphicForCanvas(canvas, graphic); graphic.SetAllDirty();
-                    graphic.Rebuild(CanvasUpdate.PreRender); graphic.Rebuild(CanvasUpdate.LatePreRender);
-                }
-                Canvas.ForceUpdateCanvases(); camera.Render();
-                var hits = new List<RaycastResult>();
-                var scratch = typeof(GraphicRaycaster).GetField("s_SortedGraphics", BindingFlags.Static | BindingFlags.NonPublic)?.GetValue(null) as List<Graphic>;
-                scratch?.Clear();
-                try { raycaster.Raycast(data, hits); }
-                finally { scratch?.Clear(); }
-                var first = hits.OrderByDescending(hit => hit.depth).FirstOrDefault();
+                PrepareRaycastGraphics();
+                var first = RaycastFixture(data).FirstOrDefault();
                 Assert(first.gameObject != null && first.gameObject.GetComponentInParent<FocusDrawingSurface>() == surface,
                     "An empty drawing canvas does not receive the first stroke; first hit=" + first.gameObject?.name);
                 report.raycastChecks++;
@@ -1224,8 +1330,10 @@ namespace CapstoneDesign.EditorTools
             }
             public void Dispose()
             {
+                foreach (var entry in registeredGraphics) GraphicRegistry.UnregisterGraphicForCanvas(entry.Value, entry.Key);
+                registeredGraphics.Clear();
                 if (root != null)
-                    foreach (var graphic in root.GetComponentsInChildren<Graphic>(true)) GraphicRegistry.UnregisterGraphicForCanvas(canvas, graphic);
+                    foreach (var graphic in root.GetComponentsInChildren<Graphic>(true)) GraphicRegistry.UnregisterGraphicForCanvas(graphic.canvas, graphic);
                 if (camera != null) camera.targetTexture = null;
                 if (validationTarget != null) { validationTarget.Release(); UnityEngine.Object.DestroyImmediate(validationTarget); }
                 if (previous.IsValid() && previous.isLoaded)

@@ -75,8 +75,10 @@ namespace CapstoneDesign.Runtime
         private GameObject notificationOptions;
         private ActivityNotificationSettings notificationSettings;
         private Text notificationActionStatus;
-        private Button musicToggle;
-        private Button reducedMotionToggle;
+        private Slider musicVolume;
+        private Text musicVolumeValue;
+        private Slider sfxVolume;
+        private Text sfxVolumeValue;
         private sealed class SwitchVisual
         {
             public Image Track;
@@ -86,6 +88,10 @@ namespace CapstoneDesign.Runtime
         private readonly System.Collections.Generic.Dictionary<Button, SwitchVisual> switches =
             new System.Collections.Generic.Dictionary<Button, SwitchVisual>();
         private GardenVisualDebugPage visualDebugPage;
+        private RectTransform settingsDesign;
+        private Vector2 visualDebugScrollPosition;
+        private GameObject visualDebugOrigin;
+        public bool HasOwnPageHeader => settingsDesign != null && gameObject.activeInHierarchy;
         public bool IsVisualDebugOpen => visualDebugPage != null && visualDebugPage.gameObject.activeSelf;
         public ScrollRect PrimaryScroll { get; private set; }
         private WeekOneQuestDemo Loop => transform.root.GetComponentInChildren<WeekOneQuestDemo>(true);
@@ -98,26 +104,8 @@ namespace CapstoneDesign.Runtime
             prepared = true;
             Transform content = ConfigureScrollablePanel();
 
-            // Reserve the Home-owned fixed brand row; only the page title scrolls.
-            Transform heading = Stack(content, "Settings heading", 0, 0);
-            if (GardenUi.HasSharedHeader(transform)) Spacer(heading, 54);
-            else
-            {
-                var brand = Copy(heading, "마음 정원", 30, GardenUi.Green);
-                GardenTypography.SetWeight(brand, true);
-                brand.alignment = TextAnchor.MiddleLeft;
-                FixedHeight(brand.gameObject, 54);
-            }
-            Spacer(heading, 24);
-            var titlePlate=Stack(heading,"Settings title plaque",0,16);
-            GardenThemeSurface.Apply(titlePlate.gameObject,GardenThemeSurface.Style.Header);
-            var title = Copy(titlePlate, "설정", GardenUi.TitleSize);
-            GardenTypography.SetWeight(title, true);
-            title.alignment = TextAnchor.MiddleLeft;
-            FixedHeight(title.gameObject, 64);
-
             Transform reminders = Section(content, "Activity reminders", "알림");
-            notificationToggle = SwitchRow(reminders, "활동 추천 알림", ToggleActivityNotifications);
+            notificationToggle = SwitchRow(reminders, "활동 알림", ToggleActivityNotifications);
             notificationStatus = Copy(reminders, "알림 설정 확인 중", GardenUi.CaptionSize, GardenUi.Muted);
             notificationOptions = Stack(reminders, "Reminder timing options", 8, 0).gameObject;
             Divider(notificationOptions.transform);
@@ -128,30 +116,24 @@ namespace CapstoneDesign.Runtime
                 notificationActionStatus.text=opened?"":"시간 선택을 열지 못했어요. 다시 시도해 주세요.";
                 notificationActionStatus.gameObject.SetActive(!opened);
             });
-            notificationTiming.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-188,0);
-            notificationTimeValue=GardenUi.Label(notificationTiming.transform,"",1,0,0,1,32);
+            notificationTiming.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-128,0);
+            notificationTimeValue=GardenUi.Label(notificationTiming.transform,"",1,0,0,1,16);
+            notificationTimeValue.fontSize=16;
             notificationTimeValue.alignment=TextAnchor.MiddleRight;
             notificationTimeValue.color=GardenUi.Muted;
-            notificationTimeValue.rectTransform.offsetMin=new Vector2(-184,0);
+            notificationTimeValue.rectTransform.offsetMin=new Vector2(-120,0);
             notificationTimeValue.rectTransform.offsetMax=new Vector2(-44,0);
-            notificationAdaptive=SwitchRow(notificationOptions.transform,"알림시간 자동 최적화",ToggleAdaptiveReminders);
+            notificationAdaptive=SwitchRow(notificationOptions.transform,"자동 알림 시간 조정",ToggleAdaptiveReminders);
             notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());
             notificationActionStatus=ActionLine(reminders);
 
             Transform music = Section(content, "Garden preferences", "정원");
-            musicToggle = SwitchRow(music, "배경음악", () =>
-            {
-                GardenMusicPlayer.SetMuted(!GardenMusicPlayer.IsMuted);
-                RefreshMusicSetting();
-            });
+            BuildMusicVolume(music);
+            BuildSfxVolume(music);
             Divider(music);
             RowControl(music, "정원의 시간", OpenVisualDebug);
-            reducedMotionToggle = SwitchRow(music, "화면 움직임 줄이기", () =>
-            {
-                FigmaMissionUi.ReducedMotion = !FigmaMissionUi.ReducedMotion;
-                RefreshMusicSetting();
-            });
             RefreshMusicSetting();
+            RefreshSfxSetting();
 
             Transform healthCard = Section(content, "Health records", "건강 기록");
             healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
@@ -159,7 +141,7 @@ namespace CapstoneDesign.Runtime
             RowControl(healthCard, "건강 기록 동기화", RefreshHealth);
             healthActionStatus = ActionLine(healthCard);
 
-            Transform permissions = Section(content, "Permissions", "앱 연결 및 권한");
+            Transform permissions = Section(content, "Permissions", "데이터 접근 권한");
             permissionStatus = Copy(permissions, "권한 확인 중", GardenUi.BodySize, GardenUi.Muted);
             PlaceRow(sensorPermissionButton, permissions, "활동 권한");
             PlaceRow(healthPermissionButton, permissions, "건강 데이터 권한");
@@ -238,25 +220,120 @@ namespace CapstoneDesign.Runtime
 
         void RefreshMusicSetting()
         {
-            if (musicToggle != null) UpdateSwitch(musicToggle, !GardenMusicPlayer.IsMuted);
-            if (reducedMotionToggle != null) UpdateSwitch(reducedMotionToggle, FigmaMissionUi.ReducedMotion);
+            RenderMusicVolume(GardenMusicPlayer.Volume);
+        }
+
+        void RenderMusicVolume(float value)
+        {
+            if(musicVolume==null)return;
+            musicVolume.SetValueWithoutNotify(value);
+            musicVolumeValue.text=Mathf.RoundToInt(musicVolume.value*100)+"%";
+        }
+
+        void BuildMusicVolume(Transform parent)
+        {
+            musicVolume=BuildVolumeControl(parent,"Settings.MusicVolume","배경 음악",out musicVolumeValue);
+            RenderMusicVolume(GardenMusicPlayer.Volume);
+            musicVolume.onValueChanged.AddListener(value=>
+            {
+                // uGUI also emits this during Editor layout rebuilds. A preview
+                // must update its label without starting audio or saving settings.
+                if(!Application.isPlaying){RenderMusicVolume(value);return;}
+                GardenMusicPlayer.SetVolume(value);
+                RefreshMusicSetting();
+            });
+        }
+
+        void RefreshSfxSetting() => RenderSfxVolume(GardenSfxPlayer.Volume);
+
+        void RenderSfxVolume(float value)
+        {
+            if(sfxVolume==null)return;
+            sfxVolume.SetValueWithoutNotify(value);
+            sfxVolumeValue.text=Mathf.RoundToInt(sfxVolume.value*100)+"%";
+        }
+
+        void BuildSfxVolume(Transform parent)
+        {
+            sfxVolume=BuildVolumeControl(parent,"Settings.SfxVolume","효과음 음량",out sfxVolumeValue);
+            RefreshSfxSetting();
+            sfxVolume.onValueChanged.AddListener(value=>
+            {
+                // Preview drags and editor rebuilds only render the percentage.
+                if(!Application.isPlaying){RenderSfxVolume(value);return;}
+                GardenSfxPlayer.SetVolume(value);
+                RefreshSfxSetting();
+            });
+            GardenSfxSliderFeedback.Attach(sfxVolume);
+        }
+
+        Slider BuildVolumeControl(Transform parent,string name,string caption,out Text percentage)
+        {
+            var row=GardenUi.Box(parent,name+"Row",0,0,1,0,Color.white);
+            FixedHeight(row,96);
+            var background=row.GetComponent<Image>();GardenUi.Round(background,Color.white);
+            background.raycastTarget=false;
+            GardenThemeSurface.Apply(row,GardenThemeSurface.Style.Paper);
+            var title=GardenUi.Label(row.transform,caption,0,1,1,0,17);
+            title.fontSize=17;
+            title.rectTransform.pivot=new Vector2(.5f,1);
+            title.rectTransform.offsetMin=new Vector2(12,-36);
+            title.rectTransform.offsetMax=new Vector2(-80,-8);
+            percentage=GardenUi.Label(row.transform,"",1,1,0,0,15);
+            percentage.name=name+"Value";percentage.fontSize=15;
+            percentage.alignment=TextAnchor.MiddleRight;percentage.color=GardenUi.Muted;
+            percentage.rectTransform.pivot=new Vector2(1,1);
+            percentage.rectTransform.anchoredPosition=new Vector2(-12,-8);
+            percentage.rectTransform.sizeDelta=new Vector2(64,28);
+
+            var control=GardenUi.Box(row.transform,name,0,0,1,0,Color.clear);
+            var controlRect=(RectTransform)control.transform;
+            controlRect.pivot=new Vector2(.5f,0);controlRect.sizeDelta=new Vector2(-24,44);
+            controlRect.anchoredPosition=new Vector2(0,8);
+            var slider=control.AddComponent<Slider>();
+            slider.minValue=0;slider.maxValue=1;slider.wholeNumbers=false;
+            slider.direction=Slider.Direction.LeftToRight;
+            slider.navigation=new Navigation{mode=Navigation.Mode.Automatic};
+            var track=GardenUi.Box(control.transform,"Volume track",0,.5f,1,0,GardenUi.Pale);
+            var trackRect=(RectTransform)track.transform;
+            trackRect.offsetMin=new Vector2(12,-3);trackRect.offsetMax=new Vector2(-12,3);
+            GardenUi.Round(track.GetComponent<Image>(),GardenUi.Pale);track.GetComponent<Image>().raycastTarget=false;
+            var fill=GardenUi.Box(track.transform,"Volume fill",0,0,1,1,GardenUi.Green);
+            GardenUi.Round(fill.GetComponent<Image>(),GardenUi.Green);fill.GetComponent<Image>().raycastTarget=false;
+            slider.fillRect=(RectTransform)fill.transform;
+            var handleArea=GardenUi.Box(control.transform,"Volume handle area",0,.5f,1,0);
+            ((RectTransform)handleArea.transform).offsetMin=new Vector2(12,-12);
+            ((RectTransform)handleArea.transform).offsetMax=new Vector2(-12,12);
+            var handle=GardenUi.Box(handleArea.transform,"Volume handle",0,0,0,1,GardenUi.Green);
+            var handleRect=(RectTransform)handle.transform;handleRect.sizeDelta=new Vector2(24,0);
+            var handleImage=handle.GetComponent<Image>();GardenUi.Round(handleImage,GardenUi.Green,true);handleImage.raycastTarget=false;
+            slider.handleRect=handleRect;slider.targetGraphic=handleImage;
+            return slider;
         }
 
         void RefreshNotificationSettings()
         {
             if(notificationStatus==null)return;
             bool live=AndroidPlatformBridge.InputMode==PlatformInputMode.Live && Application.platform==RuntimePlatform.Android;
-            notificationSettings=ActivityNotificationBridge.Settings();
+            RenderNotificationSettings(ActivityNotificationBridge.Settings(),live);
+        }
+
+        void RenderNotificationSettings(ActivityNotificationSettings value,bool live)
+        {
+            notificationSettings=value;
             var n=notificationSettings;
             bool permission=n.permissionStatus=="AVAILABLE";
             notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":n.enabled && !permission?"기기에서 알림을 허용해 주세요.":n.enabled && n.lastDeliveryStatus=="failed"?"최근 알림의 게시를 확인하지 못했어요. 다시 확인 중이에요.":"";
             notificationStatus.gameObject.SetActive(notificationStatus.text.Length>0);
             UpdateSwitch(notificationToggle,n.enabled);
-            notificationTimeValue.text=(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00")+"쯤";
+            notificationTimeValue.text=(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00");
             notificationToggle.interactable=notificationTiming.interactable=notificationAdaptive.interactable=live;
             notificationPermission.gameObject.SetActive(live && n.enabled && !permission);
+            bool visibilityChanged=notificationOptions.activeSelf!=n.enabled;
             notificationOptions.SetActive(n.enabled);
             UpdateSwitch(notificationAdaptive,n.adaptive);
+            if(visibilityChanged && PrimaryScroll!=null)
+                LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
         }
         void ToggleActivityNotifications()
         {
@@ -267,7 +344,7 @@ namespace CapstoneDesign.Runtime
         void ChangeNotificationTime(int minute)
         {
             var n=notificationSettings ?? ActivityNotificationBridge.Settings();
-            if(ApplyNotificationSettings(n.enabled,minute,n.adaptive))notificationOptions.SetActive(false);
+            ApplyNotificationSettings(n.enabled,minute,n.adaptive);
             RefreshNotificationSettings();
         }
         void ToggleAdaptiveReminders()
@@ -303,18 +380,22 @@ namespace CapstoneDesign.Runtime
             var oldWidth = GetComponent<GardenContentWidth>();
             if (oldWidth != null) oldWidth.enabled = false;
 
-            var viewport = GardenUi.Box(transform, "Settings viewport", 0, .12f, 1, .88f, Color.clear);
-            GardenThemeSurface.Apply(viewport,GardenThemeSurface.Style.Backdrop);
-            GardenUi.ConstrainWidth(viewport);
-            viewport.AddComponent<RectMask2D>();
-            PrimaryScroll = viewport.AddComponent<ScrollRect>();
-            PrimaryScroll.viewport = (RectTransform)viewport.transform;
+            settingsDesign = FigmaMissionUi.Rect(transform, "Settings.Design", 0, 0, 390, 844);
+            var fit = gameObject.AddComponent<FigmaMissionCanvasFit>(); fit.Design = settingsDesign; fit.Fit();
+            FigmaMissionUi.UseGardenShell(settingsDesign.gameObject);
+            var backdrop = settingsDesign.gameObject.AddComponent<Image>(); backdrop.color = GardenSagePalette.Background; backdrop.raycastTarget = true;
+            GardenSettingsLayout.BuildHeader(settingsDesign, "설정", null, null, "Settings");
+            var viewport = FigmaMissionUi.Box(settingsDesign, "Settings viewport", 0, 110, 390, 638, Color.clear);
+            viewport.GetComponent<Image>().raycastTarget = true;
+            viewport.gameObject.AddComponent<RectMask2D>();
+            PrimaryScroll = viewport.gameObject.AddComponent<ScrollRect>();
+            PrimaryScroll.viewport = viewport;
             PrimaryScroll.horizontal = false;
             PrimaryScroll.vertical = true;
             PrimaryScroll.movementType = ScrollRect.MovementType.Clamped;
             PrimaryScroll.scrollSensitivity = 48;
-            Transform content = Stack(viewport.transform, "Settings content", 24, 48);
-            content.GetComponent<VerticalLayoutGroup>().padding.top = 24;
+            Transform content = Stack(viewport, "Settings content", 16, 24);
+            content.GetComponent<VerticalLayoutGroup>().padding.top = 4;
             var contentRect = (RectTransform)content;
             contentRect.anchorMin = new Vector2(0, 1);
             contentRect.anchorMax = Vector2.one;
@@ -324,6 +405,8 @@ namespace CapstoneDesign.Runtime
             content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
             PrimaryScroll.content = contentRect;
             GardenUi.AddScrollIndicator(PrimaryScroll);
+            var pageLayout = settingsDesign.gameObject.AddComponent<GardenSettingsLayout>();
+            pageLayout.Viewport = viewport; pageLayout.Content = contentRect; pageLayout.Refresh();
             return content;
         }
 
@@ -357,7 +440,7 @@ namespace CapstoneDesign.Runtime
 
         private static Transform Section(Transform parent, string name, string heading, Color? tint = null)
         {
-            Transform section = Stack(parent, name, 8, 24);
+            Transform section = Stack(parent, name, 6, 16);
             var image = section.gameObject.AddComponent<Image>();
             GardenUi.Round(image, tint ?? Color.white);
             GardenThemeSurface.Apply(section.gameObject,GardenThemeSurface.Style.Paper);
@@ -365,9 +448,8 @@ namespace CapstoneDesign.Runtime
             if(!string.IsNullOrEmpty(heading))
             {
                 var plaque=GardenUi.Box(section,"Section title plaque",0,0,1,0);
-                GardenThemeSurface.Apply(plaque,GardenThemeSurface.Style.Header);
                 var row=plaque.AddComponent<HorizontalLayoutGroup>();
-                row.padding=new RectOffset(12,12,8,8);row.spacing=10;
+                row.padding=new RectOffset(0,0,4,8);row.spacing=8;
                 row.childAlignment=TextAnchor.MiddleLeft;
                 row.childControlWidth=row.childControlHeight=true;
                 row.childForceExpandWidth=row.childForceExpandHeight=false;
@@ -377,7 +459,7 @@ namespace CapstoneDesign.Runtime
                     name=="Permissions"?PrototypeUiIcon.Symbol.Lock:PrototypeUiIcon.Symbol.Journal;
                 var icon=GardenUi.Icon(plaque.transform,symbol,0,0,0,0);
                 var iconSize=icon.gameObject.AddComponent<LayoutElement>();
-                iconSize.preferredWidth=iconSize.minWidth=34;iconSize.preferredHeight=iconSize.minHeight=34;
+                iconSize.preferredWidth=iconSize.minWidth=20;iconSize.preferredHeight=iconSize.minHeight=20;
                 var label = Copy(plaque.transform, heading, GardenUi.HeadingSize);
                 label.gameObject.AddComponent<LayoutElement>().flexibleWidth=1;
                 GardenTypography.SetWeight(label, true);
@@ -403,13 +485,13 @@ namespace CapstoneDesign.Runtime
         {
             if(button==null)return;
             Place(button,parent,text);
-            FixedHeight(button.gameObject,96);
+            FixedHeight(button.gameObject,56);
             GardenUi.Round(button.GetComponent<Image>(),Color.white);
             GardenThemeSurface.Apply(button.gameObject,GardenThemeSurface.Style.Paper);
             var colors=button.colors;colors.disabledColor=Color.white;button.colors=colors;
             var label=button.GetComponentInChildren<Text>(true);
             label.alignment=TextAnchor.MiddleLeft;
-            label.fontSize=32;
+            label.fontSize=17;
             label.color=GardenUi.Ink;
             label.rectTransform.anchorMin=Vector2.zero;
             label.rectTransform.anchorMax=Vector2.one;
@@ -419,7 +501,7 @@ namespace CapstoneDesign.Runtime
             {
                 var arrow=GardenUi.Icon(button.transform,CapstoneDesign.Prototype.PrototypeUiIcon.Symbol.Arrow,1,.5f,0,0,GardenUi.Muted);
                 arrow.rectTransform.pivot=new Vector2(1,.5f);
-                arrow.rectTransform.sizeDelta=new Vector2(28,28);
+                arrow.rectTransform.sizeDelta=new Vector2(18,18);
                 arrow.rectTransform.anchoredPosition=new Vector2(-12,0);
             }
         }
@@ -430,20 +512,21 @@ namespace CapstoneDesign.Runtime
             PlaceRow(button,parent,text,false);
             // Keep the complete control inside the paper row's inset rule. The
             // old right-edge anchor placed the switch on the card border.
-            button.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-168,0);
+            button.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-120,0);
             var state=GardenUi.Label(button.transform,"",1,0,0,1,GardenUi.CaptionSize);
+            state.fontSize=14;
             state.name="Switch state";
             state.alignment=TextAnchor.MiddleRight;
-            state.rectTransform.offsetMin=new Vector2(-164,0);
-            state.rectTransform.offsetMax=new Vector2(-92,0);
+            state.rectTransform.offsetMin=new Vector2(-112,0);
+            state.rectTransform.offsetMax=new Vector2(-64,0);
             var track=GardenUi.Box(button.transform,"Switch track",1,.5f,0,0);
             var trackRect=(RectTransform)track.transform;
-            trackRect.pivot=new Vector2(1,.5f);trackRect.sizeDelta=new Vector2(64,36);
+            trackRect.pivot=new Vector2(1,.5f);trackRect.sizeDelta=new Vector2(40,22);
             trackRect.anchoredPosition=new Vector2(-12,0);
             var trackImage=track.AddComponent<Image>();GardenUi.Round(trackImage,GardenUi.Muted);trackImage.raycastTarget=false;
             GardenThemeSurface.Apply(track,GardenThemeSurface.Style.ProgressTrack);
             var thumb=GardenUi.Box(track.transform,"Switch thumb",0,.5f,0,0);
-            var thumbRect=(RectTransform)thumb.transform;thumbRect.pivot=new Vector2(.5f,.5f);thumbRect.sizeDelta=new Vector2(28,28);
+            var thumbRect=(RectTransform)thumb.transform;thumbRect.pivot=new Vector2(.5f,.5f);thumbRect.sizeDelta=new Vector2(16,16);
             var thumbImage=thumb.AddComponent<Image>();GardenUi.Round(thumbImage,Color.white);thumbImage.raycastTarget=false;
             switches.Add(button,new SwitchVisual {Track=trackImage,Thumb=thumbRect,State=state});
             return button;
@@ -454,7 +537,7 @@ namespace CapstoneDesign.Runtime
             if(!switches.TryGetValue(button,out var visual))return;
             visual.Track.color=enabled?GardenUi.Green:GardenUi.Muted;
             GardenThemeSurface.Apply(visual.Track.gameObject,enabled?GardenThemeSurface.Style.ProgressFill:GardenThemeSurface.Style.ProgressTrack);
-            float inset=4+visual.Thumb.rect.width*.5f;
+            float inset=3+visual.Thumb.rect.width*.5f;
             visual.Thumb.anchoredPosition=new Vector2(enabled?visual.Track.rectTransform.rect.width-inset:inset,0);
             visual.State.text=enabled?"켜짐":"꺼짐";
             visual.State.color=GardenUi.Muted;
@@ -470,7 +553,7 @@ namespace CapstoneDesign.Runtime
         private static void ConfigureCopy(Text text, int size, Color color)
         {
             text.font = GardenUi.ResolveFont();
-            text.fontSize = size;
+            text.fontSize = Mathf.Max(14, Mathf.RoundToInt(size * 390f / 720f));
             text.fontStyle = FontStyle.Normal;
             text.color = color;
             text.alignment = TextAnchor.UpperLeft;
@@ -495,17 +578,18 @@ namespace CapstoneDesign.Runtime
             if (button == null) return;
             button.transform.SetParent(parent, false);
             var layout = button.GetComponent<LayoutElement>() ?? button.gameObject.AddComponent<LayoutElement>();
-            layout.minHeight = layout.preferredHeight = 96;
+            layout.minHeight = layout.preferredHeight = 52;
             layout.flexibleHeight = 0;
             var label = button.GetComponentInChildren<Text>(true);
             label.text = text;
-            label.fontSize = GardenUi.ButtonSize;
+            label.fontSize = 17;
             label.resizeTextForBestFit = false;
             label.alignment = TextAnchor.MiddleCenter;
             label.rectTransform.anchorMin = new Vector2(.04f, 0);
             label.rectTransform.anchorMax = new Vector2(.96f, 1);
             label.rectTransform.offsetMin = label.rectTransform.offsetMax = Vector2.zero;
             GardenUi.StyleButton(button, primary);
+            GardenSfxButton.Attach(button,GardenSfxButton.CueForLabel(text));
         }
 
         public void ToggleDiagnostics()
@@ -536,7 +620,7 @@ namespace CapstoneDesign.Runtime
         {
             var frame = new GameObject(name, typeof(RectTransform), typeof(LayoutElement), typeof(RectMask2D), typeof(CanvasGroup));
             frame.transform.SetParent(parent, false);
-            var content = (RectTransform)Stack(frame.transform, name + " content", 16, 0);
+            var content = (RectTransform)Stack(frame.transform, name + " content", 8, 0);
             content.anchorMin = new Vector2(0, 1); content.anchorMax = Vector2.one;
             content.pivot = new Vector2(.5f, 1); content.anchoredPosition = Vector2.zero; content.sizeDelta = Vector2.zero;
             content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
@@ -596,6 +680,8 @@ namespace CapstoneDesign.Runtime
 
         private void OnDisable()
         {
+            GardenMusicPlayer.SaveVolume();
+            if(Application.isPlaying)GardenSfxPlayer.SaveVolume();
             foreach (var section in new[] { diagnosticsDisclosure, testToolsDisclosure })
             {
                 if (section == null || section.Animation == null) continue;
@@ -607,14 +693,17 @@ namespace CapstoneDesign.Runtime
         public void OpenVisualDebug()
         {
             PrepareView();
+            if (IsVisualDebugOpen || !(settingsDesign?.gameObject.activeInHierarchy ?? false)) return;
+            visualDebugScrollPosition = PrimaryScroll.content.anchoredPosition;
+            visualDebugOrigin = EventSystem.current?.currentSelectedGameObject;
             if (visualDebugPage == null)
             {
-                var page = GardenUi.Box(transform, "UI debug page", 0, .12f, 1, .88f, GardenUi.Background);
-                GardenUi.ConstrainWidth(page);
+                var page = GardenUi.Box(transform, "UI debug page", 0, 0, 1, 1, Color.clear);
                 visualDebugPage = page.AddComponent<GardenVisualDebugPage>();
                 visualDebugPage.Build(() => CloseVisualDebug(), () => OpenGardenFromTime(false), () => OpenGardenFromTime(true));
             }
             PrimaryScroll.gameObject.SetActive(false);
+            settingsDesign.gameObject.SetActive(false);
             visualDebugPage.gameObject.SetActive(true);
         }
 
@@ -629,7 +718,11 @@ namespace CapstoneDesign.Runtime
         {
             if (!IsVisualDebugOpen) return false;
             visualDebugPage.gameObject.SetActive(false);
+            settingsDesign.gameObject.SetActive(true);
             PrimaryScroll.gameObject.SetActive(true);
+            if (visualDebugOrigin != null && visualDebugOrigin.activeInHierarchy) EventSystem.current?.SetSelectedGameObject(visualDebugOrigin);
+            PrimaryScroll.content.anchoredPosition = visualDebugScrollPosition;
+            PrimaryScroll.StopMovement();
             return true;
         }
 
@@ -750,6 +843,7 @@ namespace CapstoneDesign.Runtime
             string request=fullResetRequestId, source=fullResetSourceId;
             MissionResetConfirmButton.onClick.RemoveAllListeners();
             MissionResetConfirmButton.onClick.AddListener(()=>ResetAllRecords(request,source));
+            GardenSfxButton.Attach(MissionResetConfirmButton);
             missionResetConfirmation.SetActive(true);
             missionActionStatus.gameObject.SetActive(false);
             RefreshDisclosureSize(testToolsDisclosure);
@@ -879,6 +973,7 @@ namespace CapstoneDesign.Runtime
             RefreshMissionControls();
             if (Loop != null && Loop.HasPendingFullReset) return;
             RefreshMusicSetting();
+            RefreshSfxSetting();
             RefreshNotificationSettings();
             using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
             AndroidPlatformSnapshot snapshot = diagnostics != null && diagnostics.activeInHierarchy
@@ -926,7 +1021,7 @@ namespace CapstoneDesign.Runtime
             AppendStatus("Samsung-origin data in Health Connect", health.watchData?.status ?? "NO_DATA");
             builder.AppendLine("Heart chart: hourly means from Health Connect. Trial On/Off controls acceleration separately.");
             if (health.permissionStatus == "PERMISSION_REQUIRED" || health.permissionStatus == "PERMISSION_DENIED")
-                builder.AppendLine("건강 데이터 권한이 필요해요. 위의 앱 연결 및 권한에서 확인해 주세요.");
+                builder.AppendLine("건강 데이터 권한이 필요해요. 위의 데이터 접근 권한에서 확인해 주세요.");
             else if (health.watchData?.status == "NO_DATA")
                 builder.AppendLine("No Samsung data yet: Samsung Health > Settings > Health Connect, allow sharing, then sync");
             builder.AppendLine("Watch direct connection: NOT_CHECKED");

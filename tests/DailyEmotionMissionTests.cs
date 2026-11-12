@@ -121,7 +121,7 @@ static class DailyEmotionMissionTests
             Failed(store,service,()=>service.SaveDailyEmotionDraft(id,mood,note,0),"Emotion draft failure");
             Check(service.SaveDailyEmotionDraft(id,mood,note,0)&&service.SaveDailyEmotionDraft(id,mood,note,1),"Save emotion and note draft stages");
             var draft=service.GetDailyEmotion(id);draft.Mood="detached mutation";
-            Check(service.GetDailyEmotion(id).Mood==mood&&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&service.CoinBalance==237,"Draft is detached and does not award growth/coins");
+            Check(service.GetDailyEmotion(id).Mood==mood&&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&service.CoinBalance==217,"Draft is detached and retains the 50+30 mission rewards without awarding growth/coins");
             string saved=Encode(service);service.Dispose();service=Open(store,clock);
             Check(Encode(service)==saved&&service.GetDailyEmotion(id).Mood==mood&&service.GetDailyEmotion(id).Note==note,"Draft and stage survive reopening exactly");
             Failed(store,service,()=>service.CompleteDailyEmotion(id,mood,note),"Emotion completion/growth failure");
@@ -135,7 +135,7 @@ static class DailyEmotionMissionTests
                 &&result.RewardVersion==1&&result.RewardAmount==100&&result.MemoId==memo.Id
                 &&memo.DailyEmotionRecordId==id&&memo.Mood==mood&&memo.Note==note
                 &&memo.PlantInstanceId==service.Snapshot.PlantAppearance.Recipe.InstanceId,"Emotion or note alone validly completes with one individually owned memo");
-            Check(service.Snapshot.PlantAppearance.Recipe.GrowthStep==stage&&service.CoinBalance==337&&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,"Third activity gives 100 coins without changing recipe or growth");
+            Check(service.Snapshot.PlantAppearance.Recipe.GrowthStep==stage&&service.CoinBalance==317&&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,"Third activity gives 100 coins without changing recipe or growth");
             string done=Encode(service);int writes=store.Saves;store.Fail=true;
             Check(service.CompleteDailyEmotion(id,"changed","changed")&&store.Saves==writes&&Encode(service)==done,"Duplicate completed command cannot overwrite the saved emotion or repeat growth");store.Fail=false;
             service.Dispose();service=Open(store,clock);Check(Encode(service)==done,"Completed daily record, growth and input survive reopening");
@@ -176,7 +176,7 @@ static class DailyEmotionMissionTests
             string recipe=PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
             Failed(store,service,()=>service.CompleteDailyEmotion(id,"평온함","synthetic successor memo"),"Successor memo completion failure");
             Check(service.CompleteDailyEmotion(id,"평온함","synthetic successor memo")&&service.Snapshot.StoredGrowthSteps==0&&service.GetPracticeGrowth(id)==null
-                &&service.CoinBalance==337,"Daily emotion adds 100 coins and no growth");
+                &&service.CoinBalance==317,"Daily emotion adds 100 coins and no growth");
             Check(PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&PlantCodec.Encode(service.Snapshot.PlantPhotos.Single())==archived,
                 "Emotion preserves the active recipe and the earlier archived plant");
             Check(service.Snapshot.PlantAppearance.Memos.Single().PlantInstanceId==active,"Memo belongs to the actual current successor");
@@ -196,7 +196,7 @@ static class DailyEmotionMissionTests
             Check(service.MissionPlantAvailability==null&&GardenPlantVisuals.HasCurrentPlant(service.Snapshot),"Completed archived plant remains available for today's emotion");
             Failed(store,service,()=>service.CompleteDailyEmotion(id,"평온함","synthetic pending memo"),"Mature current memo save failure");
             Check(service.CompleteDailyEmotion(id,"평온함","synthetic pending memo")&&service.Snapshot.PlantAppearance.Memos.Single().PlantInstanceId==source
-                &&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&service.Snapshot.PlantPhotos.Single().Memos.Single().PlantInstanceId==source&&service.CoinBalance==337,
+                &&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe&&service.Snapshot.PlantPhotos.Single().Memos.Single().PlantInstanceId==source&&service.CoinBalance==317,
                 "Pending emotion stays with the visible mature individual, updates album memory and never creates a new seed");
         }
     }
@@ -207,7 +207,7 @@ static class DailyEmotionMissionTests
             string id=Unlock(service);var old=service.Snapshot;
             var document=new XmlDocument();document.LoadXml(StateCodec.Encode(old));var optional=document.DocumentElement["DailyEmotionRecords"];optional.ParentNode.RemoveChild(optional);
             var migrated=StateCodec.Decode(document.OuterXml);
-            Check(migrated.DailyEmotionRecords!=null&&migrated.DailyEmotionRecords.Count==0&&migrated.Coins==237&&migrated.Sessions.Count==2,"Old schema without emotion list loads without fabricated records or rewards");
+            Check(migrated.DailyEmotionRecords!=null&&migrated.DailyEmotionRecords.Count==0&&migrated.Coins==217&&migrated.Sessions.Count==2,"Old schema without emotion list loads without fabricated records or rewards");
             Check(service.BeginDailyEmotion(service.CurrentCycleId),"Create validation record");string before=Encode(service);
             foreach(var bad in new[]{new[]{new string('a',81),""},new[]{"",new string('b',501)}})
                 Check(!service.SaveDailyEmotionDraft(id,bad[0],bad[1],0)&&!service.CompleteDailyEmotion(id,bad[0],bad[1])&&Encode(service)==before,"Oversized emotion/note cannot mutate storage");
@@ -291,14 +291,14 @@ static class DailyEmotionMissionTests
     static void RewardOverflowRollbacks()
     {
         var clock=new EmotionClock();var store=new EmotionStore();
-        using(var seed=Open(store,clock)){Ready(seed,"overflow-practice","M03");store.State.Coins=int.MaxValue-49;}
+        using(var seed=Open(store,clock)){Ready(seed,"overflow-practice","M03");store.State.Coins=int.MaxValue-29;}
         using(var service=Open(store,clock))
         {
             string before=Encode(service);int writes=store.Saves;
             Check(!service.CompletePracticeSession("overflow-practice")&&Encode(service)==before&&store.Saves==writes,
                 "Coin overflow rolls back practice growth, completion, receipt and wallet together");
             Check(service.PurchaseEnvironment("overflow-room","environment:E01","left")&&service.CompletePracticeSession("overflow-practice")
-                &&service.CoinBalance==int.MaxValue-9&&service.GetPracticeGrowth("overflow-practice")!=null,
+                &&service.CoinBalance==int.MaxValue-399&&service.GetPracticeGrowth("overflow-practice")!=null,
                 "After making wallet space the same practice retries once without losing its earned growth");
         }
         store=new EmotionStore();string id;
@@ -309,7 +309,7 @@ static class DailyEmotionMissionTests
             Check(!service.CompleteDailyEmotion(id,"평온함","synthetic overflow memo")&&Encode(service)==before&&store.Saves==writes,
                 "Coin overflow creates neither daily completion nor memo or coin receipt");
             Check(service.PurchaseEnvironment("overflow-daily-room","environment:E01","left")&&service.CompleteDailyEmotion(id,"평온함","synthetic overflow memo")
-                &&service.CoinBalance==int.MaxValue-9&&service.Snapshot.PlantAppearance.Memos.Count==1,
+                &&service.CoinBalance==int.MaxValue-399&&service.Snapshot.PlantAppearance.Memos.Count==1,
                 "A safe wallet-space retry creates exactly one daily memo and 100-coin reward");
         }
     }
@@ -488,7 +488,7 @@ static class DailyEmotionMissionTests
                 &&service.Snapshot.PracticeGrowthRecords.Count(r=>r.Outcome==PracticeGrowthOutcome.Grown||r.Outcome==PracticeGrowthOutcome.Stored)==receipts
                 &&service.Snapshot.PracticeGrowthRecords.Count(r=>r.SessionId==id)==0&&PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,
                 "Explicit reset allows new contents but retained receipts prevent duplicate growths");
-            Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot)&&service.CoinBalance==337
+            Check(!FocusMissionPolicy.HasPendingToday(service.Snapshot)&&service.CoinBalance==317
                 &&service.GetDailyEmotion(id).RewardAmount==0&&service.GetDailyEmotion(id).MemoId==""
                 &&service.Snapshot.PlantAppearance.Memos.Count==1,"History reset retains coin receipts and original memo without paying or attaching again");
         }

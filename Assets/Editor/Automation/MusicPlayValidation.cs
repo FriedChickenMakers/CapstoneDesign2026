@@ -8,16 +8,17 @@ using CapstoneDesign.Runtime;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace CapstoneDesign.EditorTools
 {
     [InitializeOnLoad]
     public static class MusicPlayValidation
     {
-        const string Key="Capstone.MusicValidation", MutedKey="capstone.music.muted";
+        const string Key="Capstone.MusicValidation", MutedKey="capstone.music.muted", VolumeKey="capstone.music.volume";
         const BindingFlags Hidden=BindingFlags.Instance|BindingFlags.NonPublic;
         [Serializable] sealed class Report {public string status;public List<string> checks=new List<string>();public float outputPeak,nightOutputPeak;public string error;}
-        [Serializable] sealed class PrefBackup {public bool hadMute;public int muted;}
+        [Serializable] sealed class PrefBackup {public bool hadMute,hadVolume;public int muted;public float volume;}
         static Report report;
         static GardenMusicPlayer player;
         static GardenMusicProfile original,temporary;
@@ -25,17 +26,32 @@ namespace CapstoneDesign.EditorTools
         static double? originalClock;
         static bool clockCaptured;
         static MusicPlayValidation(){if(SessionState.GetBool(Key,false))EditorApplication.update+=WaitForPlay;}
+        static bool IsIsolatedProject()=>Application.companyName=="CapstoneSyntheticValidation" && Path.GetFullPath(Directory.GetCurrentDirectory())
+            .IndexOf(Path.DirectorySeparatorChar+"artifacts"+Path.DirectorySeparatorChar,StringComparison.OrdinalIgnoreCase)>=0
+            && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"));
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+        static void ConfigureSyntheticInput()
+        {
+            if(!SessionState.GetBool(Key,false))return;
+            if(!IsIsolatedProject())throw new Exception("Music Play bootstrap requires the isolated synthetic project.");
+            // EnterPlaymode reloads static providers. Select MOCK again before
+            // any production scene Awake can open a service or initialize input.
+            AndroidPlatformBridge.UseMockProvider();
+        }
         public static void Start()
         {
-            if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT")))
-                throw new Exception("An isolated CAPSTONE_SMOKE_SAVE_ROOT is required.");
+            if(!IsIsolatedProject())
+                throw new Exception("A separately copied CapstoneSyntheticValidation project and isolated CAPSTONE_SMOKE_SAVE_ROOT are required.");
             string root=Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT");Directory.CreateDirectory(root);
             string backup=Path.Combine(root,"music-pref-original.json");
             var saved=File.Exists(backup)?JsonUtility.FromJson<PrefBackup>(File.ReadAllText(backup)):
                 new PrefBackup{hadMute=SessionState.GetBool(Key,false)?SessionState.GetBool(Key+".HadMute",false):PlayerPrefs.HasKey(MutedKey),
-                    muted=SessionState.GetBool(Key,false)?SessionState.GetInt(Key+".Mute",0):PlayerPrefs.GetInt(MutedKey)};
+                    muted=SessionState.GetBool(Key,false)?SessionState.GetInt(Key+".Mute",0):PlayerPrefs.GetInt(MutedKey),
+                    hadVolume=SessionState.GetBool(Key,false)?SessionState.GetBool(Key+".HadVolume",false):PlayerPrefs.HasKey(VolumeKey),
+                    volume=SessionState.GetBool(Key,false)?SessionState.GetFloat(Key+".Volume",1):PlayerPrefs.GetFloat(VolumeKey,1)};
             if(!File.Exists(backup))File.WriteAllText(backup,JsonUtility.ToJson(saved));
             SessionState.SetBool(Key+".HadMute",saved.hadMute);SessionState.SetInt(Key+".Mute",saved.muted);
+            SessionState.SetBool(Key+".HadVolume",saved.hadVolume);SessionState.SetFloat(Key+".Volume",saved.volume);
             SessionState.SetBool(Key,true);SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+240);
             EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity");
             EditorApplication.update-=WaitForPlay;EditorApplication.update+=WaitForPlay;EditorApplication.EnterPlaymode();
@@ -67,6 +83,18 @@ namespace CapstoneDesign.EditorTools
         static void Check(bool ok,string name){if(!ok)throw new Exception(name);report.checks.Add(name);Debug.Log("Music validation PASS: "+name);}
         static int Samples()=>Sources()[(int)typeof(GardenMusicPlayer).GetField("target",Hidden).GetValue(player)].timeSamples;
         static AudioSource[] Sources()=>(AudioSource[])typeof(GardenMusicPlayer).GetField("channels",Hidden).GetValue(player);
+        static float[] Gains()=>(float[])typeof(GardenMusicPlayer).GetField("gains",Hidden).GetValue(player);
+        static bool PreferencesPending()=>(bool)typeof(GardenMusicPlayer).GetField("preferencesPending",Hidden).GetValue(player);
+        static void RecreatePlayer()
+        {
+            if(player!=null)UnityEngine.Object.DestroyImmediate(player.gameObject);
+            player=GardenMusicPlayer.Ensure();Lifecycle("OnApplicationFocus",true);Lifecycle("OnApplicationPause",false);
+        }
+        static void CheckChannelLevels(float requested,string label)
+        {
+            Check(Mathf.Approximately(GardenMusicPlayer.Volume,requested)
+                && Sources().Select((source,i)=>Mathf.Abs(source.volume-Gains()[i]*original.volume*requested)<.00001f).All(value=>value),label);
+        }
         static void Lifecycle(string method,bool value)=>typeof(GardenMusicPlayer).GetMethod(method,Hidden).Invoke(player,new object[]{value});
         static WaitForSecondsRealtime AudioQueueDelay()
         {
@@ -135,6 +163,30 @@ namespace CapstoneDesign.EditorTools
             Check(original.night.length>154.2f && original.night.length<154.4f && original.night!=original.homeGarden,
                 "complete supplied night track duration");
             Check(Mathf.Approximately(original.crossfadeSeconds,8),"profile uses an eight-second day/night crossfade");
+            UnityEngine.Object.DestroyImmediate(player.gameObject);player=null;
+            PlayerPrefs.DeleteKey(VolumeKey);PlayerPrefs.SetInt(MutedKey,1);PlayerPrefs.Save();
+            Check(GardenMusicPlayer.IsMuted && GardenMusicPlayer.Volume==0
+                && UnityEngine.Object.FindObjectsByType<GardenMusicPlayer>(FindObjectsInactive.Include,FindObjectsSortMode.None).Length==0,
+                "legacy muted setting reads as zero without creating an audio player");
+            RecreatePlayer();
+            Check(GardenMusicPlayer.IsMuted && player.IsSuspended,"legacy mute remains silent after player initialization");
+            UnityEngine.Object.DestroyImmediate(player.gameObject);player=null;
+            PlayerPrefs.DeleteKey(VolumeKey);PlayerPrefs.SetInt(MutedKey,0);PlayerPrefs.Save();
+            Check(GardenMusicPlayer.Volume==1 && !GardenMusicPlayer.IsMuted,"legacy music-on setting retains the original full profile level");
+            RecreatePlayer();GardenMusicPlayer.SetVolume(.37f);GardenMusicPlayer.SaveVolume();
+            RecreatePlayer();Check(Mathf.Approximately(GardenMusicPlayer.Volume,.37f),"partial music volume survives player recreation");
+            GardenMusicPlayer.SetVolume(0);GardenMusicPlayer.SaveVolume();RecreatePlayer();
+            Check(GardenMusicPlayer.Volume==0 && GardenMusicPlayer.IsMuted && player.IsSuspended,"zero music volume stays silent after recreation");
+            GardenMusicPlayer.SetVolume(-1);Check(GardenMusicPlayer.Volume==0,"negative volume clamps to silence");
+            GardenMusicPlayer.SetVolume(2);Check(GardenMusicPlayer.Volume==1,"volume above one clamps to the prior normal level");
+            GardenMusicPlayer.SetVolume(float.NaN);Check(GardenMusicPlayer.Volume==0,"NaN volume cannot reach an AudioSource");
+            GardenMusicPlayer.SetVolume(float.PositiveInfinity);Check(GardenMusicPlayer.Volume==0,"infinite volume cannot reach an AudioSource");
+            // Model the existing full-reset contract without clearing unrelated
+            // synthetic preferences; RestoreInitialSettings must not recreate keys.
+            GardenMusicPlayer.SetVolume(.42f);PlayerPrefs.DeleteKey(MutedKey);PlayerPrefs.DeleteKey(VolumeKey);PlayerPrefs.Save();
+            GardenMusicPlayer.RestoreInitialSettings();GardenMusicPlayer.SaveVolume();
+            Check(GardenMusicPlayer.Volume==1 && !GardenMusicPlayer.IsMuted && !PlayerPrefs.HasKey(MutedKey) && !PlayerPrefs.HasKey(VolumeKey)
+                && !PreferencesPending(),"full reset restores normal volume without restoring deleted preferences");
             foreach(GardenMusicContext context in Enum.GetValues(typeof(GardenMusicContext)))
                 Check(original.TrackFor(context,0)==original.night && original.TrackFor(context,5+59/60d)==original.night &&
                     original.TrackFor(context,6)==original.homeGarden && original.TrackFor(context,17+59/60d)==original.homeGarden &&
@@ -158,6 +210,25 @@ namespace CapstoneDesign.EditorTools
             GardenVisualClock.SetOverrideMinutes(12*60);
             yield return new WaitForSecondsRealtime(8.4f);
             Check(player.CurrentClip==original.homeGarden && OnlyPlaying(original.homeGarden),"daytime preview selects the existing daytime track");
+            var steadyClip=player.CurrentClip;var steadyGains=(float[])Gains().Clone();
+            GardenMusicPlayer.SetVolume(.35f);
+            CheckChannelLevels(.35f,"a settled track updates its volume immediately without waiting for another crossfade");
+            Check(player.CurrentClip==steadyClip && Gains().SequenceEqual(steadyGains),"volume adjustment retains the track and its crossfade gains");
+            GardenMusicPlayer.SetVolume(.6f);GardenMusicPlayer.SetVolume(.35f);
+            Check(PreferencesPending() && Mathf.Approximately(PlayerPrefs.GetFloat(VolumeKey),.35f),"drag changes coalesce to the latest volume before disk flush");
+            yield return new WaitForSecondsRealtime(.35f);
+            Check(!PreferencesPending(),"volume changes flush after a short idle interval");
+            int volumeBefore=Samples();GardenMusicPlayer.SetVolume(0);
+            CheckChannelLevels(0,"slider zero silences both channels immediately");
+            Check(player.IsSuspended && Sources().All(source=>!source.isPlaying),"slider zero pauses playback");
+            yield return AudioQueueDelay();
+            int zeroPosition=Samples();yield return new WaitForSecondsRealtime(.2f);
+            Check(Math.Abs(Samples()-zeroPosition)<256,"slider zero keeps the existing playback position");
+            GardenMusicPlayer.SetVolume(.35f);yield return new WaitForSecondsRealtime(.3f);
+            Check(!player.IsSuspended && player.CurrentClip==steadyClip && Samples()>volumeBefore+1000,"raising the slider resumes the current song rather than restarting it");
+            GardenMusicPlayer.SetVolume(.45f);Lifecycle("OnApplicationPause",true);
+            Check(!PreferencesPending() && Mathf.Approximately(PlayerPrefs.GetFloat(VolumeKey),.45f),"backgrounding flushes the latest dragged value");
+            Lifecycle("OnApplicationPause",false);GardenMusicPlayer.SetVolume(1);GardenMusicPlayer.SaveVolume();
             int before=Samples();yield return new WaitForSecondsRealtime(.5f);
             Check(Samples()>before+1000,"supplied streaming track timeSamples advance");
             var pcm=new float[1024];float peak=0;
@@ -171,6 +242,24 @@ namespace CapstoneDesign.EditorTools
             Check(player.CurrentContext==GardenMusicContext.Activity && Samples()>=before,"same-track activity navigation preserves position");
             before=Samples();nav.ShowSettings();yield return new WaitForSecondsRealtime(.2f);
             Check(player.CurrentContext==GardenMusicContext.Settings && Samples()>=before,"same-track settings navigation preserves position");
+            var settings=nav.GetComponentInChildren<SensorRawDisplay>(true);settings.PrepareView();
+            var slider=typeof(SensorRawDisplay).GetField("musicVolume",Hidden)?.GetValue(settings) as Slider;
+            var caption=typeof(SensorRawDisplay).GetField("musicVolumeValue",Hidden)?.GetValue(settings) as Text;
+            Check(slider!=null && caption!=null && slider.IsActive() && slider.IsInteractable(),"actual settings exposes an enabled music volume slider");
+            var sliderClip=player.CurrentClip;
+            foreach(float value in new[]{0,.5f,1})
+            {
+                slider.value=value;
+                CheckChannelLevels(value,"production slider callback immediately applies "+Mathf.RoundToInt(value*100)+"% volume");
+                Check(caption.text==Mathf.RoundToInt(value*100)+"%" && player.CurrentClip==sliderClip,
+                    "production slider updates its percentage without changing the song");
+                Check(player.IsSuspended==(value==0),"production slider zero and nonzero control mute state");
+            }
+            slider.value=.43f;nav.ShowIsland();
+            Check(!PreferencesPending() && Mathf.Approximately(PlayerPrefs.GetFloat(VolumeKey),.43f),"leaving settings flushes the last slider change");
+            nav.ShowSettings();yield return new WaitForSecondsRealtime(.1f);
+            Check(Mathf.Approximately(slider.value,.43f) && caption.text=="43%","returning to settings restores the stored slider value");
+            slider.value=1;GardenMusicPlayer.SaveVolume();
             Check(UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None).Count(l=>l.isActiveAndEnabled)==1,"one active listener after all tab cameras change");
             var pausedClips=Sources().Select(source=>source.clip).ToArray();var requestedSamples=SamplePositions();
             Lifecycle("OnApplicationFocus",false);
@@ -221,6 +310,12 @@ namespace CapstoneDesign.EditorTools
                 "17:59 to 18:00 polling starts the fade without cutting the outgoing track");
             yield return new WaitForSecondsRealtime(3.9f);
             CheckCrossfade(original.homeGarden,original.night,"sunset");
+            var fadingGains=(float[])Gains().Clone();var fadingClips=Sources().Select(source=>source.clip).ToArray();
+            GardenMusicPlayer.SetVolume(.25f);
+            CheckChannelLevels(.25f,"volume adjustment scales both live crossfade channels equally");
+            Check(Gains().SequenceEqual(fadingGains) && Sources().Select(source=>source.clip).SequenceEqual(fadingClips),
+                "volume adjustment during a crossfade preserves both tracks and their blend");
+            GardenMusicPlayer.SetVolume(1);GardenMusicPlayer.SaveVolume();
             yield return new WaitForSecondsRealtime(4.4f);
             Check(OnlyPlaying(original.night) && Sources().All(s=>s.clip==original.night || s.clip==null),
                 "sunset completion stops and releases the daytime track");
@@ -299,7 +394,11 @@ namespace CapstoneDesign.EditorTools
                 if(originalClock.HasValue)GardenVisualClock.SetOverrideMinutes((int)Math.Round(originalClock.Value*60));
                 else GardenVisualClock.UseSystemTime();
             }
+            // Stop the disposable player before restoring its backed-up values;
+            // an outstanding drag debounce must not overwrite the restoration.
+            if(player!=null){UnityEngine.Object.DestroyImmediate(player.gameObject);player=null;}
             if(SessionState.GetBool(Key+".HadMute",false))PlayerPrefs.SetInt(MutedKey,SessionState.GetInt(Key+".Mute",0));else PlayerPrefs.DeleteKey(MutedKey);
+            if(SessionState.GetBool(Key+".HadVolume",false))PlayerPrefs.SetFloat(VolumeKey,SessionState.GetFloat(Key+".Volume",1));else PlayerPrefs.DeleteKey(VolumeKey);
             PlayerPrefs.Save();
             if(report==null)report=new Report();report.status=failure==null?"PASS":"FAIL";report.error=failure?.ToString();
             string root=Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT");Directory.CreateDirectory(root);

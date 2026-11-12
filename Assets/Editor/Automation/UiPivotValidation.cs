@@ -40,6 +40,7 @@ namespace CapstoneDesign.EditorTools
             Application.logMessageReceived += ObserveError;
             bool preferenceExisted = PlayerPrefs.HasKey("ui.reduce-motion");
             int originalPreference = PlayerPrefs.GetInt("ui.reduce-motion", 0);
+            bool originalReducedMotion = FigmaMissionUi.ReducedMotion;
             try
             {
                 FigmaMissionUi.ReducedMotion = false;
@@ -54,6 +55,7 @@ namespace CapstoneDesign.EditorTools
             }
             finally
             {
+                FigmaMissionUi.ReducedMotion = originalReducedMotion;
                 if (preferenceExisted) PlayerPrefs.SetInt("ui.reduce-motion", originalPreference);
                 else PlayerPrefs.DeleteKey("ui.reduce-motion");
                 PlayerPrefs.Save();

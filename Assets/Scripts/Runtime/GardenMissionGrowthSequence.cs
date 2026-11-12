@@ -17,6 +17,9 @@ namespace CapstoneDesign.Runtime
     {
         [SerializeField] GardenGrowthEffect effectPrefab;
         public const float Duration = 4.6f;
+        public const float ReducedMotionDuration = 1.2f;
+        public bool UsesReducedMotion { get; private set; }
+        public float PlaybackDuration => UsesReducedMotion ? ReducedMotionDuration : Duration;
         public bool IsPlaying { get; private set; }
         public string Phase { get; private set; } = "idle";
         public float Progress { get; private set; }
@@ -31,6 +34,7 @@ namespace CapstoneDesign.Runtime
         Camera camera;
         CameraState oldCamera;
         GameObject screen, effects;
+        RawImage presentation;
         GardenGrowthEffect effect;
         bool visualsWereActive, revealed, restoring;
         float started, yaw, initialSize;
@@ -65,6 +69,9 @@ namespace CapstoneDesign.Runtime
         void Begin(GardenHomePresenter presenter, GardenState before, GardenState savedAfter, Action finished)
         {
             home = presenter; after = savedAfter; completed = finished; camera = home.gardenCamera;
+            // Freeze the user's presentation preference for this one playback.
+            // A later custom effect prefab must not bypass the quiet path.
+            UsesReducedMotion = FigmaMissionUi.ReducedMotion;
             oldCamera = new CameraState(camera); oldActive = RenderTexture.active;
             visualsWereActive = home.gardenVisuals.activeSelf;
             IsPlaying = true; Phase = "swirl"; Progress = 0; PeakParticleCount = 0; revealed = false;
@@ -88,18 +95,23 @@ namespace CapstoneDesign.Runtime
             var overlay = screen.GetComponent<Canvas>(); overlay.renderMode = RenderMode.ScreenSpaceOverlay; overlay.sortingOrder = 32760;
             var imageNode = new GameObject("Unobstructed garden", typeof(RectTransform), typeof(RawImage)); imageNode.transform.SetParent(screen.transform, false);
             var image = imageNode.GetComponent<RawImage>(); image.texture = oldCamera.Target; image.color = Color.white; image.raycastTarget = true;
+            presentation = image;
             var rect = (RectTransform)imageNode.transform; rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = rect.offsetMax = Vector2.zero;
             camera.enabled = false; camera.aspect = Mathf.Max(1, Screen.width) / (float)Mathf.Max(1, Screen.height);
             camera.targetTexture = oldCamera.Target;
             var bounds = PlantBounds(); focus = initialFocus = bounds.center;
             initialSize = Mathf.Max(.72f, bounds.extents.magnitude * 1.45f / Mathf.Min(1, camera.aspect));
             yaw = oldCamera.Rotation.eulerAngles.y;
-            effects = new GameObject("Mission growth effects (temporary)");
-            effects.transform.SetParent(home.gardenVisuals.transform, false);
-            effect = effectPrefab != null ? Instantiate(effectPrefab, effects.transform) : effects.AddComponent<GardenPlantEvolutionEffect>();
-            effect.Begin(home.ProceduralPlant.transform);
+            if (!UsesReducedMotion)
+            {
+                effects = new GameObject("Mission growth effects (temporary)");
+                effects.transform.SetParent(home.gardenVisuals.transform, false);
+                effect = effectPrefab != null ? Instantiate(effectPrefab, effects.transform) : effects.AddComponent<GardenPlantEvolutionEffect>();
+                effect.Begin(home.ProceduralPlant.transform);
+            }
             started = Time.unscaledTime;
             RenderFrame(0);
+            if(!UsesReducedMotion)GardenSfxPlayer.Play(GardenSfxCue.GrowthSwirl);
         }
 
         Bounds PlantBounds()
@@ -114,7 +126,7 @@ namespace CapstoneDesign.Runtime
             if (!IsPlaying || restoring) return;
             try
             {
-                float progress = Mathf.Clamp01((Time.unscaledTime - started) / Duration);
+                float progress = Mathf.Clamp01((Time.unscaledTime - started) / PlaybackDuration);
                 RenderFrame(progress);
                 if (progress >= 1) Restore();
             }
@@ -146,20 +158,35 @@ namespace CapstoneDesign.Runtime
             Progress = progress;
             if (!revealed && progress >= .56f)
             {
-                effect.BeforePlantChanges();
+                effect?.BeforePlantChanges();
                 home.RefreshFromState(after);
-                effect.Reveal(home.ProceduralPlant.transform);
+                effect?.Reveal(home.ProceduralPlant.transform);
                 focus = PlantBounds().center; revealed = true;
+                GardenSfxPlayer.StopGrowth();
+                if(!UsesReducedMotion)GardenSfxPlayer.Play(GardenSfxCue.GrowthBloom);
             }
-            Phase = progress < .43f ? "swirl" : progress < .61f ? "transform" : "burst";
-            effect.Sample(progress); PeakParticleCount = Mathf.Max(PeakParticleCount, effect.ParticleCount);
+            Phase = UsesReducedMotion ? (revealed ? "quiet-after" : "quiet-before")
+                : progress < .43f ? "swirl" : progress < .61f ? "transform" : "burst";
+            effect?.Sample(progress); PeakParticleCount = Mathf.Max(PeakParticleCount, effect?.ParticleCount ?? 0);
             // About five degrees per second, with a gentle start/stop. The same
             // offscreen camera and render target continue to feed a full-screen image.
-            float orbit = Mathf.SmoothStep(0, 1, progress) * 24;
-            var rotation = Quaternion.Euler(23, yaw + orbit, 0);
-            var center = Vector3.Lerp(initialFocus, focus, Mathf.InverseLerp(.56f, .9f, progress));
-            camera.transform.SetPositionAndRotation(center + rotation * Vector3.back * 5.8f, rotation);
-            camera.orthographicSize = initialSize;
+            if (UsesReducedMotion)
+            {
+                // Keep the familiar full-garden framing, with no orbit, pan,
+                // flashing material or particles. A small, slow dim softens the
+                // committed model swap without brightening the whole screen.
+                oldCamera.RestorePose(camera);
+                float shade = 1 - .08f * Mathf.Sin(Mathf.PI * Mathf.InverseLerp(.25f, .85f, progress));
+                presentation.color = new Color(shade, shade, shade, 1);
+            }
+            else
+            {
+                float orbit = Mathf.SmoothStep(0, 1, progress) * 24;
+                var rotation = Quaternion.Euler(23, yaw + orbit, 0);
+                var center = Vector3.Lerp(initialFocus, focus, Mathf.InverseLerp(.56f, .9f, progress));
+                camera.transform.SetPositionAndRotation(center + rotation * Vector3.back * 5.8f, rotation);
+                camera.orthographicSize = initialSize;
+            }
             camera.ResetProjectionMatrix();
             camera.Render();
         }
@@ -173,6 +200,7 @@ namespace CapstoneDesign.Runtime
         {
             if (restoring || !IsPlaying) return;
             restoring = true;
+            GardenSfxPlayer.StopGrowth();
             var continuation = completed; completed = null;
             try
             {
@@ -183,8 +211,8 @@ namespace CapstoneDesign.Runtime
             catch (Exception exception) { Debug.LogException(exception); }
             finally
             {
-                RestoreSafely(() => { if (effects != null) { effects.SetActive(false); Destroy(effects); } });
-                RestoreSafely(() => { if (screen != null) { screen.SetActive(false); Destroy(screen); } });
+                RestoreSafely(() => ReleaseOwned(effects));
+                RestoreSafely(() => ReleaseOwned(screen));
                 RestoreSafely(() => { if (home != null && home.gardenVisuals != null) home.gardenVisuals.SetActive(visualsWereActive); });
                 foreach (var item in canvases) RestoreSafely(() => { if (item.Value != null) item.Value.enabled = item.Key; });
                 // Orbit.OnEnable can set a pose: restore the precise captured
@@ -195,7 +223,7 @@ namespace CapstoneDesign.Runtime
                 }
                 RestoreSafely(() => { if (camera != null) oldCamera.Restore(camera); });
                 RenderTexture.active = oldActive;
-                canvases.Clear(); suspended.Clear(); effect = null; effects = null; screen = null;
+                canvases.Clear(); suspended.Clear(); effect = null; effects = null; screen = null; presentation = null;
                 IsPlaying = false; Phase = "idle"; restoring = false;
             }
             // Always release the caller's one-shot latch. The caller checks its
@@ -206,6 +234,13 @@ namespace CapstoneDesign.Runtime
         static void RestoreSafely(Action action)
         {
             try { action(); } catch (Exception exception) { Debug.LogException(exception); }
+        }
+
+        static void ReleaseOwned(GameObject value)
+        {
+            if (value == null) return;
+            value.SetActive(false);
+            if (Application.isPlaying) Destroy(value); else DestroyImmediate(value);
         }
 
         sealed class CameraState
@@ -225,6 +260,11 @@ namespace CapstoneDesign.Runtime
             {
                 camera.targetTexture = Target; camera.transform.SetPositionAndRotation(position, Rotation);
                 camera.orthographicSize = size; camera.aspect = aspect; camera.projectionMatrix = projection; camera.enabled = enabled;
+            }
+            public void RestorePose(Camera camera)
+            {
+                camera.transform.SetPositionAndRotation(position, Rotation);
+                camera.orthographicSize = size;
             }
         }
     }

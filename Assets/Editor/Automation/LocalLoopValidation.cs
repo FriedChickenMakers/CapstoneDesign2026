@@ -407,8 +407,8 @@ namespace CapstoneDesign.EditorTools
             var font = header.font;
             var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
             sensor.PrepareView();
-            // Focus pages own their header/navigation; settings retains the fixed
-            // home-canvas brand. Both shells must stay fixed above their scroll body.
+            // Both current pages own a fixed heading above their scroll body.
+            // Retain the legacy brand checks for a settings view without its header.
             foreach (bool settings in new[] { false, true })
             {
                 if (settings) nav.ShowSettings(); else nav.ShowActivities();
@@ -423,6 +423,10 @@ namespace CapstoneDesign.EditorTools
                 Canvas.ForceUpdateCanvases();
                 var corners = new Vector3[4]; rect.GetWorldCorners(corners);
                 var headerCorners = new Vector3[4]; header.rectTransform.GetWorldCorners(headerCorners);
+                var settingsTitle = settings && sensor.HasOwnPageHeader
+                    ? FigmaMissionUi.Find<Text>(sensor.transform, "Settings.Title") : null;
+                var settingsHeaderCorners = new Vector3[4];
+                if (settingsTitle != null) settingsTitle.rectTransform.GetWorldCorners(settingsHeaderCorners);
                 foreach (float position in new[] { 1f, 0f })
                 {
                     scroll.verticalNormalizedPosition = position;
@@ -434,9 +438,21 @@ namespace CapstoneDesign.EditorTools
                         "A shared destination became unavailable while scrolling.");
                     if (settings)
                     {
-                        var actualHeader = new Vector3[4]; header.rectTransform.GetWorldCorners(actualHeader);
-                        Assert(header.isActiveAndEnabled && header.font == font && actualHeader.SequenceEqual(headerCorners),
-                            "Settings brand typography or position changed while scrolling.");
+                        if (sensor.HasOwnPageHeader)
+                        {
+                            Assert(settingsTitle != null && settingsTitle.isActiveAndEnabled
+                                && settingsTitle.fontSize == 28 && settingsTitle.alignment == TextAnchor.MiddleCenter,
+                                "Settings lost its shared, centered page heading.");
+                            var actualHeader = new Vector3[4]; settingsTitle.rectTransform.GetWorldCorners(actualHeader);
+                            Assert(actualHeader.SequenceEqual(settingsHeaderCorners) && !header.isActiveAndEnabled,
+                                "Settings heading moved with its list or the legacy brand remained visible.");
+                        }
+                        else
+                        {
+                            var actualHeader = new Vector3[4]; header.rectTransform.GetWorldCorners(actualHeader);
+                            Assert(header.isActiveAndEnabled && header.font == font && actualHeader.SequenceEqual(headerCorners),
+                                "Settings brand typography or position changed while scrolling.");
+                        }
                     }
                     else Assert(!nav.home.homeCanvas.gameObject.activeInHierarchy,
                         "Inactive home chrome overlays the Focus page's own header/navigation.");
@@ -444,9 +460,20 @@ namespace CapstoneDesign.EditorTools
                         "A legacy duplicate brand is still visible behind the current header.");
                 }
             }
-            var cover = header.transform.parent.Find("Shared header background").GetComponent<Image>();
-            Assert(cover.gameObject.activeInHierarchy && cover.color.a == 1 && cover.raycastTarget,
-                "Settings controls can show through or receive taps behind the fixed brand.");
+            if (sensor.HasOwnPageHeader)
+            {
+                var design = sensor.transform.Find("Settings.Design").GetComponent<Image>();
+                Assert(design.isActiveAndEnabled && design.color.a == 1 && design.raycastTarget
+                    && sensor.PrimaryScroll.viewport.GetComponent<RectMask2D>() != null
+                    && -FigmaMissionUi.TopLeftPosition(sensor.PrimaryScroll.viewport).y >= FigmaMissionUi.PageHeaderContentTop,
+                    "Settings content can show through or receive taps in its fixed heading area.");
+            }
+            else
+            {
+                var cover = header.transform.parent.Find("Shared header background").GetComponent<Image>();
+                Assert(cover.gameObject.activeInHierarchy && cover.color.a == 1 && cover.raycastTarget,
+                    "Settings controls can show through or receive taps behind the fixed brand.");
+            }
         }
 
         static void Catalog()
@@ -929,17 +956,17 @@ namespace CapstoneDesign.EditorTools
 
         static void Placement()
         {
-            using (var f = new Fixture(30))
+            using (var f = new Fixture(600))
             {
                 string before = StateCodec.Encode(f.Service.Snapshot);
                 f.Ui.ShowShop(); f.Ui.PreviewEnvironment("environment:E01");
                 Assert(StateCodec.Encode(f.Service.Snapshot) == before, "Preview spent nutrient.");
-                Click(f.Ui, "취소"); Assert(StateCodec.Encode(f.Service.Snapshot) == before, "Cancellation modified placement.");
-                f.Ui.PreviewEnvironment("environment:E01"); f.Store.FailSave = true; Click(f.Ui, "확정");
+                Click(f.Ui, "Shop.DetailClose"); Assert(StateCodec.Encode(f.Service.Snapshot) == before, "Cancellation modified placement.");
+                f.Ui.PreviewEnvironment("environment:E01"); f.Store.FailSave = true; Click(f.Ui, "Shop.Purchase");
                 Assert(StateCodec.Encode(f.Service.Snapshot) == before, "Failed placement save spent nutrient.");
-                f.Store.FailSave = false; Click(f.Ui, "확정");
+                f.Store.FailSave = false; Click(f.Ui, "Shop.Purchase");
                 var state = f.Service.Snapshot;
-                Assert(state.Nutrient == 30 - f.Balance.EnvironmentCost && state.Environments.Count == 1 && state.PurchaseReceipts.Count == 1, "Placement not committed atomically.");
+                Assert(state.Coins == 600 - f.Service.EnvironmentPrice("environment:E01") && state.Environments.Count == 1 && state.PurchaseReceipts.Count == 1, "Placement not committed atomically.");
                 Assert(f.Service.PurchaseEnvironment(state.PurchaseReceipts.Single(), "environment:E01", "left") && f.Service.Snapshot.Nutrient == state.Nutrient, "Purchase replay spent twice.");
                 f.Ui.ShowShop(); f.Ui.PreviewGrowth(); Click(f.Ui, "정원으로");
                 Assert(f.Service.Snapshot.Nutrient == state.Nutrient && f.Service.Snapshot.Plants.Count == 0, "Growth cancellation modified state.");
@@ -1336,17 +1363,17 @@ namespace CapstoneDesign.EditorTools
                 Assert(!f.Ui.GetComponentsInChildren<Button>().Any(button=>button.name=="확정"),"Manual growth is still actionable");
                 Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("미션을 완료하면 식물이 자라요")),"Missing mission growth guidance");
                 Click(f.Ui,"정원으로");f.Ui.PreviewEnvironment("environment:E01");
-                Assert(!Button(f.Ui,"확정").interactable,"Placement can be confirmed without nutrient");
-                Click(f.Ui,"취소");
+                Assert(!Button(f.Ui,"Shop.Purchase").interactable,"Placement can be confirmed without nutrient");
+                Click(f.Ui,"Shop.DetailClose");
                 Assert(StateCodec.Encode(f.Service.Snapshot)==before,"Unavailable previews changed saved state");
             }
-            using(var f=new Fixture(30))
+            using(var f=new Fixture(600))
             {
                 Assert(f.Service.PurchaseEnvironment("owned","environment:E01","left"),"Owned environment seed failed");
                 f.Ui.PreviewEnvironment("environment:E01");
-                Assert(!Button(f.Ui,"확정").interactable,"Owned environment remains purchasable");
-                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("이미 배치한 환경")),"Missing owned environment explanation");
-                Click(f.Ui,"취소");f.Ui.PreviewGrowth();
+                Assert(Button(f.Ui,"Shop.ViewOwned").interactable && !f.Ui.GetComponentsInChildren<Button>().Any(button=>button.name=="Shop.Purchase"),"Owned environment remains purchasable");
+                Assert(f.Ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("이미 보유한 가구")),"Missing owned environment explanation");
+                Click(f.Ui,"Shop.DetailClose");f.Ui.PreviewGrowth();
                 Assert(!f.Ui.GetComponentsInChildren<Button>().Any(button=>button.name=="확정")
                     && Button(f.Ui,"미션으로 이동").interactable,"Coin balance exposed retired paid growth controls");
                 Assert(Button(f.Ui,"미션으로 이동").transform.parent==Button(f.Ui,"정원으로").transform.parent

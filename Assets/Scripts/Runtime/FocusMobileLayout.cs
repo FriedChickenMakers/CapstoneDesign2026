@@ -125,14 +125,14 @@ namespace CapstoneDesign.Runtime
             public int TitleSize, DetailSize;
             public bool CenterText;
             internal bool Side;
-            internal float TextWidth, BadgeHeight, TitleHeight, DetailHeight, CopyHeight, ButtonHeight, Height;
+            internal float TextWidth, BadgeHeight, TitleHeight, DetailHeight, CopyGap, CopyHeight, ButtonHeight, Height;
             internal Text ActionText;
         }
 
         public RectTransform Body, Header, Heading, DebugLauncher;
         public Text Notice;
         public Card[] Cards;
-        const float CardWidth = 342, Padding = 12, Gap = 8, SideActionWidth = 120;
+        const float CardWidth = 342, Padding = 12, Gap = 8, ActionGap = 12, SideActionWidth = 120;
         void OnEnable() { Canvas.preWillRenderCanvases += Refresh; }
         void OnDisable() { Canvas.preWillRenderCanvases -= Refresh; }
 
@@ -155,11 +155,12 @@ namespace CapstoneDesign.Runtime
             card.BadgeHeight = card.Badge == null ? 0 : Mathf.Max(24, TextHeight(card.Badge, card.TextWidth - (card.Icon == null ? 0 : 28)));
             card.TitleHeight = TextHeight(card.Title, card.TextWidth);
             card.DetailHeight = TextHeight(card.Detail, card.TextWidth);
-            card.CopyHeight = (card.Badge == null ? 0 : card.BadgeHeight + 4) + card.TitleHeight + 4 + card.DetailHeight;
+            card.CopyGap = side ? 4 : 8;
+            card.CopyHeight = (card.Badge == null ? 0 : card.BadgeHeight + card.CopyGap) + card.TitleHeight + card.CopyGap + card.DetailHeight;
             if (card.ActionText == null) card.ActionText = card.Action.GetComponentInChildren<Text>();
             float actionWidth = side ? SideActionWidth : CardWidth - Padding * 2;
             card.ButtonHeight = Mathf.Max(48, TextHeight(card.ActionText, actionWidth - 16) + 8);
-            card.Height = Padding * 2 + (side ? Mathf.Max(card.CopyHeight, card.ButtonHeight) : card.CopyHeight + Gap + card.ButtonHeight);
+            card.Height = Padding * 2 + (side ? Mathf.Max(card.CopyHeight, card.ButtonHeight) : card.CopyHeight + ActionGap + card.ButtonHeight);
             return card.Height;
         }
 
@@ -198,16 +199,18 @@ namespace CapstoneDesign.Runtime
                 for (int i = 0; i < Cards.Length; i++) natural += Measure(Cards[i], i >= Cards.Length - sideCount);
                 if (natural <= available) break;
             }
-            float extra = Mathf.Max(0, available - natural) / Cards.Length;
-            float remaining = Mathf.Max(0, available - natural - extra);
+            // Share spare height between card gaps and modest internal padding.
+            // Compact layouts keep the measured text and touch targets intact.
+            float remaining = Mathf.Max(0, available - natural);
             float breathing = Mathf.Min(16, remaining / (Cards.Length + 1));
+            float extra = Mathf.Min(12, Mathf.Max(0, remaining - breathing * (Cards.Length + 1)) / Cards.Length);
             float cardGap = Gap + breathing;
             float y = breathing;
             foreach (var card in Cards)
             {
-                float cardHeight = card.Height + (card.CenterText ? 0 : extra);
+                float cardHeight = card.Height + extra;
                 FigmaMissionUi.SetRect(card.Root, 24, y, CardWidth, cardHeight);
-                float freeCopySpace = cardHeight - 2 * Padding - card.CopyHeight - card.ButtonHeight - Gap;
+                float freeCopySpace = cardHeight - 2 * Padding - card.CopyHeight - card.ButtonHeight - ActionGap;
                 float copyY = card.Side ? (cardHeight - card.CopyHeight) / 2
                     : card.CenterText ? Padding + Mathf.Max(0, freeCopySpace / 2) : Padding;
                 if (card.Badge != null)
@@ -229,10 +232,10 @@ namespace CapstoneDesign.Runtime
                         if (card.Icon != null) FigmaMissionUi.SetRect(card.Icon, Padding, copyY + (card.BadgeHeight - 24) / 2, 24, 24);
                     }
                     FigmaMissionUi.SetRect(card.Badge.rectTransform, badgeX, copyY, badgeWidth, card.BadgeHeight);
-                    copyY += card.BadgeHeight + 4;
+                    copyY += card.BadgeHeight + card.CopyGap;
                 }
                 FigmaMissionUi.SetRect(card.Title.rectTransform, Padding, copyY, card.TextWidth, card.TitleHeight);
-                copyY += card.TitleHeight + 4;
+                copyY += card.TitleHeight + card.CopyGap;
                 FigmaMissionUi.SetRect(card.Detail.rectTransform, Padding, copyY, card.TextWidth, card.DetailHeight);
                 float actionWidth = card.Side ? SideActionWidth : CardWidth - Padding * 2;
                 float actionX = card.Side ? CardWidth - Padding - actionWidth : Padding;

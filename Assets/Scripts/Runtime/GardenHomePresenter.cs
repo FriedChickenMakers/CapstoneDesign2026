@@ -60,14 +60,19 @@ namespace CapstoneDesign.Runtime
         string additionsSignature;
         string plantSignature;
         PrototypeUiIcon coinBalanceIcon;
+        GardenOutlineFrame plantInformationFrame;
         PrototypeGardenPreviewLayout backgroundPreview;
         static readonly Color Green = new Color(.31f, .47f, .37f);
         static readonly Color Pale = new Color(.88f, .92f, .86f);
+        // Date and balance share a type scale and vertical centre across refreshes.
+        const int TopStatusFontSize=40;
+        const float TopStatusTextY=40, TopStatusTextHeight=64, CoinIconSize=54;
 
         private void Awake()
         {
             missionButton?.onClick.AddListener(OpenActivity);
             shopButton?.onClick.AddListener(OpenShop);
+            foreach(var button in new[]{missionButton,shopButton,homeTab,activityTab,settingsTab})GardenSfxButton.Attach(button);
             ConfigureNavigation();
             GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
             RefreshFromState();
@@ -130,11 +135,16 @@ namespace CapstoneDesign.Runtime
                     // every tab, so font metrics and safe-area placement cannot drift.
                     EnsureSharedHeader(content);
                     var sharedHeader=content.Find("Shared header background");
-                    sharedHeader.gameObject.SetActive(!visible);
+                    // The settings page builds its own title in Awake/PrepareView.
+                    // Recognize the owner before that first build as navigation
+                    // can hide the garden before the settings canvas awakens.
+                    bool settingsSurface = navigation != null && navigation.settingsPanel != null && navigation.settingsPanel.activeSelf
+                        && navigation.GetComponentInChildren<SensorRawDisplay>(true) != null;
+                    sharedHeader.gameObject.SetActive(!visible && !settingsSurface);
                     var brand=content.Find("Brand");
                     if(brand!=null)
                     {
-                        brand.gameObject.SetActive(!visible);
+                        brand.gameObject.SetActive(!visible && !settingsSurface);
                         var label=brand.GetComponent<TMP_Text>();
                         if(label!=null)label.color=sharedHeader.gameObject.activeInHierarchy
                             ?GardenThemeSurface.WoodInk:GardenUi.Green;
@@ -185,20 +195,29 @@ namespace CapstoneDesign.Runtime
             }
             RefreshMissionStatus();
             if(TemporarySettingsButton!=null)return;
-            TemporarySettingsButton=FigmaMissionUi.Button(content,"설정",568,24,104,96,OpenSettings,GardenUi.Pale,GardenUi.Green,26);
+            TemporarySettingsButton=FigmaMissionUi.Button(content,"",512,20,184,104,OpenSettings,GardenUi.Pale,GardenUi.Green,32);
             TemporarySettingsButton.name="TemporarySettingsButton";
-            // Keep the original generous touch rectangle, with only a text affordance.
+            // Keep the generous shared hit area while moving the gear into the
+            // former label's position. The wood keeps its natural color at night.
             TemporarySettingsButton.GetComponent<Image>().color=Color.clear;
             var decoration=TemporarySettingsButton.transform.Find("Garden theme surface");
             if(decoration!=null)decoration.gameObject.SetActive(false);
-            TemporarySettingsButton.GetComponentInChildren<Text>().color=GardenUi.Green;
+            TemporarySettingsButton.GetComponentInChildren<Text>().gameObject.SetActive(false);
+            var settingsIcon=GardenUi.Box(TemporarySettingsButton.transform,"Settings gear icon",0,.5f,0,0).AddComponent<RawImage>();
+            settingsIcon.rectTransform.pivot=new Vector2(0,.5f);
+            settingsIcon.rectTransform.anchoredPosition=new Vector2(92,0);
+            settingsIcon.rectTransform.sizeDelta=new Vector2(88,88);
+            settingsIcon.texture=Resources.Load<Texture2D>("UI/Textures/GardenSettingsGear");
+            settingsIcon.color=Color.white;
+            settingsIcon.raycastTarget=false;
+            TemporarySettingsButton.targetGraphic=settingsIcon;
             var rect=(RectTransform)TemporarySettingsButton.transform;
-            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(.5f,.5f);rect.anchoredPosition=new Vector2(-100,-72);
+            rect.anchorMin=rect.anchorMax=new Vector2(1,1);rect.pivot=new Vector2(.5f,.5f);rect.anchoredPosition=new Vector2(-116,-72);
             if(date!=null && backgroundPreview==null)
             {
                 var dateRect=date.rectTransform;
                 dateRect.anchorMin=dateRect.anchorMax=new Vector2(1,1);dateRect.pivot=new Vector2(1,1);
-                dateRect.anchoredPosition=new Vector2(-188,-32);dateRect.sizeDelta=new Vector2(160,48);
+                dateRect.anchoredPosition=new Vector2(-232,-32);dateRect.sizeDelta=new Vector2(160,48);
             }
         }
 
@@ -207,7 +226,10 @@ namespace CapstoneDesign.Runtime
             if(NavigationBar==null)return;
             var loop=activity!=null?activity:navigation==null||navigation.activitiesPanel==null?null:navigation.activitiesPanel.GetComponent<WeekOneQuestDemo>();
             var snapshot = loop != null && loop.HasOpenState ? loop.Service.Snapshot : null;
-            NavigationBar.Refresh("홈",snapshot == null ? (bool?)null : FocusNavigationStatus.NeedsAttention(snapshot),
+            // Settings borrows the home canvas's tabs, but is not a selected
+            // Home page. Keep that distinction during badge/state refreshes too.
+            bool settingsVisible=navigation!=null && navigation.settingsPanel!=null && navigation.settingsPanel.activeSelf;
+            NavigationBar.Refresh(settingsVisible?null:"홈",snapshot == null ? (bool?)null : FocusNavigationStatus.NeedsAttention(snapshot),
                 snapshot != null && FocusNavigationStatus.HasOptional(snapshot));
         }
 
@@ -268,52 +290,65 @@ namespace CapstoneDesign.Runtime
             }
             var content = homeCanvas.transform.Find("SafePortraitFrame/MainContent");
             var home = content.Find("GardenAndGrowth");
-            PlaceOverlayText(title,content,48,32,460,58,40,false);
-            PlaceOverlayText(date,content,48,96,360,40,25,false);
-            PlaceOverlayText(guide,content,48,128,144,40,24,true);
+            PlaceOverlayText(date,content,48,TopStatusTextY,184,TopStatusTextHeight,TopStatusFontSize,false);
+            PlaceOverlayText(guide,content,232,TopStatusTextY,184,TopStatusTextHeight,TopStatusFontSize,true);
             EnsureCoinBalanceIcon(content);
             var growth=home.Find("Growth surface") as RectTransform;
-            if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,GardenUi.Background).transform;
-            growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),GardenUi.Background);
-            GardenThemeSurface.Apply(growth.gameObject,GardenThemeSurface.Style.Paper);
+            if(growth==null)growth=(RectTransform)GardenUi.Box(home,"Growth surface",0,0,1,0,Color.clear).transform;
+            growth.gameObject.SetActive(true);GardenUi.Round(growth.GetComponent<Image>(),Color.clear);
+            var oldSurface=growth.Find("Garden theme surface");
+            if(oldSurface!=null)oldSurface.gameObject.SetActive(false);
             growth.GetComponent<Image>().raycastTarget=true;
             var plantButton=growth.GetComponent<Button>()??growth.gameObject.AddComponent<Button>();
+            plantButton.transition=Selectable.Transition.None;
             plantButton.onClick.RemoveAllListeners();plantButton.onClick.AddListener(()=>{navigation?.ShowActivities();activity?.ShowPlantAlbum();});
-            growth.anchorMin=growth.anchorMax=Vector2.zero;growth.pivot=new Vector2(0,1);
-            growth.anchoredPosition=new Vector2(48,260);growth.sizeDelta=new Vector2(624,160);growth.SetAsFirstSibling();
+            GardenSfxButton.Attach(plantButton);
+            growth.anchorMin=growth.anchorMax=growth.pivot=new Vector2(0,1);
+            growth.anchoredPosition=new Vector2(24,-60);growth.sizeDelta=new Vector2(672,244);growth.SetAsFirstSibling();
+            var frameObject=new GameObject("Garden outline frame",typeof(RectTransform));
+            var frameRect=(RectTransform)frameObject.transform;frameRect.SetParent(growth,false);
+            frameRect.anchorMin=Vector2.zero;frameRect.anchorMax=Vector2.one;frameRect.offsetMin=frameRect.offsetMax=Vector2.zero;
+            plantInformationFrame=frameObject.AddComponent<GardenOutlineFrame>();
+            plantInformationFrame.raycastTarget=false;
+            PlaceOverlayText(title,growth,24,16,624,96,72,false);
+            if(title!=null)title.alignment=TextAlignmentOptions.Midline;
             if(stage!=null)
             {
-                var rect=stage.rectTransform;rect.SetParent(growth,false);
-                rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(0,1);rect.anchoredPosition=new Vector2(24,-20);rect.sizeDelta=new Vector2(316,50);
-                stage.fontSize=26;stage.color=Green;stage.alignment=TextAlignmentOptions.MidlineLeft;
+                PlaceOverlayText(stage,growth,24,126,624,48,36,false);
+                stage.alignment=TextAlignmentOptions.Midline;
                 stage.raycastTarget=false;stage.gameObject.SetActive(true);
             }
             if(progressDots!=null)for(int i=0;i<progressDots.Length;i++)if(progressDots[i]!=null)
             {
                 var rect=(RectTransform)progressDots[i].transform;rect.SetParent(growth,false);
                 rect.anchorMin=rect.anchorMax=new Vector2(0,1);rect.pivot=new Vector2(0,1);
-                rect.anchoredPosition=new Vector2(24+72*i,-88);rect.sizeDelta=new Vector2(58,44);progressDots[i].gameObject.SetActive(true);
+                rect.anchoredPosition=new Vector2(212+64*i,-190);rect.sizeDelta=new Vector2(56,40);progressDots[i].gameObject.SetActive(true);
+                progressDots[i].topColor=progressDots[i].bottomColor=Color.clear;progressDots[i].borderWidth=0;
+                progressDots[i].raycastTarget=false;
+                var decoration=rect.Find("Garden theme surface");
+                if(decoration!=null)decoration.gameObject.SetActive(false);
                 var symbol=i==0?PrototypeUiIcon.Symbol.Seed:i==1?PrototypeUiIcon.Symbol.Leaf:
                     i==2?PrototypeUiIcon.Symbol.Pot:PrototypeUiIcon.Symbol.Flower;
                 var icon=GardenUi.Icon(rect,symbol,.5f,.5f,0,0);
-                icon.rectTransform.sizeDelta=new Vector2(34,34);
+                icon.rectTransform.sizeDelta=new Vector2(40,40);
             }
             if(shopButton!=null)
             {
                 var rect=(RectTransform)shopButton.transform;
-                rect.SetParent(growth,false);
-                rect.anchorMin=rect.anchorMax=new Vector2(0,1);rect.pivot=new Vector2(.5f,.5f);
-                rect.anchoredPosition=new Vector2(476,-80);rect.sizeDelta=new Vector2(248,96);
-                foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.fontSize=28;
+                rect.SetParent(home,false);
+                rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(.5f,0);
+                rect.anchoredPosition=new Vector2(0,72);rect.sizeDelta=new Vector2(300,96);
+                foreach(var label in shopButton.GetComponentsInChildren<TMP_Text>(true))label.fontSize=32;
             }
             foreach(var name in new[]{"Home overview surface","Brand"})
                 if(content.Find(name)!=null)content.Find(name).gameObject.SetActive(false);
             if(home!=null)foreach(var name in new[]{"Garden view controls","보기 +","보기 −"})
                 if(home.Find(name)!=null)home.Find(name).gameObject.SetActive(false);
-            OverlayTopBoundary=(RectTransform)GardenUi.Box(content,"Garden top safe boundary",0,1,1,0).transform;
-            GardenUi.FromTop(OverlayTopBoundary,0,172);
+            // Frame the camera between the actual top information and bottom
+            // shop control. Moving the panel must also move its framing boundary.
+            OverlayTopBoundary=growth;
             backgroundPreview.upperBoundary=OverlayTopBoundary;
-            backgroundPreview.lowerBoundary=growth;
+            backgroundPreview.lowerBoundary=shopButton!=null?(RectTransform)shopButton.transform:null;
             backgroundPreview.SetSubjectFocus(false);
             RefreshOverlayTextColor();
             var sky = GardenSkyEnvironment.Ensure(gardenCamera, gardenVisuals != null ? gardenVisuals.transform : null);
@@ -346,13 +381,28 @@ namespace CapstoneDesign.Runtime
                 var rect=(RectTransform)iconObject.transform;
                 rect.SetParent(parent,false);
                 rect.anchorMin=rect.anchorMax=rect.pivot=new Vector2(1,1);
-                rect.anchoredPosition=new Vector2(-200,-132);
-                rect.sizeDelta=new Vector2(32,32);
+                rect.sizeDelta=Vector2.one*CoinIconSize;
                 coinBalanceIcon=iconObject.AddComponent<PrototypeUiIcon>();
             }
             coinBalanceIcon.symbol=PrototypeUiIcon.Symbol.Coin;
             coinBalanceIcon.color=Color.white;
             coinBalanceIcon.raycastTarget=false;
+        }
+
+        void LayoutCoinBalance()
+        {
+            if(guide==null || coinBalanceIcon==null)return;
+            // Measure the number instead of reserving an empty text box between
+            // the coin and a right-aligned short balance. Large balances can fit
+            // without colliding with the date or settings touch area.
+            PlaceOverlayText(guide,coinBalanceIcon.transform.parent,232,TopStatusTextY,184,TopStatusTextHeight,TopStatusFontSize,true);
+            float width=Mathf.Clamp(guide.GetPreferredValues(guide.text).x+2,24,184);
+            guide.rectTransform.sizeDelta=new Vector2(width,TopStatusTextHeight);
+            guide.alignment=TextAlignmentOptions.MidlineLeft;
+            guide.enableAutoSizing=true;guide.fontSizeMin=24;guide.fontSizeMax=TopStatusFontSize;
+            var iconRect=coinBalanceIcon.rectTransform;
+            iconRect.anchoredPosition=new Vector2(-232-width-8,-(TopStatusTextY+(TopStatusTextHeight-CoinIconSize)*.5f));
+            iconRect.sizeDelta=Vector2.one*CoinIconSize;
         }
 
         public static Color OverlayTextColor(float daylight)=>daylight>=.5f?Color.black:Color.white;
@@ -364,11 +414,12 @@ namespace CapstoneDesign.Runtime
             double hour=GardenVisualClock.CurrentHour;
             Color ink=OverlayTextColor(sky!=null?sky.Daylight:hour>=6&&hour<18?1:0);
             Color32 edge = ink == Color.white ? new Color(0,0,0,.52f) : new Color(1,1,1,.68f);
-            ApplyOverlayInk(title,ink,edge);ApplyOverlayInk(date,ink,edge);ApplyOverlayInk(guide,ink,edge);
-            if(TemporarySettingsButton!=null)
+            ApplyOverlayInk(title,ink,edge);ApplyOverlayInk(date,ink,edge);ApplyOverlayInk(guide,ink,edge);ApplyOverlayInk(stage,ink,edge);
+            if(plantInformationFrame!=null)plantInformationFrame.color=new Color(ink.r,ink.g,ink.b,.42f);
+            if(progressDots!=null)foreach(var dot in progressDots)if(dot!=null)
             {
-                var label=TemporarySettingsButton.GetComponentInChildren<Text>();
-                if(label!=null && label.color!=ink)label.color=ink;
+                var icon=dot.GetComponentInChildren<PrototypeUiIcon>();
+                if(icon!=null)icon.color=new Color(ink.r,ink.g,ink.b,dot.color==Green?.9f:.28f);
             }
         }
 
@@ -487,6 +538,12 @@ namespace CapstoneDesign.Runtime
                 if (title != null) title.text = "저장 상태 확인 필요";
                 if (guide != null) guide.text = "기존 데이터를 보존했습니다. 저장 공간을 확인해 주세요.";
                 if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(false);
+                if(progressDots!=null)foreach(var dot in progressDots)if(dot!=null)dot.gameObject.SetActive(false);
+                if(guide!=null && OverlayTopBoundary!=null)
+                {
+                    PlaceOverlayText(guide,OverlayTopBoundary,24,126,624,102,30,false);
+                    guide.alignment=TextAlignmentOptions.Midline;guide.textWrappingMode=TextWrappingModes.Normal;
+                }
                 if (stage != null) stage.text = "";
                 if (dailyStatus != null) dailyStatus.text = "정원을 표시할 수 없어요";
                 if (missionName != null) missionName.text = "활동 화면에서 자세한 안내를 확인해 주세요";
@@ -505,6 +562,7 @@ namespace CapstoneDesign.Runtime
             if (title != null) title.text = hasCurrent?CurrentPlantName(RenderedRecipe):"새 식물을 기다려요";
             if (guide != null) guide.text = saved.Coins.ToString("N0");
             if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(true);
+            LayoutCoinBalance();
             if (stage != null) stage.text = shownPlant?.Completed==true ? "완성 · 사진첩 보관"
                 :hasCurrent?new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage]:"다음 실습을 기다려요";
             if (progressDots != null)
@@ -513,10 +571,6 @@ namespace CapstoneDesign.Runtime
                     {
                         progressDots[i].gameObject.SetActive(hasCurrent);
                         progressDots[i].color = i <= visualStage ? Green : Pale;
-                        GardenThemeSurface.Apply(progressDots[i].gameObject,i<=visualStage?
-                            GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper);
-                        var icon=progressDots[i].GetComponentInChildren<PrototypeUiIcon>();
-                        if(icon!=null)icon.color=i<=visualStage?Green:new Color(.45f,.51f,.43f,.65f);
                     }
             var active = saved.Sessions.LastOrDefault(s => FocusMissionPolicy.IsFocus(s) && FocusMissionPolicy.IsActive(s));
             var completed = saved.Sessions.LastOrDefault(s => FocusMissionPolicy.IsFocus(s) && s.InstanceId == saved.LastCycleId && s.Status == ParticipationState.RewardCommitted);
@@ -529,6 +583,7 @@ namespace CapstoneDesign.Runtime
             if (activityTabLabel != null) activityTabLabel.text = "미션";
             if (settingsTabLabel != null) settingsTabLabel.text = "기록";
             RefreshAdditions(saved);
+            RefreshOverlayTextColor();
             if (Application.isPlaying && homeCanvas.gameObject.activeInHierarchy
                 && gardenVisuals.activeInHierarchy && gardenCamera != null)
             {

@@ -31,6 +31,7 @@ namespace CapstoneDesign.Runtime
                 }
                 PlayerPrefs.DeleteAll(); PlayerPrefs.Save();
                 GardenMusicPlayer.RestoreInitialSettings();
+                GardenSfxPlayer.RestoreInitialSettings();
                 GardenVisualClock.UseSystemTime();
                 return new PlatformActionResult { status = "AVAILABLE", message = "App local data reset." };
             }

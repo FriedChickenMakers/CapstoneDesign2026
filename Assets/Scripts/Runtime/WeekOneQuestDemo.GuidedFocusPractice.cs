@@ -352,6 +352,7 @@ namespace CapstoneDesign.Runtime
         {
             if (sessionId != id || screen != "focus-practice") return;
             if (!SaveGuidedFocusDraft() || !FocusSaved(Service.StartGuidedFocusSession(id, guidedChoice))) return;
+            GardenSfxPlayer.Play(GardenSfxCue.PracticeStart);
             guidedSlide = GuidedSlide.Practice;
             guidedResumeClock = true;
             ShowFocusPractice();

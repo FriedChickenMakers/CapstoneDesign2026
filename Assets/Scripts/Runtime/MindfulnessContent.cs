@@ -118,7 +118,7 @@ namespace CapstoneDesign.Runtime
         });
 
         public static readonly IReadOnlyList<GardenContentDefinition> Environments = Array.AsReadOnly(new[] {
-            new GardenContentDefinition { id = "environment:E01", sourceId = "E01", type = "environment", title = "꽃밭", description = "낮은 경계와 꽃 식재 공간", candidateAnimalIds = new[] { "animal:A07", "animal:A12" }, source = GardenSource, contentVersion = "notion-2026-09-18" },
+            new GardenContentDefinition { id = "environment:E01", sourceId = "E01", type = "environment", title = "미니 꽃밭", description = "낮은 경계와 꽃 식재 공간", candidateAnimalIds = new[] { "animal:A07", "animal:A12" }, source = GardenSource, contentVersion = "notion-2026-09-18" },
             new GardenContentDefinition { id = "environment:E02", sourceId = "E02", type = "environment", title = "쉼터", description = "목재 지붕과 그늘 공간", candidateAnimalIds = new[] { "animal:A01", "animal:A03", "animal:A07", "animal:A09", "animal:A10" }, source = GardenSource, contentVersion = "notion-2026-09-18" },
             new GardenContentDefinition { id = "environment:E03", sourceId = "E03", type = "environment", title = "연못", description = "얕은 수면과 풀 가장자리", candidateAnimalIds = new[] { "animal:A10", "animal:A11", "animal:A12" }, source = GardenSource, contentVersion = "notion-2026-09-18" },
             new GardenContentDefinition { id = "environment:E04", sourceId = "E04", type = "environment", title = "통나무", description = "눕힌 나무와 주변 풀", candidateAnimalIds = new[] { "animal:A02", "animal:A04", "animal:A06", "animal:A08", "animal:A09" }, source = GardenSource, contentVersion = "notion-2026-09-18" },

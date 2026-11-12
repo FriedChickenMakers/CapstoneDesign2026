@@ -99,11 +99,11 @@ static class CombinedCameraRecommendationTests
             f.NextDay();Ready(f,"basic-camera","P04",4);
             var photo=Photo(f);Attach(f,"basic-camera",photo);int coins=f.Service.CoinBalance;
             int step=f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep;
-            Check(CameraMissionPolicy.BonusAvailable(f.Service.Snapshot,Session(f,"basic-camera"),1,1),"First daily photo bonus quoted");
+            Check(CameraMissionPolicy.BonusAvailable(f.Service.Snapshot,Session(f,"basic-camera"),10,1),"First daily photo bonus quoted");
             Failed(f,()=>f.Service.CompletePracticeSession("basic-camera"),"Final photo/base/growth transaction");
             f.Reopen();Check(f.Service.CompletePracticeSession("basic-camera"),"Retry final completion");
-            Check(f.Service.CoinBalance==coins+51&&Session(f,"basic-camera").RewardAmount==50&&Session(f,"basic-camera").PhotoBonusAmount==1,
-                "P04 pays 50 base plus one camera coin in the existing wallet");
+            Check(f.Service.CoinBalance==coins+60&&Session(f,"basic-camera").RewardAmount==50&&Session(f,"basic-camera").PhotoBonusAmount==10,
+                "P04 pays 50 base plus ten camera coins in the existing wallet");
             Check(f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==step+1&&f.Service.Snapshot.PhotoRewards.Count==1,
                 "Exactly one full plant step and one bonus receipt");
             string completed=Xml(f.Service);int saves=f.Store.Saves;f.Store.Fail=true;
@@ -112,10 +112,10 @@ static class CombinedCameraRecommendationTests
             Check(!f.Service.RegisterPhoto("basic-camera",photo),"Late result after final completion rejected");
             Ready(f,"additional-camera");var second=Photo(f,"container","not_found",true);Attach(f,"additional-camera",second);
             second.UserConfirmed=false;Check(Session(f,"additional-camera").Photo.UserConfirmed,"Caller photo object is detached");
-            Check(!CameraMissionPolicy.BonusAvailable(f.Service.Snapshot,Session(f,"additional-camera"),1,1),"P and M share one daily photo allowance");
+            Check(!CameraMissionPolicy.BonusAvailable(f.Service.Snapshot,Session(f,"additional-camera"),10,1),"P and M share one daily photo allowance");
             Check(f.Service.CompletePracticeSession("additional-camera"),"Same-day additional remains independent of basic slot");
-            Check(f.Service.CoinBalance==coins+101&&Session(f,"additional-camera").PhotoBonusAmount==0,
-                "Second camera activity earns only its 50 base coins");
+            Check(f.Service.CoinBalance==coins+90&&Session(f,"additional-camera").RewardAmount==30&&Session(f,"additional-camera").PhotoBonusAmount==0,
+                "Second camera activity earns only its 30 additional-mission base coins");
             Check(!f.Service.BeginFocusSession("second-additional","M14"),"Different additional mission blocked after today's M completion");
             Check(!f.Service.BeginSession("legacy-additional","free-mission:M14"),"Legacy additional path shares daily allowance");
             var state=f.Service.Snapshot;string cycle=state.LastCycleId;
@@ -124,7 +124,7 @@ static class CombinedCameraRecommendationTests
             int beforeGrowth=state.PracticeGrowthRecords.Count;
             Failed(f,()=>f.Service.CompleteDailyEmotion(recordId,"편안함","synthetic memo"),"Daily emotion memo/100-coin transaction");
             Check(f.Service.CompleteDailyEmotion(recordId,"편안함","synthetic memo"),"Daily emotion retry");
-            state=f.Service.Snapshot;Check(state.Coins==coins+201&&state.DailyEmotionRecords.Single().RewardAmount==100,"Emotion pays 100 coins");
+            state=f.Service.Snapshot;Check(state.Coins==coins+190&&state.DailyEmotionRecords.Single().RewardAmount==100,"Emotion pays 100 coins");
             Check(state.PlantAppearance.Recipe.GrowthStep==beforeStep&&state.PracticeGrowthRecords.Count==beforeGrowth,
                 "Emotion grants no plant growth");
             Check(state.PlantAppearance.Memos.Count==1&&state.PhotoRewards.Count==1,"Emotion adds one memo and cannot consume or create a camera bonus");
@@ -142,8 +142,8 @@ static class CombinedCameraRecommendationTests
             if(outcome=="skip")Check(f.Service.SkipPhoto("optional"),"Optional photo can be skipped");
             else Attach(f,"optional",Photo(f,"container",outcome,outcome=="unavailable"));
             Check(f.Service.CompletePracticeSession("optional"),"Camera never blocks practice completion");
-            int bonus=outcome=="matched"||outcome=="unavailable"?1:0;
-            Check(f.Service.CoinBalance==50+bonus&&Session(f,"optional").PhotoBonusAmount==bonus,"Optional/manual outcome reward "+outcome);
+            int bonus=outcome=="matched"||outcome=="unavailable"?10:0;
+            Check(f.Service.CoinBalance==30+bonus&&Session(f,"optional").RewardAmount==30&&Session(f,"optional").PhotoBonusAmount==bonus,"Optional/manual outcome reward "+outcome);
             Check(f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==1,"Every successful M grants exactly one full step");
             Check(!f.Service.BeginFocusSession("another","M14"),"Daily additional limit remains global: "+outcome);
         }
@@ -173,7 +173,7 @@ static class CombinedCameraRecommendationTests
             Check(f.Service.CompletePracticeSession("boundary"),"Retry across 04:00");
             Check(Session(f,"boundary").InstanceId=="2032-01-06"&&f.Service.Snapshot.PhotoRewards.Single().Cycle=="2032-01-06",
                 "Photo bonus and practice finalization belong to the actual successful app day");
-            Check(f.Service.CoinBalance==51,"Boundary retry pays once");
+            Check(f.Service.CoinBalance==40,"Boundary retry pays once");
         }
         using(var f=new Fixture())
         {
@@ -199,10 +199,16 @@ static class CombinedCameraRecommendationTests
             Ready(f,"original");var photo=Photo(f);Attach(f,"original",photo);Check(f.Service.CompletePracticeSession("original"),"Complete reset source");
             Failed(f,()=>f.Service.DeletePhoto("original"),"Photo deletion metadata");
             Check(f.Service.DeletePhoto("original")&&Session(f,"original").Photo==null,"Photo can be deleted");
-            Check(f.Service.CoinBalance==51&&f.Service.Snapshot.PhotoRewards.Count==1&&Session(f,"original").PhotoBonusAmount==1,
+            Check(f.Service.CoinBalance==40&&f.Service.Snapshot.PhotoRewards.Count==1&&Session(f,"original").PhotoBonusAmount==10,
                 "Deleting a photo cannot erase or reissue its reward receipt");
-            f.Reopen();Check(f.Service.CoinBalance==51&&f.Service.Snapshot.PhotoRewards.Count==1,"Deletion receipt survives restart");
-            var oldXml=new XmlDocument();oldXml.LoadXml(Xml(f.Service));
+            f.Reopen();Check(f.Service.CoinBalance==40&&f.Service.Snapshot.PhotoRewards.Count==1,"Deletion receipt survives restart");
+            // An explicit historical 50+1 receipt remains readable after current
+            // commands change to 30+10. Never recompute an existing user's wallet.
+            var historical=f.Service.Snapshot;historical.Coins=51;
+            historical.Sessions.Single(s=>s.SessionId=="original").RewardAmount=50;
+            historical.Sessions.Single(s=>s.SessionId=="original").PhotoBonusAmount=1;
+            historical.PhotoRewards.Single().Amount=1;StateCodec.Validate(historical);
+            var oldXml=new XmlDocument();oldXml.LoadXml(StateCodec.Encode(historical));
             foreach(XmlNode node in oldXml.SelectNodes("//Photo|//PhotoRewards|//PhotoBonusAmount|//PhotoPromptHandled|//PendingPhotoId|//PendingPhotoTarget"))node.ParentNode.RemoveChild(node);
             using(var legacy=new Fixture())
             {
@@ -214,13 +220,13 @@ static class CombinedCameraRecommendationTests
             int beforeReview=f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep;
             Ready(f,"review","M03",review:true);Attach(f,"review",Photo(f));
             Check(f.Service.CompletePracticeSession("review"),"Review can finalize with optional photo");
-            Check(f.Service.CoinBalance==51&&Session(f,"review").RewardAmount==0&&Session(f,"review").PhotoBonusAmount==0
+            Check(f.Service.CoinBalance==40&&Session(f,"review").RewardAmount==0&&Session(f,"review").PhotoBonusAmount==0
                 &&f.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==beforeReview&&f.Service.Snapshot.PhotoRewards.Count==1,
                 "Review never bypasses growth/base/camera allowance");
             Check(f.Service.ResetMissionHistory(),"Reset visible mission history");
             Check(f.Service.Snapshot.PhotoRewards.Count==1,"History reset retains daily photo receipt");
             Ready(f,"after-history");Attach(f,"after-history",Photo(f));Check(f.Service.CompletePracticeSession("after-history"),"Recreated completed mission may finalize");
-            Check(f.Service.CoinBalance==51&&Session(f,"after-history").RewardAmount==0&&Session(f,"after-history").PhotoBonusAmount==0,
+            Check(f.Service.CoinBalance==40&&Session(f,"after-history").RewardAmount==0&&Session(f,"after-history").PhotoBonusAmount==0,
                 "History reset cannot replay base/growth/photo rewards");
             string install=f.Service.Snapshot.InstallationId;
             Failed(f,()=>f.Service.ResetAll("synthetic-full-reset",install),"Full reset first commit");

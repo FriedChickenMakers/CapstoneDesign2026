@@ -21,6 +21,7 @@ namespace CapstoneDesign.Prototype
         // Mission home opts into its reviewed dark timber treatment. Other pages
         // keep the current garden material without a global theme switch.
         public bool CombineAppearance { get; private set; }
+        public bool SageAppearance { get; private set; }
         public bool SquareShelfCorners { get; private set; }
         const string SurfaceName = "Garden theme surface";
         Selectable ownerSelectable;
@@ -86,8 +87,10 @@ namespace CapstoneDesign.Prototype
                 return shelfTexture != null ? shelfTexture : GroundTexture;
             }
         }
-        bool UsesTexture => style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
-        Texture2D SurfaceTexture => style == Style.NavigationLeaf ? (CombineAppearance ? CombineLeafTexture : DenseLeafTexture)
+        bool UsesTexture => SageAppearance ? style == Style.Backdrop || UsesWood
+            : style == Style.Backdrop || UsesWood || style == Style.Primary || style == Style.Home || style == Style.NavigationLeaf;
+        Texture2D SurfaceTexture => SageAppearance ? (style == Style.Backdrop || style == Style.Header || style == Style.Shelf ? HeaderTexture : WoodTexture)
+            : style == Style.NavigationLeaf ? (CombineAppearance ? CombineLeafTexture : DenseLeafTexture)
             : style == Style.Backdrop ? BackdropTexture : style == Style.Home ? HomeTexture : style == Style.Primary ? LeafTexture
             : CombineAppearance ? (style == Style.Shelf || style == Style.Header ? CombineHeaderTexture : CombineWoodTexture)
             : style == Style.Shelf ? ShelfTexture : style == Style.Header ? HeaderTexture : WoodTexture;
@@ -99,7 +102,8 @@ namespace CapstoneDesign.Prototype
             for (var node = parent; node != null; node = node.parent)
             {
                 var surface = node.Find(SurfaceName)?.GetComponent<GardenThemeSurface>();
-                if (surface != null) return surface.UsesWood ? (surface.CombineAppearance ? CombineWoodInk : WoodInk) : fallback;
+                if (surface != null) return surface.UsesWood ? (surface.SageAppearance ? GardenSagePalette.Ink
+                    : surface.CombineAppearance ? CombineWoodInk : WoodInk) : fallback;
             }
             return fallback;
         }
@@ -109,6 +113,7 @@ namespace CapstoneDesign.Prototype
             if (root == null) return;
             foreach (var surface in root.GetComponentsInChildren<GardenThemeSurface>(true))
             {
+                if (surface.SageAppearance) continue;
                 surface.SetCombineAppearance(true);
                 // Captions belong to the original controls. Only timber captions
                 // need light ink; nested paper cards retain their readable colors.
@@ -119,9 +124,30 @@ namespace CapstoneDesign.Prototype
             }
         }
 
+        public static bool IsSageScope(Transform root)
+            => root != null && root.GetComponentInParent<GardenSageThemeScope>(true) != null;
+
+        public static void UseSageAppearance(GameObject root)
+        {
+            if (root == null) return;
+            if (root.GetComponent<GardenSageThemeScope>() == null) root.AddComponent<GardenSageThemeScope>();
+            foreach (var surface in root.GetComponentsInChildren<GardenThemeSurface>(true)) surface.SetSageAppearance(true);
+        }
+
+        // Apply the shared palette to one face without changing sibling controls.
+        public void SetSageAppearance(bool enabled)
+        {
+            if (SageAppearance == enabled) return;
+            SageAppearance = enabled;
+            if (enabled) CombineAppearance = false;
+            UpdateIvy();
+            SetAllDirty();
+        }
+
         // Change one decorative surface without restyling its owner or children.
         public void SetCombineAppearance(bool enabled)
         {
+            if (SageAppearance && enabled) return;
             if (CombineAppearance == enabled) return;
             CombineAppearance = enabled;
             UpdateIvy();
@@ -148,9 +174,13 @@ namespace CapstoneDesign.Prototype
                 go.GetComponent<LayoutElement>().ignoreLayout = true;
                 surface = go.AddComponent<GardenThemeSurface>();
             }
-            bool changed=created || surface.style!=style || surface.tone!=tone || surface.ownerSelectable!=owner.GetComponent<Selectable>();
+            bool sage = IsSageScope(owner.transform);
+            bool changed=created || surface.style!=style || surface.tone!=tone || surface.ownerSelectable!=owner.GetComponent<Selectable>()
+                || surface.SageAppearance!=sage;
             surface.style = style;
             surface.tone = tone;
+            surface.SageAppearance = sage;
+            if (sage) surface.CombineAppearance = false;
             surface.raycastTarget = false;
             surface.color = Color.white;
             RectTransform rect = surface.rectTransform;
@@ -217,6 +247,7 @@ namespace CapstoneDesign.Prototype
             pressed = state == 2;
             highlighted = state == 1;
             float unit = Mathf.Clamp(Mathf.Min(r.width, r.height) / 68f, .35f, 1.2f);
+            if (SageAppearance) { SageSurface(mesh, r, unit); return; }
             switch (style)
             {
                 case Style.Backdrop: Backdrop(mesh, r); break;
@@ -235,6 +266,69 @@ namespace CapstoneDesign.Prototype
                 case Style.ProgressFill: Progress(mesh, r, true); break;
                 default: Paper(mesh, r, unit, false, false); break;
             }
+        }
+
+        void SageSurface(VertexHelper mesh, Rect r, float u)
+        {
+            float radius = Mathf.Min(16 * u, r.height * .22f);
+            if (style == Style.Backdrop)
+            {
+                Rounded(mesh, r, 0, GardenSagePalette.Background);
+                // The light oak atlas has a white strip for exact palette fills.
+                // Its grain is a faint overlay, so it cannot darken the base into mud.
+                if (SurfaceTexture != null) LitRounded(mesh, r, 0, Alpha(Color.white, .075f), true, r);
+                return;
+            }
+            if (UsesWood)
+            {
+                radius = style == Style.Shelf && SquareShelfCorners ? 0 : Mathf.Min(10 * u, r.height * .2f);
+                SageShadow(mesh, r, radius, (pressed ? 1 : 2.5f) * u);
+                Rect face = pressed ? Offset(r, 0, -u) : r;
+                Rounded(mesh, face, radius, GardenSagePalette.Oak);
+                if (SurfaceTexture != null) LitRounded(mesh, face, radius, Alpha(Color.white, .25f), true, face);
+                Border(mesh, face, radius, .7f * u, Alpha(GardenSagePalette.Ink, .13f));
+                if (style == Style.Header || style == Style.Wood && r.width > 180)
+                    SageSprig(mesh, new Vector2(face.xMax - 26, face.yMin + 8), Mathf.Min(32, face.height * .70f), 1, .7f);
+                return;
+            }
+            if (style == Style.ProgressTrack || style == Style.ProgressFill)
+            {
+                Rounded(mesh, r, Mathf.Min(r.height * .5f, 9), style == Style.ProgressFill ? GardenSagePalette.Primary : GardenSagePalette.Selected);
+                return;
+            }
+            bool primary = style == Style.Primary || style == Style.NavigationLeaf;
+            bool selected = style == Style.Selected || style == Style.Home;
+            Color fill = primary ? (ownerSelectable == null ? GardenSagePalette.Primary : GardenSagePalette.Action)
+                : selected ? GardenSagePalette.Selected : GardenSagePalette.Paper;
+            SageShadow(mesh, r, radius, (pressed ? 1 : 2) * u);
+            Rect surface = pressed ? Offset(r, 0, -u) : r;
+            Gradient(mesh, surface, radius, Color.Lerp(fill, Color.white, .025f), fill);
+            Border(mesh, surface, radius, selected ? 1.5f * u : .85f * u,
+                primary ? Alpha(GardenSagePalette.Selected, .30f) : selected ? GardenSagePalette.Border : Alpha(GardenSagePalette.Border, .6f));
+            if (style == Style.Primary && ownerSelectable == null && r.width > 180 && r.height > 90)
+            {
+                // One complete sprig stays outside the main reading column;
+                // a lower sprig would be partially hidden behind the action.
+                SageSprig(mesh, new Vector2(r.xMin + 13 * u, r.yMax - 43 * u), 32 * u, 1, .32f);
+            }
+            else if (style == Style.Selected && r.width > 180 && r.height > 70)
+                SageSprig(mesh, new Vector2(r.xMax - 16 * u, r.yMax - 34 * u), 21 * u, 1, .62f);
+        }
+
+        void SageShadow(VertexHelper mesh, Rect r, float radius, float depth)
+            => Rounded(mesh, Offset(r, 0, -depth), radius, Alpha(GardenSagePalette.Ink, .10f));
+
+        void SageSprig(VertexHelper mesh, Vector2 origin, float size, float direction, float opacity)
+        {
+            bool onPine = style == Style.Primary;
+            Color stem = Alpha(onPine ? GardenSagePalette.Border : GardenSagePalette.Muted, opacity);
+            Color dark = Alpha(onPine ? Color.Lerp(GardenSagePalette.Primary, GardenSagePalette.Border, .65f) : GardenSagePalette.Primary, opacity);
+            Color light = Alpha(GardenSagePalette.Border, opacity);
+            Vector2 axis = new Vector2(.18f, .75f) * size * direction;
+            Line(mesh, origin, origin + axis, Mathf.Max(.7f, size * .025f), stem);
+            Leaf(mesh, origin + axis * .18f, new Vector2(-.28f, .36f) * size * direction, size * .15f, dark, light);
+            Leaf(mesh, origin + axis * .48f, new Vector2(.32f, .32f) * size * direction, size * .16f, dark, light);
+            Leaf(mesh, origin + axis * .78f, new Vector2(.08f, .31f) * size * direction, size * .12f, dark, light);
         }
 
         void Paper(VertexHelper mesh, Rect r, float u, bool selected, bool input)
@@ -313,7 +407,7 @@ namespace CapstoneDesign.Prototype
 
         void UpdateIvy()
         {
-            bool timber=!CombineAppearance && (style==Style.Wood || style==Style.Header);
+            bool timber=!SageAppearance && !CombineAppearance && (style==Style.Wood || style==Style.Header);
             for(int i=0;i<2;i++)
             {
                 string name=i==0?"Lit ivy right":"Lit ivy left";
@@ -383,7 +477,7 @@ namespace CapstoneDesign.Prototype
                     float shade=.945f+.035f*ny+.02f*(1-nx);
                     tint=new Color(tint.r*shade,tint.g*shade,tint.b*shade,tint.a);
                 }
-                bool rotate=style==Style.Wood || style==Style.TabWood;
+                bool rotate=SageAppearance ? style==Style.Backdrop : style==Style.Wood || style==Style.TabWood;
                 float w=rotate?texture.height-32:texture.width,h=rotate?texture.width:texture.height-32;
                 float coverage=style==Style.NavigationLeaf?.94f:style==Style.Shelf?.72f/2.5f:.72f;
                 float scale=Mathf.Min(w/face.width,h/face.height)*coverage;
@@ -391,7 +485,8 @@ namespace CapstoneDesign.Prototype
                 if(rotate)delta=new Vector2(delta.y,-delta.x);
                 uv=new Vector2(.5f+delta.x/texture.width,((texture.height-32)*.5f+delta.y)/texture.height);
             }
-            if(disabled)tint=Color.Lerp(tint,new Color(.86f,.85f,.78f,tint.a),.4f);
+            if(SageAppearance)tint=SageStateColor(tint);
+            else if(disabled)tint=Color.Lerp(tint,new Color(.86f,.85f,.78f,tint.a),.4f);
             else if(pressed)tint=Color.Lerp(tint,new Color(.20f,.29f,.19f,tint.a),.1f);
             else if(highlighted)tint=Color.Lerp(tint,new Color(1,.99f,.86f,tint.a),.06f);
             mesh.AddVert(point,tint*color,uv);
@@ -694,7 +789,8 @@ namespace CapstoneDesign.Prototype
 
         void Vertex(VertexHelper mesh, Vector2 point, Color tint)
         {
-            if (disabled)
+            if (SageAppearance) tint = SageStateColor(tint);
+            else if (disabled)
             {
                 float gray = tint.grayscale;
                 tint = Color.Lerp(tint, new Color(gray, gray, gray, tint.a), .65f);
@@ -721,10 +817,27 @@ namespace CapstoneDesign.Prototype
             mesh.AddVert(point, tint * color, uv);
         }
 
+        Color SageStateColor(Color tint)
+        {
+            Color target;
+            if (disabled)
+            {
+                target = style == Style.Primary || style == Style.NavigationLeaf ? GardenSagePalette.DisabledPrimary : GardenSagePalette.Disabled;
+                target.a = tint.a;
+                return Color.Lerp(tint, target, .85f);
+            }
+            if (pressed) { target = GardenSagePalette.Ink; target.a = tint.a; return Color.Lerp(tint, target, .12f); }
+            if (highlighted) { target = GardenSagePalette.Paper; target.a = tint.a; return Color.Lerp(tint, target, .07f); }
+            return tint;
+        }
+
         static Color Alpha(Color value, float alpha) { value.a = alpha; return value; }
         static Rect Inset(Rect r, float amount) => Rect.MinMaxRect(r.xMin + amount, r.yMin + amount, r.xMax - amount, r.yMax - amount);
         static Rect Offset(Rect r, float x, float y) => new Rect(r.x + x, r.y + y, r.width, r.height);
     }
+
+    [AddComponentMenu("")]
+    public sealed class GardenSageThemeScope : MonoBehaviour { }
 
     // The Graphic child is intentionally not a raycast target. Read pointer state on the
     // existing Selectable's owner, so buttons keep their original action and hit rectangle.

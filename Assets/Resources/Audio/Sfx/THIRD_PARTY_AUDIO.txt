@@ -1,0 +1,31 @@
+Third-party sound effects
+Retrieved and adapted 2026-11-12.
+
+All nine WAV files in this folder are adaptations of CC0-1.0 source effects.
+CC0-1.0: https://creativecommons.org/publicdomain/zero/1.0/
+Legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode.en
+CC0 permits copying, modification and commercial redistribution without required attribution.
+These credits are preserved voluntarily and do not imply author endorsement.
+
+Kenney (www.kenney.nl), Interface Sounds (1.0).
+Official source: https://kenney.nl/assets/interface-sounds
+Creator upload: https://opengameart.org/content/interface-sounds
+Original archive license is preserved verbatim in Kenney-License.txt.
+
+Julie Damsgaard / Spring Spring / Spring Enterprises, Pleasing Bell Sound Effect.
+https://opengameart.org/content/pleasing-bell-sound-effect
+Julie Damsgaard / Spring Spring / Spring Enterprises, Magic Words + Healing Sound Effect.
+https://opengameart.org/content/magic-words-healing-sound-effect
+Only health_restore.wav is used; no voice recording is used.
+Source attribution notice: Produced by Julie Damsgaard/Spring Spring/Spring Enterprises @ https://spring-enterprises.neocities.org
+Both source pages explicitly list CC0.
+
+artisticdude, Swishes Sound Pack.
+https://opengameart.org/content/swishes-sound-pack
+The source page explicitly lists CC0. Only swish-9.wav is used.
+
+See SOURCES.json for direct downloads, source/output SHA256, exact transformations,
+durations, levels, resource names, import settings, and verification limits.
+Original archives and source-page snapshots stay in ignored artifacts/audio-sources-20261112/.
+Existing GardenTheme.ogg, GardenNightTheme.ogg, and GardenMusicProfile.asset are unrelated
+user-supplied music; this CC0 notice does not apply to them.

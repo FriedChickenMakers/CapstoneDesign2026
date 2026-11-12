@@ -179,7 +179,7 @@ namespace CapstoneDesign.EditorTools
                     &&f.Service.SaveDailyEmotionDraft(id,"편안함","synthetic NEW same-day note",1),"New generation legitimately reuses daily cycle identity with new content");
                 f.Ui.ShowDailyEmotion(id);f.Layout();string before=Xml(f.Service);int calls=f.Store.Saves;
                 oldSave.Invoke();f.Layout();Assert(Xml(f.Service)==before&&f.Store.Saves==calls&&!f.Service.GetDailyEmotion(id).IsCompleted,"Previous-generation daily callback cannot complete or overwrite same-ID new record");
-                f.Click("DailyEmotion.Save");Assert(f.Service.CoinBalance==200&&f.Service.Snapshot.PlantAppearance.Memos.Single().Note=="synthetic NEW same-day note","Only new daily user action grants 100 coins and preserves new-generation memo text");
+                f.Click("DailyEmotion.Save");Assert(f.Service.CoinBalance==180&&f.Service.Snapshot.PlantAppearance.Memos.Single().Note=="synthetic NEW same-day note","Only new daily user action grants 100 coins after 50/30 mission rewards and preserves new-generation memo text");
                 f.Capture("new-generation-same-day-emotion-complete");
             }
         }

@@ -83,10 +83,6 @@ namespace CapstoneDesign.Runtime
             ClearPracticeDraft();
             if (opened && !Service.Snapshot.MbctProgramChosen) { ShowFocusProgramSelection(); return; }
             var root = BeginFigmaPage("home", ShowFocusHome, FigmaMissionUi.Background, true);
-            // Keep the existing grain, with a lighter value than the dark shelf
-            // so the page/backing separation mirrors the records tab.
-            GardenThemeSurface.Apply(activityFrame, GardenThemeSurface.Style.Backdrop).color = new Color32(94, 94, 94, 255);
-            notice.color = new Color32(255, 221, 200, 255);
             root.GetComponent<FocusMobilePageLayout>().FixedContent = true;
             FigmaHeader(root, "오늘의 미션", "");
             if (!opened) { FigmaMissionUi.Label(root, "저장된 내용을 불러오지 못했어요.\n기존 기록을 보존하고 있습니다.", 24, 170, 342, 100); return; }
@@ -111,11 +107,11 @@ namespace CapstoneDesign.Runtime
                 : FocusProgramTitle(program) + " · " + done + " / " + total;
             var badge = FigmaMissionUi.Label(card, courseLabel, 56, 20, 262, 24, 16, Color.white, true);
             var title = FigmaMissionUi.Label(card, active != null ? FocusSessionTitle(active) : todayBasic != null ? FocusSessionTitle(todayBasic) : finished ? "과정을 마쳤어요" : mission.Title, 24, 56, 294, 56, 24, Color.white, true);
-            string context = needsPlant ? "새 씨앗을 심으면 미션을 시작할 수 있어요." : active != null ? "멈춘 곳부터 이어가요." : finished ? "쌓인 실천을 돌아봐요." : practicedToday ? "오늘의 기본 미션 실습을 마쳤어요." : unavailable != null ? "이번 주 실습을 마쳤어요. 다음 주에 이어가요." : "식물 성장 · 완료 보상 50코인";
+            string context = needsPlant ? "새 씨앗을 심으면 미션을 시작할 수 있어요." : active != null ? "멈춘 곳부터 이어가요." : finished ? "쌓인 실천을 돌아봐요." : practicedToday ? "오늘의 기본 미션 실습을 마쳤어요." : unavailable != null ? "이번 주 실습을 마쳤어요. 다음 주에 이어가요." : "식물 성장 · 완료 보상 " + GardenEconomyPolicy.BasicMissionCoins + "코인";
             var detail = FigmaMissionUi.Label(card, context, 24, 112, 294, 40, 16, Color.white);
             string action = active != null ? "기본 미션 이어서 하기" : finished ? "과정 기록 보기" : doneToday ? "오늘 완료했어요" : practicedToday ? "내일 이어가요" : unavailable != null ? "다음 주에 이어가요" : "기본 미션 시작하기";
             var start = FigmaMissionUi.Button(card, needsPlant ? "새 식물 키우기" : action, 24, 156, 294, 48,
-                needsPlant ? (Action)(() => StartNewGardenPlant(archivedSource)) : active == null && finished ? (Action)(() => ShowFocusProgram(program)) : StartFocusBasic, Color.white, FigmaMissionUi.Green, tone: GardenThemeSurface.Tone.Growth);
+                needsPlant ? (Action)(() => StartNewGardenPlant(archivedSource)) : active == null && finished ? (Action)(() => ShowFocusProgram(program)) : StartFocusBasic, FigmaMissionUi.Green, Color.white, tone: GardenThemeSurface.Tone.Growth);
             start.name = needsPlant ? "Mission.StartNewPlant" : "Focus.BasicAction";
             start.interactable = needsPlant || finished || active != null || unavailable == null;
             var basic = new FocusMissionHomeLayout.Card { Root=card, Icon=icon.rectTransform, Badge=badge, Title=title, Detail=detail, Action=start, TitleSize=24, DetailSize=16, CenterText=true };
@@ -130,9 +126,6 @@ namespace CapstoneDesign.Runtime
             layout.DebugLauncher = root.Find("Focus.DebugLauncher") as RectTransform;
             layout.Cards = new[] { basic, additional, emotion };
             layout.Refresh();
-            GardenThemeSurface.UseCombineAppearance(root);
-            layout.Heading.GetComponent<Text>().color = GardenThemeSurface.CombineWoodInk;
-            root.GetComponentInChildren<MissionBottomNavigation>()?.UseCombineAppearance();
         }
 
         FocusMissionHomeLayout.Card BuildRecommendationCard(RectTransform root, GardenState state, float y)
@@ -145,11 +138,11 @@ namespace CapstoneDesign.Runtime
             var icon = FigmaMissionUi.Asset(box, mission.IconAsset, 16, 12, 24, 24);
             var badge = FigmaMissionUi.Label(box, "추가 미션", 48, 12, 278, 24, 16, FigmaMissionUi.Muted, true);
             var title = FigmaMissionUi.Label(box, active != null ? FocusSessionTitle(active) : today != null ? FocusSessionTitle(today) : mission.Title, 16, 40, 310, 48, 22, null, true);
-            var detail = FigmaMissionUi.Label(box, active != null ? "멈춘 곳부터 이어가요" : completed ? "다음 추가 미션은 내일 열려요" : "식물 성장 · 완료 보상 50코인", 16, 86, 310, 24, 16, FigmaMissionUi.Brown);
+            var detail = FigmaMissionUi.Label(box, active != null ? "멈춘 곳부터 이어가요" : completed ? "다음 추가 미션은 내일 열려요" : "식물 성장 · 완료 보상 " + GardenEconomyPolicy.AdditionalMissionCoins + "코인", 16, 86, 310, 24, 16, FigmaMissionUi.Brown);
             var snapshot = active == null && !completed ? PrepareFocusRecommendation(state) : null;
             var visibility = snapshot == null ? null : ObserveFocusRecommendation(box, snapshot, root);
             var button = FigmaMissionUi.Button(box, active != null ? "이어서 하기" : completed ? "오늘 완료했어요" : "시작하기", 16, 88, 310, 48,
-                () => { visibility?.ReportVisible(); StartFocusAdditional(); }, Color.white, FigmaMissionUi.Green);
+                () => { visibility?.ReportVisible(); StartFocusAdditional(); }, FigmaMissionUi.Green, Color.white);
             button.name = "Focus.AdditionalAction";
             button.interactable = active != null || !completed;
             return new FocusMissionHomeLayout.Card { Root=box, Icon=icon.rectTransform, Badge=badge, Title=title, Detail=detail, Action=button, TitleSize=22, DetailSize=16, CenterText=true };
@@ -168,30 +161,33 @@ namespace CapstoneDesign.Runtime
             if (!opened || !SaveActivePracticeDraft()) return;
             var state = Service.Snapshot;
             var root = BeginFigmaPage("focus-programs", ShowFocusProgramSelection, FigmaMissionUi.Background, true);
-            FigmaHeader(root, state.MbctProgramChosen ? "내게 맞는 코스" : "내 속도로 시작해요", "기간을 정하고, 하루 한 가지씩 이어가요.");
+            FigmaHeader(root, state.MbctProgramChosen ? "내게 맞는 코스" : "내 속도로 시작해요", "");
+            var back = FigmaMissionUi.Button(root, "‹ 기록", 24, 0, 110, 38, ShowFocusCourse, Color.clear, FigmaMissionUi.Green, 14);
+            back.name = "Focus.ProgramsBack";
             var previous = state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
-            var body = FigmaScroll(root, 132, 628, previous == null ? 584 : 648);
+            var body = FigmaScroll(root, 110, 500, 600);
             var additional = ActiveAdditionalMission(state);
             bool additionalCompleted = FocusMissionPolicy.AdditionalAvailability(state) != null;
-            var independent = FigmaMissionUi.Button(body, additional != null ? "추가 미션 이어서 하기" : additionalCompleted ? "오늘 완료했어요" : "추가 미션 시작하기", 24, 8, 342, 48, StartFocusAdditional, FigmaMissionUi.Warm, FigmaMissionUi.Green);
+            FigmaMissionUi.Label(body, "나에게 맞는 기간을 골라요.", 24, 4, 342, 30, 18, FigmaMissionUi.Ink, false, TextAnchor.MiddleCenter);
+            var footer = FigmaMissionUi.Rect(root, "Focus.ProgramsActions", 0, 0, 390, previous == null ? 52 : 112);
+            var independent = FigmaMissionUi.Button(footer, additional != null ? "추가 미션 이어서 하기" : additionalCompleted ? "오늘 추가 미션 완료" : "추가 미션 시작하기", 24, previous == null ? 0 : 60, 342, 48, StartFocusAdditional, FigmaMissionUi.Warm, FigmaMissionUi.Green);
             independent.name = "Focus.TodayAdditional";
             independent.interactable = additional != null || !additionalCompleted;
-            FigmaMissionUi.Label(body, "꾸준히 이어가고 싶다면", 24, 80, 342, 28, 18, null, true);
             for (int i = 0; i < FocusPrograms.Length; i++)
             {
                 string program = FocusPrograms[i]; int done = FocusMissionPolicy.CompletedCount(state, program);
                 bool selected = state.MbctProgramChosen && state.MbctProgramId == program;
-                var row = FigmaMissionUi.Button(body, "", 24, 120 + i * 112, 342, 96, () => ShowFocusProgramConfirmation(program), selected ? FigmaMissionUi.Soft : Color.white, FigmaMissionUi.Ink);
+                var row = FigmaMissionUi.Button(body, "", 24, 48 + i * 120, 342, 108, () => ShowFocusProgramConfirmation(program), selected ? FigmaMissionUi.Soft : Color.white, FigmaMissionUi.Ink);
                 row.name = "Focus.SelectProgram." + program;
                 FigmaMissionUi.Label(row.transform, selected ? "●" : "○", 16, 20, 24, 28, 22, FigmaMissionUi.Green, true, TextAnchor.MiddleCenter);
                 FigmaMissionUi.Label(row.transform, FocusProgramTitle(program) + (selected ? " · 현재 코스" : ""), 52, 12, 274, 28, 20, null, true);
-                FigmaMissionUi.Label(row.transform, FocusProgramDescription(program), 52, 44, 274, 24, 14, FigmaMissionUi.Muted);
-                FigmaMissionUi.Label(row.transform, FocusMissionPolicy.TotalPracticesFor(program) + "회 실습" + (done > 0 ? " · " + done + "회 완료" : ""), 52, 68, 274, 24, 14, FigmaMissionUi.Green);
+                FigmaMissionUi.Label(row.transform, FocusProgramDescription(program), 52, 44, 274, 24, 15, FigmaMissionUi.Muted);
+                FigmaMissionUi.Label(row.transform, FocusMissionPolicy.TotalPracticesFor(program) + "회 실습" + (done > 0 ? " · " + done + "회 완료" : ""), 52, 76, 274, 24, 15, FigmaMissionUi.Green);
             }
-            float y = 464;
-            if (previous != null) { FigmaMissionUi.Button(body, "진행하던 기본 미션 이어가기", 24, y, 342, 48, () => SelectFocusSession(previous.SessionId)); y += 64; }
-            FigmaMissionUi.Label(body, "코스를 바꿔도 기록과 정원은 유지돼요.", 24, y, 342, 28, 14, FigmaMissionUi.Muted);
+            if (previous != null) FigmaMissionUi.Button(footer, "진행하던 기본 미션 이어가기", 24, 0, 342, 48, () => SelectFocusSession(previous.SessionId));
+            FigmaMissionUi.Label(body, "코스를 바꿔도 기록과 정원은 유지돼요.", 24, 416, 342, 32, 15, FigmaMissionUi.Muted, false, TextAnchor.MiddleCenter);
             BuildMissionDebugLauncher(root);
+            ConfigureGardenPage(root, body, 464, footer, previous == null ? 52 : 112, back);
         }
 
         public void ShowFocusProgramConfirmation(string program)
@@ -199,30 +195,33 @@ namespace CapstoneDesign.Runtime
             if (!opened || !MbctPolicy.IsProgram(program) || !SaveActivePracticeDraft()) return;
             var state = Service.Snapshot;
             var root = BeginFigmaPage("focus-program-confirm", () => ShowFocusProgramConfirmation(program), FigmaMissionUi.Background, true);
-            FigmaHeader(root, FocusProgramTitle(program), "내 속도로 이어가는 마음챙김");
-            var body = FigmaScroll(root, 132, 628, 616);
-            var box = FigmaMissionUi.Box(body, "코스 안내", 24, 8, 342, 200, FigmaMissionUi.Soft, 24);
-            FigmaMissionUi.Label(box, FocusProgramDescription(program), 24, 20, 294, 56, 22, null, true);
-            FigmaMissionUi.Label(box, "하루 기본 미션 1개 · 주 최대 6개\n총 " + FocusMissionPolicy.TotalPracticesFor(program) + "회 실습 · 쉬는 날은 자유롭게", 24, 88, 294, 56, 16, FigmaMissionUi.Green);
-            FigmaMissionUi.Label(box, "놓친 날에도 진도는 그대로예요.", 24, 160, 294, 24, 14, FigmaMissionUi.Muted);
+            FigmaHeader(root, FocusProgramTitle(program), "");
+            var back = FigmaMissionUi.Button(root, "‹ 코스 선택", 24, 0, 110, 38, ShowFocusProgramSelection, Color.clear, FigmaMissionUi.Green, 14);
+            var body = FigmaScroll(root, 110, 500, 450);
+            float y = BuildFocusRecordCard(body, "이 코스에서", FocusProgramDescription(program), 0, FigmaMissionUi.Soft);
+            y = BuildFocusRecordCard(body, "진행 방법", "하루 기본 미션 1개 · 주 최대 6개\n총 " + FocusMissionPolicy.TotalPracticesFor(program) + "회 실습\n놓친 날에도 진도는 그대로예요.", y);
             int done = FocusMissionPolicy.CompletedCount(state, program);
-            FigmaMissionUi.Label(body, done > 0 ? "이 코스에서 " + done + "회 실습을 마쳤어요.\n저장된 진도부터 이어갑니다." : "코스를 바꿔도 이전 기록은 남아요.\n추가 미션은 코스와 별개로 하루 1개예요.", 24, 232, 342, 64, 16, FigmaMissionUi.Muted);
+            bool completed = done >= FocusMissionPolicy.TotalPracticesFor(program);
+            y = BuildFocusRecordCard(body, completed ? "완료한 코스" : done > 0 ? "저장된 진도" : "기록은 그대로", completed ? "모든 실습을 마쳤어요. 남긴 기록을 확인해요." : done > 0 ? done + "회 완료 · 이어서 시작할 수 있어요." : "코스를 바꿔도 기록과 정원은 유지돼요.\n추가 미션은 코스와 별개로 하루 1개예요.", y);
             bool current = state.MbctProgramChosen && state.MbctProgramId == program;
             var previous = state.Sessions.LastOrDefault(a => FocusMissionPolicy.IsActive(a) && !a.FocusSupport && a.MissionId.StartsWith("course:", StringComparison.Ordinal));
-            bool blocked = previous != null && !current;
+            bool blocked = !completed && previous != null && !current;
+            var footer = FigmaMissionUi.Rect(root, "Focus.ProgramActions", 0, 0, 390, blocked ? 176 : 116);
             if (blocked)
             {
-                FigmaMissionUi.Label(body, "진행 중인 미션을 먼저 마쳐주세요.\n마친 뒤 코스를 바꿀 수 있어요.", 24, 320, 342, 56, 16, FigmaMissionUi.Brown);
-                FigmaMissionUi.Button(body, "진행하던 기본 미션 이어가기", 24, 392, 342, 48, () => SelectFocusSession(previous.SessionId));
+                y = BuildFocusRecordCard(body, "먼저 진행 중인 미션을 마쳐요", "진행하던 미션을 마치면 코스를 바꿀 수 있어요.", y, FigmaMissionUi.Warm);
+                FigmaMissionUi.Button(footer, "진행하던 기본 미션 이어가기", 24, 0, 342, 52, () => SelectFocusSession(previous.SessionId));
             }
-            float actionY = blocked ? 456 : 328;
-            var select = FigmaMissionUi.Button(body, done >= FocusMissionPolicy.TotalPracticesFor(program) ? "완료한 코스 보기" : done > 0 ? "이 코스 이어서 하기" : "이 코스로 시작", 24, actionY, 342, 56, () =>
+            float actionY = blocked ? 60 : 0;
+            var select = FigmaMissionUi.Button(footer, completed ? "코스 기록 보기" : done > 0 ? "이 코스 이어서 하기" : "이 코스로 시작", 24, actionY, 342, 52, () =>
             {
+                if (completed) { ShowFocusProgram(program); return; }
                 if (!Apply(Service.SelectMbctProgram(program))) return;
                 coursePageInitialized = false; ShowFocusHome();
             });
             select.name = "Focus.ConfirmProgram." + program; select.interactable = !blocked;
-            FigmaMissionUi.Button(body, "다른 코스 보기", 24, actionY + 72, 342, 48, ShowFocusProgramSelection, Color.white, FigmaMissionUi.Green);
+            FigmaMissionUi.Button(footer, "다른 코스 보기", 24, actionY + 64, 342, 44, ShowFocusProgramSelection, Color.clear, FigmaMissionUi.Green);
+            ConfigureGardenPage(root, body, y, footer, blocked ? 176 : 116, back);
         }
 
         public void StartFocusBasic()
@@ -325,17 +324,18 @@ namespace CapstoneDesign.Runtime
                 string program = state.MbctProgramId;
                 int done = FocusMissionPolicy.CompletedCount(state, program), total = FocusMissionPolicy.TotalPracticesFor(program);
                 int records = state.Sessions.Count(a => FocusMissionPolicy.IsFocus(a) && FocusMissionPolicy.ProgramFor(a) == program);
-                var row = FigmaMissionUi.Button(body, "", 24, y, 342, 112, () => ShowFocusProgram(program), FigmaMissionUi.Soft, FigmaMissionUi.Ink);
+                const float courseHeight = 140;
+                var row = FigmaMissionUi.Button(body, "", 24, y, 342, courseHeight, () => ShowFocusProgram(program), FigmaMissionUi.Soft, FigmaMissionUi.Ink);
                 row.name = "Focus.CourseRecords." + program;
-                FigmaMissionUi.Label(row.transform, FocusProgramTitle(program) + (done >= total ? " · 완료" : " · 현재 코스"), 16, 12, 282, 30, 22, null, true);
-                FigmaMissionUi.Label(row.transform, "›", 300, 16, 24, 32, 26, FigmaMissionUi.Green, false, TextAnchor.MiddleCenter);
-                FigmaMissionUi.Label(row.transform, "완료한 실습 " + done + " / " + total + " · 저장 기록 " + records + "개", 16, 52, 310, 24, 14, FigmaMissionUi.Muted);
-                FigmaMissionUi.Label(row.transform, records > 0 ? "최근 기록부터 확인해요" : "첫 실천을 마치면 여기에 쌓여요", 16, 80, 310, 24, 14, FigmaMissionUi.Green);
-                y += 112;
+                FigmaMissionUi.Label(row.transform, done >= total ? FocusProgramTitle(program) + " · 완료" : "현재 : " + FocusProgramTitle(program), 36, 18, 270, 32, 22, null, true, TextAnchor.MiddleCenter);
+                FigmaMissionUi.Label(row.transform, "›", 300, 18, 24, 32, 26, FigmaMissionUi.Green, false, TextAnchor.MiddleCenter);
+                FigmaMissionUi.Label(row.transform, "완료한 실습 " + done + " / " + total + " · 저장 기록 " + records + "개", 16, 62, 310, 24, 15, FigmaMissionUi.Muted, false, TextAnchor.MiddleCenter);
+                FigmaMissionUi.Label(row.transform, records > 0 ? "최근 기록부터 확인해요" : "첫 실천을 마치면 여기에 쌓여요", 16, 96, 310, 24, 15, FigmaMissionUi.Green, false, TextAnchor.MiddleCenter);
+                y += courseHeight;
             }
             else
             {
-                FigmaMissionUi.Label(body, "아직 선택한 코스가 없어요.", 24, y, 342, 48, 18, FigmaMissionUi.Muted).name = "Focus.NoCurrentCourse";
+                FigmaMissionUi.Label(body, "아직 선택한 코스가 없어요.", 24, y, 342, 48, 18, FigmaMissionUi.Muted, false, TextAnchor.MiddleCenter).name = "Focus.NoCurrentCourse";
                 y += 48;
             }
             FigmaMissionUi.Button(body, "코스 선택·변경", 226, y + 4, 140, 44, ShowFocusProgramSelection, Color.clear, FigmaMissionUi.Green, 14).name = "Focus.ChangeProgram";
@@ -346,52 +346,7 @@ namespace CapstoneDesign.Runtime
             body.sizeDelta = new Vector2(390, y + 8);
         }
 
-        public void ShowFocusProgram(string program)
-        {
-            if (!opened || !MbctPolicy.IsProgram(program) || !SaveActivePracticeDraft()) return;
-            var state = Service.Snapshot; int total = FocusMissionPolicy.TotalPracticesFor(program), next = FocusMissionPolicy.NextOrder(state, program);
-            var entries = state.Sessions.Where(a => FocusMissionPolicy.IsFocus(a) && FocusMissionPolicy.ProgramFor(a) == program)
-                .OrderByDescending(a => a.SelectedUtc, StringComparer.Ordinal).ToArray();
-            var root = BeginFigmaPage("focus-course", () => ShowFocusProgram(program), FigmaMissionUi.Background, true, "기록");
-            FigmaHeader(root, FocusProgramTitle(program), "저장된 실천과 내가 남긴 기록");
-            var body = FigmaScroll(root, 132, 628, 628);
-            var summary = FigmaMissionUi.Box(body, "코스 기록 요약", 24, 8, 342, 96, FigmaMissionUi.Soft, 20);
-            FigmaMissionUi.Label(summary, "완료한 실습 " + FocusMissionPolicy.CompletedCount(state, program) + " / " + total, 16, 16, 310, 30, 20, null, true);
-            FigmaMissionUi.Label(summary, "같은 미션도 수행할 때마다 기록돼요.", 16, 56, 310, 24, 14, FigmaMissionUi.Muted);
-            FigmaMissionUi.Label(body, "최근 기록", 24, 128, 342, 28, 18, null, true);
-            float y = 168;
-            if (entries.Length == 0)
-            {
-                FigmaMissionUi.Label(body, "아직 저장된 수행 기록이 없어요.\n첫 실천을 마치면 여기에 쌓여요.", 24, y, 342, 64, 16, FigmaMissionUi.Muted); y += 88;
-            }
-            foreach (var entry in entries.Take(3)) { BuildFocusHistoryRow(body, entry, y); y += 112; }
-            FigmaMissionUi.Button(body, "저장된 기록 보기", 24, y, 342, 48, () => ShowFocusHistory(null, 0, program), Color.white, FigmaMissionUi.Green); y += 72;
-            bool expanded = focusExpandedCurricula.Contains(program);
-            var disclosure = FigmaMissionUi.Button(body, expanded ? "전체 실습 순서 접기  −" : "전체 실습 순서 보기  +", 24, y, 342, 56, () =>
-            {
-                if (!focusExpandedCurricula.Add(program)) focusExpandedCurricula.Remove(program);
-                RebuildFocusDisclosure(() => ShowFocusProgram(program));
-            }, Color.white, FigmaMissionUi.Green);
-            disclosure.name = "Focus.CurriculumToggle"; y += 72;
-            if (expanded)
-            {
-                var curriculum = FigmaMissionUi.Rect(body, "펼친 실습 순서", 0, y, 390, total * 96);
-                for (int i = 0; i < total; i++)
-                {
-                    int order = i + 1; var mission = FocusMissionPolicy.MissionAt(order, program);
-                    var active = entries.LastOrDefault(a => a.FocusOrder == order && FocusMissionPolicy.IsActive(a));
-                    string status = active != null ? "진행 중 · 이어서 하기" : order < next ? "완료 · 기록 보기" : order == next ? "지금 할 실습" : "앞으로 할 실습";
-                    var row = FigmaMissionUi.Button(curriculum, "", 24, i * 96, 342, 80, () => ShowFocusOccurrence(program, order), order == next ? FigmaMissionUi.Soft : Color.white, FigmaMissionUi.Ink);
-                    row.name = "Focus.Occurrence." + program + "." + order;
-                    FigmaMissionUi.Label(row.transform, order.ToString("00"), 12, 24, 32, 28, 14, FigmaMissionUi.Green, true, TextAnchor.MiddleCenter);
-                    FigmaMissionUi.Label(row.transform, mission.Title, 56, 8, 270, 40, 16, null, true);
-                    FigmaMissionUi.Label(row.transform, status, 56, 52, 270, 24, 14, FigmaMissionUi.Muted);
-                }
-                y += total * 96;
-            }
-            FigmaMissionUi.Button(body, "기록으로 돌아가기", 24, y, 342, 48, ShowFocusCourse, Color.clear, FigmaMissionUi.Green); y += 64;
-            body.sizeDelta = new Vector2(390, Mathf.Max(628, y));
-        }
+        public void ShowFocusProgram(string program) => RenderCourseRecords(program);
 
         void RebuildFocusDisclosure(Action rebuild)
         {
@@ -414,18 +369,21 @@ namespace CapstoneDesign.Runtime
             var state = Service.Snapshot;
             var entries = state.Sessions.Where(a => FocusMissionPolicy.IsFocus(a) && FocusMissionPolicy.ProgramFor(a) == program && a.FocusOrder == order).OrderByDescending(a => a.SelectedUtc, StringComparer.Ordinal).ToArray();
             var root = BeginFigmaPage("focus-occurrence", () => ShowFocusOccurrence(program, order), FigmaMissionUi.Background, true, "기록");
-            FigmaHeader(root, order + "회차", FocusProgramTitle(program));
-            var body = FigmaScroll(root, 132, 628, 490 + entries.Length * 112);
-            var info = FigmaMissionUi.Box(body, "미션 개요", 24, 8, 342, 200, FigmaMissionUi.Hex(mission.BackgroundHex), 24);
-            FigmaMissionUi.Label(info, mission.Title, 20, 24, 302, 58, 22, null, true);
-            FigmaMissionUi.Label(info, mission.Overview, 20, 104, 302, 72, 17, FigmaMissionUi.Hex(mission.TextHex));
-            float y = 232;
-            if (entries.Length == 0) { FigmaMissionUi.Label(body, "아직 저장된 수행 기록이 없어요.\n미션 창에서 실습한 뒤 돌아와 주세요.", 24, y, 342, 68, 16, FigmaMissionUi.Muted); y += 90; }
+            FigmaHeader(root, order + "회차", "");
+            var back = FigmaMissionUi.Button(root, "‹ 코스 기록", 24, 0, 110, 38, () => ShowFocusProgram(program), Color.clear, FigmaMissionUi.Green, 14);
+            var body = FigmaScroll(root, 110, 500, 400 + entries.Length * 112);
+            float y = BuildFocusRecordCard(body, FocusProgramTitle(program) + " · " + mission.Title, mission.Overview, 0, FigmaMissionUi.Soft);
+            if (entries.Length == 0) { FigmaMissionUi.Label(body, "아직 저장된 수행 기록이 없어요.", 24, y, 342, 48, 17, FigmaMissionUi.Muted); y += 64; }
             foreach (var entry in entries) { BuildFocusHistoryRow(body, entry, y); y += 112; }
             var active = entries.LastOrDefault(FocusMissionPolicy.IsActive);
-            if (active != null) { FigmaMissionUi.Button(body, "저장한 단계 이어서 하기", 24, y, 342, 52, () => SelectFocusSession(active.SessionId)); y += 68; }
+            RectTransform footer = null;
+            if (active != null)
+            {
+                footer = FigmaMissionUi.Rect(root, "Focus.OccurrenceActions", 0, 0, 390, 52);
+                FigmaMissionUi.Button(footer, "저장한 단계 이어서 하기", 24, 0, 342, 52, () => SelectFocusSession(active.SessionId));
+            }
             else { FigmaMissionUi.Label(body, "기본 미션은 선택한 코스의 순서대로 열려요.", 24, y, 342, 48, 14, FigmaMissionUi.Muted); y += 64; }
-            FigmaMissionUi.Button(body, "코스 기록으로 돌아가기", 24, y, 342, 52, () => ShowFocusProgram(program), Color.white, FigmaMissionUi.Green);
+            ConfigureGardenPage(root, body, y, footer, footer == null ? 0 : 52, back);
         }
 
         public void ShowFocusHistory(string missionId = null, int order = 0, string program = null)
@@ -437,11 +395,15 @@ namespace CapstoneDesign.Runtime
                 && (program == null || (program == "legacy" ? !FocusMissionPolicy.IsFocus(a) || FocusMissionPolicy.ProgramFor(a) == "legacy" : FocusMissionPolicy.IsFocus(a) && FocusMissionPolicy.ProgramFor(a) == program)))
                 .OrderByDescending(a => a.SelectedUtc, StringComparer.Ordinal).ToArray();
             var root = BeginFigmaPage("focus-history", () => ShowFocusHistory(missionId, order, program), FigmaMissionUi.Background, true, "기록");
-            FigmaHeader(root, definition == null ? (program == null ? "저장된 기록" : FocusProgramTitle(program) + " 기록") : "수행 기록", definition?.Title ?? "최근에 남긴 실천부터 확인해요.");
-            var body = FigmaScroll(root, 132, 628, Mathf.Max(620, 140 + list.Length * 112));
-            if (list.Length == 0) FigmaMissionUi.Label(body, "아직 저장된 수행 기록이 없어요.\n미션 창에서 실습한 뒤 돌아와 주세요.", 24, 40, 342, 80, 16, FigmaMissionUi.Muted);
-            for (int i = 0; i < list.Length; i++) BuildFocusHistoryRow(body, list[i], 8 + i * 112);
-            FigmaMissionUi.Button(body, "기록으로 돌아가기", 24, Mathf.Max(180, 20 + list.Length * 112), 342, 52, ShowFocusCourse, Color.white, FigmaMissionUi.Green);
+            FigmaHeader(root, definition == null ? (program == null ? "저장된 기록" : FocusProgramTitle(program) + " 기록") : "수행 기록", "");
+            var back = FigmaMissionUi.Button(root, "‹ 기록", 24, 0, 110, 38, ShowFocusCourse, Color.clear, FigmaMissionUi.Green, 14);
+            back.name = "Focus.HistoryBack";
+            var body = FigmaScroll(root, 110, 500, 200 + list.Length * 112);
+            float top = definition == null ? 8 : 52;
+            if (definition != null) FigmaMissionUi.Label(body, definition.Title, 24, 4, 342, 40, 20, FigmaMissionUi.Ink, true, TextAnchor.MiddleCenter);
+            if (list.Length == 0) FigmaMissionUi.Label(body, "아직 저장된 수행 기록이 없어요.", 24, top + 32, 342, 64, 18, FigmaMissionUi.Muted, false, TextAnchor.MiddleCenter);
+            for (int i = 0; i < list.Length; i++) BuildFocusHistoryRow(body, list[i], top + i * 112);
+            ConfigureGardenPage(root, body, list.Length == 0 ? top + 112 : top + list.Length * 112, back: back);
         }
 
         void BuildFocusHistoryRow(Transform root, ActivitySession entry, float y)
@@ -463,8 +425,12 @@ namespace CapstoneDesign.Runtime
             if (!FocusMissionPolicy.IsFocus(entry)) { ShowLegacyRecord(id); return; }
             bool focus = FocusMissionPolicy.IsFocus(entry); string program = focus ? FocusMissionPolicy.ProgramFor(entry) : "legacy";
             var root = BeginFigmaPage("focus-record", () => ShowFocusRecord(id), FigmaMissionUi.Background, true, "기록");
-            FigmaHeader(root, "미션 기록", FocusSessionTitle(entry));
-            var body = FigmaScroll(root, 132, 628, 628); float y = 8;
+            FigmaHeader(root, "미션 기록", "");
+            var back = FigmaMissionUi.Button(root, "기록 목록", 24, 0, 110, 38,
+                () => ReturnToActivityJournalIfSource(() => ShowFocusHistory(null, 0, program)), Color.clear, FigmaMissionUi.Green, 14);
+            back.name = "Focus.RecordBack";
+            var body = FigmaScroll(root, 110, 500, 628); float y = 8;
+            y = BuildFocusRecordCard(body, "실습", FocusSessionTitle(entry), y, FigmaMissionUi.Soft);
             string group = (focus ? FocusProgramTitle(program) + (entry.FocusRole == FocusMissionCatalog.BasicRole ? " · " + entry.FocusOrder + "회차" : "") : "이전 미션") + " · " + StateLabel(entry.Status);
             int elapsed = entry.FocusStepRecords?.Sum(step => step.ElapsedSeconds) ?? 0;
             string when = focus ? LocalTime(entry.EndedUtc ?? entry.SelectedUtc) : "시작 · " + LocalTime(entry.StartedUtc) + "\n마침 · " + (entry.EndedUtc == null ? "진행 중" : LocalTime(entry.EndedUtc));
@@ -513,9 +479,13 @@ namespace CapstoneDesign.Runtime
                     y = BuildFocusRecordCard(body, "선택 기록", "감정 · " + (string.IsNullOrEmpty(entry.Mood) ? "선택하지 않음" : entry.Mood) + "\n한 줄 기록 · " + (string.IsNullOrEmpty(entry.Note) ? "남긴 기록 없음" : entry.Note), y);
                 }
             }
-            if (FocusMissionPolicy.IsActive(entry)) { FigmaMissionUi.Button(body, "저장한 단계 이어서 하기", 24, y, 342, 48, () => SelectFocusSession(id)); y += 64; }
-            FigmaMissionUi.Button(body, "기록 목록", 24, y, 342, 48, () => ReturnToActivityJournalIfSource(() => ShowFocusHistory(null, 0, program)), Color.clear, FigmaMissionUi.Green); y += 64;
-            body.sizeDelta = new Vector2(390, Mathf.Max(628, y));
+            RectTransform footer = null;
+            if (FocusMissionPolicy.IsActive(entry))
+            {
+                footer = FigmaMissionUi.Rect(root, "Focus.RecordActions", 0, 0, 390, 52);
+                FigmaMissionUi.Button(footer, "저장한 단계 이어서 하기", 24, 0, 342, 52, () => SelectFocusSession(id));
+            }
+            ConfigureGardenPage(root, body, y, footer, footer == null ? 0 : 52, back);
         }
 
         static string FocusRecordDuration(int seconds) => (seconds / 60).ToString("00") + ":" + (seconds % 60).ToString("00");

@@ -83,6 +83,7 @@ namespace CapstoneDesign.Runtime
             }
 
             RenameTab(islandButton,"홈");RenameTab(activitiesButton,"미션");RenameTab(settingsButton,"기록");
+            foreach(var button in new[]{islandButton,activitiesButton,settingsButton})GardenSfxButton.Attach(button);
 
             ShowIsland();
             // Registered collection must start on the initial garden screen,
@@ -207,7 +208,7 @@ namespace CapstoneDesign.Runtime
                 legacyBottomNavigation.SetActive(home==null && selected != activitiesPanel);
             SetLegacyTabActive(activitiesButton, selected == activitiesPanel);
             SetLegacyTabActive(settingsButton, false);
-            SetLegacyTabActive(islandButton, selected == islandPanel || selected == settingsPanel);
+            SetLegacyTabActive(islandButton, selected == islandPanel);
 
             if (activitiesPanel != null)
             {

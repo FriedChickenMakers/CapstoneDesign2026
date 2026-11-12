@@ -217,15 +217,21 @@ namespace CapstoneDesign.EditorTools
                 sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
                 if (name == "settings-toggle-off")
                 {
-                    // Visual state evidence only. The real music callback writes
-                    // PlayerPrefs, so render its off state without changing preferences.
+                    // Visual state evidence only. The real volume callback writes
+                    // preferences, so render zero without invoking that callback.
                     const BindingFlags hidden = BindingFlags.Instance | BindingFlags.NonPublic;
-                    var button = typeof(SensorRawDisplay).GetField("musicToggle", hidden)?.GetValue(sensor) as Button;
-                    var updateSwitch = typeof(SensorRawDisplay).GetMethod("UpdateSwitch", hidden);
-                    Require(button != null && updateSwitch != null, "Music switch preview binding is missing.");
-                    updateSwitch.Invoke(sensor, new object[] { button, false });
-                    Require(button.GetComponentsInChildren<Text>().Any(label => label.text == "꺼짐"),
-                        "Music switch off state was not rendered.");
+                    var slider = typeof(SensorRawDisplay).GetField("musicVolume", hidden)?.GetValue(sensor) as Slider;
+                    var value = typeof(SensorRawDisplay).GetField("musicVolumeValue", hidden)?.GetValue(sensor) as Text;
+                    var render = typeof(SensorRawDisplay).GetMethod("RenderMusicVolume", hidden);
+                    Require(slider != null && value != null && render != null, "Music volume preview binding is missing.");
+                    render.Invoke(sensor, new object[] { 0f });
+                    Require(slider.value == 0 && value.text == "0%", "Music zero-volume state was not rendered.");
+                    var sfx = typeof(SensorRawDisplay).GetField("sfxVolume", hidden)?.GetValue(sensor) as Slider;
+                    var sfxValue = typeof(SensorRawDisplay).GetField("sfxVolumeValue", hidden)?.GetValue(sensor) as Text;
+                    var renderSfx = typeof(SensorRawDisplay).GetMethod("RenderSfxVolume", hidden);
+                    Require(sfx != null && sfxValue != null && renderSfx != null, "Sound-effects volume preview binding is missing.");
+                    renderSfx.Invoke(sensor, new object[] { 0f });
+                    Require(sfx.value == 0 && sfxValue.text == "0%", "Sound-effects zero-volume state was not rendered.");
                 }
                 return;
             }

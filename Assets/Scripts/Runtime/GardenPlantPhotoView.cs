@@ -179,6 +179,25 @@ namespace CapstoneDesign.Runtime
         }
 
         public void ResetView() { Yaw = -18; pitch = 8; Zoom = 1; dirty = true; }
+        public readonly struct ViewState
+        {
+            public readonly float Yaw, Pitch, Zoom;
+            public readonly int MemoryPage;
+            public ViewState(float yaw, float pitch, float zoom, int memoryPage)
+            { Yaw = yaw; Pitch = pitch; Zoom = zoom; MemoryPage = memoryPage; }
+        }
+        public ViewState CaptureViewState() => new ViewState(Yaw, pitch, Zoom, MemoryPage);
+        public void RestoreViewState(ViewState value)
+        {
+            if (!IsInteractive || float.IsNaN(value.Yaw) || float.IsInfinity(value.Yaw)
+                || float.IsNaN(value.Pitch) || float.IsInfinity(value.Pitch)
+                || float.IsNaN(value.Zoom) || float.IsInfinity(value.Zoom)) return;
+            pointers.Clear(); draggingPointers.Clear(); memoTap.Clear(); memoPicking = null;
+            Yaw = Mathf.Repeat(value.Yaw + 180, 360) - 180;
+            pitch = Mathf.Clamp(value.Pitch, -PrototypeIslandDrag.PitchLimit, PrototypeIslandDrag.PitchLimit);
+            Zoom = Mathf.Clamp(value.Zoom, .75f, 1.65f);
+            SetMemoryPage(value.MemoryPage); dirty = true;
+        }
         public void SetMemoryPage(int page)
         {
             int next = Mathf.Clamp(page, 0, MemoryPageCount - 1);

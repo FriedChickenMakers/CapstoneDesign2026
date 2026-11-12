@@ -90,8 +90,8 @@ static class DailyMissionPolicyTests
                 Check(service.CompleteFocusSession("p"), "Own P final completion allowed despite P quota");
                 Check(!service.BeginFocusSession("m-after-final", "M02") && !service.BeginFocusSession("p-after-final", "P02", 2), "Both roles reject second normal mission");
                 Check(FocusMissionPolicy.AdditionalCompletedToday(service.Snapshot,"M03") && !FocusMissionPolicy.AdditionalCompletedToday(service.Snapshot,"M01"), "Historical per-M final-completion helper retains its meaning");
-                Check(FocusMissionPolicy.HasPendingToday(service.Snapshot) && DailyEmotionPolicy.Availability(service.Snapshot)==null && service.CoinBalance == 237,
-                    "Both finished P/M slots unlock the pending third mission with exactly two 50-coin rewards");
+                Check(FocusMissionPolicy.HasPendingToday(service.Snapshot) && DailyEmotionPolicy.Availability(service.Snapshot)==null && service.CoinBalance == 217,
+                    "Finished P/M slots unlock the third mission with 50 basic and 30 additional coins");
                 var recipe = PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe); int bank = service.Snapshot.StoredGrowthSteps;
                 Check(service.BeginFocusSession("review","M03",0,true),"Explicit historical review remains eligible for record-only replay");
                 Ready(service,"review"); Check(service.CommitPracticeGrowth("review") && service.CompleteFocusSession("review"),"Complete explicit review");
@@ -122,7 +122,7 @@ static class DailyMissionPolicyTests
             Ready(service,"carry"); FailUnchanged(store,service,()=>service.CommitPracticeGrowth("carry"),"Carried practice failure");
             Check(service.CommitPracticeGrowth("carry") && service.GetPracticeGrowth("carry").CycleId==service.CurrentCycleId
                 && Get(service,"carry").InstanceId==service.CurrentCycleId,"First practice commit consumes the actual new business day");
-            Check(service.CompleteFocusSession("carry") && service.Snapshot.PracticeGrowthRecords.Count==1 && service.CoinBalance==187,"Carried practice commits once with one 50-coin completion reward");
+            Check(service.CompleteFocusSession("carry") && service.Snapshot.PracticeGrowthRecords.Count==1 && service.CoinBalance==(code[0]=='P'?187:167),"Carried practice commits once with its role's 50/30-coin completion reward");
             service.Dispose();
         }
     }
@@ -139,7 +139,7 @@ static class DailyMissionPolicyTests
             Check(service.CompleteFocusSession("old") && Get(service,"old").InstanceId==oldCycle && service.GetPracticeGrowth("old").CycleId==oldCycle
                 && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,"Late final completion retains original practice day and plant");
             Select(service,"today","M01"); Ready(service,"today"); Check(service.CommitPracticeGrowth("today") && service.CompleteFocusSession("today"),"New business day opens another M");
-            Check(service.Snapshot.PracticeGrowthRecords.Count==2 && service.CoinBalance==237,"Two distinct days produce exactly two growth receipts");
+            Check(service.Snapshot.PracticeGrowthRecords.Count==2 && service.CoinBalance==197,"Two distinct days produce two additional growth receipts and two 30-coin rewards");
         }
     }
     static void BoundaryFailure()

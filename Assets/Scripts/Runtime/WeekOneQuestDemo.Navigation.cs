@@ -42,6 +42,7 @@ namespace CapstoneDesign.Runtime
 
         public bool TryNavigateBack()
         {
+            if (GardenDetailSheet.TryCloseOpen()) return true;
             if (GardenMemoPopup.TryCloseOpen()) return true;
             if(HasPendingFullReset){ShowFullResetRecovery();return true;}
             if(TryDailyEmotionBack())return true;

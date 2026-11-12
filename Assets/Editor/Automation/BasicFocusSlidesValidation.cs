@@ -184,17 +184,23 @@ namespace CapstoneDesign.EditorTools
                 f.Click("Focus.IconAction"); finish.Invoke(); oldStart.Invoke(); f.Layout();
                 AssertM01Completed(f, id, before, coins);
                 f.Capture("M01-" + method + "-complete");
-                f.Click("Focus.ViewRecord");
+                Assert(f.Button("Focus.ViewRecord", false) == null && f.Button("Focus.ConfirmHome", false) == null
+                    && f.Button("Focus.GoGarden") != null, "M01 completion keeps its garden action without duplicate mission/record shortcuts");
+                // This illustration fixture has no external garden presenter.
+                // Hardware Back and the actual record tab remain real routes;
+                // the integrated completion suite exercises GoGarden itself.
+                Assert(f.Ui.TryNavigateBack(), "Completion supports the normal Back route"); f.Layout();
+                f.Click("기록"); f.Click("DailyEmotion.History");
                 Assert(Screen(f.Ui) == "daily-emotion-history" && f.Ui.GetComponentsInChildren<Text>(false).Any(t => t.text.Contains("주변 밝히기")),
-                    "M01 completed record opens its dated activity journal");
+                    "M01 completed record remains accessible through the record tab's activity journal");
             }
         }
         static void AssertM01Completed(Fixture f, string id, GardenState before, int coins)
         {
             var state = f.Service.Snapshot; var growth = f.Service.GetPracticeGrowth(id);
             Assert(f.Session(id).Status == ParticipationState.RewardCommitted && Screen(f.Ui) == "focus-complete"
-                && f.Service.CoinBalance == coins + 50 && f.Session(id).RewardAmount == 50,
-                "M01 completed exactly once with its existing 50 coin reward");
+                && f.Service.CoinBalance == coins + 30 && f.Session(id).RewardAmount == 30,
+                "M01 completed exactly once with its approved 30 coin additional reward");
             Assert(growth != null && growth.Outcome == PracticeGrowthOutcome.Grown && growth.AfterStep == growth.BeforeStep + 1
                 && state.PracticeGrowthRecords.Count == before.PracticeGrowthRecords.Count + 1
                 && state.PlantCollection.Decisions.Count == before.PlantCollection.Decisions.Count + 1
@@ -248,7 +254,7 @@ namespace CapstoneDesign.EditorTools
                 int receipts = f.Service.Snapshot.PracticeGrowthRecords.Count;
                 Assert(f.Service.CompletePracticeSession(id), f.Service.LastError);
                 f.Ui.SelectFocusSession(id); f.Layout();
-                Assert(f.Service.CoinBalance == coins + 50 && f.Service.Snapshot.PracticeGrowthRecords.Count == receipts
+                Assert(f.Service.CoinBalance == coins + 30 && f.Service.Snapshot.PracticeGrowthRecords.Count == receipts
                     && Screen(f.Ui) == "focus-complete", "Duplicate domain command and completed reentry preserve one growth and reward");
                 Assert(!f.Service.BeginFocusSession("synthetic-second-m01-today", "M01"), "Completed M01 still obeys the existing daily additional limit");
                 f.Capture("M01-completion-recovered");
@@ -256,7 +262,7 @@ namespace CapstoneDesign.EditorTools
             using (var restored = new Fixture(390, 844, store))
             {
                 restored.Ui.SelectFocusSession("synthetic-m01-recovery"); restored.Layout();
-                Assert(Screen(restored.Ui) == "focus-complete" && restored.Service.CoinBalance == 187
+                Assert(Screen(restored.Ui) == "focus-complete" && restored.Service.CoinBalance == 167
                     && restored.Service.Snapshot.PracticeGrowthRecords.Count == 1,
                     "Fresh presenter after reward recovery restores the completed M01 exactly once");
             }
@@ -737,7 +743,7 @@ namespace CapstoneDesign.EditorTools
                 Assert(f.Text("Guided.ReflectionPrompt") != null, "Optional separate sound reflection stays inside P02");
                 f.Click("Focus.IconAction");
                 Assert(f.Session(support.SessionId).Status == ParticipationState.RewardCommitted
-                    && f.Service.CoinBalance == coins + 50 && f.Service.GetPracticeGrowth(support.SessionId) != null
+                    && f.Service.CoinBalance == coins + 30 && f.Service.GetPracticeGrowth(support.SessionId) != null
                     && f.Service.GetPracticeGrowth(id) == null && FocusMissionPolicy.NextOrder(f.Service.Snapshot, "8w") == order,
                     "Only actual P02 completion receives one reward while the original occurrence remains pending");
                 Assert(!f.Service.BeginFocusSession("second-additional-" + order, "M01"),

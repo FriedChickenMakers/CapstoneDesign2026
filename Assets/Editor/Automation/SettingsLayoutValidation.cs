@@ -12,7 +12,7 @@ using UnityEngine.UI;
 
 namespace CapstoneDesign.EditorTools
 {
-    // Render the real settings panel with disposable state. Switch previews do
+    // Render the real settings panel with disposable state. Control previews do
     // not invoke callbacks, write preferences, request permissions or send data.
     public static class SettingsLayoutValidation
     {
@@ -60,7 +60,7 @@ namespace CapstoneDesign.EditorTools
                     string snapshot = StateCodec.Encode(service.Snapshot);
                     foreach (bool enabled in new[] { true, false })
                     {
-                        PreviewSwitches(sensor, enabled);
+                        PreviewControls(sensor, enabled);
                         foreach (string position in new[] { "top", "middle", "bottom" })
                         {
                             string name = "settings-" + (enabled ? "on" : "off") + "-" + position + "-" + size.x + "x" + size.y + ".png";
@@ -70,7 +70,7 @@ namespace CapstoneDesign.EditorTools
                             sensor.PrimaryScroll.StopMovement();
                             sensor.PrimaryScroll.verticalNormalizedPosition = position == "top" ? 1 : position == "bottom" ? 0 : .5f;
                             LocalLoopPreview.Render(size, path);
-                            AssertLayout(sensor, name);
+                            AssertLayout(sensor, name, enabled);
                             report.images.Add(name);
                             report.checks.Add(name + ": switch/row geometry and label fit pass");
                         }
@@ -95,19 +95,33 @@ namespace CapstoneDesign.EditorTools
             }
         }
 
-        static void PreviewSwitches(SensorRawDisplay sensor, bool enabled)
+        static void PreviewControls(SensorRawDisplay sensor, bool enabled)
         {
-            var update = typeof(SensorRawDisplay).GetMethod("UpdateSwitch", Hidden);
-            foreach (string field in new[] { "notificationToggle", "notificationAdaptive", "musicToggle", "reducedMotionToggle" })
-            {
-                var button = typeof(SensorRawDisplay).GetField(field, Hidden)?.GetValue(sensor) as Button;
-                if (button == null || update == null) throw new InvalidOperationException("Missing settings switch " + field);
-                update.Invoke(sensor, new object[] { button, enabled });
-            }
+            var value = new ActivityNotificationSettings { enabled = enabled, adaptive = enabled, minuteOfDay = 825, permissionStatus = "AVAILABLE" };
+            string original = JsonUtility.ToJson(value);
+            var render = typeof(SensorRawDisplay).GetMethod("RenderNotificationSettings", Hidden);
+            Require(render != null, "Missing notification settings renderer.");
+            render.Invoke(sensor, new object[] { value, false });
+            Require(JsonUtility.ToJson(value) == original, "Rendering notifications changed the supplied settings.");
+            var music = typeof(SensorRawDisplay).GetField("musicVolume", Hidden)?.GetValue(sensor) as Slider;
+            var renderMusic = typeof(SensorRawDisplay).GetMethod("RenderMusicVolume", Hidden);
+            Require(music != null && renderMusic != null, "Missing music volume preview.");
+            renderMusic.Invoke(sensor, new object[] { enabled ? 1f : 0f });
+            var sfx = typeof(SensorRawDisplay).GetField("sfxVolume", Hidden)?.GetValue(sensor) as Slider;
+            var renderSfx = typeof(SensorRawDisplay).GetMethod("RenderSfxVolume", Hidden);
+            Require(sfx != null && renderSfx != null, "Missing sound-effects volume preview.");
+            renderSfx.Invoke(sensor, new object[] { enabled ? 1f : 0f });
         }
 
-        static void AssertLayout(SensorRawDisplay sensor, string name)
+        static void AssertLayout(SensorRawDisplay sensor, string name, bool enabled)
         {
+            var options = (GameObject)typeof(SensorRawDisplay).GetField("notificationOptions", Hidden).GetValue(sensor);
+            Require(options.activeInHierarchy == enabled, name + ": timing group visibility follows activity notifications");
+            foreach (string field in new[] { "notificationTiming", "notificationAdaptive" })
+            {
+                var control = (Button)typeof(SensorRawDisplay).GetField(field, Hidden).GetValue(sensor);
+                Require(control.gameObject.activeInHierarchy == enabled, name + ": " + field + " visibility follows activity notifications");
+            }
             int switches = 0;
             foreach (var track in sensor.PrimaryScroll.content.GetComponentsInChildren<RectTransform>(false).Where(item => item.name == "Switch track"))
             {
@@ -126,7 +140,25 @@ namespace CapstoneDesign.EditorTools
                 Require(label.preferredHeight <= label.rectTransform.rect.height + 1 && state.preferredHeight <= state.rectTransform.rect.height + 1, name + ": switch label is clipped");
                 switches++;
             }
-            Require(switches == 4, name + ": expected all four settings switches");
+            Require(switches == (enabled ? 2 : 1), name + ": expected only visible notification switches");
+            var music = (Slider)typeof(SensorRawDisplay).GetField("musicVolume", Hidden).GetValue(sensor);
+            var musicValue = (Text)typeof(SensorRawDisplay).GetField("musicVolumeValue", Hidden).GetValue(sensor);
+            var musicRow = (RectTransform)music.transform.parent;
+            Require(music.minValue == 0 && music.maxValue == 1 && !music.wholeNumbers
+                && musicValue.text == (enabled ? "100%" : "0%"), name + ": volume preview shows the correct percentage and range");
+            Require(((RectTransform)music.transform).rect.height >= 44 && Contains(musicRow.rect, Bounds((RectTransform)music.transform, musicRow))
+                && Contains(musicRow.rect, Bounds(musicValue.rectTransform, musicRow)), name + ": volume slider and percentage fit their row");
+            var sfx = (Slider)typeof(SensorRawDisplay).GetField("sfxVolume", Hidden).GetValue(sensor);
+            var sfxValue = (Text)typeof(SensorRawDisplay).GetField("sfxVolumeValue", Hidden).GetValue(sensor);
+            var sfxRow = (RectTransform)sfx.transform.parent;
+            Require(sfx.minValue == 0 && sfx.maxValue == 1 && !sfx.wholeNumbers
+                && sfxValue.text == (enabled ? "100%" : "0%"), name + ": sound-effects preview shows the correct percentage and range");
+            Require(sfxRow.parent == musicRow.parent && sfxRow.GetSiblingIndex() == musicRow.GetSiblingIndex() + 1
+                && Bounds(sfxRow, sensor.PrimaryScroll.content).yMax <= Bounds(musicRow, sensor.PrimaryScroll.content).yMin + .5f,
+                name + ": sound effects sit immediately below background music");
+            Require(((RectTransform)sfx.transform).rect.height >= 44 && Mathf.Abs(sfxRow.rect.width - musicRow.rect.width) < .5f
+                && Contains(sfxRow.rect, Bounds((RectTransform)sfx.transform, sfxRow))
+                && Contains(sfxRow.rect, Bounds(sfxValue.rectTransform, sfxRow)), name + ": sound-effects slider and percentage fit the full-width row");
             foreach (var arrow in sensor.PrimaryScroll.content.GetComponentsInChildren<CapstoneDesign.Prototype.PrototypeUiIcon>(false).Where(item => item.symbol == CapstoneDesign.Prototype.PrototypeUiIcon.Symbol.Arrow))
             {
                 var row = arrow.transform.parent as RectTransform;

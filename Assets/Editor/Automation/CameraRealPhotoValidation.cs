@@ -104,7 +104,7 @@ namespace CapstoneDesign.EditorTools
                         Require(CameraMissionPolicy.AllowedLabel(sample.target, d.label) && d.score >= run.threshold && d.score <= 1 && !double.IsNaN(d.score), "Invalid raw detection");
                     var best = sample.detections.OrderByDescending(d => d.score).FirstOrDefault();
                     Require(sample.status == (best == null ? "not_found" : "matched") && sample.label == (best?.label ?? "") && sample.score == (best?.score ?? 0), "Outcome differs from raw inference");
-                    using (var f = new FocusMissionValidation.Fixture(report))
+                    using (var f = new FocusMissionValidation.Fixture(report, true))
                     {
                         f.Clock.UtcNow = DateTimeOffset.Parse(run.utc); f.Ui.RefreshCycle();
                         f.Ui.SetPhotoProviderForValidation(new RecordedInferenceProvider(root, sample, f.Clock.UtcNow.ToString("O")));
@@ -128,9 +128,9 @@ namespace CapstoneDesign.EditorTools
                             f.Click("Photo.Register");
                             Require(f.Latest.Photo != null && !f.Latest.Photo.UserConfirmed && f.Latest.Photo.Score == sample.score && f.Latest.Photo.MatchedLabel == sample.label, "Saved photo differs from inference");
                             f.Click("Focus.SkipReflection");
-                            Require(f.Latest.RewardAmount == 5 && f.Latest.PhotoBonusAmount == 1, "Actual match completion reward");
+                            Require(f.Latest.RewardAmount == 30 && f.Latest.PhotoBonusAmount == 10, "Additional mission and actual match completion reward");
                             f.Capture("real-" + sample.caseId + "-completion", true);
-                            f.Click("Focus.ViewRecord"); f.AssertVisibleAssets();
+                            MissionCompletionUiValidation.OpenJournalRecordFromCompletion(f, f.Latest.SessionId); f.AssertVisibleAssets();
                             f.Capture("real-" + sample.caseId + "-record", true);
                         }
                         report.passed++;

@@ -17,6 +17,7 @@ namespace CapstoneDesign.Runtime
         public Button HomeButton, MissionButton, CourseButton;
         public Text MissionBadge;
         public string ActiveTab { get; private set; }
+        public GardenNavigationBackdrop Backdrop { get; private set; }
         readonly string[] labels={"홈","미션","기록"};
         Button[] buttons;
         Text[] captions;
@@ -29,9 +30,24 @@ namespace CapstoneDesign.Runtime
             rect.GetComponent<Image>().raycastTarget=true;
             GardenThemeSurface.Apply(rect.gameObject,GardenThemeSurface.Style.Shelf);
             var bar=rect.gameObject.AddComponent<MissionBottomNavigation>();
+            bar.CreateBackdrop();
             bar.Build(home,missions,course);bar.Refresh(active,hasPending,hasOptional);
-            if (active == "기록") bar.UseEdgeToEdgeBackground();
             return bar;
+        }
+
+        void CreateBackdrop()
+        {
+            // All tabs share the same full-width image coordinates. Only the
+            // garden clips its perimeter to reveal the existing 3D camera.
+            var old=transform.Find("Garden theme surface");
+            if(old!=null)old.gameObject.SetActive(false);
+            var go=new GameObject("Navigation shared backdrop",typeof(RectTransform),typeof(LayoutElement));
+            var rect=(RectTransform)go.transform;rect.SetParent(transform,false);
+            rect.anchorMin=Vector2.zero;rect.anchorMax=Vector2.one;
+            rect.offsetMin=new Vector2(-SideInset,-BottomInset);rect.offsetMax=new Vector2(SideInset,0);
+            go.GetComponent<LayoutElement>().ignoreLayout=true;
+            Backdrop=go.AddComponent<GardenNavigationBackdrop>();Backdrop.raycastTarget=false;
+            rect.SetAsFirstSibling();
         }
 
         void Build(Action home,Action missions,Action course)
@@ -55,14 +71,18 @@ namespace CapstoneDesign.Runtime
         public void Refresh(string active,bool? hasPending,bool hasOptional=false)
         {
             if(buttons==null)return;ActiveTab=active;
+            Backdrop?.SetGardenMask(active=="홈");
             string[] paths={"home-white","leaf-muted-white","book-white"};
             for(int i=0;i<3;i++)
             {
                 bool selected=active==labels[i];
+                bool selectedHome=selected&&i==0;
                 buttons[i].GetComponent<Image>().color=Color.clear;
-                GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf);
-                captions[i].color=selected?new Color32(35,76,54,255):Color.white;
-                icons[i].color=selected?new Color32(35,76,54,255):Color.white;
+                var face=GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf);
+                if(selectedHome)face.SetSageAppearance(true);
+                Color selectedInk=selectedHome||GardenThemeSurface.IsSageScope(transform)?GardenSagePalette.Ink:new Color32(35,76,54,255);
+                captions[i].color=selected?selectedInk:Color.white;
+                icons[i].color=selected?selectedInk:Color.white;
                 icons[i].texture=Resources.Load<Texture2D>("FocusMissions/Main/"+paths[i]);
             }
             badge.gameObject.SetActive(hasPending.HasValue);
@@ -78,21 +98,10 @@ namespace CapstoneDesign.Runtime
         public void UseCombineAppearance()
         {
             GardenThemeSurface.UseCombineAppearance(transform);
-            // Keep the same button faces as the garden and records tabs. The
-            // mission page's dark timber treatment belongs to the backing only.
+            // Preserve the existing button faces. The shared backdrop owns its
+            // texture independently of this older page-theme override.
             foreach (var button in new[] { HomeButton, MissionButton, CourseButton })
                 button?.GetComponentInChildren<GardenThemeSurface>(true)?.SetCombineAppearance(false);
-            UseEdgeToEdgeBackground();
-        }
-        void UseEdgeToEdgeBackground()
-        {
-            // Keep the current safe-area button positions and separated touch
-            // targets. Only the rectangular decoration reaches the edges.
-            var shelf = transform.Find("Garden theme surface")?.GetComponent<GardenThemeSurface>();
-            if (shelf == null) return;
-            shelf.SetSquareShelfCorners(true);
-            shelf.rectTransform.offsetMin = new Vector2(-SideInset, -BottomInset);
-            shelf.rectTransform.offsetMax = new Vector2(SideInset, 0);
         }
         void OnEnable(){Canvas.preWillRenderCanvases+=Fit;Fit();}
         void OnDisable(){Canvas.preWillRenderCanvases-=Fit;}

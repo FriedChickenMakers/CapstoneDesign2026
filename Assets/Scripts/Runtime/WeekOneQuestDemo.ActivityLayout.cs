@@ -14,6 +14,9 @@ namespace CapstoneDesign.Runtime
 
         void ClearPageView()
         {
+            RememberPlantPhotoView();
+            RememberDailyEmotionView();
+            if (activityFrame != null) GardenDetailSheet.CloseForOwner(activityFrame.transform, false);
             ClosePlantMemoPopup();
             var previous = activityFrame != null ? activityFrame : pageViewport;
             if (previous != null)

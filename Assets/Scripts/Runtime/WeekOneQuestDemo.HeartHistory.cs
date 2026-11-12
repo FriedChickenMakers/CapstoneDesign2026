@@ -22,10 +22,14 @@ namespace CapstoneDesign.Runtime
 
         void BuildRecordHeart(Transform parent, ActivitySession session)
         {
-            recordHeartPage = parent; recordHeartSession = session.SessionId;
+            var host=GardenUi.Box(parent,"Activity health section",0,0,1,0);
+            var flow=host.AddComponent<VerticalLayoutGroup>();
+            flow.childControlWidth=flow.childControlHeight=true;
+            flow.childForceExpandWidth=true;flow.childForceExpandHeight=false;
+            recordHeartPage = host.transform; recordHeartSession = session.SessionId;
             recordHeartStart = session.StartedUtc; recordHeartEnd = session.EndedUtc;
             RenderRecordHeart(ReadRecordHealth());
-            recordHeartButton = GardenUi.Button(parent,"건강 기록 다시 조회",.07f,.15f,.86f,.075f,StartRecordHeartRefresh);
+            recordHeartButton = DockAction("건강 기록 다시 조회",StartRecordHeartRefresh);
             recordHeartButton.interactable = CurrentHeartMode == "LIVE";
         }
 
@@ -36,10 +40,7 @@ namespace CapstoneDesign.Runtime
                 recordHeartView.SetActive(false);
                 if (Application.isPlaying) Destroy(recordHeartView); else DestroyImmediate(recordHeartView);
             }
-            recordHeartView = GardenUi.Box(recordHeartPage,"Activity heart history",0,0,1,1);
-            // Keep the graph above the decorative paper and below persistent actions.
-            var backdrop=recordHeartPage.Find("Garden theme surface");
-            recordHeartView.transform.SetSiblingIndex(backdrop!=null?backdrop.GetSiblingIndex()+1:0);
+            recordHeartView = GardenUi.Box(recordHeartPage,"Activity heart history",0,0,1,0);
             recordHeartStatus = HeartHistoryView.Build(recordHeartView.transform,
                 snapshot ?? new AndroidPlatformSnapshot(),recordHeartStart,recordHeartEnd);
         }

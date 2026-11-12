@@ -123,7 +123,8 @@ namespace CapstoneDesign.Runtime
             var t=Label(go.transform,label,.05f,0,.9f,1,ButtonSize); t.alignment=TextAnchor.MiddleCenter;
             StyleButton(b,primary);
             b.navigation=new Navigation {mode=Navigation.Mode.None};
-            b.onClick.AddListener(()=>action()); return b;
+            b.onClick.AddListener(()=>action());
+            GardenSfxButton.Attach(b,GardenSfxButton.CueForLabel(label));return b;
         }
         public static PrototypeUiIcon Icon(Transform parent,PrototypeUiIcon.Symbol symbol,float x,float y,float w,float h,Color? tint=null)
         {

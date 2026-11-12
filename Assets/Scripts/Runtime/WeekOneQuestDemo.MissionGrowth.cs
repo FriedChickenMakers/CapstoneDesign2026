@@ -44,10 +44,14 @@ namespace CapstoneDesign.Runtime
             if (!(commit == null ? Service.CompletePracticeSession(practiceSessionId) : commit()))
             {
                 error = Service.LastError;
+                GardenSfxPlayer.Play(GardenSfxCue.Error);
                 ShowPracticeCompletionRetry(practiceSessionId, continueAfterCompletion, commit);
                 return;
             }
             error = null;
+            // Observe the committed result before an immediate garden return can
+            // hide this panel. Existing consent and duplicate-event guards apply.
+            ObserveOptionalRecommendation(force: true);
             var after = Service.Snapshot;
             if (prior == null) PlayCommittedGrowth(before, after, Service.GetPracticeGrowth(practiceSessionId), continueAfterCompletion);
             else { UpdateGarden(); continueAfterCompletion(); }
@@ -67,6 +71,9 @@ namespace CapstoneDesign.Runtime
                 pageHistory.RemoveAll(page => page.Key == "practice-complete-error");
                 UpdateGarden();
                 continueAfterGrowth();
+                // Only a newly committed result reaches this one-shot continuation.
+                // Rebuilding an old completion page must never replay a reward sound.
+                GardenSfxPlayer.Play(GardenSfxCue.MissionComplete);
             }
             if (!IsMissionDebugActive && record != null && record.AfterStep > record.BeforeStep)
             {

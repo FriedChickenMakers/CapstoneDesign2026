@@ -12,7 +12,7 @@ namespace CapstoneDesign.Runtime
     {
         static GardenMemoPopup active;
         Transform source;
-        GameObject previousSelection;
+        GardenModalContext modalContext;
         RectTransform design, card, viewport, content, closeRect, actionsRect;
         Text moodText, noteText, basicMissionText, additionalMissionText;
         float lastHeight = -1;
@@ -25,14 +25,17 @@ namespace CapstoneDesign.Runtime
             var canvas = owner.GetComponentInParent<Canvas>();
             if (canvas == null) return null;
             TryCloseOpen();
+            GardenDetailSheet.TryCloseOpen();
+            var context = GardenModalContext.Capture(canvas.rootCanvas.transform);
             var root = new GameObject("GardenMemoPopup", typeof(RectTransform));
             var rect = (RectTransform)root.transform;
             rect.SetParent(canvas.rootCanvas.transform, false);
             rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one;
             rect.offsetMin = rect.offsetMax = Vector2.zero;
+            root.AddComponent<CanvasGroup>().ignoreParentGroups = true;
             var popup = root.AddComponent<GardenMemoPopup>();
             popup.source = owner; popup.MemoId = memo.Id;
-            popup.previousSelection = EventSystem.current?.currentSelectedGameObject;
+            popup.modalContext = context;
             active = popup;
             popup.Build(memo.Copy(), date);
             return popup;
@@ -42,16 +45,23 @@ namespace CapstoneDesign.Runtime
         {
             if (actionsRect != null || (edit == null && delete == null)) return;
             actionsRect = FigmaMissionUi.Rect(card, "GardenMemoPopup.Actions", 24, 432, 294, 48);
+            Button editButton = null, deleteButton = null;
             if (edit != null)
-                FigmaMissionUi.Button(actionsRect, "수정", 0, 0, 143, 48, () => {
+                editButton = FigmaMissionUi.Button(actionsRect, "수정", 0, 0, 143, 48, () => {
                     if (active != this || !IsOpen) return;
                     Close(); edit();
-                }, Color.white, FigmaMissionUi.Green).name = "GardenMemoPopup.Edit";
+                }, Color.white, FigmaMissionUi.Green);
             if (delete != null)
-                FigmaMissionUi.Button(actionsRect, "삭제", 151, 0, 143, 48, () => {
+                deleteButton = FigmaMissionUi.Button(actionsRect, "삭제", 151, 0, 143, 48, () => {
                     if (active != this || !IsOpen) return;
                     Close(); delete();
-                }, Color.white, FigmaMissionUi.Brown).name = "GardenMemoPopup.Delete";
+                }, Color.white, FigmaMissionUi.Brown);
+            if(editButton!=null)editButton.name="GardenMemoPopup.Edit";
+            if(deleteButton!=null)deleteButton.name="GardenMemoPopup.Delete";
+            var close=closeRect.GetComponent<Button>();
+            close.navigation=new Navigation {mode=Navigation.Mode.Explicit,selectOnDown=editButton??deleteButton,selectOnUp=editButton??deleteButton};
+            if(editButton!=null)editButton.navigation=new Navigation {mode=Navigation.Mode.Explicit,selectOnUp=close,selectOnDown=close,selectOnRight=deleteButton};
+            if(deleteButton!=null)deleteButton.navigation=new Navigation {mode=Navigation.Mode.Explicit,selectOnUp=close,selectOnDown=close,selectOnLeft=editButton};
             Layout();
         }
 
@@ -70,13 +80,12 @@ namespace CapstoneDesign.Runtime
             design = FigmaMissionUi.Rect(transform, "GardenMemoPopup.Design", 0, 0, 390, 844);
             design.gameObject.AddComponent<FigmaGardenThemeScope>();
             var fit = gameObject.AddComponent<FigmaMissionCanvasFit>(); fit.Design = design; fit.Fit();
-            card = FigmaMissionUi.Box(design, "GardenMemoPopup.Card", 24, 100, 342, 560, new Color(1f, .98f, .89f), 20);
+            card = FigmaMissionUi.Box(design, "GardenMemoPopup.Card", 24, 100, 342, 560, CapstoneDesign.Prototype.GardenSagePalette.Paper, 20);
+            CapstoneDesign.Prototype.GardenThemeSurface.UseSageAppearance(card.gameObject);
             card.GetComponent<Image>().raycastTarget = true;
-            var titlePlaque=FigmaMissionUi.Box(card,"GardenMemoPopup.TitlePlaque",12,14,318,50,FigmaMissionUi.Warm,10);
-            CapstoneDesign.Prototype.GardenThemeSurface.Apply(titlePlaque.gameObject,CapstoneDesign.Prototype.GardenThemeSurface.Style.Header);
-            FigmaMissionUi.Label(card, "기억 잎 기록", 24, 22, 294, 34, 24, CapstoneDesign.Prototype.GardenThemeSurface.WoodInk, true).name = "GardenMemoPopup.Title";
-            FigmaMissionUi.Label(card, date, 24, 62, 294, 24, 14, FigmaMissionUi.Muted).name = "GardenMemoPopup.Date";
-            viewport = FigmaMissionUi.Box(card, "GardenMemoPopup.Viewport", 24, 108, 294, 360, Color.clear);
+            FigmaMissionUi.Label(card, "기억 잎 기록", 24, 22, 222, 34, 22, FigmaMissionUi.Ink, true).name = "GardenMemoPopup.Title";
+            FigmaMissionUi.Label(card, date, 24, 60, 294, 24, 14, FigmaMissionUi.Muted).name = "GardenMemoPopup.Date";
+            viewport = FigmaMissionUi.Box(card, "GardenMemoPopup.Viewport", 24, 100, 294, 360, Color.clear);
             viewport.GetComponent<Image>().raycastTarget = true;
             viewport.gameObject.AddComponent<RectMask2D>();
             content = FigmaMissionUi.Rect(viewport, "GardenMemoPopup.Content", 0, 0, 278, 360);
@@ -107,7 +116,7 @@ namespace CapstoneDesign.Runtime
             track.GetComponent<Image>().raycastTarget = handle.GetComponent<Image>().raycastTarget = true;
             scrollbar.SetValueWithoutNotify(1);
             scroll.verticalScrollbar = scrollbar; scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
-            var close = FigmaMissionUi.Button(card, "닫기", 24, 488, 294, 48, Close);
+            var close = FigmaMissionUi.Button(card, "닫기", 266, 16, 60, 44, Close, Color.clear, FigmaMissionUi.Green, 15);
             close.name = "GardenMemoPopup.Close"; closeRect = (RectTransform)close.transform;
             close.navigation = new Navigation { mode = Navigation.Mode.Explicit,
                 selectOnUp = close, selectOnDown = close, selectOnLeft = close, selectOnRight = close };
@@ -133,12 +142,12 @@ namespace CapstoneDesign.Runtime
             FigmaMissionUi.SetRect(additionalMissionText.rectTransform, 0, missionY + basicHeight + 6, 278, additionalHeight);
             float bodyHeight = missionY + basicHeight + 6 + additionalHeight;
             float maximum = Mathf.Min(560, Mathf.Max(240, design.rect.height - 48));
-            float actionHeight = actionsRect == null ? 0 : 56;
-            float height = Mathf.Min(maximum, Mathf.Max(320 + actionHeight, bodyHeight + 204 + actionHeight));
+            float actionHeight = actionsRect == null ? 0 : 72;
+            float height = Mathf.Min(maximum, Mathf.Max(280 + actionHeight, bodyHeight + 128 + actionHeight));
             FigmaMissionUi.SetRect(card, 24, Mathf.Max(24, (design.rect.height - height) * .5f), 342, height);
-            viewport.sizeDelta = new Vector2(294, Mathf.Max(64, height - 192 - actionHeight));
-            if (actionsRect != null) FigmaMissionUi.SetRect(actionsRect, 24, height - 128, 294, 48);
-            FigmaMissionUi.SetRect(closeRect, 24, height - 72, 294, 48);
+            viewport.sizeDelta = new Vector2(294, Mathf.Max(64, height - 124 - actionHeight));
+            if (actionsRect != null) FigmaMissionUi.SetRect(actionsRect, 24, height - 64, 294, 48);
+            FigmaMissionUi.SetRect(closeRect, 266, 16, 60, 44);
             content.sizeDelta = new Vector2(278, Mathf.Max(viewport.rect.height, bodyHeight + 12));
             lastHeight = design.rect.height;
         }
@@ -163,8 +172,7 @@ namespace CapstoneDesign.Runtime
         {
             if (active != this) return;
             active = null;
-            if (EventSystem.current != null)
-                EventSystem.current.SetSelectedGameObject(previousSelection != null && previousSelection.activeInHierarchy ? previousSelection : null);
+            modalContext?.Restore(source != null && source.gameObject.activeInHierarchy);
         }
     }
 }

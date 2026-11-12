@@ -28,6 +28,8 @@
 GardenMusicPlayer.Ensure().SetContext(GardenMusicContext.HomeGarden);
 GardenMusicPlayer.Ensure().SetContext(GardenMusicContext.Activity);
 GardenMusicPlayer.Ensure().SetContext(GardenMusicContext.Settings);
+GardenMusicPlayer.SetVolume(.5f); // 설정 슬라이더의 50%
+float volume = GardenMusicPlayer.Volume;
 GardenMusicPlayer.SetMuted(true);
 bool muted = GardenMusicPlayer.IsMuted;
 ```
@@ -38,7 +40,11 @@ bool muted = GardenMusicPlayer.IsMuted;
 
 전용 AudioListener를 플레이어에 두어 홈 카메라가 비활성화되어도 활동과 설정에서 들을 수 있게 한다. 탭/장면 진입 때 다른 활성 AudioListener를 끄고, 플레이어가 제거되면 원래 활성화되어 있던 Listener를 복구한다. 음악은 2D이며 센서 수집 서비스나 Android 백그라운드 재생 서비스를 실행하지 않는다.
 
+설정의 ‘배경 음악’은 0–100% 음량 슬라이더다. 100%는 기존 프로필 음량 0.25를 그대로 사용하며, 0%에서는 재생 위치를 보존한 채 음소거한다. 기존 음소거 설정은 0%, 기존 켜짐은 100%로 표시한다. 새 음량은 `capstone.music.volume`에 저장하고 기존 음소거 키도 함께 갱신한다. 드래그 중에는 두 채널의 음량을 즉시 바꾸되 곡이나 교차 페이드 진행을 다시 시작하지 않는다. 디스크 저장은 250ms 동안 입력이 없을 때 묶어 처리하고, 설정 화면 이탈·앱 일시정지·플레이어 종료 시 남은 변경을 저장한다. 전체 초기화는 저장 키를 다시 만들지 않고 기본 음량으로 돌아간다.
+
 ## 가져오기와 검증 범위
+
+2026-11-12 음량 슬라이더 변경은 별도 합성 저장소의 Unity Play 검사 87개와 설정 UI 검사 13개를 통과했다. 0·50·100% 실제 슬라이더 콜백, 기존 음소거 이관, 플레이어 재생성 후 음량 복원, 설정 재진입, 전체 초기화, 두 채널의 교차 페이드 중 음량 변경과 비영 PCM 출력을 확인했다. 설정 화면은 320×568·390×844·1200×2000으로 렌더링했다. 실제 사용자 저장본·기기 데이터를 사용하지 않았으며 Android 실기기와 스피커 청취 검사는 이번 변경에서 실행하지 않았다.
 
 Unity importer는 스테레오 유지, Streaming, 백그라운드 로딩, preload 해제로 지정했다. 장시간 음악의 전체 PCM을 메모리에 상주시킬 필요가 없다. 근거: [Unity Audio Clip 설정](https://docs.unity3d.com/6000.0/Documentation/Manual/class-AudioClip.html), [Pause](https://docs.unity3d.com/6000.0/Documentation/ScriptReference/AudioSource.Pause.html), [UnPause](https://docs.unity3d.com/6000.0/Documentation/ScriptReference/AudioSource.UnPause.html).
 

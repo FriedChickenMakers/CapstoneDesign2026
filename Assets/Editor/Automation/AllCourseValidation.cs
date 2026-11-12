@@ -184,7 +184,7 @@ namespace CapstoneDesign.EditorTools
         }
         static void EveryMissionFlow(Report report, bool capture)
         {
-            using (var f = new Fixture(report, false, false))
+            using (var f = new Fixture(report, true, false))
             {
                 Pick(f, "8w");
                 foreach (string code in FocusMissionPolicy.CourseCodes("8w").Take(28))
@@ -197,7 +197,7 @@ namespace CapstoneDesign.EditorTools
                     f.CompleteReflection("synthetic " + code + " record", "", false);
                     Assert(f.Latest.Status == ParticipationState.RewardCommitted, code + " did not complete through its visible controls.");
                     f.AssertVisibleAssets();
-                    f.Click("Focus.ConfirmHome"); f.Clock.UtcNow = f.Clock.UtcNow.AddDays(2); Assert(f.Ui.RefreshCycle(), f.Service.LastError);
+                    MissionCompletionUiValidation.ReturnToMissions(f); f.Clock.UtcNow = f.Clock.UtcNow.AddDays(2); Assert(f.Ui.RefreshCycle(), f.Service.LastError);
                 }
                 foreach (var mission in FocusMissionCatalog.Additional)
                 {

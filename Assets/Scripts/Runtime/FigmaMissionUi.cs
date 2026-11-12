@@ -13,11 +13,13 @@ namespace CapstoneDesign.Runtime
         // Mission and records screens share one title frame contract. Adjust
         // these values only here so the responsive mission home stays aligned.
         public const float PageHeaderPlaqueX=12, PageHeaderPlaqueY=42, PageHeaderPlaqueWidth=366, PageHeaderPlaqueHeight=48;
-        public const float PageHeaderTitleX=24, PageHeaderTitleY=52, PageHeaderTitleWidth=342, PageHeaderTitleHeight=38;
+        public const float PageHeaderTitleX=24, PageHeaderTitleY=47, PageHeaderTitleWidth=342, PageHeaderTitleHeight=38;
         public const float PageHeaderSubtitleX=24, PageHeaderSubtitleY=98, PageHeaderSubtitleWidth=342, PageHeaderSubtitleHeight=30;
         public const float PageHeaderContentTop=110;
         public static Color Hex(string value){Color c;ColorUtility.TryParseHtmlString("#"+value.TrimStart('#'),out c);return c;}
-        public static bool ReducedMotion { get => PlayerPrefs.GetInt("ui.reduce-motion",0)==1; set {PlayerPrefs.SetInt("ui.reduce-motion",value?1:0);PlayerPrefs.Save();} }
+        // Normal motion is the app default now that its settings switch is retired.
+        // Ignore the legacy saved flag; only isolated previews override this in memory.
+        public static bool ReducedMotion { get; set; } = false;
         public static T Find<T>(Transform root,string name) where T:Component => root.GetComponentsInChildren<T>(true).FirstOrDefault(item=>item.name==name);
         public static float Contrast(Color a,Color b) {float x=Luminance(a),y=Luminance(b);return (Mathf.Max(x,y)+.05f)/(Mathf.Min(x,y)+.05f);}
         static float Luminance(Color c) => .2126f*Linear(c.r)+.7152f*Linear(c.g)+.0722f*Linear(c.b);
@@ -79,20 +81,31 @@ namespace CapstoneDesign.Runtime
         public static void UseGardenShell(GameObject surface)
         {
             if(surface.GetComponent<FigmaGardenThemeScope>()==null)surface.AddComponent<FigmaGardenThemeScope>();
+            GardenThemeSurface.UseSageAppearance(surface);
             GardenThemeSurface.Apply(surface,GardenThemeSurface.Style.Backdrop);
         }
         public static void SetSelected(Button button,bool selected)
         {
             button.GetComponent<Image>().color=selected?Soft:Color.white;
             GardenThemeSurface.Apply(button.gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Wood);
+            bool sage=GardenThemeSurface.IsSageScope(button.transform);
             foreach(var label in button.GetComponentsInChildren<Text>(true))
-                if(label.transform.parent==button.transform)label.color=selected?Green:GardenThemeSurface.WoodInk;
+                if(label.transform.parent==button.transform)label.color=sage?(selected?GardenSagePalette.Primary:GardenSagePalette.Ink)
+                    :selected?Green:GardenThemeSurface.WoodInk;
         }
         public static Text Label(Transform p,string text,float x,float y,float w,float h,int size=16,Color? color=null,bool bold=false,TextAnchor align=TextAnchor.UpperLeft)
         {
             var rt=Rect(p,text.Length>40?text.Substring(0,40):text,x,y,w,h);var t=rt.gameObject.AddComponent<ScreenDensityText>();
             t.font=bold?GardenTypography.Semibold:GardenTypography.Body;if(t.font==null)t.font=GardenUi.ResolveFont();
-            t.text=text;t.fontSize=size;t.color=GardenThemeSurface.Foreground(p,color??Ink);t.alignment=align;t.supportRichText=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;t.verticalOverflow=VerticalWrapMode.Overflow;t.lineSpacing=1.2f;t.raycastTarget=false;return t;
+            Color ink=color??Ink;
+            if(GardenThemeSurface.IsSageScope(p))
+            {
+                if(ink==Ink)ink=GardenSagePalette.Ink;
+                else if(ink==Muted)ink=GardenSagePalette.Muted;
+                else if(ink==Green)ink=GardenSagePalette.Primary;
+                else if(ink==Brown)ink=GardenSagePalette.WarmInk;
+            }
+            t.text=text;t.fontSize=size;t.color=GardenThemeSurface.Foreground(p,ink);t.alignment=align;t.supportRichText=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;t.verticalOverflow=VerticalWrapMode.Overflow;t.lineSpacing=1.2f;t.raycastTarget=false;return t;
         }
         public static Button Button(Transform p,string label,float x,float y,float w,float h,Action action,Color? fill=null,Color? ink=null,int size=16,GardenThemeSurface.Tone tone=GardenThemeSurface.Tone.Default)
         {
@@ -106,7 +119,8 @@ namespace CapstoneDesign.Runtime
                 fill==Soft?GardenThemeSurface.Style.Selected:string.IsNullOrEmpty(label)?GardenThemeSurface.Style.Paper:GardenThemeSurface.Style.Wood,tone);
             float inset=primary && w>=280?28:8;
             Label(rt,label,inset,0,w-2*inset,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());
-            rt.gameObject.AddComponent<FocusControlFeedback>().Control=b;return b;
+            rt.gameObject.AddComponent<FocusControlFeedback>().Control=b;
+            GardenSfxButton.Attach(b,GardenSfxButton.CueForLabel(label));return b;
         }
         public static RawImage Asset(Transform p,string resourcesPath,float x,float y,float w,float h)
         {

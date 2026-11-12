@@ -49,7 +49,7 @@ namespace CapstoneDesign.EditorTools
                 foreach(var code in new[]{"M03","M14","P04"})
                 foreach(var status in new[]{"matched","not_found","unavailable","cancelled","skip"})
                 {
-                    using(var f=new FocusMissionValidation.Fixture(report))
+                    using(var f=new FocusMissionValidation.Fixture(report,true))
                     {
                         if(code=="M14")f.Resize(720,1280);
                         if(code=="P04")f.Resize(1200,2000);
@@ -78,17 +78,18 @@ namespace CapstoneDesign.EditorTools
                         }
                         Check(f.Ui.CurrentScreen=="focus-emotion","photo choice joins original reflection flow");
                         f.Click("Focus.SkipReflection");
-                        int bonus=status=="skip"||status=="cancelled"?0:1;
-                        Check(f.Latest.RewardAmount==5&&f.Latest.PhotoBonusAmount==bonus,"base and bonus amounts");
+                        int bonus=status=="skip"||status=="cancelled"?0:10;
+                        Check(f.Latest.RewardAmount==(code=="P04"?50:30)&&f.Latest.PhotoBonusAmount==bonus,"role-specific base and confirmed-photo bonus amounts");
                         Check(f.Ui.CurrentScreen=="focus-complete","optional emotion completion");
                         if(status=="matched")f.Capture("camera-"+code+"-03-completion-bonus",true);
-                        if(bonus==1){
-                            Check(f.VisibleText.Contains("사진 확인 보너스"),"bonus separately visible");f.Click("Focus.ViewRecord");f.AssertVisibleAssets();
+                        if(bonus>0){
+                            Check(f.VisibleText.Contains("사진 확인 보너스"),"bonus separately visible");
+                            MissionCompletionUiValidation.OpenJournalRecordFromCompletion(f,f.Latest.SessionId);f.AssertVisibleAssets();
                             if(code=="M03"&&status=="matched")f.Capture("camera-record",true);
                             if(status=="matched")f.Capture("camera-"+code+"-04-saved-photo",true);
                             string photoId=f.Latest.Photo.Id;int nutrients=f.Service.Snapshot.Nutrient;
-                            f.Click("Photo.Delete");Check(f.Latest.Photo==null&&!File.Exists(Path.Combine(provider.DirectoryPath,photoId+".jpg")),"photo deletion removes file and binding");
-                            Check(f.Service.Snapshot.Nutrient==nutrients&&f.Latest.PhotoBonusAmount==1,"deletion retains reward");
+                            f.Click("Journal.PhotoDelete");Check(f.Latest.Photo==null&&!File.Exists(Path.Combine(provider.DirectoryPath,photoId+".jpg")),"photo deletion removes file and binding");
+                            Check(f.Service.Snapshot.Nutrient==nutrients&&f.Latest.PhotoBonusAmount==10,"deletion retains reward");
                         }
                         report.passed++;
                     }

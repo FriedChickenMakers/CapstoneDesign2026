@@ -85,7 +85,7 @@ namespace CapstoneDesign.Runtime
                 Guidance(p,mission.purpose);
                 GardenTypography.SetWeight(GardenUi.FlowLabel(p,"권장 "+mission.suggestedDurationLabel,GardenUi.BodySize),true);
                 GardenUi.FlowLabel(p,"시간과 입력은 완료 조건이 아니에요.",GardenUi.BodySize,GardenUi.Muted);
-                DockAction("시작",()=>{if(Apply(Service.StartSession(session.SessionId)))ShowSession();},true);
+                DockAction("시작",()=>{if(Apply(Service.StartSession(session.SessionId))){GardenSfxPlayer.Play(GardenSfxCue.PracticeStart);ShowSession();}},true);
                 DockAction("선택 취소",()=>CancelSelectedPractice(session));
                 return;
             }
@@ -149,13 +149,14 @@ namespace CapstoneDesign.Runtime
         public void ShowPracticeAnswers(string id)
         {
             EnterPage("answers",()=>ShowPracticeAnswers(id),id);var session=Service.Snapshot.Sessions.First(s=>s.SessionId==id);var p=FocusPage("실습에서 적은 내용","활동 기록");
-            GardenUi.FlowLabel(p,session.Answers.Count==0?"입력을 건너뛰었어요.":string.Join("\n\n",session.Answers.Select(a=>AnswerLabel(a.Key)+"\n"+a.Value)));
+            if(session.Answers.Count==0)Guidance(p,"입력을 건너뛰었어요.");
+            else foreach(var answer in session.Answers)HistoryField(p,AnswerLabel(answer.Key),answer.Value);
             DockAction("기록으로",()=>ShowRecord(id));
         }
         public void ShowExperienceTypes()
         {
             EnterPage("experience-type",ShowExperienceTypes);var p=FocusPage("경험 알아차리기","선택 기록");
-            Guidance(p,"최근 경험 하나를 살펴보세요. 감정이나 기록의 내용에 정답은 없어요.");
+            Guidance(p,"최근 경험 하나를 떠올려 보세요. 정답은 없어요.");
             GardenTypography.SetWeight(GardenUi.FlowLabel(p,"어떤 경험에 가까웠나요?",GardenUi.HeadingSize),true);
             var types=new[]{"즐거움","불편함","중립","잘 모르겠음"};
             for(int i=0;i<types.Length;i++)
@@ -170,9 +171,10 @@ namespace CapstoneDesign.Runtime
         {
             EnterPage("experience",ShowExperienceStep);
             var p=FocusPage(experienceQuestions[experienceStep],"경험 돌아보기 · "+experienceType+" · "+(experienceStep+1)+" / 4");
-            Guidance(p,experienceStep==0?"가벼운 경험부터 적어보세요. 떠오르는 것이 없으면 건너뛰어도 괜찮아요.":experienceStep==1?"압력, 온도, 긴장 등 느껴진 감각을 적어보세요. 잘 몰라도 괜찮아요.":experienceStep==2?"기존 감정 선택을 쓰거나 직접 적어보세요.":"그때 떠오른 생각을 적어보세요. 해결하거나 분석하지 않아도 돼요.");
-            var field=GardenUi.FlowInput(p,"선택 기록 · 기기에 저장");field.text=experienceValues[experienceStep]??"";
-            field.onValueChanged.AddListener(value=>experienceValues[experienceStep]=value);
+            Guidance(p,experienceStep==0?"어떤 일이 있었나요? 떠오르지 않으면 건너뛰어도 돼요.":experienceStep==1?"온도, 압력, 긴장처럼 몸에서 느껴진 것을 적어요.":experienceStep==2?"감정을 고르거나 직접 적어보세요.":"그때 떠오른 생각을 적어요. 분석하지 않아도 돼요.");
+            int step=experienceStep;
+            var field=GardenUi.FlowInput(p,"선택 기록 · 기기에 저장");field.text=experienceValues[step]??"";
+            field.onValueChanged.AddListener(value=>experienceValues[step]=value);
             if(experienceStep==2)
             {
                 var row=GardenUi.Box(p,"Experience emotions",0,0,1,0);
@@ -200,11 +202,12 @@ namespace CapstoneDesign.Runtime
             var records=state.Experiences.AsEnumerable().Reverse().Skip(experiencePage*4).Take(4).ToArray();
             var history=records.Length>0?ActivityList(p,"Experience history"):null;
             for(int i=0;i<records.Length;i++)
-            {var e=records[i];ActivityListItem(history,e.Type,LocalTime(e.CreatedUtc),()=>ShowExperienceRecord(e.Id),PrototypeUiIcon.Symbol.Journal);}
+            {var e=records[i];ActivityListItem(history,e.Type,LocalTime(e.CreatedUtc)+"\n"+HistoryPreview(e.Event,"내용 없이 남긴 경험"),()=>ShowExperienceRecord(e.Id),PrototypeUiIcon.Symbol.Journal);}
             if(records.Length==0)Guidance(p,"아직 경험 기록이 없어요. 기억하고 싶은 순간을 남겨보세요.");
+            HistorySection(p,"기록과 계획");
             var destinations=ActivityList(p,"Experience destinations");
             ActivityListItem(destinations,"경험 기록하기",null,ShowExperienceTypes,PrototypeUiIcon.Symbol.Journal);
-            ActivityListItem(destinations,"나의 계획",null,ShowPersonalPlan,PrototypeUiIcon.Symbol.Leaf);
+            ActivityListItem(destinations,"나의 계획","필요할 때 꺼내 볼 나만의 방법",ShowPersonalPlan,PrototypeUiIcon.Symbol.Leaf);
             if(pages>1)
             {
                 DockPair("이전 기록",()=>{experiencePage--;ShowExperienceHistory();},"다음 기록",()=>{experiencePage++;ShowExperienceHistory();});
@@ -217,7 +220,11 @@ namespace CapstoneDesign.Runtime
         public void ShowExperienceRecord(string id)
         {
             EnterPage("experience-record",()=>ShowExperienceRecord(id),id);var e=Service.Snapshot.Experiences.First(r=>r.Id==id);var p=FocusPage("경험 · "+e.Type,"나의 기록");
-            GardenUi.FlowLabel(p,"사건\n"+e.Event+"\n\n몸 감각\n"+e.Body+"\n\n감정\n"+e.Emotion+"\n\n생각\n"+e.Thought);
+            GardenUi.FlowLabel(p,LocalTime(e.CreatedUtc),GardenUi.CaptionSize,GardenUi.Muted);
+            HistoryField(p,"사건",e.Event);
+            HistoryField(p,"몸 감각",e.Body);
+            HistoryField(p,"감정",e.Emotion);
+            HistoryField(p,"생각",e.Thought);
             DockAction("경험 목록",ShowExperienceHistory);
         }
         public void ShowPersonalPlan()
@@ -227,7 +234,12 @@ namespace CapstoneDesign.Runtime
             var fields=ActivityList(p,"Plan fields");
             for(int i=0;i<keys.Length;i++)
             {
-                string key=keys[i];ActivityListItem(fields,AnswerLabel(key),null,()=>ShowPlanField(key),PrototypeUiIcon.Symbol.Journal);
+                string key=keys[i];
+                bool hasDraft=planDrafts.TryGetValue(key,out string draft);
+                string saved=Service.Snapshot.PracticePreferences.FirstOrDefault(a=>a.Key==key)?.Value;
+                string detail=HistoryPreview(hasDraft?draft:saved,"아직 적지 않았어요");
+                if(hasDraft)detail="작성 중 · "+detail;
+                ActivityListItem(fields,AnswerLabel(key),detail,()=>ShowPlanField(key),PrototypeUiIcon.Symbol.Journal);
             }
             DockAction("기록으로",ShowExperienceHistory);
         }
@@ -239,7 +251,39 @@ namespace CapstoneDesign.Runtime
             field.text=planDrafts.TryGetValue(key,out string draft)?draft:Service.Snapshot.PracticePreferences.FirstOrDefault(a=>a.Key==key)?.Value??"";
             field.onValueChanged.AddListener(value=>planDrafts[key]=value);
             DockAction("저장",()=>{if(Apply(Service.SavePreference(key,field.text))){planDrafts.Remove(key);ShowPersonalPlan();}},true);
-            DockAction("돌아가기",ShowPersonalPlan);
+            // Leaving this editor dismisses its failed attempt, not its draft.
+            // A later retry still uses the unchanged saved value and local input.
+            DockAction("돌아가기",()=>{error=null;ShowPersonalPlan();});
+        }
+        // Legacy read-only records use the same flow sizing as their fixed
+        // heading and action dock, so long saved text remains fully reachable.
+        static Transform HistoryCard(Transform parent,string name)
+        {
+            var card=GardenUi.Card(parent,name,0,0,1,0);
+            var flow=card.AddComponent<VerticalLayoutGroup>();
+            flow.padding=new RectOffset(24,24,24,24);flow.spacing=14;
+            flow.childControlWidth=flow.childControlHeight=true;
+            flow.childForceExpandWidth=true;flow.childForceExpandHeight=false;
+            return card.transform;
+        }
+        static void HistorySection(Transform parent,string title)
+        {
+            GardenTypography.SetWeight(GardenUi.FlowLabel(parent,title,GardenUi.HeadingSize),true);
+        }
+        static void HistoryField(Transform parent,string title,string value)
+        {
+            var card=HistoryCard(parent,"History field · "+title);
+            GardenTypography.SetWeight(GardenUi.FlowLabel(card,title,GardenUi.CaptionSize,GardenUi.Muted),true);
+            GardenUi.FlowLabel(card,string.IsNullOrWhiteSpace(value)?"남긴 내용 없음":value);
+        }
+        static string HistoryPreview(string value,string empty)
+        {
+            if(string.IsNullOrWhiteSpace(value))return empty;
+            string text=string.Join(" ",value.Split((char[])null,StringSplitOptions.RemoveEmptyEntries));
+            // Shorten only list previews. The detail always shows the saved text.
+            if(text.Length<=64)return text;
+            int length=char.IsHighSurrogate(text[63])?63:64;
+            return text.Substring(0,length)+"…";
         }
         static string AnswerLabel(string key)
         {

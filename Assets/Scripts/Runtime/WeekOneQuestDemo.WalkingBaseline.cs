@@ -80,7 +80,7 @@ namespace CapstoneDesign.Runtime
             var target=WalkingPersonalization.Evaluate(ReadWalkingHealth()?.healthConnect?.personalization,
                 Service.CurrentUtc,Service.CurrentTimeZone);
             if(Apply(Service.StartWalkingSession(sessionId,target)))
-            { RequestStepSyncSoon();ScheduleMissionReminder(); }
+            { GardenSfxPlayer.Play(GardenSfxCue.PracticeStart);RequestStepSyncSoon();ScheduleMissionReminder(); }
             ShowSession();
         }
     }

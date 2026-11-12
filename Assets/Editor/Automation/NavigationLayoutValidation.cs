@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using CapstoneDesign.Prototype;
 using CapstoneDesign.Runtime;
 using CapstoneDesign.Runtime.LocalState;
@@ -34,17 +36,24 @@ namespace CapstoneDesign.EditorTools
                 f.Resize(size.x,size.y);
                 string before=StateCodec.Encode(f.Service.Snapshot);
                 string suffix=size.x+"x"+size.y;
+                BackdropSnapshot firstBackdrop=null;
                 MissionBottomNavigation Active()=>f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
                 void Inspect(MissionBottomNavigation bar,string page)
                 {
                     Settle(f.Ui.transform.root);
                     CheckBar(bar,Bounds,check,page+" "+suffix);
+                    var backdrop=CheckBackdrop(bar,check,page+" "+suffix);
+                    if(firstBackdrop==null)firstBackdrop=backdrop;
+                    else CompareBackdrop(firstBackdrop,backdrop,check,page+" "+suffix);
                     f.Capture("qa-navigation-"+page+"-"+suffix,capture);
                 }
                 var mission=Active();Inspect(mission,"mission");
                 check(mission.ActiveTab=="미션","Mission tab is selected.");
                 f.ClickControl(mission.CourseButton);
-                check(f.Ui.CurrentScreen=="daily-emotion-history","Mission record tab retains the current daily-calendar destination.");
+                check(f.Ui.CurrentScreen=="course","Mission record tab opens the same records hub as the garden record tab.");
+                Inspect(Active(),"records-from-mission");
+                f.Click("DailyEmotion.History");
+                check(f.Ui.CurrentScreen=="daily-emotion-history","The records hub retains its explicit activity-calendar entry.");
                 Inspect(Active(),"calendar");
                 f.ClickControl(Active().HomeButton);
                 var home=f.Navigation.home.NavigationBar;
@@ -134,7 +143,7 @@ namespace CapstoneDesign.EditorTools
             Near(shelf.width,366*scale,"shelf width");Near(shelf.height,84*scale,"shelf height");
             var owner=bar.GetComponent<Image>();
             check(owner!=null&&owner.raycastTarget&&owner.color.a==0,
-                context+": transparent rectangular hit surface preserves the floating rounded shelf.");
+                context+": transparent hit surface preserves button layout independently of the decorative shelf.");
             var buttons=new[]{bar.HomeButton,bar.MissionButton,bar.CourseButton};
             var names=new[]{"홈","미션","기록"};Rect previous=default;
             for(int i=0;i<buttons.Length;i++)
@@ -155,7 +164,81 @@ namespace CapstoneDesign.EditorTools
                     context+": "+names[i]+" retains its full touch rectangle without a square white backing.");
                 check(button.GetComponentsInChildren<GardenThemeSurface>(false).All(surface=>!surface.raycastTarget),
                     context+": leaf decoration does not intercept button input.");
+                var face=button.GetComponentsInChildren<GardenThemeSurface>(false).Single();
+                bool selected=bar.ActiveTab==names[i];
+                var expectedStyle=selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf;
+                check(face.style==expectedStyle,context+": selected tabs retain the common selected style while other tab faces retain their existing styles.");
+                if(selected&&i==0)
+                {
+                    check(face.SageAppearance&&face.mainTexture!=Resources.Load<Texture2D>("UI/Textures/LeafSet024LitNavigation")
+                        &&face.mainTexture!=Resources.Load<Texture2D>("UI/Textures/LeafSet024UI"),
+                        context+": selected garden home uses the shared light sage selection treatment without a leaf texture.");
+                    check(caption.color==GardenSagePalette.Ink&&icon.color==GardenSagePalette.Ink,
+                        context+": selected home caption and icon use the shared dark ink on the light sage surface.");
+                }
                 previous=rect;
+            }
+        }
+
+        sealed class BackdropSnapshot
+        {
+            public Texture Texture;
+            public Rect LocalRect,ScreenRect;
+            public readonly List<UIVertex> Triangles=new List<UIVertex>();
+            public bool Sample(Vector2 normalized,out Vector2 uv,out Color tint)
+            {
+                Vector2 point=LocalRect.min+Vector2.Scale(LocalRect.size,normalized);
+                for(int i=0;i+2<Triangles.Count;i+=3)
+                {
+                    var a=Triangles[i];var b=Triangles[i+1];var c=Triangles[i+2];
+                    Vector2 ab=(Vector2)(b.position-a.position),ac=(Vector2)(c.position-a.position),ap=point-(Vector2)a.position;
+                    float determinant=Cross(ab,ac);if(Mathf.Abs(determinant)<.0001f)continue;
+                    float wb=Cross(ap,ac)/determinant,wc=Cross(ab,ap)/determinant,wa=1-wb-wc;
+                    if(wa<-.0001f||wb<-.0001f||wc<-.0001f)continue;
+                    uv=(Vector2)a.uv0*wa+(Vector2)b.uv0*wb+(Vector2)c.uv0*wc;
+                    tint=(Color)a.color*wa+(Color)b.color*wb+(Color)c.color*wc;return true;
+                }
+                uv=default;tint=default;return false;
+            }
+            static float Cross(Vector2 a,Vector2 b)=>a.x*b.y-a.y*b.x;
+        }
+        static readonly Vector2[] SharedWoodPoints={new Vector2(.1f,.5f),new Vector2(.5f,.5f),new Vector2(.9f,.5f),new Vector2(.5f,.16f),new Vector2(.5f,.95f)};
+        static BackdropSnapshot CheckBackdrop(MissionBottomNavigation bar,Action<bool,string> check,string context)
+        {
+            var graphic=bar.transform.Find("Navigation shared backdrop")?.GetComponent<MaskableGraphic>();
+            check(graphic!=null&&graphic.isActiveAndEnabled&&!graphic.raycastTarget,
+                context+": the shared wood image is visible decoration and does not intercept navigation.");
+            var old=bar.transform.Find("Garden theme surface");
+            check(old==null||!old.gameObject.activeInHierarchy,context+": an old page-specific shelf cannot tint or obscure the common image.");
+            var snapshot=new BackdropSnapshot{Texture=graphic.mainTexture,LocalRect=graphic.rectTransform.rect,ScreenRect=Bounds(graphic.rectTransform)};
+            check(snapshot.Texture==Resources.Load<Texture2D>("UI/Textures/LightWoodTitleUI"),context+": all tabs use the same original wood image.");
+            var outer=Bounds((RectTransform)bar.transform.parent);float scale=outer.width/390f;
+            check(Mathf.Abs(snapshot.ScreenRect.xMin-outer.xMin)<.6f&&Mathf.Abs(snapshot.ScreenRect.xMax-outer.xMax)<.6f
+                &&Mathf.Abs(snapshot.ScreenRect.yMin-outer.yMin)<.6f&&Mathf.Abs(snapshot.ScreenRect.height-96*scale)<.6f,
+                context+": the image keeps a shared full-width coordinate frame, including the bottom inset.");
+            using(var mesh=new VertexHelper())
+            {
+                graphic.GetType().GetMethod("OnPopulateMesh",BindingFlags.Instance|BindingFlags.NonPublic,null,new[]{typeof(VertexHelper)},null).Invoke(graphic,new object[]{mesh});
+                mesh.GetUIVertexStream(snapshot.Triangles);
+            }
+            foreach(var point in SharedWoodPoints)
+                check(snapshot.Sample(point,out _,out var tint)&&tint.a>.99f,context+": the common visible wood remains opaque at "+point+".");
+            bool garden=bar.ActiveTab=="홈";
+            foreach(var point in new[]{new Vector2(.005f,.5f),new Vector2(.5f,.04f),new Vector2(13f/390f,95f/96f)})
+                check(snapshot.Sample(point,out _,out var tint)!=garden&&(!garden?tint.a>.99f:true),
+                    context+": only the garden clips the outer margin and rounded corner, revealing the existing camera at "+point+".");
+            return snapshot;
+        }
+        static void CompareBackdrop(BackdropSnapshot baseline,BackdropSnapshot current,Action<bool,string> check,string context)
+        {
+            check(current.Texture==baseline.Texture,context+": changing tabs retains the same texture object.");
+            check(Vector2.Distance(current.ScreenRect.min,baseline.ScreenRect.min)<.8f&&Vector2.Distance(current.ScreenRect.size,baseline.ScreenRect.size)<.8f,
+                context+": switching tabs keeps the common image at the same screen coordinates.");
+            foreach(var point in SharedWoodPoints)
+            {
+                bool first=baseline.Sample(point,out var firstUv,out var firstTint),second=current.Sample(point,out var uv,out var tint);
+                check(first&&second&&Vector2.Distance(firstUv,uv)<.0002f&&Vector4.Distance(firstTint,tint)<.009f,
+                    context+": the actual mesh preserves wood crop and tint through the garden mask at "+point+".");
             }
         }
 

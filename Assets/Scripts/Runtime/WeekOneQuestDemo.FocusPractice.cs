@@ -43,6 +43,7 @@ namespace CapstoneDesign.Runtime
         bool FocusSaved(bool saved)
         {
             error = saved ? null : Service.LastError;
+            if(!saved)GardenSfxPlayer.Play(GardenSfxCue.Error);
             if (notice != null)
             {
                 notice.gameObject.SetActive(!saved);
@@ -197,6 +198,7 @@ namespace CapstoneDesign.Runtime
                 ? Service.StartWalkingSession(id, WalkingPersonalization.Evaluate(ReadWalkingHealth()?.healthConnect?.personalization, Service.CurrentUtc, Service.CurrentTimeZone))
                 : step < 0 ? Service.StartSession(id) : Service.ConfirmFocusStep(id, step, focusAnswer, string.IsNullOrEmpty(focusAnswer));
             if (!FocusSaved(success)) return;
+            if(step<0)GardenSfxPlayer.Play(GardenSfxCue.PracticeStart);
             if (walkingStart) RequestStepSyncSoon();
             focusDirty = false; ShowFocusPractice();
         }
@@ -523,7 +525,10 @@ namespace CapstoneDesign.Runtime
             {
                 var illustration = FigmaMissionUi.Rect(root, "Focus.CompletedIllustration", 55, 319.5f, 280, 280);
                 string choice = SavedPracticeIllustrationChoice(mission, session);
-                illustration.gameObject.AddComponent<FocusPracticeIllustration>().Configure(mission.Code, "reflection", choice, accent);
+                if (FocusAdditionalSlideContent.Supports(mission.Code))
+                    illustration.gameObject.AddComponent<AdditionalMissionIllustration>().Configure(mission.Code, "review", choice, accent);
+                else
+                    illustration.gameObject.AddComponent<FocusPracticeIllustration>().Configure(mission.Code, "reflection", choice, accent);
             }
             else
             {
@@ -553,8 +558,6 @@ namespace CapstoneDesign.Runtime
                 return;
             }
 #endif
-            FigmaMissionUi.Button(root, "오늘의 미션으로", 24, 698, 166, 48, ShowHome, Color.clear, accent, 16).name = "Focus.ConfirmHome";
-            FigmaMissionUi.Button(root, "기록으로 이동", 200, 698, 166, 48, () => ShowActivityJournalForMission(completedSessionId), Color.clear, accent, 16).name = "Focus.ViewRecord";
             if (plantCompleted)
                 FigmaMissionUi.Button(root, "사진첩으로", 24, 756, 166, 58, ShowPlantAlbum, accent, Color.white, 18).name = "Focus.PlantAlbum";
             FigmaMissionUi.Button(root, "정원으로", plantCompleted ? 200 : 24, 756, plantCompleted ? 166 : 342, 58,

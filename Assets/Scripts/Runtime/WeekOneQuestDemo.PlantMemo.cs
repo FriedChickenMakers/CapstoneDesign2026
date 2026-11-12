@@ -56,6 +56,7 @@ namespace CapstoneDesign.Runtime
                     prepareOrigin(); ShowPlantMemoryDeletion(plantInstanceId, organId, photoId, returnToOrigin);
                 });
             }
+            if(plantMemoPopup!=null)GardenSfxPlayer.Play(GardenSfxCue.UiClick);
             return plantMemoPopup != null;
         }
 
@@ -65,7 +66,7 @@ namespace CapstoneDesign.Runtime
             bool photo = fromActivity && !string.IsNullOrEmpty(photoId) && screen == "plant-photo:" + photoId;
             var sourceScroll = list ? pageViewport?.GetComponent<ScrollRect>()
                 : photo ? activityFrame?.GetComponentsInChildren<ScrollRect>().FirstOrDefault(value => value.name == "PlantAlbum.RecordsViewport") : null;
-            float position = sourceScroll != null ? sourceScroll.verticalNormalizedPosition : 1;
+            Vector2 position = sourceScroll != null ? sourceScroll.content.anchoredPosition : Vector2.zero;
             return () => {
                 if (this == null || !opened || HasPendingFullReset) return;
                 if (!fromActivity)
@@ -83,7 +84,8 @@ namespace CapstoneDesign.Runtime
                 if (restoredScroll != null)
                 {
                     restoredScroll.StopMovement();
-                    restoredScroll.verticalNormalizedPosition = Mathf.Clamp01(position);
+                    restoredScroll.content.anchoredPosition = position;
+                    CourseRecordsLayout.ClampScroll(restoredScroll.viewport);
                 }
             };
         }

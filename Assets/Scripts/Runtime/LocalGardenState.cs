@@ -14,13 +14,14 @@ namespace CapstoneDesign.Runtime.LocalState
         public DateTimeOffset UtcNow { get { return DateTimeOffset.UtcNow; } }
         public TimeZoneInfo TimeZone { get { return TimeZoneInfo.Local; } }
     }
-    // Development policy only: these values are not approved product balance.
+    // Runtime/test options. New product prices and practice rewards are shared
+    // through GardenEconomyPolicy; legacy fields remain for older integrations.
     public sealed class DemoBalanceConfig
     {
         public int ResetHourLocal = 4;
-        public int CompletionNutrient = 5;
-        public int PhotoVerificationNutrient = 1, PhotoVerificationDailyLimit = 1;
-        public int EnvironmentCost = 10;
+        public int CompletionNutrient = 5; // Legacy option; practice receipts use GardenEconomyPolicy.
+        public int PhotoVerificationNutrient = GardenEconomyPolicy.PhotoBonusCoins, PhotoVerificationDailyLimit = 1;
+        public int EnvironmentCost = 10; // Fallback for catalog entries not sold in the current shop.
         public int GrowthCost = 10;
         public float GrowthAmount = 0.1f;
         public int VisitorChancePercent = 50;
@@ -1989,8 +1990,9 @@ namespace CapstoneDesign.Runtime.LocalState
             // practice, including old practice-first sessions awaiting final save.
             var growth=next.PracticeGrowthRecords.FirstOrDefault(record=>record.SessionId==session.SessionId);
             if(growth==null || !ClaimsPracticeOccurrence(growth))return;
-            next.Coins=checked(next.Coins+50);
-            session.RewardAmount=50;
+            int reward=GardenEconomyPolicy.PracticeReward(session);
+            next.Coins=checked(next.Coins+reward);
+            session.RewardAmount=reward;
         }
         public bool CancelSelection(string id)
         {
@@ -2259,7 +2261,8 @@ namespace CapstoneDesign.Runtime.LocalState
                         || next.PracticeGrowthRecords.Any(growth=>growth.SessionId==id);
                     if(!alreadyClaimed)
                     {
-                        next.Coins=checked(next.Coins+100);record.RewardAmount=100;
+                        next.Coins=checked(next.Coins+GardenEconomyPolicy.EmotionRecordCoins);
+                        record.RewardAmount=GardenEconomyPolicy.EmotionRecordCoins;
                         record.MemoId="plant-memo:"+StateCodec.Hash(record.Id);
                         var memo=new GardenPlantMemo {
                             Id=record.MemoId,DailyEmotionRecordId=record.Id,PlantInstanceId=next.PlantAppearance.Recipe.InstanceId,
@@ -2381,8 +2384,9 @@ namespace CapstoneDesign.Runtime.LocalState
         string SessionTime(string minimum) { DateTimeOffset prior; return DateTimeOffset.TryParse(minimum,out prior) && prior > CurrentUtc ? prior.ToString("O") : Now; }
         public void Dispose() { lock(gate) { if(disposed)return; disposed=true; var disposable = store as IDisposable; if (disposable != null) disposable.Dispose(); } }
         static string Slot(string slot) { return (slot ?? "").Trim().ToLowerInvariant(); }
+        public int EnvironmentPrice(string environmentId) => GardenEconomyPolicy.EnvironmentPrice(environmentId,config.EnvironmentCost);
         public bool CanPurchaseEnvironment(string environmentId, string slot)
-        { slot = Slot(slot); var s = Snapshot; return !string.IsNullOrWhiteSpace(slot) && environmentId != null && environmentId.StartsWith("environment:") && s.Nutrient >= config.EnvironmentCost && !s.Environments.Any(p => p.Slot == slot || p.EnvironmentId == environmentId); }
+        { slot = Slot(slot); var s = Snapshot; return !string.IsNullOrWhiteSpace(slot) && environmentId != null && environmentId.StartsWith("environment:") && s.Coins >= EnvironmentPrice(environmentId) && !s.Environments.Any(p => p.Slot == slot || p.EnvironmentId == environmentId); }
         public bool PurchaseEnvironment(string requestId, string environmentId, string slot)
         {
             return Change(next =>
@@ -2392,8 +2396,9 @@ namespace CapstoneDesign.Runtime.LocalState
                 string command="environment|"+environmentId+"|"+slot;
                 if(PreviouslyPurchased(next,requestId,command)) return;
                 if (string.IsNullOrWhiteSpace(slot) || next.Environments.Any(p => p.Slot == slot || p.EnvironmentId == environmentId)) throw new InvalidOperationException("Placement overlaps or has no slot.");
-                if (next.Nutrient < config.EnvironmentCost) throw new InvalidOperationException("Insufficient nutrient.");
-                next.Nutrient -= config.EnvironmentCost; next.Environments.Add(new EnvironmentPlacement { EnvironmentId = environmentId, Slot = slot }); next.PurchaseReceipts.Add(requestId); next.PurchaseCommands.Add(new PurchaseCommand { RequestId=requestId, Command=command });
+                int price=EnvironmentPrice(environmentId);
+                if (next.Coins < price) throw new InvalidOperationException("코인이 부족해요.");
+                next.Coins -= price; next.Environments.Add(new EnvironmentPlacement { EnvironmentId = environmentId, Slot = slot }); next.PurchaseReceipts.Add(requestId); next.PurchaseCommands.Add(new PurchaseCommand { RequestId=requestId, Command=command });
             });
         }
         static bool PreviouslyPurchased(GardenState next,string requestId,string command)
