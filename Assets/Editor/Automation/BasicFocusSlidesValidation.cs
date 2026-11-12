@@ -920,8 +920,8 @@ namespace CapstoneDesign.EditorTools
                         "Additional action advances the original persisted step or one local plan page " + mission.Code + "/" + step);
                 }
                 if (mission.Code == "M10") Assert(!string.IsNullOrEmpty(f.Session(id).FocusStepRecords[0].PlanTimePeriod), "M10 completes with its independently selected time-period preserved");
-                Assert(f.Service.CoinBalance == 187 && f.Service.GetPracticeGrowth(id) != null && Screen(f.Ui) == "focus-complete",
-                    mission.Code + " retains its one growth and 50 coin completion");
+                Assert(f.Service.CoinBalance == 167 && f.Service.GetPracticeGrowth(id) != null && Screen(f.Ui) == "focus-complete",
+                    mission.Code + " retains its one growth and 30 coin additional-mission completion");
                 AddDigest(f, mission.Code + "/complete");
             }
         }

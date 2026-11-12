@@ -59,8 +59,9 @@ static class AllMissionFlowTests
         store.Fail=true;Check(!service.CompleteFocusSession(id),"failed completion "+mission.Code);store.Fail=false;
         Check(Get(service,id).Status==ParticipationState.InProgress&&service.Snapshot.Coins==coins,"failed final commit preserves session and wallet");
         Check(service.CompleteFocusSession(id),"complete "+mission.Code+" "+service.LastError);int reward=Get(service,id).RewardAmount;
-        Check(reward==50&&service.CompleteFocusSession(id)&&service.Snapshot.Coins==coins+50
-            &&CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==grownRecipe,"final completion grants exactly 50 coins and never another growth "+mission.Code);
+        int expectedReward=mission.Role==FocusMissionCatalog.AdditionalRole?30:50;
+        Check(reward==expectedReward&&service.CompleteFocusSession(id)&&service.Snapshot.Coins==coins+expectedReward
+            &&CapstoneDesign.Plants.PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==grownRecipe,"final completion grants exactly "+expectedReward+" coins and never another growth "+mission.Code);
         service=Open(store,clock);Check(Get(service,id).FocusStepRecords.All(s=>!string.IsNullOrEmpty(s.ConfirmedUtc)),"completed records retain branch decisions");
         return service;
     }

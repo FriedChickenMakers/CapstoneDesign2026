@@ -19,6 +19,8 @@ namespace CapstoneDesign.EditorTools
     public static class LocalLoopPlaySmoke
     {
         const string Key="Capstone.LocalLoopSmoke.Active";
+        const int FixtureCoins = 100;
+        const int CompletedBalance = FixtureCoins + GardenEconomyPolicy.BasicMissionCoins;
         [Serializable] sealed class Result
         {
             public string status,phase,error;
@@ -36,7 +38,7 @@ namespace CapstoneDesign.EditorTools
             if(string.IsNullOrEmpty(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT")))throw new Exception("Explicit isolated smoke save directory required");
             try
             {
-                SetPortraitGameView();
+                SyntheticPortraitGameView.Set(Key);
                 EditorSceneManager.OpenScene("Assets/Scenes/MockupMain.unity");
                 SessionState.SetBool(Key,true);
                 SessionState.SetFloat(Key+".Deadline",(float)EditorApplication.timeSinceStartup+60);
@@ -48,58 +50,6 @@ namespace CapstoneDesign.EditorTools
                 Finish(Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_SAVE_ROOT"),
                     Environment.GetEnvironmentVariable("CAPSTONE_SMOKE_PHASE")??"fresh",error);
             }
-        }
-        const BindingFlags ViewMembers=BindingFlags.Public|BindingFlags.NonPublic|BindingFlags.Instance;
-        static Type GameViewType => typeof(Editor).Assembly.GetType("UnityEditor.GameView",true);
-        static object GameViewSizes()
-        {
-            var type=typeof(Editor).Assembly.GetType("UnityEditor.GameViewSizes",true);
-            return typeof(ScriptableSingleton<>).MakeGenericType(type).GetProperty("instance").GetValue(null);
-        }
-        static void SetPortraitGameView()
-        {
-            // A portrait app needs a portrait player surface, independently of the
-            // batch Editor's usual 640x480 window. Do not persist a custom preset.
-            if(SessionState.GetBool(Key+".ViewPending",false))RestoreGameView();
-            var views=Resources.FindObjectsOfTypeAll(GameViewType);
-            var view=views.Length>0?(EditorWindow)views[0]:EditorWindow.GetWindow(GameViewType);
-            var sizes=GameViewSizes();
-            var group=sizes.GetType().GetProperty("currentGroup").GetValue(sizes);
-            string label="Smoke "+Guid.NewGuid().ToString("N");
-            SessionState.SetInt(Key+".ViewId",view.GetInstanceID());
-            SessionState.SetBool(Key+".ViewCreated",views.Length==0);
-            SessionState.SetInt(Key+".ViewSelection",(int)GameViewType.GetProperty("selectedSizeIndex",ViewMembers).GetValue(view));
-            SessionState.SetInt(Key+".ViewGroup",Convert.ToInt32(sizes.GetType().GetProperty("currentGroupType").GetValue(sizes)));
-            SessionState.SetString(Key+".ViewLabel",label);
-            SessionState.SetBool(Key+".ViewPending",true);
-            var editor=typeof(Editor).Assembly;
-            var fixedSize=Enum.Parse(editor.GetType("UnityEditor.GameViewSizeType",true),"FixedResolution");
-            var size=Activator.CreateInstance(editor.GetType("UnityEditor.GameViewSize",true),fixedSize,390,844,label);
-            int index=(int)group.GetType().GetMethod("GetTotalCount").Invoke(group,null);
-            group.GetType().GetMethod("AddCustomSize").Invoke(group,new[]{size});
-            GameViewType.GetMethod("SizeSelectionCallback",ViewMembers).Invoke(view,new object[]{index,null});
-            view.Repaint();
-        }
-        static void RestoreGameView()
-        {
-            if(!SessionState.GetBool(Key+".ViewPending",false))return;
-            // SessionState survives EnterPlaymode's domain reload. Identify our
-            // temporary preset by name so unrelated presets cannot be removed.
-            var sizes=GameViewSizes();
-            var groupType=typeof(Editor).Assembly.GetType("UnityEditor.GameViewSizeGroupType",true);
-            var group=sizes.GetType().GetMethod("GetGroup").Invoke(sizes,new[]{Enum.ToObject(groupType,SessionState.GetInt(Key+".ViewGroup",0))});
-            var view=EditorUtility.InstanceIDToObject(SessionState.GetInt(Key+".ViewId",0)) as EditorWindow;
-            if(view==null)throw new InvalidOperationException("Smoke Game view disappeared before restoration.");
-            GameViewType.GetMethod("SizeSelectionCallback",ViewMembers).Invoke(view,new object[]{SessionState.GetInt(Key+".ViewSelection",0),null});
-            int count=(int)group.GetType().GetMethod("GetTotalCount").Invoke(group,null);
-            for(int index=count-1;index>=0;index--)
-            {
-                var size=group.GetType().GetMethod("GetGameViewSize").Invoke(group,new object[]{index});
-                if((string)size.GetType().GetProperty("baseText").GetValue(size)!=SessionState.GetString(Key+".ViewLabel",""))continue;
-                group.GetType().GetMethod("RemoveCustomSize").Invoke(group,new object[]{index});
-            }
-            if(SessionState.GetBool(Key+".ViewCreated",false))view.Close();else view.Repaint();
-            SessionState.SetBool(Key+".ViewPending",false);
         }
         static void WaitForPlay()
         {
@@ -236,12 +186,14 @@ namespace CapstoneDesign.EditorTools
                 AssertRaycastTarget(duration); duration.onClick.Invoke();
                 yield return null;
                 var confirmDuration = ui.GetComponentsInChildren<Button>().Single(button=>button.name=="Focus.ConfirmProgram.8w");
-                ScrollIntoView(ui.GetComponentInChildren<ScrollRect>(),confirmDuration);
+                var courseDetails = ui.GetComponentInChildren<ScrollRect>();
+                if (courseDetails == null || confirmDuration.transform.IsChildOf(courseDetails.content))
+                    throw new Exception("Course confirmation must remain visible below the scrolling details");
                 AssertRaycastTarget(confirmDuration); confirmDuration.onClick.Invoke();
                 yield return null;
                 if (!ui.Service.Snapshot.MbctProgramChosen || MbctPolicy.ActiveProgram(ui.Service.Snapshot) != "8w")
                     throw new Exception("Course confirmation did not persist the selected duration");
-                AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="기본 미션 시작하기"));
+                AssertRaycastTarget(ui.GetComponentsInChildren<Button>().Single(button=>button.name=="Focus.BasicAction"));
                 nav.ShowIsland();
                 if(!home.IsOverview || Mathf.Abs(home.Zoom-previousZoom)>.001f)
                     throw new Exception("Tab return lost the complete garden or selected gesture zoom");
@@ -262,10 +214,10 @@ namespace CapstoneDesign.EditorTools
                 ScrollIntoView(settings.PrimaryScroll, heartChart);
                 yield return null;
                 AssertRaycastTarget(heartChart);
+                foreach (var frame in CheckPreviewAndSettingsReentry(nav, ui, settings)) yield return frame;
                 nav.ShowActivities();
-                // This isolated developer fixture has coins before practice. A
-                // completed practice must neither grant nor spend this balance.
-                if(ui.Service.CoinBalance!=0 || !ui.Service.AddTestCoins() || ui.Service.CoinBalance!=100)
+                // Growth is free. Final completion grants the basic mission reward once.
+                if(ui.Service.CoinBalance!=0 || !ui.Service.AddTestCoins() || ui.Service.CoinBalance!=FixtureCoins)
                     throw new Exception("Could not establish the isolated 100-coin fixture");
                 ui.SelectMission(MbctContent.Course[0]);
                 // New CanvasRenderers acquire raycast depth after a rendered frame.
@@ -289,30 +241,32 @@ namespace CapstoneDesign.EditorTools
                 var growth=ui.Service.GetPracticeGrowth(id);
                 var sequence=home.GetComponent<GardenMissionGrowthSequence>();
                 if(growth==null || growth.Outcome!=PracticeGrowthOutcome.Grown || growth.BeforeStep!=0 || growth.AfterStep!=1
-                    || ui.Service.CoinBalance!=100 || ui.Service.Snapshot.Sessions.Single().Status!=ParticipationState.InProgress
+                    || ui.Service.CoinBalance!=CompletedBalance || ui.Service.Snapshot.Sessions.Single().Status!=ParticipationState.RewardCommitted
                     || sequence==null || !sequence.IsPlaying || !sequence.OrdinaryUiHidden)
-                    throw new Exception("Finishing the actual practice did not commit one free growth before reflection and begin the garden sequence");
+                    throw new Exception("Finishing the actual practice did not commit one growth and reward before the garden sequence");
                 float sequenceDeadline=Time.realtimeSinceStartup+GardenMissionGrowthSequence.Duration+3;
                 while(sequence.IsPlaying && Time.realtimeSinceStartup<sequenceDeadline)yield return null;
-                if(sequence.IsPlaying || ui.CurrentScreen!="reflection" || sequence.PeakParticleCount<=0)
-                    throw new Exception("The growth sequence did not visibly finish and restore optional reflection");
-                yield return null;
-                var finish=ui.GetComponentsInChildren<Button>().Single(button=>button.name=="기록 건너뛰고 완료");
-                AssertRaycastTarget(finish);finish.onClick.Invoke();
-                if(ui.Service.Snapshot.Sessions.Single().Status!=ParticipationState.RewardCommitted
+                if(sequence.IsPlaying || ui.CurrentScreen!="complete" || sequence.PeakParticleCount<=0)
+                    throw new Exception("The growth sequence did not visibly finish and open completion");
+                var completed = ui.Service.Snapshot.Sessions.Single();
+                if(completed.Status!=ParticipationState.RewardCommitted || completed.RewardAmount!=GardenEconomyPolicy.BasicMissionCoins
                     || ui.Service.Snapshot.PracticeGrowthRecords.Count!=1 || ui.Service.Snapshot.PlantAppearance.Recipe.GrowthStep!=1
-                    || ui.Service.CoinBalance!=100)
-                    throw new Exception("Final reflection completion changed coins or repeated practice growth");
+                    || ui.Service.CoinBalance!=CompletedBalance)
+                    throw new Exception("Final reflection did not grant exactly one basic reward or repeated practice growth");
                 if(!ui.Service.SaveExperience("play-record","즐거움","바깥 소리","어깨가 내려감","차분해요","소리가 들린다") || !ui.Service.SavePreference("support","치료진"))throw new Exception(ui.Service.LastError);
-                if(ui.Service.CoinBalance!=100 || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
+                if(ui.Service.CoinBalance!=CompletedBalance || ui.Service.Snapshot.MbctNextOrder!=2)throw new Exception("Runtime completion mismatch");
                 LocalLoopValidation.ShowLegacy(ui,"Home");
                 yield return null;
                 AssertPageStartsAtTop(ui,"오늘의 활동");
                 ui.ShowGardenJournal();
                 yield return null;
                 AssertPageStartsAtTop(ui,"참여 기록");
-                ui.PreviewEnvironment("environment:E01");nav.ShowIsland();
-                if(GameObject.Find("PREVIEW environment:E01")!=null || ui.Service.CoinBalance!=100)throw new Exception("Navigation did not cancel unpaid preview");
+                ui.PreviewEnvironment("environment:E01");
+                if (!GardenDetailSheet.IsOpen) throw new Exception("Shop detail did not open for preview");
+                string beforeCancel = StateCodec.Encode(ui.Service.Snapshot);
+                nav.ShowIsland();
+                if(GardenDetailSheet.IsOpen || StateCodec.Encode(ui.Service.Snapshot)!=beforeCancel)
+                    throw new Exception("Navigation did not cancel unpaid preview");
                 home.shopButton.onClick.Invoke();
                 if(ui.CurrentScreen!="shop")throw new Exception("Home shop button did not open the existing garden shop");
                 string beforeGuide=StateCodec.Encode(ui.Service.Snapshot);
@@ -325,7 +279,7 @@ namespace CapstoneDesign.EditorTools
                     || StateCodec.Encode(ui.Service.Snapshot)!=beforeGuide)
                     throw new Exception("A retired paid-growth request changed the saved plant or coin balance");
                 nav.ShowIsland();
-                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=1) || ui.Service.CoinBalance!=100
+                if((home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=1) || ui.Service.CoinBalance!=CompletedBalance
                     || StateCodec.Encode(ui.Service.Snapshot)!=beforeGuide)
                     throw new Exception("Returning from growth guidance changed the committed garden");
                 yield return null;
@@ -334,7 +288,7 @@ namespace CapstoneDesign.EditorTools
             }
             else
             {
-                if(ui.Service.CoinBalance!=100 || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=1
+                if(ui.Service.CoinBalance!=CompletedBalance || ui.Service.Snapshot.MbctNextOrder!=2 || ui.Service.Snapshot.Sessions.Count!=1
                     || ui.Service.Snapshot.PracticeGrowthRecords.Count!=1
                     || (home.ProceduralPlant==null || home.RenderedRecipe?.GrowthStep!=1))throw new Exception("Process restart failed to restore committed progress, coins and practice growth");
                 if(ui.Service.Snapshot.Experiences.Single().Emotion!="차분해요" || ui.Service.Snapshot.PracticePreferences.Single(a=>a.Key=="support").Value!="치료진")throw new Exception("Restart lost journal or plan");
@@ -350,13 +304,13 @@ namespace CapstoneDesign.EditorTools
                 GardenProceduralValidation.CaptureGardenContext(home);
                 // A debug step sync may update coins while the activity page is hidden.
                 // Reopening that existing page must agree with the main garden.
-                int expectedNutrients=ui.Service.Snapshot.Nutrient+1;
+                int expectedBalance = CompletedBalance + 1;
                 ui.ShowHome();nav.ShowIsland();
                 if(!ui.ToggleDebugWalk())throw new Exception("Could not enable synthetic debug walk");
                 for(int i=0;i<10;i++)if(!ui.AddVirtualDebugStep())throw new Exception("Synthetic step failed");
                 nav.ShowActivities();LocalLoopValidation.ShowLegacy(ui,"Home");
-                if(ui.Service.CoinBalance!=101 || !home.guide.text.Contains("코인 101개")
-                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("코인 101  ·  8주 코스")))
+                if(ui.Service.CoinBalance!=expectedBalance || home.guide.text!=expectedBalance.ToString("N0")
+                    || !ui.GetComponentsInChildren<Text>().Any(t=>t.text.Contains("코인 "+expectedBalance+"  ·  8주 코스")))
                     throw new Exception("Activity header retained stale coins after a hidden debug update");
             }
             Finish(root,phase,null);
@@ -368,7 +322,7 @@ namespace CapstoneDesign.EditorTools
             SessionState.SetBool(Key,false);
             int screenWidth=Screen.width,screenHeight=Screen.height;
             bool restored=false;
-            try { RestoreGameView();restored=true; }
+            try { SyntheticPortraitGameView.Restore(Key);restored=true; }
             catch(Exception restoreError) { failure=failure==null?restoreError:new AggregateException(failure,restoreError); }
             Directory.CreateDirectory(root);
             File.WriteAllText(Path.Combine(root,"play-"+phase+".json"),JsonUtility.ToJson(new Result
@@ -397,6 +351,53 @@ namespace CapstoneDesign.EditorTools
         {
             if(home.oldCamera.enabled || home.oldLight.enabled)
                 throw new Exception("Integrated tab rendered the hidden legacy camera or light");
+        }
+
+        static IEnumerable<object> CheckPreviewAndSettingsReentry(MockupNavigation nav, WeekOneQuestDemo ui, SensorRawDisplay settings)
+        {
+            var home = nav.home;
+            var gardenTime = settings.GetComponentsInChildren<Button>().Single(button => button.name == "정원의 시간");
+            ScrollIntoView(settings.PrimaryScroll, gardenTime);
+            yield return null;
+            AssertRaycastTarget(gardenTime);
+            gardenTime.onClick.Invoke();
+            yield return null;
+            if (!settings.IsVisualDebugOpen) throw new Exception("Garden time did not open from settings");
+            AssertRaycastTarget(home.NavigationBar.HomeButton);
+            home.NavigationBar.HomeButton.onClick.Invoke();
+            yield return null;
+            AssertRaycastTarget(home.TemporarySettingsButton);
+            home.TemporarySettingsButton.onClick.Invoke();
+            yield return null;
+            if (!nav.settingsPanel.activeInHierarchy || settings.IsVisualDebugOpen)
+                throw new Exception("Settings gear reopens the previous garden time page");
+            nav.ShowIsland();
+            yield return null;
+
+            string saved = StateCodec.Encode(ui.Service.Snapshot);
+            AssertRaycastTarget(home.shopButton);
+            home.shopButton.onClick.Invoke();
+            yield return new WaitForSecondsRealtime(.25f);
+            var product = ui.GetComponentsInChildren<Button>().Single(button => button.name == "Shop.Product.E01");
+            AssertRaycastTarget(product);
+            product.onClick.Invoke();
+            yield return null;
+            bool HasPreviewFlowerBed() => home.gardenRoot.GetComponentsInChildren<Transform>(false)
+                .Any(node => node.name == "environment:E01");
+            if (!HasPreviewFlowerBed()) throw new Exception("The unpaid flower bed is missing from its preview");
+            var focus = typeof(MockupNavigation).GetMethod("OnApplicationFocus", BindingFlags.Instance | BindingFlags.NonPublic);
+            focus.Invoke(nav, new object[] { true });
+            yield return null;
+            if (!HasPreviewFlowerBed()) throw new Exception("App focus return removed the unpaid flower bed preview");
+            ui.UpdateGarden();
+            yield return null;
+            if (!HasPreviewFlowerBed()) throw new Exception("A saved garden refresh removed the unpaid flower bed preview");
+            var close = ui.GetComponentsInChildren<Button>().Single(button => button.name == "Shop.DetailClose");
+            AssertRaycastTarget(close);
+            close.onClick.Invoke();
+            yield return null;
+            if (HasPreviewFlowerBed() || GardenDetailSheet.IsOpen || StateCodec.Encode(ui.Service.Snapshot) != saved)
+                throw new Exception("Closing the preview did not restore the exact saved garden and wallet");
         }
 
         static Graphic[] CurrentChromeGraphics(WeekOneQuestDemo ui)

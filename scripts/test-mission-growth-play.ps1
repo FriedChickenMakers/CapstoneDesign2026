@@ -36,6 +36,10 @@ foreach ($item in Get-ChildItem -LiteralPath (Join-Path $projectRoot 'Assets')) 
 foreach ($file in @('GardenMissionGrowthPlayValidation.cs', 'GardenMissionGrowthPlayValidation.cs.meta')) {
     Copy-Source ('Assets/Editor/' + $file) (Join-Path $isolated ('Assets/Editor/' + $file))
 }
+New-Item -ItemType Directory -Path (Join-Path $isolated 'Assets/Editor/Automation') -Force | Out-Null
+foreach ($file in @('SyntheticPortraitGameView.cs', 'SyntheticPortraitGameView.cs.meta')) {
+    Copy-Source ('Assets/Editor/Automation/' + $file) (Join-Path $isolated ('Assets/Editor/Automation/' + $file))
+}
 foreach ($file in @('manifest.json', 'packages-lock.json')) { Copy-Source ('Packages/' + $file) (Join-Path $isolated ('Packages/' + $file)) }
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $projectRoot 'ProjectSettings') -File) {
     if ($file.Name -eq 'ProjectSettings.asset') { continue }

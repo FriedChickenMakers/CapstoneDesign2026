@@ -122,11 +122,10 @@ namespace CapstoneDesign.Runtime
 
         public void ShowSettings()
         {
-            if (activePanel == settingsPanel)
-                GetComponentInChildren<SensorRawDisplay>(true)?.CloseVisualDebug();
+            var settings = GetComponentInChildren<SensorRawDisplay>(true);
+            settings?.CloseVisualDebug();
             SetActivePanel(settingsPanel);
-            if (activePanel == settingsPanel)
-                GetComponentInChildren<SensorRawDisplay>(true)?.OnSettingsOpened();
+            if (activePanel == settingsPanel) settings?.OnSettingsOpened();
         }
 
         public void ShowCourse()

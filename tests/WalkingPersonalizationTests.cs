@@ -69,11 +69,11 @@ class WalkingTests
         Check(!service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==0,"below target not completed");
         service.ObserveMissionSteps("synthetic-walk",5000,WalkingPersonalization.AggregateSource);
         store.Fail=true;Check(!service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==0,"failed save never commits reward");
-        store.Fail=false;Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==50,"observed target auto-completes and rewards");
+        store.Fail=false;Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==30,"observed target auto-completes and grants the additional mission reward");
         Check(service.Snapshot.Sessions[0].Status==ParticipationState.RewardCommitted,"automatic completion is durable session result");
-        Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==50,"duplicate automatic completion idempotent");
+        Check(service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==30,"duplicate automatic completion idempotent");
         service=new GardenStateService(store,clock,new DemoBalanceConfig());Check(service.Open(),"reopen");
-        Check(service.Snapshot.Sessions[0].WalkingGoalSteps==5000 && service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==50,"target and receipt survive restart");
+        Check(service.Snapshot.Sessions[0].WalkingGoalSteps==5000 && service.TryCompleteWalkingGoal("synthetic-walk") && service.Snapshot.Nutrient==30,"target and receipt survive restart");
         string completedState=StateCodec.Encode(service.Snapshot);
         Check(!service.BeginSession("repeat","free-mission:M15") && StateCodec.Encode(service.Snapshot)==completedState,"second same-day additional mission is rejected without changing prior reward or records");
         Check(service.AdvancePreviewDay(),"legacy walking uses the next unclaimed day");

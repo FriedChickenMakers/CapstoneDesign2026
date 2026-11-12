@@ -33,6 +33,7 @@ namespace CapstoneDesign.Runtime
         InputField note;
         bool opened, preview;
         bool integratedPurchasePreview, coursePageInitialized;
+        internal bool HasIntegratedGardenPreview => integratedPurchasePreview;
         float nextCycleCheck;
         int freeIndex, coursePage, recordsPage;
         string mode;
@@ -724,7 +725,7 @@ namespace CapstoneDesign.Runtime
                 }
                 gardenSignature=null;
             }
-            home?.RefreshFromState(s);
+            if (!integratedPurchasePreview) home?.RefreshFromState(s);
             if(rewardPlant!=null)
             {
                 if(!integratedHome)rewardPlant.gameObject.SetActive(GardenPlantVisuals.HasCurrentPlant(s));

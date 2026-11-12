@@ -139,11 +139,11 @@ static class MissionPracticeGrowthTests
             store.Fail = false;
             Assert(service.CompleteFocusSession("unready", "평온함", "synthetic reflection") && service.CompleteFocusSession("unready"),
                 "Final completion and duplicate final completion succeed");
-            Assert(PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe && service.CoinBalance == 187
-                && service.Snapshot.PracticeGrowthRecords.Count == records && Session(service, "unready").RewardAmount == 50,
-                "Final completion gives exactly 50 coins and no second growth and retains the existing reflection");
+            Assert(PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe && service.CoinBalance == 137+30
+                && service.Snapshot.PracticeGrowthRecords.Count == records && Session(service, "unready").RewardAmount == 30,
+                "Final completion gives exactly 30 coins and no second growth and retains the existing reflection");
             Assert(!service.GrowPlant("synthetic-new-paid-command", GardenPlantVisuals.GrowthPlantId)
-                && service.CoinBalance == 187 && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe,
+                && service.CoinBalance == 137+30 && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe,
                 "A new legacy paid-growth command cannot spend coins or bypass mission growth");
             Assert(!service.BeginFocusSession("repeat", "M03") && !service.BeginFocusSession("other-same-day", "M01")
                 && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe,
@@ -157,7 +157,7 @@ static class MissionPracticeGrowthTests
             var calls = Enumerable.Range(0, 16).Select(i => System.Threading.Tasks.Task.Run(() => service.CommitPracticeGrowth("tomorrow"))).ToArray();
             System.Threading.Tasks.Task.WaitAll(calls);
             Assert(calls.All(call => call.Result) && service.Snapshot.PlantAppearance.Recipe.GrowthStep == stage + 1
-                && service.Snapshot.PracticeGrowthRecords.Count(r => r.SessionId == "tomorrow") == 1 && service.CoinBalance == 187,
+                && service.Snapshot.PracticeGrowthRecords.Count(r => r.SessionId == "tomorrow") == 1 && service.CoinBalance == 137+30,
                 "Concurrent duplicate practice endings produce one next-day growth and no currency change");
         }
     }
@@ -215,8 +215,8 @@ static class MissionPracticeGrowthTests
                 && service.CompleteFocusSession("before-midnight"), "Reflection can finish the following day");
             Assert(service.GetPracticeGrowth("before-midnight").CycleId == receipt.CycleId
                 && Session(service, "before-midnight").InstanceId == receipt.CycleId
-                && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe && service.CoinBalance == 147,
-                "Delayed reflection retains the practice's original business day and cannot earn another stage and pays its first final 50 coins");
+                && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == recipe && service.CoinBalance == 97+30,
+                "Delayed reflection retains the practice's original business day and cannot earn another stage and pays its first final 30 coins");
         }
     }
     static void FinalStage()

@@ -68,7 +68,7 @@ static class FocusAdjustmentTests
         Check(shortened.FocusStepRecords[1].ElapsedSeconds==7&&shortened.FocusStepRecords[1].RecommendedSeconds==30&&shortened.FocusStepRecords[1].EndReason=="too_long","actual duration, recommendation and ending reason remain distinct");
         Check(service.ShortenFocusStep("synthetic-timed",1,28)&&Session(service,"synthetic-timed").FocusStepRecords[1].ElapsedSeconds==7,"retry cannot rewrite first committed shortening");
         service=Open(store,clock);Finish(service,"synthetic-timed");
-        Check(service.Snapshot.Nutrient==50&&service.Snapshot.PlantCollection.ParticipationDecisions.Count==0,"short but all-stages completion keeps normal reward only");
+        Check(service.Snapshot.Nutrient==30&&service.Snapshot.PlantCollection.ParticipationDecisions.Count==0,"short but all-stages completion keeps the normal additional reward only");
         clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"new daily additional allowance");
         Begin(service,"synthetic-next","M02");Check(service.ConfirmFocusStep("synthetic-next",0),"next prepare");
         Check(service.RecommendedFocusSeconds("synthetic-next",1)==7,"next attempt uses confirmed observed stopping time");
@@ -121,7 +121,7 @@ static class FocusAdjustmentTests
             Check(support.MissionId=="course:P02"&&support.FocusRole=="additional"&&support.FocusSupport&&support.FocusSourceSessionId==source.SessionId&&support.FocusSourceMissionId==source.MissionId,"support records actual sound identity and origin");
             Check(service.BeginFocusAlternative("synthetic-source",0,answer,"synthetic-support")&&service.Snapshot.Sessions.Count(s=>s.SessionId=="synthetic-support")==1,"alternative retry does not create duplicate activity");
             service=Open(store,clock);Check(service.StartSession("synthetic-support"),"start support after restart");Finish(service,"synthetic-support");
-            Check(FocusMissionPolicy.NextOrder(service.Snapshot,"8w")==order&&Session(service,"synthetic-support").RewardAmount==50,"support can complete without original course progression");
+            Check(FocusMissionPolicy.NextOrder(service.Snapshot,"8w")==order&&Session(service,"synthetic-support").RewardAmount==30,"support pays the additional reward without original course progression");
             Check(!service.BeginFocusSession("synthetic-after-support-extra","M01"),"separate support consumes daily additional allowance");
             Begin(service,"synthetic-source-retry",code,order);
             string fullDay=StateCodec.Encode(service.Snapshot);

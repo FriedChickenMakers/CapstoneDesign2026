@@ -18,10 +18,10 @@ using UnityEngine.UI;
 namespace CapstoneDesign.EditorTools
 {
     // RunBatch uses only a separately copied project with a synthetic application
-    // identity; it never opens/focuses an Editor window. The optional interactive
+    // identity and a temporary portrait Game view preset. The optional interactive
     // request uses the already-open product scene with an explicit isolated MOCK
     // save root. An explicit option can reload the unchanged scene after an old
-    // fixture reused it; it never saves scenes, changes Game-view presets, closes
+    // fixture reused it; it never saves scenes, changes interactive Game-view presets, closes
     // the Editor, or accesses a device. SessionState survives Play domain reloads.
     [InitializeOnLoad]
     public static class GardenMissionGrowthPlayValidation
@@ -49,7 +49,7 @@ namespace CapstoneDesign.EditorTools
             public List<string> checks = new List<string>();
             public List<string> captures = new List<string>();
             public List<float> editorFrameMs = new List<float>();
-            public string environment = "Actual Unity Editor Play / isolated synthetic MOCK store / 21-stage automatic archive and next individual, practice fifty coins, emotion one hundred coins and memory leaf without growth, restart and background cleanup; not Android performance";
+            public string environment = "Actual Unity Editor Play / isolated synthetic MOCK store / 21-stage automatic archive, additional and basic practice rewards, emotion memory leaf, restart and background cleanup; not Android performance";
         }
 
         static GardenMissionGrowthPlayValidation()
@@ -181,6 +181,7 @@ namespace CapstoneDesign.EditorTools
                     return;
                 }
                 if (!EditorApplication.isPlaying) return;
+                if (session.batch && (Screen.width != 390 || Screen.height != 844)) return;
                 var nav = UnityEngine.Object.FindFirstObjectByType<MockupNavigation>(FindObjectsInactive.Include);
                 var ui = nav?.activitiesPanel?.GetComponent<WeekOneQuestDemo>();
                 if (ui?.Service == null || !ui.HasOpenState) return;
@@ -240,7 +241,11 @@ namespace CapstoneDesign.EditorTools
                     session.gizmosCaptured = true;
                     Save(session); SuppressGizmos(session);
                 }
-                else session.environment += " / hidden batch mode; captures show existing garden camera RenderTexture only, not full UI";
+                else
+                {
+                    SyntheticPortraitGameView.Set(SessionKey);
+                    session.environment += " / hidden portrait batch mode; captures show the garden camera RenderTexture";
+                }
                 using (var store = new FileStateStore(Path.Combine(session.saveRoot, "garden-mock", "state.xml"))) store.Save(SeedMission());
                 Environment.SetEnvironmentVariable(SmokeVariable, session.saveRoot);
                 // An unrelated personalization fixture override could otherwise
@@ -353,7 +358,7 @@ namespace CapstoneDesign.EditorTools
             if (!session.batch) Check(session, !ReadGizmos(GameView(session), true) && !ReadGizmos(GameView(session), false), "Actual captures exclude editor gizmos");
             Check(session, !PersonalizationClient.Instance.Configured && !PersonalizationClient.Instance.Consented,
                 "Synthetic MOCK run does not enroll research or transmit records");
-            Check(session, ui.Service.CoinBalance == (session.phase==1?137:session.phase==2?187:337) && nav.home.RenderedRecipe != null,
+            Check(session, ui.Service.CoinBalance == (session.phase==1?137:session.phase==2?167:317) && nav.home.RenderedRecipe != null,
                 "The real garden restores the exact committed coin balance and current plant");
             if (session.phase > 1)
                 Check(session, StateCodec.Encode(ui.Service.Snapshot) == session.expectedState, "Restart restores exact committed growth, wallet, session and records");
@@ -377,7 +382,7 @@ namespace CapstoneDesign.EditorTools
                 yield return new WaitForSecondsRealtime(.25f); yield return RenderedFrame(session);
                 Check(session, entrance == null && entranceGroup != null && Mathf.Approximately(entranceGroup.alpha, 1),
                     "Entrance finishes normally and leaves the live page fully visible");
-                var finalAction = Reveal(ui, "Focus.Action");
+                var finalAction = Reveal(ui, "Focus.IconAction");
                 string before = StateCodec.Encode(ui.Service.Snapshot), path = Path.Combine(session.saveRoot, "garden-mock", "state.xml");
                 string disk = File.ReadAllText(path), staging = path + ".tmp";
                 Directory.CreateDirectory(staging);
@@ -388,7 +393,7 @@ namespace CapstoneDesign.EditorTools
                     && !SequencePlaying(), "Failed actual final-step save does not grow, charge, start the effect or alter the committed file");
                 Capture(session, "practice-final-step-save-failed");
                 yield return new WaitForSecondsRealtime(.25f);
-                finalAction = Reveal(ui, "Focus.Action");
+                finalAction = Reveal(ui, "Focus.IconAction");
                 var previousRecipe = ui.Service.Snapshot.PlantAppearance.Recipe;
                 var originalShaders = nav.home.ProceduralPlant.GetComponentsInChildren<Renderer>(true)
                     .SelectMany(renderer => renderer.sharedMaterials).Select(material => material.shader.name).Distinct().OrderBy(name => name).ToArray();
@@ -405,8 +410,8 @@ namespace CapstoneDesign.EditorTools
                     "Last practice action atomically completes the mission and starts growth before the completion screen");
                 var receipt = ui.Service.GetPracticeGrowth("synthetic-play-full");
                 Check(session, receipt != null && receipt.Outcome == PracticeGrowthOutcome.Grown
-                    && receipt.AfterStep == previousRecipe.GrowthStep + 1 && ui.Service.CoinBalance == 187,
-                    "Exactly one next stage and fifty earned coins are durable before cinematic playback");
+                    && receipt.AfterStep == previousRecipe.GrowthStep + 1 && ui.Service.CoinBalance == 167,
+                    "Exactly one next stage and thirty additional-mission coins are durable before cinematic playback");
                 Check(session,receipt.BeforeStep==20&&receipt.AfterStep==21&&ui.Service.Snapshot.PlantAppearance.IsCompleted
                     &&ui.Service.Snapshot.PlantPhotos.Single().SourcePlantInstanceId==previousRecipe.InstanceId
                     &&ui.Service.Snapshot.PlantPhotos.Single().Recipe.GrowthStep==21,
@@ -509,10 +514,10 @@ namespace CapstoneDesign.EditorTools
                     && ui.CurrentScreen == "focus-complete",
                     "Repeated pause and legacy reflection reentry cannot duplicate the completion callback or earned stage");
                 Capture(session, "completion-after-background-interruption");
-                Check(session, ui.Service.CoinBalance == 237
+                Check(session, ui.Service.CoinBalance == 217
                     && ui.Service.Snapshot.PracticeGrowthRecords.Count(r => r.Outcome == PracticeGrowthOutcome.Grown) == 2
                     && DailyEmotionPolicy.Availability(ui.Service.Snapshot) == null,
-                    "Two earned practice stages and two fifty-coin awards unlock the independent emotion mission");
+                    "Two earned practice stages and the thirty- and fifty-coin awards unlock the independent emotion mission");
 
                 ui.ShowDailyEmotion(); yield return null; yield return RenderedFrame(session);
                 var emotion = DailyEmotionPolicy.Current(ui.Service.Snapshot);
@@ -529,7 +534,7 @@ namespace CapstoneDesign.EditorTools
                 var memo=ui.Service.Snapshot.PlantAppearance.Memos.Single();
                 Check(session, !SequencePlaying() && completedEmotion.IsCompleted && completedEmotion.RewardAmount==100
                     && completedEmotion.MemoId==memo.Id && receipt == null
-                    && ui.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==beforeStep && ui.Service.CoinBalance == 337,
+                    && ui.Service.Snapshot.PlantAppearance.Recipe.GrowthStep==beforeStep && ui.Service.CoinBalance == 317,
                     "Emotion completion atomically saves one hundred coins and one plant memo without growth or cinematic");
                 Check(session, memo.PlantInstanceId==ui.Service.Snapshot.PlantAppearance.Recipe.InstanceId
                     && memo.Note=="synthetic daily emotion PlayMode note"
@@ -608,10 +613,17 @@ namespace CapstoneDesign.EditorTools
                 Click(session, bar.CourseButton);
                 yield return null; yield return new WaitForSecondsRealtime(.25f);
                 bar = ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
+                Check(session, ui.CurrentScreen == "course" && bar.ActiveTab == "기록"
+                    && ReferenceEquals(service, ui.Service), "Records tab opens the records landing page");
+                var journal = Reveal(ui, "DailyEmotion.History");
+                yield return null;
+                Click(session, journal);
+                yield return null; yield return new WaitForSecondsRealtime(.25f);
+                bar = ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
                 Check(session, ui.HasOpenState && ui.CurrentScreen == "daily-emotion-history" && bar.ActiveTab == "기록"
                     && ReferenceEquals(service, ui.Service)
                     && ui.GetComponentsInChildren<Text>(false).Any(text => text.name == "ActivityJournal.Month"),
-                    "Records tab pointer opens the activity journal with the same loaded service");
+                    "Activity journal opens from records with the same loaded service");
                 Check(session, !home.gardenVisuals.activeInHierarchy,
                     "The garden and its cloud system are actually disabled while viewing records");
                 if (round == 2)
@@ -780,6 +792,8 @@ namespace CapstoneDesign.EditorTools
                 Environment.SetEnvironmentVariable(SmokeVariable, session.smokeWasSet ? session.oldSmoke : null);
                 Environment.SetEnvironmentVariable(PersonalizationVariable, session.personalizationWasSet ? session.oldPersonalization : null);
                 EditorApplication.isPaused = session.originalPaused;
+                try { if (session.batch) SyntheticPortraitGameView.Restore(SessionKey); }
+                catch (Exception restoreError) { session.error = (session.error ?? "") + "\nPortrait Game view restoration failed: " + restoreError; }
                 try { RestoreGizmos(session); }
                 catch (Exception restoreError) { session.error = (session.error ?? "") + "\nGame-view preference restoration failed: " + restoreError; }
                 var focused = EditorUtility.InstanceIDToObject(session.focusWindow) as EditorWindow;

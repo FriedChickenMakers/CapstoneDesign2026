@@ -39,7 +39,7 @@ static class CombinedPlantMigrationTests
             for(int i=0;i<21;i++){Complete(service,"growth-"+i);clock.Now=clock.Now.AddDays(1);}
             var mature=service.Snapshot;
             Check(mature.PlantAppearance.Recipe.GrowthStep==21&&mature.PlantAppearance.IsCompleted&&!mature.PlantAppearance.IsArchived,"Mature current plant was hidden");
-            Check(mature.PlantPhotos.Count==1&&mature.Coins==1050&&mature.StoredGrowthSteps==0,"Automatic archive/reward mismatch");
+            Check(mature.PlantPhotos.Count==1&&mature.Coins==21*30&&mature.StoredGrowthSteps==0,"Automatic archive/reward mismatch");
             string photo=PlantCodec.Encode(mature.PlantPhotos[0]);int saves=store.Saves;
             Check(service.CompletePracticeSession("growth-20")&&store.Saves==saves,"Duplicate completion wrote or rewarded again");
             Check(service.BeginSession("next","free-mission:M17",0)&&service.StartSession("next"),service.LastError);
@@ -49,7 +49,7 @@ static class CombinedPlantMigrationTests
             var next=service.Snapshot;
             Check(next.PlantAppearance.Recipe.InstanceId!=first&&next.PlantAppearance.Recipe.GrowthStep==1&&next.PlantAppearance.Recipe.Counts.Sum()==1,"Next mission did not start independent seed");
             Check(PlantCodec.Encode(next.PlantPhotos[0])==photo,"New growth changed archived picture");
-            Check(next.Coins==1100&&next.PlantCollection.ParticipationDecisions.Count==0,"Unexpected growth policy/reward");
+            Check(next.Coins==22*30&&next.PlantCollection.ParticipationDecisions.Count==0,"Unexpected growth policy/reward");
         }
         using(var reopened=Open(store,clock))Check(reopened.Snapshot.PlantCollection.Plants.Count==2&&reopened.Snapshot.PlantPhotos.Count==1,"Restart lost collection");
     }
@@ -67,7 +67,7 @@ static class CombinedPlantMigrationTests
             Check(PlantCodec.Encode(state.PlantAppearance.Recipe)==recipe&&state.PlantAppearance.Recipe.MaxGrowthSteps==12,"Legacy recipe was rerolled or rescaled");
             Check(state.PlantAppearance.StartedUtc==""&&state.PlantCollection.Plants.Count==1,"Unknown start was fabricated");
             Complete(service,"legacy-step");
-            Check(service.Snapshot.PlantAppearance.Recipe.GrowthStep==5&&service.Snapshot.Coins==187,"Legacy plant did not keep remaining 12-stage path");
+            Check(service.Snapshot.PlantAppearance.Recipe.GrowthStep==5&&service.Snapshot.Coins==137+30,"Legacy plant did not keep remaining 12-stage path");
         }
         int count=store.State.PlantCollection.Plants.Count;
         using(var again=Open(store,clock))Check(again.Snapshot.PlantCollection.Plants.Count==count,"Migration repeated individual");
@@ -102,13 +102,13 @@ static class CombinedPlantMigrationTests
             Check(service.BeginDailyEmotion(service.Snapshot.LastCycleId),"Begin emotion: "+service.LastError);
             Check(service.CompleteDailyEmotion(id,"편안함","synthetic memory"),service.LastError);
             var state=service.Snapshot;string memo=state.PlantAppearance.Memos.Single().Id;
-            Check(state.Coins==200&&state.PlantAppearance.Recipe.GrowthStep==2,"Emotion grew plant or wrong coins");
+            Check(state.Coins==50+30+100&&state.PlantAppearance.Recipe.GrowthStep==2,"Emotion grew plant or wrong coins");
             Check(WeeklyPlants.Active(state).Memories.Single().RecordId==memo,"Emotion leaf missing");
             Check(service.SetPlantCompleted(state.PlantAppearance.Recipe.InstanceId,true),service.LastError);
             Check(service.UpdateDailyEmotion(memo,"고마움","edited synthetic memory"),service.LastError);
             Check(service.Snapshot.PlantPhotos.Single().Memos.Single().Note=="edited synthetic memory","Album retained stale edited text");
             Check(service.DeleteDailyEmotion(memo),service.LastError);
-            state=service.Snapshot;Check(state.DailyEmotionRecords.Count==0&&state.PlantAppearance.Memos.Count==0&&state.PlantPhotos.Single().Memos.Count==0&&WeeklyPlants.Active(state).Memories.Single().Kind==MemoryRecordKind.None&&state.Coins==200,"Deletion leaked text or removed reward");
+            state=service.Snapshot;Check(state.DailyEmotionRecords.Count==0&&state.PlantAppearance.Memos.Count==0&&state.PlantPhotos.Single().Memos.Count==0&&WeeklyPlants.Active(state).Memories.Single().Kind==MemoryRecordKind.None&&state.Coins==50+30+100,"Deletion leaked text or removed reward");
             string install=state.InstallationId;Check(service.ResetAll("synthetic-full-reset",install),service.LastError);
             Check(service.HasPendingFullReset&&service.Snapshot.PlantCollection.Plants.Count==1&&service.Snapshot.PlantPhotos.Count==0&&service.Snapshot.Coins==0,"Reset did not clear collection");
             Check(service.FinishFullReset("synthetic-full-reset"),service.LastError);
@@ -135,7 +135,7 @@ static class CombinedPlantMigrationTests
             var state=service.Snapshot;
             Check(state.StoredGrowthSteps==0&&state.PlantStartCommands.Sum(c=>c.AppliedGrowthSteps)==43&&state.PlantCollection.Plants.Count==4&&state.PlantPhotos.Count==3,"Stored growth overflow was lost");
             var receipt=state.PracticeGrowthRecords.Single(r=>r.SessionId=="consume-bank");
-            Check(receipt.BeforeStep==1&&receipt.AfterStep==2&&state.PlantAppearance.Recipe.GrowthStep==2&&state.Coins==79,"Current mission was counted twice with stored credits");
+            Check(receipt.BeforeStep==1&&receipt.AfterStep==2&&state.PlantAppearance.Recipe.GrowthStep==2&&state.Coins==29+30,"Current mission was counted twice with stored credits");
             string stable=StateCodec.Encode(state);Check(service.CompletePracticeSession("consume-bank")&&StateCodec.Encode(service.Snapshot)==stable,"Stored-growth retry changed collection");
             var corrupt=StateCodec.Clone(state);corrupt.PlantCollection.Plants[0].Recipe.GrowthStep--;
             bool rejected=false;try{StateCodec.Validate(corrupt);}catch(Exception){rejected=true;}Check(rejected,"Corrupt canonical recipe was accepted");
@@ -155,7 +155,7 @@ static class CombinedPlantMigrationTests
             Check(!service.CompleteDailyEmotion(id,"편안함","archived synthetic memory")&&StateCodec.Encode(service.Snapshot)==before,"Failed mature emotion changed album/reward");
             store.Fail=false;Check(service.CompleteDailyEmotion(id,"편안함","archived synthetic memory"),service.LastError);
             var state=service.Snapshot;string memo=state.PlantAppearance.Memos.Single().Id,source=state.PlantAppearance.Recipe.InstanceId;
-            Check(state.PlantPhotos.Single().Memos.Single().Id==memo&&state.Coins==200&&state.PlantAppearance.Recipe.GrowthStep==2,"Mature emotion did not stay with current plant");
+            Check(state.PlantPhotos.Single().Memos.Single().Id==memo&&state.Coins==50+30+100&&state.PlantAppearance.Recipe.GrowthStep==2,"Mature emotion did not stay with current plant");
             clock.Now=clock.Now.AddDays(1);Complete(service,"new-growth");
             Check(service.Snapshot.PlantAppearance.Recipe.InstanceId!=source&&service.Snapshot.PlantAppearance.Memos.Count==0,"Old memo moved to new seed");
             Check(service.ResetMissionHistory(),service.LastError);

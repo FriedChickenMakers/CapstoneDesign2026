@@ -70,7 +70,7 @@ static class PlantMemoryPresentationTests
             var leaves = PlantAlbumHistory.Leaves(state, plantId);
             Check(leaves.Length == 1 && !leaves[0].Linked && leaves[0].OrganId == memory.OrganId && leaves[0].Slot == 0, "Deletion changed a leaf attachment/identity");
             Check(PlantCodec.Encode(state.PlantCollection.Plants.First(p => p.Id == plantId).Recipe) == recipe, "Editing/deleting changed archived plant appearance");
-            Check(state.Coins == coins + 50 && WeeklyPlants.Active(state).Id == active, "Memory operations changed wallet or growth target");
+            Check(state.Coins == coins + 30 && WeeklyPlants.Active(state).Id == active, "Memory operations changed wallet or growth target");
         }
     }
 

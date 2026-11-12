@@ -25,32 +25,33 @@ class Tests
     { Assert(s.BeginSession(id, mission, order), "select"); Assert(s.StartSession(id), "start"); }
     static void Main()
     {
-        var clock = new Clock(); var store = new Store(); var s = Service(store, clock, null, new LegacySnapshot { Nutrient = 10 });
+        // Fund both products so the occupied-slot check cannot fail from insufficient funds.
+        var clock = new Clock(); var store = new Store(); var s = Service(store, clock, null, new LegacySnapshot { Nutrient = 1350 });
         Assert(s.RefreshCycle(new[] { "animal:A01" }), "cycle");
         Assert(s.Snapshot.LastCycleId == "2026-09-22", "before reset");
         Session(s,"s1"); store.Fail = true;
         Assert(!s.CompleteSession("s1"), "save failure surfaced");
-        Assert(s.Snapshot.Nutrient == 10 && s.Snapshot.Sessions[0].Status == ParticipationState.InProgress && s.Snapshot.NextCourseOrder == 1, "atomic failed completion");
+        Assert(s.Snapshot.Nutrient == 1350 && s.Snapshot.Sessions[0].Status == ParticipationState.InProgress && s.Snapshot.NextCourseOrder == 1, "atomic failed completion");
         store.Fail = false; Assert(s.CompleteSession("s1"), "complete without reflection/sensor/timer");
-        Assert(s.CompleteSession("s1") && s.Snapshot.Nutrient == 60 && s.Snapshot.NextCourseOrder == 2, "duplicate session");
-        s = Service(store, clock); Assert(s.CompleteSession("s1") && s.Snapshot.Nutrient == 60, "restart duplicate");
-        Assert(!s.BeginSession("s2","course:P01",1) && s.Snapshot.Nutrient == 60, "same-day normal legacy basic is blocked after its first practice");
+        Assert(s.CompleteSession("s1") && s.Snapshot.Nutrient == 1400 && s.Snapshot.NextCourseOrder == 2, "duplicate session");
+        s = Service(store, clock); Assert(s.CompleteSession("s1") && s.Snapshot.Nutrient == 1400, "restart duplicate");
+        Assert(!s.BeginSession("s2","course:P01",1) && s.Snapshot.Nutrient == 1400, "same-day normal legacy basic is blocked after its first practice");
         clock.Time = clock.Time.AddMinutes(1); Assert(s.RefreshCycle(new string[0]), "boundary");
         Assert(s.Snapshot.LastCycleId == "2026-09-23" && s.Snapshot.DailyDecisions.Count == 2 && s.Snapshot.NextCourseOrder == 2, "new day course independent");
-        clock.Time = clock.Time.AddDays(10); Assert(s.RefreshCycle(new string[0]) && s.Snapshot.DailyDecisions.Count == 3 && s.Snapshot.Nutrient == 60, "no catchup");
+        clock.Time = clock.Time.AddDays(10); Assert(s.RefreshCycle(new string[0]) && s.Snapshot.DailyDecisions.Count == 3 && s.Snapshot.Nutrient == 1400, "no catchup");
         clock.Time = clock.Time.AddDays(-8); Assert(s.RefreshCycle(new[] {"animal:A01"}) && s.Snapshot.DailyDecisions.Count == 3, "clock rollback");
         clock.Zone = TimeZoneInfo.CreateCustomTimeZone("West", TimeSpan.FromHours(-12), "West", "West");
         Assert(s.RefreshCycle(new[] {"animal:A02"}) && s.Snapshot.DailyDecisions.Count == 3, "timezone rollback");
         var before = StateCodec.Encode(s.Snapshot);
         Assert(s.CanPurchaseEnvironment("environment:E01", " LEFT "), "preview");
         Assert(StateCodec.Encode(s.Snapshot) == before, "preview/cancel immutable");
-        store.Fail = true; Assert(!s.PurchaseEnvironment("p1", "environment:E01", "left") && s.Snapshot.Nutrient == 60 && s.Snapshot.Environments.Count == 0, "atomic purchase failure");
+        store.Fail = true; Assert(!s.PurchaseEnvironment("p1", "environment:E01", "left") && s.Snapshot.Nutrient == 1400 && s.Snapshot.Environments.Count == 0, "atomic purchase failure");
         store.Fail = false; Assert(s.PurchaseEnvironment("p1", "environment:E01", " LEFT "), "purchase");
-        Assert(s.PurchaseEnvironment("p1", "environment:E01", "left") && s.Snapshot.Nutrient == 50 && s.Snapshot.Environments.Count == 1, "purchase idempotent");
+        Assert(s.PurchaseEnvironment("p1", "environment:E01", "left") && s.Snapshot.Nutrient == 1000 && s.Snapshot.Environments.Count == 1, "purchase idempotent");
         Assert(!s.PurchaseEnvironment("p2", "environment:E02", "LEFT"), "normalized overlap");
-        Assert(!s.GrowPlant("g1", "plant:P01"), "insufficient funds");
+        Assert(!s.GrowPlant("g1", "plant:P01"), "wallet cannot buy plant growth");
         Session(s,"stopped", "free-mission:M01",0); Assert(s.PauseSession("stopped") && s.ResumeSession("stopped") && s.EndParticipation("stopped"), "pause resume end");
-        Assert(!s.CompleteSession("stopped") && s.Snapshot.Nutrient == 50, "participation end no reward");
+        Assert(!s.CompleteSession("stopped") && s.Snapshot.Nutrient == 1000, "participation end no reward");
         Assert(!s.BeginSession("invalid", "course:P29",29), "invalid order");
         Assert(!s.BeginSession("ahead", "course:P03",3) && s.Snapshot.NextCourseOrder==2,"future course cannot be selected");
         var legacy = new LegacySnapshot { Nutrient = 77, GardenXp = 123, Growth = .3f, LastUnlock = "seed" };
@@ -82,7 +83,7 @@ class Tests
             Assert(!fuzz.BeginSession("repeat-"+i,"free-mission:M01",0),"new normal session cannot bypass the daily additional slot");
             if(i%7==0) fuzz=Service(fuzzStore,clock);
         }
-        Assert(fuzz.Snapshot.Nutrient==50 && fuzz.Snapshot.RewardReceipts.Count==1,"sixty completion retries and restarts pay exactly 50 coins with one daily receipt");
+        Assert(fuzz.Snapshot.Nutrient==30 && fuzz.Snapshot.RewardReceipts.Count==1,"sixty completion retries and restarts pay exactly 30 additional mission coins with one daily receipt");
         Assert(!s.BeginSession("s1","course:P02",2),"session id payload conflict");
         Assert(!s.PurchaseEnvironment("p1","environment:E02","right"),"purchase id payload conflict");
         Assert(!s.GrowPlant("p1","plant:P01"),"purchase id cross-action conflict");
@@ -123,14 +124,14 @@ class Tests
         walkStore.Fail=false;
         Assert(walk.MarkMissionGoalNotified("walk-m15") && walk.Snapshot.Sessions.Last().GoalNotificationCommitted,"notification marker commits");
         Assert(!walk.MarkMissionGoalNotified("walk-m15"),"notification marker claims only once");
-        Assert(walk.CompleteSession("walk-m15") && walk.Snapshot.Nutrient==52,"M15 completion adds 50 coins while preserving existing walking credits");
+        Assert(walk.CompleteSession("walk-m15") && walk.Snapshot.Nutrient==32,"M15 completion adds 30 coins while preserving existing walking credits");
         Assert(walk.DisableDebugWalk() && !walk.AddVirtualStep(),"debug off stops virtual steps");
-        Assert(walk.ObserveDebugWalk(period,20) && walk.Snapshot.Nutrient==53,"closed period accepts final interval observation");
-        Assert(walk.ObserveDebugWalk(period,20) && walk.ObserveDebugWalk(period,19) && walk.Snapshot.Nutrient==53,"closed period final observations remain idempotent");
+        Assert(walk.ObserveDebugWalk(period,20) && walk.Snapshot.Nutrient==33,"closed period accepts final interval observation");
+        Assert(walk.ObserveDebugWalk(period,20) && walk.ObserveDebugWalk(period,19) && walk.Snapshot.Nutrient==33,"closed period final observations remain idempotent");
         Assert(walk.ObserveDebugWalk(period,5,"watch:Samsung") && walk.Snapshot.DebugWalkPeriods[0].RealStepHighWater==5 &&
-            walk.Snapshot.DebugWalkPeriods[0].RewardedUnits==3 && walk.Snapshot.Nutrient==53,
+            walk.Snapshot.DebugWalkPeriods[0].RewardedUnits==3 && walk.Snapshot.Nutrient==33,
             "preferred-source correction lowers displayed steps without clawing back or reissuing earned rewards");
-        Assert(walk.ObserveDebugWalk(period,30,"watch:Samsung") && walk.Snapshot.Nutrient==54,
+        Assert(walk.ObserveDebugWalk(period,30,"watch:Samsung") && walk.Snapshot.Nutrient==34,
             "corrected source only pays the next previously uncredited threshold");
         Assert(walk.ObserveMissionSteps("walk-m15",5,"watch:Samsung") &&
             walk.Snapshot.Sessions.Last().RealStepHighWater==5,"mission progress recalibrates to the preferred source");
@@ -216,8 +217,8 @@ class Tests
         {
             using(var file=new FileStateStore(path))
             {
-                var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 },new LegacySnapshot{Nutrient=10}); Assert(s.Open(),"real file init"); Assert(s.RefreshCycle(new string[0]),"real replace"); Session(s,"persisted"); Assert(s.CompleteSession("persisted"),"real complete");
-                Directory.CreateDirectory(path+".tmp"); Assert(!s.PurchaseEnvironment("blocked-write","environment:E01","left") && s.Snapshot.Nutrient==60 && s.Snapshot.Environments.Count==0,"real staging IO failure preserves transaction"); Directory.Delete(path+".tmp");
+                var s=new GardenStateService(file,clock,new DemoBalanceConfig { CompletionNutrient=10 },new LegacySnapshot{Nutrient=400}); Assert(s.Open(),"real file init"); Assert(s.RefreshCycle(new string[0]),"real replace"); Session(s,"persisted"); Assert(s.CompleteSession("persisted"),"real complete");
+                Directory.CreateDirectory(path+".tmp"); Assert(!s.PurchaseEnvironment("blocked-write","environment:E01","left") && s.Snapshot.Nutrient==450 && s.Snapshot.Environments.Count==0,"real staging IO failure preserves transaction"); Directory.Delete(path+".tmp");
                 Assert(s.PurchaseEnvironment("blocked-write","environment:E01","left") && s.Snapshot.Nutrient==50,"real staging failure retry once");
                 bool locked=false; try { using(var duplicate=new FileStateStore(path)) {} } catch(IOException) {locked=true;} Assert(locked,"exclusive writer");
             }

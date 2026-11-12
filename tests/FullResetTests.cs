@@ -40,7 +40,7 @@ static class FullResetTests
     static GardenState RichState(ResetClock clock)
     {
         var store=new ResetStore();
-        using(var service=Open(store,clock,new LegacySnapshot{Nutrient=1000,GardenXp=93,Growth=.2f,LastUnlock="synthetic prior unlock",UnlockIds={"synthetic-seed"},CompletedMissionIds={"free-mission:legacy-synthetic"}}))
+        using(var service=Open(store,clock,new LegacySnapshot{Nutrient=1500,GardenXp=93,Growth=.2f,LastUnlock="synthetic prior unlock",UnlockIds={"synthetic-seed"},CompletedMissionIds={"free-mission:legacy-synthetic"}}))
         {
             Check(service.RefreshCycle(new[]{"animal:A01"})&&service.SelectMbctProgram("8w"),"Prepare old course and visitor");
             Complete(service,"reset-old-p","P01",1);Complete(service,"reset-old-m","M03");

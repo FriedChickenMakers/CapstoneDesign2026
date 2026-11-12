@@ -137,8 +137,8 @@ static class GardenPlantPhotoTests
             "next eligible practice starts and grows a new individual atomically");
         var successor=early.Snapshot;
         Assert(successor.PlantAppearance.Recipe.InstanceId!="garden-main"&&successor.PlantAppearance.Recipe.MaxGrowthSteps==21
-            &&successor.PlantAppearance.Recipe.GrowthStep==1&&successor.StoredGrowthSteps==0&&successor.Coins==127
-            &&PhotoXml(successor)==frozenPhoto,"successor receives one growth step and fifty coins without changing the old photo");
+            &&successor.PlantAppearance.Recipe.GrowthStep==1&&successor.StoredGrowthSteps==0&&successor.Coins==77+30
+            &&PhotoXml(successor)==frozenPhoto,"successor receives one growth step and thirty coins without changing the old photo");
         string stable=StateCodec.Encode(successor);
         Assert(early.CompletePracticeSession("synthetic-after-completion")&&StateCodec.Encode(early.Snapshot)==stable,
             "completion retry cannot create or grow a second successor");
@@ -198,7 +198,9 @@ static class GardenPlantPhotoTests
     static void FailureRetryAndCommandIdentity()
     {
         var clock = new PhotoClock();
-        var store = new PhotoStore { State = Fixture(.2f, completed: true) };
+        var funded = Fixture(.2f, completed: true);
+        funded.Coins = 400;
+        var store = new PhotoStore { State = funded };
         var service = Open(store, clock);
         string before = StateCodec.Encode(service.Snapshot);
         store.Fail = true;
@@ -476,7 +478,7 @@ static class GardenPlantPhotoTests
         Assert(service.CommitPracticeGrowth(session) && service.GetPracticeGrowth(session).PlantInstanceId == receipt.PlantInstanceId
             && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == seed,
             "practice reentry remains bound to the previous individual after replacement");
-        Assert(service.CompleteSession(session,"synthetic mood","synthetic note") && service.Snapshot.StoredGrowthSteps == 0 && service.CoinBalance==coins+50
+        Assert(service.CompleteSession(session,"synthetic mood","synthetic note") && service.Snapshot.StoredGrowthSteps == 0 && service.CoinBalance==coins+30
             && PhotoXml(service.Snapshot) == album && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == seed,
             "late reflection changes neither the saved photograph nor successor stage/profile and cannot credit the growth bank");
         service = Open(store,clock);
@@ -566,7 +568,7 @@ static class GardenPlantPhotoTests
     {
         var clock=new PhotoClock();var store=new PhotoStore {State=Fixture(.1f)};var service=Open(store,clock);
         string emotionId=CompleteMemoDay(service,"synthetic-memo-one","P01");
-        Assert(service.CoinBalance==177,"two fresh mission completions add fifty coins each");
+        Assert(service.CoinBalance==77+50+30,"fresh basic and additional missions add 50 and 30 coins respectively");
         Assert(service.SaveDailyEmotionDraft(emotionId,"기쁨","synthetic first plant note",0),"memo draft is durable before completion");
         string before=StateCodec.Encode(service.Snapshot),recipe=PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe);
         store.Fail=true;
@@ -579,7 +581,7 @@ static class GardenPlantPhotoTests
         var memo=service.Snapshot.PlantAppearance.Memos.Single();
         Assert(memo.Id==attemptedMemo && memo.DailyEmotionRecordId==emotionId && memo.PlantInstanceId=="garden-main"
             && memo.Note=="synthetic first plant note" && memo.Mood=="기쁨", "memo retry has stable source, owner and original content");
-        Assert(service.CoinBalance==277 && service.GetDailyEmotion(emotionId).RewardVersion==1
+        Assert(service.CoinBalance==77+50+30+100 && service.GetDailyEmotion(emotionId).RewardVersion==1
             && service.GetDailyEmotion(emotionId).RewardAmount==100 && service.GetDailyEmotion(emotionId).MemoId==memo.Id
             && service.GetPracticeGrowth(emotionId)==null && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe)==recipe,
             "emotion completion grants one hundred coins and one memo without changing growth or its bank");
@@ -609,7 +611,7 @@ static class GardenPlantPhotoTests
         string nextId=service.Snapshot.PlantAppearance.Recipe.InstanceId;
         Assert(service.AdvancePreviewDay(),"second memo uses the next business day");
         string secondEmotion=CompleteMemoDay(service,"synthetic-memo-two","P02");
-        Assert(service.CompleteDailyEmotion(secondEmotion,"","synthetic second plant note") && service.CoinBalance==477,
+        Assert(service.CompleteDailyEmotion(secondEmotion,"","synthetic second plant note") && service.CoinBalance==77+2*(50+30+100),
             "another day independently awards its two practices and single note-only emotion completion");
         Assert(service.Snapshot.PlantAppearance.Memos.Single().PlantInstanceId==nextId
             && service.Snapshot.PlantAppearance.Memos.Single().Id!=attemptedMemo && PhotoXml(service.Snapshot)==album,
@@ -621,12 +623,12 @@ static class GardenPlantPhotoTests
         invalid=service.Snapshot;invalid.PlantPhotos[0].Memos=null;
         Reject(invalid,"missing photo memo list is rejected rather than silently dropping it");
         string currentMemos=PlantCodec.Encode(service.Snapshot.PlantAppearance.Memos);
-        Assert(service.ResetMissionHistory() && service.CoinBalance==477 && PhotoXml(service.Snapshot)==album
+        Assert(service.ResetMissionHistory() && service.CoinBalance==77+2*(50+30+100) && PhotoXml(service.Snapshot)==album
             && PlantCodec.Encode(service.Snapshot.PlantAppearance.Memos)==currentMemos,
             "history reset preserves both plant-owned memos and durable coin claims");
         service=Open(store,clock);
         secondEmotion=CompleteMemoDay(service,"synthetic-memo-reset","P01");
-        Assert(service.CompleteDailyEmotion(secondEmotion,"","synthetic duplicate after reset") && service.CoinBalance==477
+        Assert(service.CompleteDailyEmotion(secondEmotion,"","synthetic duplicate after reset") && service.CoinBalance==77+2*(50+30+100)
             && service.GetDailyEmotion(secondEmotion).RewardAmount==0 && service.GetDailyEmotion(secondEmotion).MemoId==""
             && PlantCodec.Encode(service.Snapshot.PlantAppearance.Memos)==currentMemos && PhotoXml(service.Snapshot)==album,
             "reset and repeat commands cannot grant coins or create another memo for an already claimed day");

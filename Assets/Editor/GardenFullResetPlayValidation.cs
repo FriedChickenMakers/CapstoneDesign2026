@@ -125,7 +125,7 @@ namespace CapstoneDesign.EditorTools
         {
             var store=new MemoryStore();
             using(var service=new GardenStateService(store,new SystemClock(),new DemoBalanceConfig{VisitorChancePercent=0},
-                new LegacySnapshot{Nutrient=1000,GardenXp=93,Growth=.2f}))
+                new LegacySnapshot{Nutrient=1400,GardenXp=93,Growth=.2f}))
             {
                 Assert(service.Open()&&service.RefreshCycle(Array.Empty<string>())&&service.SelectMbctProgram("8w"),service.LastError);
                 CompleteDay(service,"one","P01");

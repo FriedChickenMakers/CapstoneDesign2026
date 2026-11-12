@@ -210,7 +210,8 @@ namespace CapstoneDesign.EditorTools
             Assert(panel!=null&&panel==f.Preview.upperBoundary&&f.Preview.lowerBoundary==shopRect,
                 "Garden framing reserves the upper plant information and separate bottom shop.");
             Assert(panel.parent.name=="GardenAndGrowth"&&panel.anchorMin==new Vector2(0,1)&&panel.anchorMax==new Vector2(0,1)
-                &&Vector2.Distance(panel.rect.size,new Vector2(624,184))<.5f,"The plant information occupies its compact upper panel.");
+                &&Vector2.Distance(panel.anchoredPosition,new Vector2(24,-60))<.5f
+                &&Vector2.Distance(panel.rect.size,new Vector2(672,244))<.5f,"The enlarged plant information occupies its upper panel.");
             var backdrop=panel.GetComponent<Image>();var decoration=panel.Find("Garden theme surface");
             Assert(backdrop!=null&&backdrop.color.a<.01f&&(decoration==null||!decoration.gameObject.activeInHierarchy),
                 "The plant information panel keeps its transparent fill.");

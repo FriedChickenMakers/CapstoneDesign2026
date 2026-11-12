@@ -66,7 +66,7 @@ static class FocusMissionStateTests
         {
             Complete(growth,"synthetic-growth-free","M03",0);
             Complete(growth,"synthetic-growth-review","M03",0,true);
-            Check(WeeklyPlants.Active(growth.Snapshot).Recipe.GrowthStep==1 && growth.Snapshot.Nutrient==50,
+            Check(WeeklyPlants.Active(growth.Snapshot).Recipe.GrowthStep==1 && growth.Snapshot.Nutrient==30,
                 "Focus review preserves the original growth and coins without another grant");
             Complete(growth,"synthetic-growth-review-2","M03",0,true);
             Complete(growth,"synthetic-growth-review-capped","M03",0,true);
@@ -121,19 +121,19 @@ static class FocusMissionStateTests
         Check(!service.BeginFocusSession("too-soon","P10",2,program:"legacy"),"daily basic quota");
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"basic completion alone leaves the additional mission pending");
         ConfirmAll(service,"extra-1");Check(service.CompleteFocusSession("extra-1"),"additional completes while basic day done");
-        Check(service.Snapshot.Nutrient==100 && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==2,"additional does not advance course");
+        Check(service.Snapshot.Nutrient==80 && FocusMissionPolicy.NextOrder(service.Snapshot,"legacy")==2,"additional does not advance course");
         Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"completed additional slot blocks every normal M");
         Check(!service.BeginFocusSession("extra-repeat","M03") && !service.BeginFocusSession("extra-other","M01"),"same-day repeat and different additional mission rejected");
         Start(service,"extra-review","M03",0,true);
         Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"explicit review does not reopen today's additional allowance");
         ConfirmAll(service,"extra-review");Check(service.CompleteFocusSession("extra-review"),"additional review complete");
-        Check(Get(service,"extra-review").RewardAmount==0 && service.Snapshot.Nutrient==100,"explicit additional review has no reward");
+        Check(Get(service,"extra-review").RewardAmount==0 && service.Snapshot.Nutrient==80,"explicit additional review has no reward");
         clock.Time=clock.Time.AddDays(1);Check(service.RefreshCycle(Array.Empty<string>()),"day two");
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"daily rollover restores pending status");
         Complete(service,"extra-day2","M03",0);
         Check(FocusMissionPolicy.HasPendingToday(service.Snapshot),"additional completion alone leaves the basic mission pending");
         Complete(service,"basic-2","P10",2);
-        Check(service.Snapshot.Nutrient==200,"Two days of basic and additional completions grant four 50-coin rewards");
+        Check(service.Snapshot.Nutrient==2*(50+30),"Two days of basic and additional completions each grant 50 basic and 30 additional coins");
         Check(FocusMissionPolicy.AdditionalAvailability(service.Snapshot)!=null,"one completed additional mission fills today's role allowance");
         clock.Time=clock.Time.AddDays(1);service.RefreshCycle(Array.Empty<string>());
         Start(service,"basic-3","P25",3);
@@ -175,7 +175,7 @@ static class FocusMissionStateTests
         var migration=Open(new FocusStore(),new FocusClock());
         Check(migration.BeginSession("old-water","free-mission:M03") && migration.StartSession("old-water") && migration.CompleteSession("old-water"),"old water completion seeded");
         Check(!migration.BeginFocusSession("new-water","M03") && !migration.BeginFocusSession("new-other","M01"),"upgrade shares the legacy completed additional day");
-        Check(migration.Snapshot.Nutrient==50 && migration.Snapshot.Sessions.Count==1,"upgrade preserves legacy receipt without creating another same-day session");
+        Check(migration.Snapshot.Nutrient==30 && migration.Snapshot.Sessions.Count==1,"upgrade preserves legacy receipt without creating another same-day session");
         AllCoursesAndRecommendations();
         FocusWalkingSnapshot();
         RealFileReload();
@@ -227,8 +227,8 @@ static class FocusMissionStateTests
             var missingDrawing=service.Snapshot;missingDrawing.Sessions.Single(a=>a.SessionId=="all-extra-M11").FocusStepRecords[0].Value="";bool drawingRejected=false;
             try{StateCodec.Validate(missingDrawing);}catch(InvalidDataException){drawingRejected=true;}Check(drawingRejected,"completed drawing corruption rejected on reload");
         }
-        Check(service.Snapshot.Nutrient==850 && FocusMissionCatalog.Additional.All(m=>service.Snapshot.Sessions.Any(s=>s.MissionId==m.Id && s.Status==ParticipationState.RewardCommitted)),"all17 recommendations completed on distinct days with exactly 50 coins each");
-        Check(!service.BeginFocusSession("repeat-M03","M03") && service.Snapshot.Nutrient==850,"different M cannot bypass today's additional allowance");
+        Check(service.Snapshot.Nutrient==17*30 && FocusMissionCatalog.Additional.All(m=>service.Snapshot.Sessions.Any(s=>s.MissionId==m.Id && s.Status==ParticipationState.RewardCommitted)),"all17 recommendations completed on distinct days with exactly 30 coins each");
+        Check(!service.BeginFocusSession("repeat-M03","M03") && service.Snapshot.Nutrient==17*30,"different M cannot bypass today's additional allowance");
         Check(FocusMissionPolicy.NextOrder(service.Snapshot,"2w")==1 && FocusMissionPolicy.NextOrder(service.Snapshot,"8w")==1,"recommendations do not advance any course");
         StartCurrent(service,"first2w","P04",1);
         Check(!service.SelectMbctProgram("4w"),"active basic prevents changing its course");
@@ -360,7 +360,7 @@ static class FocusMissionStateTests
     static void ResetAndAppDate()
     {
         var clock=new FocusClock();var store=new FocusStore();
-        var service=new GardenStateService(store,clock,new DemoBalanceConfig(),new LegacySnapshot{Nutrient=50,GardenXp=7,LastUnlock="synthetic-unlock",UnlockIds={"synthetic-unlock"},CompletedMissionIds={"free-mission:M04"}});
+        var service=new GardenStateService(store,clock,new DemoBalanceConfig(),new LegacySnapshot{Nutrient=400,GardenXp=7,LastUnlock="synthetic-unlock",UnlockIds={"synthetic-unlock"},CompletedMissionIds={"free-mission:M04"}});
         Check(service.Open()&&service.RefreshCycle(Array.Empty<string>()),"reset fixture opens");
         Check(service.SelectMbctProgram("2w"),"reset fixture retains selected program");
         foreach(var record in new[]{new[]{"retired-course","course:P01"},new[]{"retired-mbct","course:MBCT01"},new[]{"retired-short","course:MBCT2W01"}})

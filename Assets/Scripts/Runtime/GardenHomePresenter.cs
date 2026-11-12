@@ -524,7 +524,13 @@ namespace CapstoneDesign.Runtime
             label.alignment=TextAlignmentOptions.MidlineLeft;
         }
 
-        public void RefreshFromState() => RefreshFromState(activity != null && activity.HasOpenState ? activity.Service.Snapshot : null);
+        public void RefreshFromState()
+        {
+            // The shop and plant detail temporarily own this camera's scene.
+            // Their close handler restores the saved garden after releasing it.
+            if (activity != null && activity.HasIntegratedGardenPreview) return;
+            RefreshFromState(activity != null && activity.HasOpenState ? activity.Service.Snapshot : null);
+        }
 
         public void RefreshFromState(GardenState saved)
         {

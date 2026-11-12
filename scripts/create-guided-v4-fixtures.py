@@ -8,6 +8,27 @@ import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
 REF = "3ac0c8078735b49e0983dff6de4c6e537660f8f0"
+# Keep the historical writer's inputs independent of the current domain manifest.
+WRITER_SOURCES = (
+    "Assets/Scripts/Runtime/LocalGardenState.cs",
+    "Assets/Scripts/Runtime/FocusMissionCatalog.cs",
+    "Assets/Scripts/Runtime/FocusMissionCatalog.TextureHistory.cs",
+    "Assets/Scripts/Runtime/FocusAdditionalRecommendation.cs",
+    "Assets/Scripts/Runtime/FocusDrawingData.cs",
+    "Assets/Scripts/Runtime/GardenPlantAppearance.cs",
+    "Assets/Scripts/Runtime/CameraMissionPolicy.cs",
+    "Assets/Scripts/Runtime/WeeklyPlantState.cs",
+    "Assets/Scripts/Runtime/CombinedPlantCollection.cs",
+    "Assets/Scripts/Runtime/MindfulnessContent.cs",
+    "Assets/Scripts/Runtime/MbctContent.cs",
+    "Assets/Scripts/ProceduralPlants/PlantCatalog.cs",
+    "Assets/Scripts/ProceduralPlants/PlantMath.cs",
+    "Assets/Scripts/ProceduralPlants/PlantRecipe.cs",
+    "Assets/Scripts/ProceduralPlants/PlantGenerator.cs",
+    "Assets/Scripts/ProceduralPlants/PlantGeometry.cs",
+    "Assets/Scripts/ProceduralPlants/PlantFlowerLayout.cs",
+    "Assets/Scripts/ProceduralPlants/PlantMemoryGeometry.cs",
+)
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--output", required=True, type=Path)
 args = parser.parse_args()
@@ -18,9 +39,7 @@ output.mkdir(parents=True, exist_ok=True)
 mono = Path(os.environ.get("UNITY_MONO_ROOT", "/opt/unity/editors/6000.3.24f1/Editor/Data/MonoBleedingEdge"))
 mono_bin = mono / "bin" / ("mono.exe" if os.name == "nt" else "mono")
 sources = []
-for name in (ROOT / "scripts/garden-domain-sources.txt").read_text().splitlines():
-    if not name:
-        continue
+for name in WRITER_SOURCES:
     target = output / Path(name).name
     target.write_bytes(subprocess.check_output(["git", "-c", f"safe.directory={ROOT}", "show", REF + ":" + name], cwd=ROOT))
     sources.append(target)

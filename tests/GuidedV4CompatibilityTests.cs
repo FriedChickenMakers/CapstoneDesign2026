@@ -88,7 +88,9 @@ static class GuidedV4CompatibilityTests
                     Check(Get(service,active).FocusStepRecords[0].PlanActivity==null,"v4 edit has no invented structured choices");
                 }
                 Finish(service,active);
-                Check(Get(service,active).FocusVersion==4&&Get(service,active).RewardAmount==50,"Original version completes with current one-time reward");
+                int expectedReward=name=="p25-completed-m10-active"?30:50;
+                Check(Get(service,active).FocusVersion==4&&Get(service,active).RewardAmount==expectedReward
+                    &&service.Snapshot.Coins==before.Coins+expectedReward,"Original version completes with the current one-time reward for its role");
                 string completed=store.Data;
                 using(var reopened=new GardenStateService(store,clock,new DemoBalanceConfig{VisitorChancePercent=0}))
                     Check(reopened.Open()&&store.Data==completed,"Second open preserves completion without duplicate migration/reward");

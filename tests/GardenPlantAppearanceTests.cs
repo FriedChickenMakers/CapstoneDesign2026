@@ -125,20 +125,20 @@ static class GardenPlantAppearanceTests
             store.Fail = false;
             Assert(service.CommitPracticeGrowth(session), "practice growth commits");
             var saved = service.Snapshot;
-            Assert(saved.Coins == 100 + (i-1)*50 && saved.PurchaseReceipts.Count == 0 && saved.PracticeGrowthRecords.Count == i, "practice growth preserves coins until final completion");
+            Assert(saved.Coins == 100 + (i-1)*30 && saved.PurchaseReceipts.Count == 0 && saved.PracticeGrowthRecords.Count == i, "practice growth preserves coins until final completion");
             Assert(saved.PlantAppearance.Recipe.GrowthStep == i, "each finished practice advances exactly one procedural step");
             Assert(PlantCodec.Encode(saved.PlantAppearance.Recipe) == expected, "confirmed shape exactly matches preview");
             Assert(saved.PlantAppearance.IsCompleted == (i == 12), "only the final procedural step completes the plant");
             string committed = StateCodec.Encode(saved);
             Assert(service.CommitPracticeGrowth(session) && StateCodec.Encode(service.Snapshot) == committed, "retry creates no extra growth or debit");
             Assert(service.CompleteSession(session) && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == expected
-                && service.Snapshot.Coins==100+i*50,
-                "final completion adds fifty coins without growing again");
+                && service.Snapshot.Coins==100+i*30,
+                "final completion adds thirty coins without growing again");
         }
         var mature = service.Snapshot;
         string shape = PlantCodec.Encode(mature.PlantAppearance.Recipe);
         Assert(!service.GrowPlant("synthetic-after-flower", GardenPlantVisuals.GrowthPlantId), "final recipe stage rejects more purchases");
-        Assert(service.Snapshot.Coins == 700 && GardenPlantVisuals.TotalGrowth(service.Snapshot) == .3f
+        Assert(service.Snapshot.Coins == 100+12*30 && GardenPlantVisuals.TotalGrowth(service.Snapshot) == .3f
             && PlantCodec.Encode(service.Snapshot.PlantAppearance.Recipe) == shape, "rejected extra purchase preserves flower, progress and nutrient");
         var cloned = service.Snapshot;
         cloned.PlantAppearance.BaselineProfileCounts[0] = 999;
@@ -161,8 +161,8 @@ static class GardenPlantAppearanceTests
         string before=StateCodec.Encode(service.Snapshot);store.Fail=true;
         Assert(!service.CompleteSession("synthetic-selected")&&StateCodec.Encode(service.Snapshot)==before,"failed completion cannot credit profile or wallet");
         store.Fail=false;Assert(service.CompleteSession("synthetic-selected"),"complete breath");
-        Assert(service.Snapshot.Coins==50&&service.Snapshot.PlantCollection.Decisions.Count==1
-            &&service.Snapshot.PlantAppearance.Recipe.Counts.SequenceEqual(new[]{1,0,0,0,0,0}),"new completion owns one canonical appearance credit and fifty coins");
+        Assert(service.Snapshot.Coins==30&&service.Snapshot.PlantCollection.Decisions.Count==1
+            &&service.Snapshot.PlantAppearance.Recipe.Counts.SequenceEqual(new[]{1,0,0,0,0,0}),"new completion owns one canonical appearance credit and thirty coins");
         Assert(service.CompleteSession("synthetic-selected")&&service.Snapshot.PlantCollection.Decisions.Count==1,"completion retry deduplicated");
         string claimed=StateCodec.Encode(service.Snapshot);
         Assert(!service.BeginSession("synthetic-blocked-second","free-mission:M04")&&StateCodec.Encode(service.Snapshot)==claimed,"second additional mission is rejected without rewriting history");
@@ -247,7 +247,7 @@ static class GardenPlantAppearanceTests
         store.Fail = false;
         Assert(service.CommitPracticeGrowth("synthetic-final-practice"), "final practice retry succeeds");
         var saved = service.Snapshot;
-        Assert(saved.Coins == 360 && saved.PurchaseReceipts.Count == 0 && saved.PracticeGrowthRecords.Count == 8,
+        Assert(saved.Coins == 10+7*30 && saved.PurchaseReceipts.Count == 0 && saved.PracticeGrowthRecords.Count == 8,
             "final practice records one claim without granting or spending coins");
         Assert(Math.Abs(GardenPlantVisuals.TotalGrowth(saved) - .3f) < 1e-6f, "final procedural growth reaches its display scale");
         Assert(PlantCodec.Encode(saved.PlantAppearance.Recipe) == PlantCodec.Encode(expectedRecipe),
@@ -363,8 +363,8 @@ static class GardenPlantAppearanceTests
             {
                 CompleteOnNextDay(service,"synthetic-after-migration","free-mission:M17");
                 Assert(service.Snapshot.PlantAppearance.Recipe.GrowthStep == old.PlantAppearance.Recipe.GrowthStep + 1
-                    && service.Snapshot.LegacyGrowth == growth && service.Snapshot.Coins == 123,
-                    "first new completion advances one real step and adds fifty coins while preserving historical growth");
+                    && service.Snapshot.LegacyGrowth == growth && service.Snapshot.Coins == 73+30,
+                    "first new completion advances one real step and adds thirty coins while preserving historical growth");
             }
         }
     }
@@ -384,7 +384,7 @@ static class GardenPlantAppearanceTests
             Assert(service.Snapshot.PlantAppearance.Recipe.GrowthStep == step && service.Snapshot.PlantAppearance.Recipe.MaxGrowthSteps == 21
                 && service.Snapshot.PlantAppearance.IsCompleted == (step == 21), "practice progression honors the recipe limit without a fixed twelve-step assumption");
         }
-        Assert(service.Snapshot.Coins == 1138 && service.SavePlantPhoto("synthetic-21-step-photo",recipe.InstanceId),
+        Assert(service.Snapshot.Coins == 88+21*30 && service.SavePlantPhoto("synthetic-21-step-photo",recipe.InstanceId),
             "completed future-limit recipe can be archived without any coin change");
         Assert(service.Snapshot.PlantPhotos.Single().Recipe.MaxGrowthSteps == 21, "photo preserves the recipe's original growth target");
     }
