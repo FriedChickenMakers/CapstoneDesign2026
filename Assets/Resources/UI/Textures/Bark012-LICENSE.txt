@@ -1,0 +1,9 @@
+Bark012 by ambientCG
+Source: https://ambientcg.com/view?id=Bark012
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+Original 1K color map with a 32px white strip for UI edges.
+Runtime central crop magnifies bark 3x; runtime tint reduces brightness.
+
+Baked derivative: softened color/normal details, upper-left directional
+light computed from NormalGL and ambient occlusion.

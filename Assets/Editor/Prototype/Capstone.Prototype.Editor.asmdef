@@ -1,0 +1,5 @@
+{
+  "name": "Capstone.Prototype.Editor",
+  "references": ["Capstone.Prototype", "UnityEngine.UI", "Unity.TextMeshPro", "Unity.InputSystem", "UnityEditor.TestRunner", "UnityEngine.TestRunner"],
+  "includePlatforms": ["Editor"]
+}

@@ -1,0 +1,8 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="icon/P25-complete">
+<path id="Vector" d="M35 41H145C149.509 41 153.833 42.7911 157.021 45.9792C160.209 49.1673 162 53.4913 162 58V121C162 125.509 160.209 129.833 157.021 133.021C153.833 136.209 149.509 138 145 138H72L45 156V137C41.9393 135.619 39.3562 133.362 37.5765 130.515C35.7969 127.667 34.9003 124.356 35 121V58C35 53.4913 36.7911 49.1673 39.9792 45.9792C43.1673 42.7911 47.4913 41 52 41H35Z" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" stroke="#96516B"/>
+<path id="Vector_2" d="M78 70V110M103 70V110" stroke-width="7" stroke-linecap="round" stroke-linejoin="round" stroke="#96516B"/>
+<path id="Vector_3" d="M145 169C158.255 169 169 158.255 169 145C169 131.745 158.255 121 145 121C131.745 121 121 131.745 121 145C121 158.255 131.745 169 145 169Z" fill="#96516B" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+<path id="Vector_4" d="M134 145L142 153L157 136" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+</g>
+</svg>

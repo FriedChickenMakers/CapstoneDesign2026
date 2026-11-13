@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e615aa9662ac3ce49b5438c9ebde7e78, type: 3}
+  m_Name: PrototypeDefinition
+  m_EditorClassIdentifier: Capstone.Prototype::CapstoneDesign.Prototype.PrototypeDefinition
+  schemaVersion: 3
+  missionTitle: "\uD55C \uBAA8\uAE08 \uCC9C\uCC9C\uD788"
+  missionGuide: "\uBB3C \uD55C \uBAA8\uAE08\uC758 \uC628\uB3C4\uC640 \uB9DB\uC744
+    \uB290\uAEF4 \uBCF4\uC138\uC694."
+  maximumStage: 3
+  questions:
+  - question: "\uC624\uB298\uC740 \uC5B4\uB5BB\uAC8C \uC26C\uC5B4\uAC00\uACE0 \uC2F6\uB098\uC694?"
+    quietLabel: "\uC870\uC6A9\uD788 \uB098\uB9CC\uC758 \uC2DC\uAC04"
+    togetherLabel: "\uB204\uAD70\uAC00\uC640 \uC5F0\uACB0\uB418\uB294 \uC2DC\uAC04"
+  - question: "\uC624\uB298 \uB9C8\uC74C\uC774 \uD5A5\uD558\uB294 \uCABD\uC740?"
+    quietLabel: "\uD63C\uC790 \uD48D\uACBD \uBC14\uB77C\uBCF4\uAE30"
+    togetherLabel: "\uC88B\uC740 \uD48D\uACBD \uB098\uB204\uAE30"
+  - question: "\uC624\uB298 \uC5B4\uB5A4 \uC5EC\uC720\uB97C \uAC16\uACE0 \uC2F6\uB098\uC694?"
+    quietLabel: "\uB0B4 \uB9C8\uC74C\uC5D0 \uADC0 \uAE30\uC6B8\uC774\uAE30"
+    togetherLabel: "\uB204\uAD70\uAC00\uC758 \uB9C8\uC74C \uB4E4\uC5B4\uC8FC\uAE30"
+  - question: "\uB0B4\uC77C\uC740 \uC5B4\uB5BB\uAC8C \uC774\uC5B4\uAC00\uACE0 \uC2F6\uB098\uC694?"
+    quietLabel: "\uB0B4 \uC18D\uB3C4\uB85C \uCC9C\uCC9C\uD788"
+    togetherLabel: "\uC8FC\uBCC0\uACFC \uD568\uAED8 \uAC00\uBCCD\uAC8C"
+  flowers:
+  - id: chamomile
+    affinity: 1
+    displayName: "\uCE90\uBAA8\uB9C8\uC77C"
+    meaning: "\uC5ED\uACBD \uC18D\uC758 \uD798"
+    color: {r: 1, g: 0.95686275, b: 0.8392157, a: 1}
+    shape: 1
+  - id: hydrangea
+    affinity: 2
+    displayName: "\uC218\uAD6D"
+    meaning: "\uC774\uD574\uD574 \uC8FC\uC5B4 \uACE0\uB9C8\uC6CC\uC694"
+    color: {r: 0.7058824, g: 0.7411765, b: 0.91764706, a: 1}
+    shape: 2

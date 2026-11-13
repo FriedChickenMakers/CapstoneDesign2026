@@ -1,0 +1,8 @@
+Ground048 by ambientCG
+Source: https://ambientcg.com/view?id=Ground048
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Original color map, aspect-preserving UI crop.
+32px white strip added for UI edges. Runtime tint controls brightness.
+Source color SHA-256: 5ed6949bbe77332e12f9fdcfcadcd1d851ae2240ea0a46196e9a171fac201e8b

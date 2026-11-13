@@ -1,0 +1,278 @@
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+#endif
+
+namespace CapstoneDesign.Runtime
+{
+    /// <summary>
+    /// Owns the intentionally small navigation surface for the first mockup.
+    /// The activity/settings panels are overlays; the island remains the
+    /// default view and can always be reached from the centre button.
+    /// </summary>
+    public sealed class MockupNavigation : MonoBehaviour
+    {
+        [Header("Panels")]
+        [SerializeField] public GameObject islandPanel;
+        [SerializeField] public GameObject activitiesPanel;
+        [SerializeField] public GameObject settingsPanel;
+
+        [Header("Navigation buttons")]
+        [SerializeField] public Button activitiesButton;
+        [SerializeField] public Button islandButton;
+        [SerializeField] public Button settingsButton;
+        [SerializeField] public GardenHomePresenter home;
+        [SerializeField] public GameObject legacyBottomNavigation;
+        private bool presentationPrepared;
+        private GameObject activePanel;
+        private readonly List<GameObject> panelHistory = new List<GameObject>();
+        private bool keyboardWasVisible;
+
+        public void PreparePresentation()
+        {
+            if(presentationPrepared)return;
+            presentationPrepared=true;
+            var scaler=GetComponent<CanvasScaler>();
+            if(scaler!=null){scaler.referenceResolution=new Vector2(720,1280);scaler.matchWidthOrHeight=.5f;}
+            if(home==null)
+            {
+                if(islandPanel!=null)GardenUi.Button(islandPanel.transform,"설정",.78f,.91f,.18f,.07f,ShowSettings);
+                return;
+            }
+            var backing=GardenUi.Box(transform,"Shared page background",0,0,1,1,GardenUi.Background);
+            CapstoneDesign.Prototype.GardenThemeSurface.Apply(backing,CapstoneDesign.Prototype.GardenThemeSurface.Style.Backdrop);
+            backing.transform.SetAsFirstSibling();backing.GetComponent<Image>().raycastTarget=false;
+            var frame=GardenUi.Box(transform,"Tab design frame",0,0,1,1);
+            var layout=GetComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>()
+                ?? gameObject.AddComponent<CapstoneDesign.Prototype.PrototypePortraitLayout>();
+            layout.designFrame=(RectTransform)frame.transform;
+            layout.fitByWidth=true;
+            var sensor=GetComponentInChildren<SensorRawDisplay>(true);
+            foreach(var panel in new[]{islandPanel,activitiesPanel,settingsPanel,sensor==null?null:sensor.gameObject})
+                if(panel!=null)panel.transform.SetParent(frame.transform,false);
+            if(settingsPanel!=null)
+            {
+                var image=settingsPanel.GetComponent<Image>();if(image!=null)image.color=GardenUi.Background;
+                foreach(Transform child in settingsPanel.transform)
+                    if(child.GetComponent<Text>()!=null)child.gameObject.SetActive(false);
+            }
+            layout.Apply();
+        }
+
+        private void Awake()
+        {
+#if ENABLE_LEGACY_INPUT_MANAGER
+            // Android Back belongs to the current Unity page, not to the process.
+            Input.backButtonLeavesApp = false;
+#endif
+            if (activitiesButton != null)
+            {
+                activitiesButton.onClick.AddListener(ShowActivities);
+            }
+
+            if (islandButton != null)
+            {
+                islandButton.onClick.AddListener(ShowIsland);
+            }
+
+            if (settingsButton != null)
+            {
+                settingsButton.onClick.AddListener(ShowCourse);
+            }
+
+            RenameTab(islandButton,"홈");RenameTab(activitiesButton,"미션");RenameTab(settingsButton,"기록");
+            foreach(var button in new[]{islandButton,activitiesButton,settingsButton})GardenSfxButton.Attach(button);
+
+            ShowIsland();
+            // Registered collection must start on the initial garden screen,
+            // without waiting for an optional mission or the settings page.
+            if (Application.isPlaying) _ = PersonalizationClient.Instance;
+        }
+
+        private void OnDestroy()
+        {
+            if (activitiesButton != null)
+            {
+                activitiesButton.onClick.RemoveListener(ShowActivities);
+            }
+
+            if (islandButton != null)
+            {
+                islandButton.onClick.RemoveListener(ShowIsland);
+            }
+
+            if (settingsButton != null)
+            {
+                settingsButton.onClick.RemoveListener(ShowCourse);
+            }
+        }
+
+        public void ShowIsland()
+        {
+            SetActivePanel(islandPanel);
+        }
+
+        public void ShowActivities()
+        {
+            SetActivePanel(activitiesPanel);
+            if(activePanel==activitiesPanel)activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.OnActivitiesOpened();
+        }
+
+        public void ShowSettings()
+        {
+            var settings = GetComponentInChildren<SensorRawDisplay>(true);
+            settings?.CloseVisualDebug();
+            SetActivePanel(settingsPanel);
+            if (activePanel == settingsPanel) settings?.OnSettingsOpened();
+        }
+
+        public void ShowCourse()
+        {
+            SetActivePanel(activitiesPanel);
+            if(activePanel==activitiesPanel)activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.ShowFocusCourse();
+        }
+
+        static void RenameTab(Button button,string label)
+        {
+            var text=button==null?null:button.GetComponentInChildren<Text>(true);
+            if(text!=null)text.text=label;
+        }
+
+        private float nextCycleCheck;
+        private void Update()
+        {
+            HandleBackInput();
+            var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
+            if(loop!=null && loop.HasPendingFullReset)
+            {
+                // The activity panel may be inactive while Settings or Home is
+                // open. Recovery must still run before health/reward polling.
+                loop.PollFullResetRecovery();
+                if(loop.HasPendingFullReset && activePanel!=settingsPanel && activePanel!=activitiesPanel)ShowActivities();
+                return;
+            }
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickStepSync();
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickWalkingPersonalization();
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.TickMissionNotifications();
+            if(Time.unscaledTime < nextCycleCheck)return;
+            nextCycleCheck=Time.unscaledTime+30;
+            activitiesPanel?.GetComponent<WeekOneQuestDemo>()?.RefreshCycle();
+            home?.RefreshDate();
+        }
+        private void OnApplicationFocus(bool focus)
+        {
+            if(focus)
+            {
+                ActivityNotificationBridge.OnAppEntry();
+                var loop=activitiesPanel?.GetComponent<WeekOneQuestDemo>();
+                if(loop!=null && loop.HasPendingFullReset){loop.PollFullResetRecovery();return;}
+                ActivityNotificationBridge.OnAppEntry();
+                loop?.OnAppReturned();
+                home?.RefreshFromState();
+            }
+        }
+        private void SetActivePanel(GameObject selected)
+        {
+            GardenMemoPopup.TryCloseOpen();
+            using var timing = UiPerformanceProbe.Measure("Navigation.SetActivePanel");
+            var leaving = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
+            if(leaving!=null && leaving.HasPendingFullReset)selected=activitiesPanel;
+            if (selected != activitiesPanel && activitiesPanel != null && activitiesPanel.activeSelf &&
+                leaving != null && !leaving.LeaveActivityPanel()) return;
+            PreparePresentation();
+            GardenUi.ConstrainWidth(legacyBottomNavigation);
+            if(settingsPanel!=null)
+                foreach(Transform child in settingsPanel.transform)
+                    if(child.GetComponent<Text>()!=null)GardenUi.ConstrainWidth(child.gameObject);
+            if(legacyBottomNavigation!=null)
+            {
+                var card=legacyBottomNavigation.transform.Find("NavigationCard")?.GetComponent<Image>();
+                if(card!=null && card.sprite==null)GardenUi.Round(card,Color.white,true);
+            }
+            var sensor = GetComponentInChildren<SensorRawDisplay>(true);
+            if (sensor != null) sensor.gameObject.SetActive(selected == settingsPanel);
+            var loop = activitiesPanel == null ? null : activitiesPanel.GetComponent<WeekOneQuestDemo>();
+            if (loop != null && loop.Service != null)
+            {
+                loop.RefreshCycle();
+            }
+            if (islandPanel != null)
+            {
+                islandPanel.SetActive(selected == islandPanel && home == null);
+            }
+
+            if (legacyBottomNavigation != null)
+                legacyBottomNavigation.SetActive(home==null && selected != activitiesPanel);
+            SetLegacyTabActive(activitiesButton, selected == activitiesPanel);
+            SetLegacyTabActive(settingsButton, false);
+            SetLegacyTabActive(islandButton, selected == islandPanel);
+
+            if (activitiesPanel != null)
+            {
+                activitiesPanel.SetActive(selected == activitiesPanel);
+            }
+
+            if (settingsPanel != null)
+            {
+                settingsPanel.SetActive(selected == settingsPanel);
+            }
+            home?.Show(selected == islandPanel);
+            activePanel = selected;
+            if (Application.isPlaying)
+                GardenMusicPlayer.Ensure().SetContext(selected == islandPanel ? GardenMusicContext.HomeGarden :
+                    selected == activitiesPanel ? GardenMusicContext.Activity : GardenMusicContext.Settings);
+            int visited = panelHistory.IndexOf(selected);
+            if (visited >= 0) panelHistory.RemoveRange(visited + 1, panelHistory.Count - visited - 1);
+            else panelHistory.Add(selected);
+            if(loop!=null && loop.HasPendingFullReset)loop.ShowHome();
+        }
+
+        /// <summary>Returns through pages and visited tabs; false means the app's Home root.</summary>
+        public bool TryNavigateBack()
+        {
+            if (GardenMemoPopup.TryCloseOpen()) return true;
+            if (activePanel == settingsPanel && GetComponentInChildren<SensorRawDisplay>(true)?.CloseVisualDebug() == true) return true;
+            if (activePanel == activitiesPanel &&
+                activitiesPanel.GetComponent<WeekOneQuestDemo>()?.TryNavigateBack() == true) return true;
+            if (panelHistory.Count > 1)
+            {
+                SetActivePanel(panelHistory[panelHistory.Count - 2]);
+                return true;
+            }
+            if (activePanel != islandPanel) { ShowIsland(); return true; }
+            return false;
+        }
+
+        private void HandleBackInput()
+        {
+            bool keyboardVisible = TouchScreenKeyboard.visible;
+            bool keyboardOwnsBack = keyboardVisible || keyboardWasVisible;
+            keyboardWasVisible = keyboardVisible;
+            bool pressed = false;
+#if ENABLE_INPUT_SYSTEM
+            pressed = Keyboard.current?.escapeKey.wasPressedThisFrame == true;
+#endif
+#if ENABLE_LEGACY_INPUT_MANAGER
+            pressed |= Input.GetKeyDown(KeyCode.Escape);
+#endif
+            if (!pressed) return;
+            // Android dismisses the keyboard first. Do not also leave its form.
+            if (keyboardOwnsBack) return;
+            if (TryNavigateBack()) return;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+                activity.Call<bool>("moveTaskToBack", true);
+#endif
+        }
+
+        private static void SetLegacyTabActive(Button button, bool active)
+        {
+            if (button == null) return;
+            GardenUi.StyleButton(button,selected:active);
+        }
+    }
+
+}

@@ -1,0 +1,64 @@
+name: Pure contracts and repository privacy
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install standalone contract toolchains
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends mono-devel unzip
+          mkdir -p "$RUNNER_TEMP/contract-tools"
+          cd "$RUNNER_TEMP/contract-tools"
+          curl --fail --location --retry 3 -o kotlin.zip https://github.com/JetBrains/kotlin/releases/download/v2.2.0/kotlin-compiler-2.2.0.zip
+          echo '1adb6f1a5845ba0aa5a59e412e44c8e405236b957de1a9683619f1dca3b16932  kotlin.zip' | sha256sum --check -
+          unzip -q kotlin.zip
+          curl --fail --location --retry 3 -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz' | sha256sum --check -
+          tar -xzf gitleaks.tar.gz gitleaks
+          echo "UNITY_MONO_ROOT=/usr" >> "$GITHUB_ENV"
+          echo "KOTLIN_GRADLE_LIB=$RUNNER_TEMP/contract-tools/kotlinc/lib" >> "$GITHUB_ENV"
+          echo "JAVA_BIN=$JAVA_HOME/bin/java" >> "$GITHUB_ENV"
+          echo "GITLEAKS_BIN=$RUNNER_TEMP/contract-tools/gitleaks" >> "$GITHUB_ENV"
+      - name: Publishable tree and exact index privacy
+        run: |
+          python3 scripts/check-repo-privacy.py
+          python3 scripts/check-repo-privacy.py --staged
+      - name: Required pure contracts (no Unity process or Android connection)
+        run: python3 scripts/qa.py --tier unit --output artifacts/ci-unit
+      - name: Preserve synthetic test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-unit-results
+          path: |
+            artifacts/ci-unit/results.json
+            artifacts/ci-unit/results.xml
+            artifacts/ci-unit/*/output.log
+          if-no-files-found: warn
+          retention-days: 14
+
+# Unity/graphics/device tiers are deliberately not silently skipped by this job.
+# They require a licensed Unity runner, a graphics display, and an explicitly
+# selected consented test device. Run their required gates through scripts/qa.py
+# and retain private device evidence locally; never upload it with CI artifacts.

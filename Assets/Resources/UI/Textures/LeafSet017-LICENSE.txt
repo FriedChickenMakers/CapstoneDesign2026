@@ -1,0 +1,10 @@
+Leaf Set 017 by ambientCG
+Source: https://ambientcg.com/view?id=LeafSet017
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Derivative UI atlas: the six color-map leaves are cut out using the supplied
+opacity map, resized, rotated, and layered over a dark green base.
+A 32px white strip supports untextured UI edges. Runtime tint darkens the face.
+Color JPEG SHA-256: 8ca7e8af7758eeb8af127f83dd9871ff872b382936cf46494365f6fac67b0f59
+Opacity JPEG SHA-256: f2b10c392c9c6a555c3f60978d530243b7dac2d3a6e4854f7de0df0f75a22775

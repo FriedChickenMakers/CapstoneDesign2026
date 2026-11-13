@@ -1,0 +1,308 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
+
+namespace CapstoneDesign.Runtime
+{
+    // A stylized local-clock sky, not astronomical/geolocation tracking.
+    // The garden remains lit at night; neither time nor weather affects rewards.
+    [DefaultExecutionOrder(2000)]
+    public sealed class GardenSkyEnvironment : MonoBehaviour
+    {
+        static readonly List<GardenSkyEnvironment> activeEnvironments = new List<GardenSkyEnvironment>();
+        Camera view;
+        Light key;
+        Material sky, cloudMaterial;
+        Texture3D cloudNoise;
+        ParticleSystem clouds;
+        readonly ParticleSystem.Particle[] particles = new ParticleSystem.Particle[24];
+        double? previewHour;
+        float nextRender, nextLighting;
+        bool renderRequested;
+        int lastRenderedFrame = -1;
+        public float Daylight { get; private set; }
+        public Vector3 SunDirection { get; private set; }
+        public Vector3 MoonDirection => -SunDirection;
+        public Light KeyLight => key;
+        public ParticleSystem Clouds => clouds;
+        public GardenStreetLighting StreetLighting { get; private set; }
+        public CapstoneDesign.Prototype.PrototypeGardenPreviewLayout PreviewLayout { get; set; }
+
+        void OnEnable()
+        {
+            if (!activeEnvironments.Contains(this)) activeEnvironments.Add(this);
+            CapstoneDesign.Prototype.PrototypeIslandDrag.DeferredRenderRequest = RequestViewRender;
+            GardenVisualClock.Changed += RefreshClock;
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+            RenderPipelineManager.beginCameraRendering += PrepareSkyProjection;
+            RefreshClock();
+        }
+        void OnDisable()
+        {
+            activeEnvironments.Remove(this);
+            if (activeEnvironments.Count == 0) CapstoneDesign.Prototype.PrototypeIslandDrag.DeferredRenderRequest = null;
+            renderRequested = false;
+            GardenVisualClock.Changed -= RefreshClock;
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+        }
+        void PrepareSkyProjection(ScriptableRenderContext context, Camera camera)
+        {
+            if (camera != view) return;
+            // Home/state refreshes can explicitly render before LateUpdate.
+            // Count those too so one input frame never renders this garden twice.
+            lastRenderedFrame = Time.frameCount;
+            if (sky == null) return;
+            // Unity's orthographic sky pass uses its own square projection and
+            // replaces built-in aspect data. Preserve the final RawImage aspect,
+            // including cards that stretch a shared RT, before every render.
+            // Material data only: never render or mutate targets in this callback.
+            sky.SetFloat("_SkyAspect", camera.aspect);
+        }
+        void RefreshClock()
+        {
+            if (key == null) return;
+            ApplyTime(previewHour ?? GardenVisualClock.CurrentHour);
+            UpdateClouds(Time.unscaledTime);
+            // Never render from a UI/Canvas callback. LateUpdate presents the changed
+            // light and sky on this frame without re-entering the SRP camera pass.
+            nextRender = 0;
+            nextLighting = 0;
+            renderRequested = true;
+        }
+
+        // Pointer input may deliver several drag/zoom changes in one frame.
+        // Commit their final camera pose once, after the composition layout has
+        // settled. Standalone previews and Editor captures retain immediate draws.
+        public static bool RequestViewRender(Camera camera)
+        {
+            if (!Application.isPlaying || camera == null) return false;
+            foreach (var environment in activeEnvironments)
+            {
+                if (environment == null || environment.view != camera || !environment.isActiveAndEnabled) continue;
+                environment.renderRequested = true;
+                return true;
+            }
+            return false;
+        }
+
+        public static GardenSkyEnvironment Ensure(Camera camera, Transform visualRoot)
+        {
+            if (camera == null || visualRoot == null) return null;
+            var environment = visualRoot.GetComponent<GardenSkyEnvironment>();
+            if (environment == null) environment = visualRoot.gameObject.AddComponent<GardenSkyEnvironment>();
+            environment.Initialize(camera);
+            return environment;
+        }
+
+        void Initialize(Camera camera)
+        {
+            view = camera;
+            GardenPostProcessing.Ensure(camera, transform);
+            // Ensure is also used by editor captures, where this runtime-only
+            // component has not received OnEnable. Keep registration idempotent.
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+            RenderPipelineManager.beginCameraRendering += PrepareSkyProjection;
+            if (key != null) return;
+            foreach (var light in transform.GetComponentsInChildren<Light>(true)) light.enabled = false;
+            var node = new GameObject("Sun and moon directional light");
+            node.transform.SetParent(transform, false);
+            key = node.AddComponent<Light>();
+            key.type = LightType.Directional;
+            key.cullingMask = camera.cullingMask;
+            key.shadows = LightShadows.Soft;
+            key.shadowStrength = .62f;
+            key.shadowBias = .003f;
+            key.shadowNormalBias = .01f;
+            key.shadowNearPlane = .05f;
+            node.AddComponent<UniversalAdditionalLightData>().usePipelineSettings = false;
+            var shader = Resources.Load<Shader>("GardenAtmosphere/Sky");
+            if (shader != null) sky = new Material(shader) { name = "Garden local-time sky" };
+            var skybox = view.GetComponent<Skybox>();
+            if (skybox == null) skybox = view.gameObject.AddComponent<Skybox>();
+            skybox.material = sky;
+            view.clearFlags = CameraClearFlags.Skybox;
+            StreetLighting = GardenStreetLighting.Ensure(camera, transform);
+            CreateClouds();
+            ApplyTime(previewHour ?? GardenVisualClock.CurrentHour);
+        }
+
+        public void SetTimeForPreview(double? localHour)
+        {
+            previewHour = localHour;
+            ApplyTime(localHour ?? GardenVisualClock.CurrentHour);
+            UpdateClouds(0);
+            nextRender = 0;
+        }
+
+        public static Vector3 SolarDirection(double hour)
+        {
+            float angle = (float)((hour % 24 - 6) / 24 * Math.PI * 2);
+            return new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), .35f * Mathf.Sin(angle)).normalized;
+        }
+
+        // Shared presentation values keep the garden and archived-plant meadow on
+        // the same clock without sharing cameras or changing persistent state.
+        public struct SkyTime
+        {
+            public Vector3 SunDirection, LightDirection;
+            public float Daylight, Twilight, LightIntensity, ReflectionIntensity;
+            public Color LightColor, AmbientSky, AmbientEquator, AmbientGround, Background;
+        }
+        public static SkyTime EvaluateTime(double hour)
+        {
+            var sun = SolarDirection(hour);
+            float daylight = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(-.14f, .24f, sun.y));
+            float twilight = (1 - Mathf.Clamp01(Mathf.Abs(sun.y) / .32f)) * daylight;
+            return new SkyTime {
+                SunDirection = sun, LightDirection = sun.y >= 0 ? sun : -sun,
+                Daylight = daylight, Twilight = twilight,
+                LightColor = Color.Lerp(new Color(.87f,.90f,1), Color.Lerp(new Color(1.015f,.995f,.92f), new Color(1,.61f,.34f), twilight), daylight),
+                LightIntensity = Mathf.Lerp(1.0f, 1.28f, daylight),
+                AmbientSky = Color.Lerp(new Color(.25f,.28f,.38f), new Color(.57f,.69f,.77f), daylight),
+                AmbientEquator = Color.Lerp(new Color(.20f,.24f,.27f), new Color(.41f,.44f,.39f), daylight),
+                AmbientGround = Color.Lerp(new Color(.14f,.14f,.18f), new Color(.27f,.26f,.24f), daylight),
+                ReflectionIntensity = Mathf.Lerp(.06f,.25f,daylight),
+                Background = Color.Lerp(new Color(.009f,.018f,.043f), new Color(.46f,.70f,.88f), daylight)
+            };
+        }
+        public static void ConfigureSkyMaterial(Material material, SkyTime time, float aspect)
+        {
+            if (material == null) return;
+            material.SetVector("_SunDirection", time.SunDirection);
+            material.SetFloat("_Daylight", time.Daylight);
+            material.SetFloat("_Twilight", time.Twilight);
+            material.SetFloat("_SkyAspect", aspect);
+        }
+
+        void ApplyTime(double hour)
+        {
+            if (key == null) return;
+            var time = EvaluateTime(hour);
+            SunDirection = time.SunDirection; Daylight = time.Daylight;
+            // The sky disc and shadow light use exactly the same world direction.
+            key.transform.rotation = Quaternion.LookRotation(-time.LightDirection.normalized, Vector3.up);
+            key.color = time.LightColor;
+            // Moonlight reaches the raised flowers as well as the ground. It is
+            // a real directional source, independent of the warm low lanterns.
+            key.intensity = time.LightIntensity;
+            RenderSettings.sun = key;
+            RenderSettings.ambientMode = AmbientMode.Trilight;
+            // Broad sky and ground bounce retain the faceted silhouette without
+            // crushing unlit cliff faces to black. Warm pools remain local lamps.
+            RenderSettings.ambientSkyColor = time.AmbientSky;
+            RenderSettings.ambientEquatorColor = time.AmbientEquator;
+            RenderSettings.ambientGroundColor = time.AmbientGround;
+            RenderSettings.reflectionIntensity = time.ReflectionIntensity;
+            ConfigureSkyMaterial(sky, time, view.aspect);
+            if (cloudMaterial != null)
+            {
+                cloudMaterial.SetFloat("_Daylight", Daylight);
+                cloudMaterial.SetFloat("_Twilight", time.Twilight);
+            }
+            StreetLighting?.ApplyTime(hour);
+            StreetLighting?.ApplyToMist(cloudMaterial);
+            view.backgroundColor = time.Background;
+        }
+
+        void CreateClouds()
+        {
+            var shader = Resources.Load<Shader>("GardenAtmosphere/Cloud");
+            if (shader == null) return;
+            cloudMaterial = new Material(shader) { name = "World-space drifting mist" };
+            // A small periodic volume is generated once. Three density samples per
+            // fragment keep the soft particle volume bounded without ray marching.
+            cloudNoise = GardenCloudNoise.Create();
+            cloudMaterial.SetTexture("_Noise", cloudNoise);
+            var node = new GameObject("World-space mist particles");
+            node.transform.SetParent(transform, false);
+            node.layer = 30;
+            clouds = node.AddComponent<ParticleSystem>();
+            clouds.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            var main = clouds.main;
+            main.playOnAwake = false; main.loop = false; main.maxParticles = particles.Length;
+            main.startSpeed = 0; main.startLifetime = 100000; main.startSize3D = true;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            main.useUnscaledTime = true;
+            var emission = clouds.emission; emission.enabled = false;
+            var shape = clouds.shape; shape.enabled = false;
+            var renderer = clouds.GetComponent<ParticleSystemRenderer>();
+            renderer.sharedMaterial = cloudMaterial;
+            renderer.renderMode = ParticleSystemRenderMode.Billboard;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            renderer.sortMode = ParticleSystemSortMode.Distance;
+            clouds.Play();
+            UpdateClouds(0);
+        }
+
+        public void UpdateClouds(float seconds)
+        {
+            if (view == null || clouds == null) return;
+            // Switching tabs disables this hierarchy and stops the particle
+            // system. Restart it before restoring the manually managed mist.
+            if (clouds.gameObject.activeInHierarchy && !clouds.isPlaying) clouds.Play();
+            var light = SunDirection.y >= 0 ? SunDirection : MoonDirection;
+            cloudMaterial.SetVector("_LightDirection", light);
+            cloudMaterial.SetVector("_IslandOrigin", transform.position);
+            cloudMaterial.SetFloat("_CloudSeconds", seconds);
+            StreetLighting?.ApplyToMist(cloudMaterial);
+            for (int i = 0; i < particles.Length; i++)
+            {
+                float seed = Mathf.Repeat(i * .61803399f + .17f, 1);
+                float variant = Mathf.Repeat(i * .41421356f + .31f, 1);
+                float depth = Mathf.Repeat(i * .73205081f + .53f, 1);
+                float angle = seed * Mathf.PI * 2;
+                float radius = 2.05f + variant * 1.9f;
+                var anchor = new Vector3(Mathf.Cos(angle) * radius, -1.0f - depth * 1.65f, Mathf.Sin(angle) * radius);
+                // Bounded curl of a smooth vector potential; no wrap or reset jumps.
+                float a = anchor.y + anchor.z + seconds * (.009f + seed * .007f);
+                float b = anchor.z + anchor.x + seconds * (.013f + variant * .005f);
+                float c = anchor.x + anchor.y + seconds * (.011f + depth * .006f);
+                var drift = new Vector3(Mathf.Cos(c) - Mathf.Cos(b), Mathf.Cos(a) - Mathf.Cos(c),
+                    Mathf.Cos(b) - Mathf.Cos(a)) * .22f;
+                float width = 2.1f + variant * 1.35f;
+                float height = width * (.66f + depth * .28f);
+                particles[i].position = transform.position + anchor + drift;
+                particles[i].startSize3D = new Vector3(width, height, 1);
+                particles[i].rotation = seed * 160 - 80;
+                // Seeds shift density, never position particles relative to the camera.
+                particles[i].startColor = new Color(seed, variant, depth, .46f + seed * .16f);
+                particles[i].remainingLifetime = particles[i].startLifetime = 100000;
+                particles[i].randomSeed = (uint)(i + 1);
+            }
+            clouds.SetParticles(particles, particles.Length);
+        }
+
+        void LateUpdate()
+        {
+            if (!Application.isPlaying || view == null || !view.gameObject.activeInHierarchy) return;
+            float now = Time.unscaledTime;
+            if (now >= nextLighting) { nextLighting = now + 15; ApplyTime(previewHour ?? GardenVisualClock.CurrentHour); }
+            if (now >= nextRender)
+            {
+                nextRender = now + .1f;
+                UpdateClouds(now);
+                renderRequested = true;
+            }
+            if (!renderRequested) return;
+            if (view.enabled) { renderRequested = false; return; }
+            if (view.targetTexture == null || lastRenderedFrame == Time.frameCount) return;
+            PreviewLayout?.Apply();
+            renderRequested = false;
+            view.Render();
+        }
+
+        void OnDestroy()
+        {
+            activeEnvironments.Remove(this);
+            if (activeEnvironments.Count == 0) CapstoneDesign.Prototype.PrototypeIslandDrag.DeferredRenderRequest = null;
+            RenderPipelineManager.beginCameraRendering -= PrepareSkyProjection;
+            if (RenderSettings.sun == key) RenderSettings.sun = null;
+            if (sky != null) { if (Application.isPlaying) Destroy(sky); else DestroyImmediate(sky); }
+            if (cloudMaterial != null) { if (Application.isPlaying) Destroy(cloudMaterial); else DestroyImmediate(cloudMaterial); }
+            if (cloudNoise != null) { if (Application.isPlaying) Destroy(cloudNoise); else DestroyImmediate(cloudNoise); }
+        }
+    }
+}

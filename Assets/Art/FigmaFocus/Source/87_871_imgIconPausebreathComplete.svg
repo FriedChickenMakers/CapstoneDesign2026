@@ -1,0 +1,16 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="180" height="210" viewBox="0 0 180 210" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="icon/pausebreath-complete" clip-path="url(#clip0_0_4)">
+<g id="Group">
+<path id="Vector" d="M116 210C151.346 210 180 181.346 180 146C180 110.654 151.346 82 116 82C80.6538 82 52 110.654 52 146C52 181.346 80.6538 210 116 210Z" fill="#DDF2EE"/>
+<path id="Vector_2" d="M96 118V176M136 118V176" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" stroke="#2F726E"/>
+<path id="Vector_3" d="M77 200C100 213 131 213 154 200" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" stroke="#2F726E"/>
+</g>
+<path id="Vector_4" d="M137 190C150.807 190 162 178.807 162 165C162 151.193 150.807 140 137 140C123.193 140 112 151.193 112 165C112 178.807 123.193 190 137 190Z" fill="#2F726E" stroke-width="4" stroke="white"/>
+<path id="Vector_5" d="M126 165L134 173L149 156" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" stroke="white"/>
+</g>
+<defs>
+<clipPath id="clip0_0_4">
+<rect width="180" height="210" fill="white"/>
+</clipPath>
+</defs>
+</svg>

@@ -1,0 +1,93 @@
+# Unity generated folders and files
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+
+# IDE/editor generated files
+.vs/
+.vscode/
+.idea/
+*.csproj
+*.sln
+*.slnx
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+__pycache__/
+*.pyc
+
+# Unity crash and build output
+sysinfo.txt
+*.stacktrace
+crashlytics-build.properties
+artifacts/
+!artifacts/.gitkeep
+
+# Local editor/licensing state
+.utmp/
+*.ulf
+*.unitypackage
+
+# Android/Gradle generated output
+.gradle/
+*.apk
+*.aab
+*.keystore
+*.jks
+*.user.keystore
+
+# Keep local machine overrides out of source control
+.env
+.env.*
+!.env.example
+local-settings.json
+
+# Private credentials and device data (also reviewed by the privacy scanner)
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+id_rsa
+id_ed25519
+.netrc
+.npmrc.local
+local.properties
+google-services.json
+GoogleService-Info.plist
+shared_prefs/
+daily_accel/
+daily_acceleration/
+sensor_samples.jsonl
+platform_snapshots.jsonl
+garden-live/
+garden-mock/
+garden-replay/
+local-garden-state*.json
+screen-timeout-journal.json
+brightness-journal.json
+logcat*.txt
+*.logcat.txt
+
+# Editor Play-mode test runner output and native crash memory (private artifacts only)
+Assets/Resources/PerformanceTestRunInfo.json*
+Assets/Resources/PerformanceTestRunSettings.json*
+mono_crash.*

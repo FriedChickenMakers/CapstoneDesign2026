@@ -1,0 +1,153 @@
+using System;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.UI;
+using CapstoneDesign.Prototype;
+
+namespace CapstoneDesign.Runtime
+{
+    // Figma points, measured from the top left of a 390 x 844 safe-area canvas.
+    public static class FigmaMissionUi
+    {
+        public static readonly Color Background=GardenThemePalette.Background, Ink=Hex("243C2F"), Muted=Hex("647468"), Green=Hex("315B48"), Soft=Hex("E3EED8"), Border=Hex("D9E1D7"), Warm=Hex("F9EEE1"), Brown=Hex("8E5D3A");
+        // Mission and records screens share one title frame contract. Adjust
+        // these values only here so the responsive mission home stays aligned.
+        public const float PageHeaderPlaqueX=12, PageHeaderPlaqueY=42, PageHeaderPlaqueWidth=366, PageHeaderPlaqueHeight=48;
+        public const float PageHeaderTitleX=24, PageHeaderTitleY=47, PageHeaderTitleWidth=342, PageHeaderTitleHeight=38;
+        public const float PageHeaderSubtitleX=24, PageHeaderSubtitleY=98, PageHeaderSubtitleWidth=342, PageHeaderSubtitleHeight=30;
+        public const float PageHeaderContentTop=110;
+        public static Color Hex(string value){Color c;ColorUtility.TryParseHtmlString("#"+value.TrimStart('#'),out c);return c;}
+        // Normal motion is the app default now that its settings switch is retired.
+        // Ignore the legacy saved flag; only isolated previews override this in memory.
+        public static bool ReducedMotion { get; set; } = false;
+        public static T Find<T>(Transform root,string name) where T:Component => root.GetComponentsInChildren<T>(true).FirstOrDefault(item=>item.name==name);
+        public static float Contrast(Color a,Color b) {float x=Luminance(a),y=Luminance(b);return (Mathf.Max(x,y)+.05f)/(Mathf.Min(x,y)+.05f);}
+        static float Luminance(Color c) => .2126f*Linear(c.r)+.7152f*Linear(c.g)+.0722f*Linear(c.b);
+        static float Linear(float c) => c<=.04045f?c/12.92f:Mathf.Pow((c+.055f)/1.055f,2.4f);
+        // Decorative theme colors remain unchanged; action/text colors meet the small-text target.
+        public static Color ActionColor(Color color) {while(Contrast(color,Color.white)<4.6f){color.r*=.97f;color.g*=.97f;color.b*=.97f;}return color;}
+        // Authoring still uses the top-left corner even when a control scales
+        // around its centre. Read unscaled layout coordinates during a press.
+        public static Vector2 TopLeftPosition(RectTransform rect) => rect.anchoredPosition
+            + new Vector2(-rect.pivot.x*rect.rect.width,(1-rect.pivot.y)*rect.rect.height);
+        public static void SetTopLeftPosition(RectTransform rect,Vector2 position)
+        {
+            rect.anchoredPosition=position+new Vector2(rect.pivot.x*rect.rect.width,-(1-rect.pivot.y)*rect.rect.height);
+        }
+        public static void SetRect(RectTransform rect,float x,float y,float width,float height)
+        {
+            rect.sizeDelta=new Vector2(width,height);SetTopLeftPosition(rect,new Vector2(x,-y));
+        }
+        public static void LayoutPageHeader(RectTransform plaque,RectTransform title,RectTransform subtitle=null)
+        {
+            if(plaque!=null)SetRect(plaque,PageHeaderPlaqueX,PageHeaderPlaqueY,PageHeaderPlaqueWidth,PageHeaderPlaqueHeight);
+            if(title!=null)SetRect(title,PageHeaderTitleX,PageHeaderTitleY,PageHeaderTitleWidth,PageHeaderTitleHeight);
+            if(subtitle!=null)SetRect(subtitle,PageHeaderSubtitleX,PageHeaderSubtitleY,PageHeaderSubtitleWidth,PageHeaderSubtitleHeight);
+        }
+        public static void CenterPivot(RectTransform rect)
+        {
+            if(rect==null || rect.pivot==new Vector2(.5f,.5f))return;
+            // World-space compensation also preserves rotated/scaled parents,
+            // stretched anchors and the positions of anchored child graphics.
+            Vector3 center=rect.TransformPoint(rect.rect.center);
+            rect.pivot=new Vector2(.5f,.5f);rect.position=center;
+        }
+        public static RectTransform Rect(Transform p,string name,float x,float y,float w,float h)
+        {
+            var go=new GameObject(name,typeof(RectTransform));var rt=(RectTransform)go.transform;rt.SetParent(p,false);
+            rt.anchorMin=rt.anchorMax=new Vector2(0,1);rt.pivot=new Vector2(0,1);rt.anchoredPosition=new Vector2(x,-y);rt.sizeDelta=new Vector2(w,h);return rt;
+        }
+        public static RectTransform Box(Transform p,string name,float x,float y,float w,float h,Color fill,float radius=0)
+        {
+            var rt=Rect(p,name,x,y,w,h);var im=rt.gameObject.AddComponent<Image>();
+            if(radius>0){GardenUi.Round(im,fill);im.pixelsPerUnitMultiplier=22f/Mathf.Min(radius,Mathf.Min(w,h)/2f);}else im.color=fill;
+            im.raycastTarget=false;
+            if(HasGardenShell(p) && fill.a>.99f && radius>0 && (w>=80 || h<=12))
+            {
+                var style=h<=12? (fill==Green?GardenThemeSurface.Style.ProgressFill:GardenThemeSurface.Style.ProgressTrack)
+                    :fill==Green?GardenThemeSurface.Style.Primary:fill==Soft?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Paper;
+                GardenThemeSurface.Apply(rt.gameObject,style);
+            }
+            return rt;
+        }
+        // Only navigation/record pages opt in. Per-mission colours, diagrams and
+        // dynamically rebuilt choice states keep their focused presentation.
+        static bool HasGardenShell(Transform parent)
+        {
+            for(var node=parent;node!=null;node=node.parent)
+                if(node.GetComponent<FigmaGardenThemeScope>()!=null)return true;
+            return false;
+        }
+        public static void UseGardenShell(GameObject surface)
+        {
+            if(surface.GetComponent<FigmaGardenThemeScope>()==null)surface.AddComponent<FigmaGardenThemeScope>();
+            GardenThemeSurface.UseSageAppearance(surface);
+            GardenThemeSurface.Apply(surface,GardenThemeSurface.Style.Backdrop);
+        }
+        public static void SetSelected(Button button,bool selected)
+        {
+            button.GetComponent<Image>().color=selected?Soft:Color.white;
+            GardenThemeSurface.Apply(button.gameObject,selected?GardenThemeSurface.Style.Selected:GardenThemeSurface.Style.Wood);
+            bool sage=GardenThemeSurface.IsSageScope(button.transform);
+            foreach(var label in button.GetComponentsInChildren<Text>(true))
+                if(label.transform.parent==button.transform)label.color=sage?(selected?GardenSagePalette.Primary:GardenSagePalette.Ink)
+                    :selected?Green:GardenThemeSurface.WoodInk;
+        }
+        public static Text Label(Transform p,string text,float x,float y,float w,float h,int size=16,Color? color=null,bool bold=false,TextAnchor align=TextAnchor.UpperLeft)
+        {
+            var rt=Rect(p,text.Length>40?text.Substring(0,40):text,x,y,w,h);var t=rt.gameObject.AddComponent<ScreenDensityText>();
+            t.font=bold?GardenTypography.Semibold:GardenTypography.Body;if(t.font==null)t.font=GardenUi.ResolveFont();
+            Color ink=color??Ink;
+            if(GardenThemeSurface.IsSageScope(p))
+            {
+                if(ink==Ink)ink=GardenSagePalette.Ink;
+                else if(ink==Muted)ink=GardenSagePalette.Muted;
+                else if(ink==Green)ink=GardenSagePalette.Primary;
+                else if(ink==Brown)ink=GardenSagePalette.WarmInk;
+            }
+            t.text=text;t.fontSize=size;t.color=GardenThemeSurface.Foreground(p,ink);t.alignment=align;t.supportRichText=false;t.horizontalOverflow=HorizontalWrapMode.Wrap;t.verticalOverflow=VerticalWrapMode.Overflow;t.lineSpacing=1.2f;t.raycastTarget=false;return t;
+        }
+        public static Button Button(Transform p,string label,float x,float y,float w,float h,Action action,Color? fill=null,Color? ink=null,int size=16,GardenThemeSurface.Tone tone=GardenThemeSurface.Tone.Default)
+        {
+            var rt=Box(p,label,x,y,w,h,fill??Green,16);var im=rt.GetComponent<Image>();im.raycastTarget=true;
+            CenterPivot(rt);
+            var b=rt.gameObject.AddComponent<Button>();b.targetGraphic=im;b.navigation=new Navigation{mode=Navigation.Mode.Automatic};
+            var colors=b.colors;colors.highlightedColor=new Color(.94f,.97f,.94f);colors.pressedColor=new Color(.78f,.86f,.80f);colors.disabledColor=new Color(.80f,.83f,.80f);colors.fadeDuration=.1f;b.colors=colors;
+            bool themed=HasGardenShell(p) && (fill??Green).a>.99f;
+            bool primary=themed && ((fill??Green)==Green || (fill??Green)==Brown);
+            if(themed)GardenThemeSurface.Apply(rt.gameObject,primary?GardenThemeSurface.Style.Primary:
+                fill==Soft?GardenThemeSurface.Style.Selected:string.IsNullOrEmpty(label)?GardenThemeSurface.Style.Paper:GardenThemeSurface.Style.Wood,tone);
+            float inset=primary && w>=280?28:8;
+            Label(rt,label,inset,0,w-2*inset,h,size,ink??Color.white,true,TextAnchor.MiddleCenter);b.onClick.AddListener(()=>action?.Invoke());
+            rt.gameObject.AddComponent<FocusControlFeedback>().Control=b;
+            GardenSfxButton.Attach(b,GardenSfxButton.CueForLabel(label));return b;
+        }
+        public static RawImage Asset(Transform p,string resourcesPath,float x,float y,float w,float h)
+        {
+            var tex=Resources.Load<Texture2D>(resourcesPath);var rt=Rect(p,resourcesPath,x,y,w,h);var im=rt.gameObject.AddComponent<RawImage>();im.texture=tex;im.raycastTarget=false;
+            if(tex!=null){float scale=Mathf.Min(w/tex.width,h/tex.height);rt.sizeDelta=new Vector2(tex.width*scale,tex.height*scale);rt.anchoredPosition+=new Vector2((w-rt.sizeDelta.x)/2,-(h-rt.sizeDelta.y)/2);}else Debug.LogError("Missing mission asset: "+resourcesPath);
+            return im;
+        }
+        public static InputField Input(Transform p,string hint,float x,float y,float w,float h,int limit=500)
+        {
+            var rt=Box(p,"입력 · "+hint,x,y,w,h,Color.white,16);rt.GetComponent<Image>().raycastTarget=true;
+            var input=rt.gameObject.AddComponent<GardenInputField>();input.targetGraphic=rt.GetComponent<Image>();
+            if(HasGardenShell(p))GardenThemeSurface.Apply(rt.gameObject,GardenThemeSurface.Style.Input);
+            input.textComponent=Label(rt,"",16,16,w-32,h-32,16);input.placeholder=Label(rt,hint,16,16,w-32,h-32,16,Muted);
+            input.lineType=InputField.LineType.MultiLineNewline;input.characterLimit=limit;input.customCaretColor=true;input.caretColor=Green;input.selectionColor=Soft;return input;
+        }
+    }
+
+    // Runtime-only marker: no serialized scene or prefab changes are required.
+    public sealed class FigmaGardenThemeScope:MonoBehaviour { }
+
+    [ExecuteAlways]
+    public sealed class FigmaMissionCanvasFit:MonoBehaviour
+    {
+        public RectTransform Design;
+        public bool WidthBased=true;
+        void OnEnable(){Canvas.preWillRenderCanvases+=Fit;Fit();}
+        void OnDisable(){Canvas.preWillRenderCanvases-=Fit;}
+        public void Fit(){if(Design==null)return;var r=((RectTransform)transform).rect;float s=WidthBased?r.width/390f:Mathf.Min(r.width/390f,r.height/844f);if(s<=0)return;Design.anchorMin=Design.anchorMax=new Vector2(.5f,.5f);Design.pivot=new Vector2(.5f,.5f);Design.anchoredPosition=Vector2.zero;Design.sizeDelta=new Vector2(390,WidthBased?r.height/s:844);Design.localScale=Vector3.one*s;}
+    }
+}

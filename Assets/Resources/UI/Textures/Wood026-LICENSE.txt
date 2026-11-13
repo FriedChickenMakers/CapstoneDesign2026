@@ -1,0 +1,20 @@
+Wood026 by ambientCG
+Source: https://ambientcg.com/view?id=Wood026
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+Color map with 32px white strip for UI edges, aspect-preserving crop.
+Used for wooden buttons, saturation reduced to 35%, brightness raised to 165%.
+
+Mild sigmoidal contrast (3x50%) added to the button color map.
+
+2026-11-09: Offline upper-left lighting baked from Wood026 NormalGL and
+Roughness into the existing graded albedo, in linear light. White atlas
+strip preserved; no runtime normal map or dynamic UI light required.
+Reproducer: Assets/Editor/Automation/TimberLightingBake.cs. Supply the
+Wood026 1K NormalGL/Roughness maps and the unlit NavigationBackingUI.png
+from commit e2342e89b033a070d597dc6380b7c5ae62c4cb42 via the named
+environment variables. Never use the baked output as its own base atlas.
+
+2026-11-11: CombineWoodButtonUI.png preserves the pre-bake button atlas from
+codex/combine-garden-20261107 commit 10717a314e719f0e963f5b71972fe67af9e3ffe4
+for the selected mission-home appearance. The current garden atlas is retained.

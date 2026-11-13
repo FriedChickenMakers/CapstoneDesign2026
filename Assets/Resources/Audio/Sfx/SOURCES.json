@@ -1,0 +1,312 @@
+{
+  "schema_version": 1,
+  "purpose": "Short optional app feedback effects; independent of existing user-supplied background music.",
+  "sources": {
+    "kenney": {
+      "title": "Interface Sounds (1.0)",
+      "author": "Kenney (www.kenney.nl)",
+      "page_url": "https://kenney.nl/assets/interface-sounds",
+      "author_upload_page_url": "https://opengameart.org/content/interface-sounds",
+      "download_url": "https://opengameart.org/sites/default/files/kenney_interfaceSounds.zip",
+      "archive_sha256": "f2193d072726d6758a5f7871b2dcc54dcce0d5c35c6f0a62f92549b327c81232",
+      "download_note": "Downloaded from the official Kenney signed-link endpoint; confirmed byte-identical SHA256 to the permanent creator-uploaded OpenGameArt ZIP.",
+      "copyright_attribution_notice": "Credit \"Kenney.nl\" or \"www.kenney.nl\", this is not mandatory.",
+      "original_license_file": "Kenney-License.txt",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved_date": "2026-11-12"
+    },
+    "bell": {
+      "title": "Pleasing Bell Sound Effect",
+      "author": "Julie Damsgaard / Spring Spring / Spring Enterprises",
+      "page_url": "https://opengameart.org/content/pleasing-bell-sound-effect",
+      "download_url": "https://opengameart.org/sites/default/files/pleasing-bell.wav",
+      "copyright_attribution_notice": "Produced by Julie Damsgaard/Spring Spring/Spring Enterprises @ https://spring-enterprises.neocities.org",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved_date": "2026-11-12"
+    },
+    "harp": {
+      "title": "Magic Words + Healing Sound Effect (health_restore.wav only)",
+      "author": "Julie Damsgaard / Spring Spring / Spring Enterprises",
+      "page_url": "https://opengameart.org/content/magic-words-healing-sound-effect",
+      "download_url": "https://opengameart.org/sites/default/files/health_restore.wav",
+      "copyright_attribution_notice": "Produced by Julie Damsgaard/Spring Spring/Spring Enterprises @ https://spring-enterprises.neocities.org",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved_date": "2026-11-12"
+    },
+    "swish": {
+      "title": "Swishes Sound Pack",
+      "author": "artisticdude",
+      "page_url": "https://opengameart.org/content/swishes-sound-pack",
+      "download_url": "https://opengameart.org/sites/default/files/swishes.zip",
+      "archive_sha256": "7980215241b739a787dcf26f660ce510bb237900968789395a86911619795693",
+      "license": "CC0-1.0",
+      "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "retrieved_date": "2026-11-12"
+    }
+  },
+  "assets": [
+    {
+      "file": "UiClick.wav",
+      "resource_path": "Audio/Sfx/UiClick",
+      "sha256": "48b73101b48b2ae518622debba172e38c422cee854426dd9652cca44e840bb7a",
+      "bytes": 5184,
+      "duration_seconds": 0.058277,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -13.0,
+      "rms_dbfs": -32.69,
+      "first_sample_above_minus60_dbfs_seconds": 6.8e-05,
+      "source_files": [
+        {
+          "source_id": "kenney",
+          "file": "kenney_interface-sounds/Audio/click_001.ogg",
+          "sha256": "ccfb7fa0cccdd9faec0eb16033c732b1e308d139d80f799161495d58f7adcdb9"
+        }
+      ],
+      "transformations": [
+        "FFmpeg highpass 150 Hz and lowpass 6000 Hz.",
+        "Trim to audible content at -65 dBFS with 3 ms pre-roll and 20 ms tail: [0.0, 0.0582766439909297].",
+        "Linear 1 ms attack / 12 ms release.",
+        "Peak scaled to -13 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "UiBack.wav",
+      "resource_path": "Audio/Sfx/UiBack",
+      "sha256": "014db74aad06bc33d0327ff610a99c66e9e2441c01b81343c3f9c6fa39a38c1e",
+      "bytes": 5422,
+      "duration_seconds": 0.060975,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -14.0,
+      "rms_dbfs": -35.18,
+      "first_sample_above_minus60_dbfs_seconds": 6.8e-05,
+      "source_files": [
+        {
+          "source_id": "kenney",
+          "file": "kenney_interface-sounds/Audio/back_001.ogg",
+          "sha256": "07db973f79f6ae0f2edc34561e7592e24d0577455919fb602cb8ecc0da991dcf"
+        }
+      ],
+      "transformations": [
+        "FFmpeg highpass 100 Hz and lowpass 5000 Hz.",
+        "Trim: [0.0, 0.0609750566893424].",
+        "Linear 1 ms attack / 12 ms release.",
+        "Peak scaled to -14 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "PracticeStart.wav",
+      "resource_path": "Audio/Sfx/PracticeStart",
+      "sha256": "f0a0a8902f0e62f7e6d21fcd3b8598b38498407f26388c0b300f8dacae7af12e",
+      "bytes": 54654,
+      "duration_seconds": 0.619161,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -10.0,
+      "rms_dbfs": -24.37,
+      "first_sample_above_minus60_dbfs_seconds": 0.002971,
+      "source_files": [
+        {
+          "source_id": "bell",
+          "file": "pleasing-bell.wav",
+          "sha256": "3c851939ccf9146e49c1be0272386fdca1b1442bb034a5e6dcdfb3e0e144a411"
+        }
+      ],
+      "transformations": [
+        "FFmpeg highpass 100 Hz and lowpass 6500 Hz.",
+        "Trim: [0.00013605442176870748, 0.6192970521541951].",
+        "Linear 3 ms attack / 45 ms release.",
+        "Peak scaled to -10 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "MissionComplete.wav",
+      "resource_path": "Audio/Sfx/MissionComplete",
+      "sha256": "069c5bf3b3cfed279b98e0c83e00f3d8602778435489e530f852e0034de70b8c",
+      "bytes": 64566,
+      "duration_seconds": 0.731542,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -10.0,
+      "rms_dbfs": -23.94,
+      "first_sample_above_minus60_dbfs_seconds": 0.002971,
+      "source_files": [
+        {
+          "source_id": "bell",
+          "file": "pleasing-bell.wav",
+          "sha256": "3c851939ccf9146e49c1be0272386fdca1b1442bb034a5e6dcdfb3e0e144a411"
+        }
+      ],
+      "transformations": [
+        "Two bell strikes: original at 0 s (gain 0.8), +4 semitone variant at 0.24 s (gain 0.7); pitch variant asetrate=55563, aresample=44100.",
+        "FFmpeg highpass 100 Hz and lowpass 6500 Hz; -65 dBFS outer silence trim on each strike.",
+        "Linear 3 ms attack / 60 ms release.",
+        "Peak scaled to -10 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "GrowthSwirl.wav",
+      "resource_path": "Audio/Sfx/GrowthSwirl",
+      "sha256": "e253302d56ef945fcfc2d9d900c18ea99874ff9dbf2545496bac4dbac8137d71",
+      "bytes": 229364,
+      "duration_seconds": 2.6,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -12.0,
+      "rms_dbfs": -31.29,
+      "first_sample_above_minus60_dbfs_seconds": 0.099433,
+      "source_files": [
+        {
+          "source_id": "harp",
+          "file": "health_restore.wav",
+          "sha256": "c254c71a4e09af6cfe0825f16ac466c745e694cbaf30487f0a1ec7186598f3dd"
+        },
+        {
+          "source_id": "swish",
+          "file": "swishes/swishes/swish-9.wav",
+          "sha256": "123883f006ce55feecbff11eea5f87c4493df4399989983037144570a23723c1"
+        }
+      ],
+      "transformations": [
+        "Harp highpass 160 Hz, lowpass 6000 Hz; extract 0.32-2.92 s and reverse for a 2.6 s rising shimmer.",
+        "Swish atempo=0.5, highpass 300 Hz, lowpass 4000 Hz, silence trim; 25 ms attack / 60 ms release.",
+        "Mix swishes at 0.05/0.65/1.25/2.05 s with absolute peak amplitudes 0.025/0.035/0.045/0.055 before final peak scaling.",
+        "Linear 120 ms attack / 80 ms release; growth reveal at 2.576 s falls inside the final fade.",
+        "Peak scaled to -12 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "GrowthBloom.wav",
+      "resource_path": "Audio/Sfx/GrowthBloom",
+      "sha256": "2042ccf2cd6da8fd1a257abb13de3541da6cfd16ec8b55a67ad42f6fc283bea0",
+      "bytes": 132344,
+      "duration_seconds": 1.5,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -10.0,
+      "rms_dbfs": -27.24,
+      "first_sample_above_minus60_dbfs_seconds": 0.0039,
+      "source_files": [
+        {
+          "source_id": "harp",
+          "file": "health_restore.wav",
+          "sha256": "c254c71a4e09af6cfe0825f16ac466c745e694cbaf30487f0a1ec7186598f3dd"
+        }
+      ],
+      "transformations": [
+        "FFmpeg atempo=1.6, highpass 160 Hz, lowpass 6000 Hz; first 1.5 seconds.",
+        "Linear 8 ms attack / 250 ms release.",
+        "Peak scaled to -10 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "Purchase.wav",
+      "resource_path": "Audio/Sfx/Purchase",
+      "sha256": "468db4bc5e6e6e0d4a6e92f3e802e1e36c7d6dcc7c27a491983b28de4ccd80a4",
+      "bytes": 21358,
+      "duration_seconds": 0.241655,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -11.0,
+      "rms_dbfs": -30.38,
+      "first_sample_above_minus60_dbfs_seconds": 2.3e-05,
+      "source_files": [
+        {
+          "source_id": "kenney",
+          "file": "kenney_interface-sounds/Audio/pluck_001.ogg",
+          "sha256": "be97ec4893a02d6eccfb678daa76c83e34cb2583b834ec2593d2641def739fa4"
+        },
+        {
+          "source_id": "kenney",
+          "file": "kenney_interface-sounds/Audio/pluck_002.ogg",
+          "sha256": "c977fe249ff42d1c93a552b33abc13a8399df3879fa510475426e5c4bbac1da9"
+        }
+      ],
+      "transformations": [
+        "FFmpeg highpass 120 Hz and lowpass 5000 Hz; trim outer silence at -65 dBFS.",
+        "Mix pluck_001 at 0 s (gain 1) and pluck_002 at 0.08 s (gain 0.7).",
+        "Linear 1 ms attack / 35 ms release.",
+        "Peak scaled to -11 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "RecordSaved.wav",
+      "resource_path": "Audio/Sfx/RecordSaved",
+      "sha256": "ffc43a8b45d75fb89cfe3e24854f9810d2e460073d7a0a6e2b655ba076f260b6",
+      "bytes": 21496,
+      "duration_seconds": 0.24322,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -13.0,
+      "rms_dbfs": -28.22,
+      "first_sample_above_minus60_dbfs_seconds": 0.011678,
+      "source_files": [
+        {
+          "source_id": "swish",
+          "file": "swishes/swishes/swish-9.wav",
+          "sha256": "123883f006ce55feecbff11eea5f87c4493df4399989983037144570a23723c1"
+        }
+      ],
+      "transformations": [
+        "Light swish used as a soft page-like save gesture, not a literal paper recording.",
+        "FFmpeg atempo=0.7, highpass 200 Hz, lowpass 5000 Hz.",
+        "Trim: [0.009931972789115647, 0.2531519274376417].",
+        "Linear 15 ms attack / 50 ms release.",
+        "Peak scaled to -13 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    },
+    {
+      "file": "Error.wav",
+      "resource_path": "Audio/Sfx/Error",
+      "sha256": "703af74ccc4dbc1bb9bc037d24e85bcb3f3cd47270e209d850390476f57d3b60",
+      "bytes": 12490,
+      "duration_seconds": 0.141111,
+      "sample_rate_hz": 44100,
+      "channels": 1,
+      "encoding": "PCM signed 16-bit little endian WAV",
+      "peak_dbfs": -15.0,
+      "rms_dbfs": -29.56,
+      "first_sample_above_minus60_dbfs_seconds": 0.000227,
+      "source_files": [
+        {
+          "source_id": "kenney",
+          "file": "kenney_interface-sounds/Audio/bong_001.ogg",
+          "sha256": "d21d0f0b782445db579d11e2506b24cd1ac9d664ee33aeaf807761aa7b6fd710"
+        }
+      ],
+      "transformations": [
+        "FFmpeg asetrate=37485, aresample=44100 (0.85 pitch/speed), highpass 90 Hz, lowpass 1800 Hz for a low, brief knock.",
+        "Trim: [0.0, 0.1411111111111111].",
+        "Linear 2 ms attack / 25 ms release.",
+        "Peak scaled to -15 dBFS; mono 44100 Hz; rounded to PCM16; source metadata removed."
+      ]
+    }
+  ],
+  "processing": "FFmpeg 7.1 decoding/filtering; Python 3.9 deterministic sample mixing/fades/PCM16 WAV writing. Reproduction script is in ignored artifacts/audio-sources-20261112/prepare_sfx.py.",
+  "unity_import": {
+    "load_type": "DecompressOnLoad",
+    "compression_format": "PCM",
+    "force_to_mono": true,
+    "normalize": false,
+    "preload_audio_data": true,
+    "load_in_background": false,
+    "is_3d": false
+  },
+  "verification": "All outputs decoded fully by FFmpeg and checked for PCM format, mono, nonzero finite samples, amplitude headroom, duration <= 4 s, first audible sample < 1 s, and distinct Unity GUIDs. No speaker/headphone listening or device output validation was performed in this environment.",
+  "aliases": {
+    "PracticeEnd": "MissionComplete",
+    "PhotoShutter": "UiClick"
+  }
+}

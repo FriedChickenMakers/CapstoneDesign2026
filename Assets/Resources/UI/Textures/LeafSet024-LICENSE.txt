@@ -1,0 +1,29 @@
+LeafSet024 by ambientCG
+Source: https://ambientcg.com/view?id=LeafSet024
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Nine leaves cut out with opacity map, rotated and layered over a pale green background.
+32px white strip added for UI edges. Runtime tint controls brightness.
+Source color SHA-256: f5c6cbf36de217af8ae06cf5d7badd035e04c341594aa618abacc2a9d8dbb8c8
+
+Baked derivative: softened color and normal details, upper-left directional
+light computed from NormalGL; Bark012 also uses ambient occlusion.
+LeafSet024 background changed to #EAF2CB; leaf layout preserved.
+
+Latest variant: overlapping leaves over an interior-leaf underlayer;
+no flat background remains visible. Uses previously baked lighting.
+
+Selected navigation variant: saturation reduced to 65%.
+
+Brightness raised 8%, with mild sigmoidal contrast (2x50%).
+
+Latest navigation variant: four sparse leaves over #F4F9EC; centre reserved for labels.
+
+Two navigation variants: dense leaves for inactive tabs; four 40% larger
+leaves over pale green for selected tabs. Leaf count remains four.
+
+Additional derivative: LeafSet024LitNavigation.png. Nine larger overlapping
+leaf cells with NormalGL/roughness-based baked lighting, soft shadows and
+per-material saturation/contrast grading. Source and CC0 license unchanged.
+Reproduction helper: Assets/Editor/Automation/GardenNavigationLeafBake.cs.

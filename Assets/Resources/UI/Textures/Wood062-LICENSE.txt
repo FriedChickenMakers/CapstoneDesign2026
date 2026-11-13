@@ -1,0 +1,6 @@
+Wood062 by ambientCG
+Source: https://ambientcg.com/view?id=Wood062
+License: CC0 1.0 Universal
+https://creativecommons.org/publicdomain/zero/1.0/
+2K color, NormalGL and ambient occlusion combined with upper-left lighting
+and modest contrast enhancement. 64px white atlas strip for UI edges.

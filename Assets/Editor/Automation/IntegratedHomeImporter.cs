@@ -1,0 +1,207 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using CapstoneDesign.Prototype;
+using CapstoneDesign.Runtime;
+using TMPro;
+using UnityEditor;
+using UnityEditor.Events;
+using UnityEditor.SceneManagement;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+namespace CapstoneDesign.EditorTools
+{
+    // Regeneration imports only the source prototype's visual scene objects.
+    // PrototypeController and its temporary PrototypeSession stay in Prototype.unity.
+    public static class IntegratedHomeImporter
+    {
+        const string SourceScene = "Assets/Scenes/Prototype.unity";
+
+        public static void Import(Scene destination)
+        {
+            if (!System.IO.File.Exists(SourceScene)) throw new InvalidOperationException("Prototype design scene is missing.");
+            var source = EditorSceneManager.OpenScene(SourceScene, OpenSceneMode.Additive);
+            try
+            {
+                var canvasObject = Root(source, "PrototypeCanvas");
+                var gardenPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Resources/GardenModels/GardenBase.prefab");
+                if (gardenPrefab == null) throw new InvalidOperationException("Build the Kenney garden models before regenerating the app scene.");
+                var garden = (GameObject)PrefabUtility.InstantiatePrefab(gardenPrefab, destination);
+                var cameraObject = Root(source, "Garden Camera");
+                foreach (var item in new[] { canvasObject, cameraObject })
+                    EditorSceneManager.MoveGameObjectToScene(item, destination);
+                // The static garden renders on state/orbit/layout changes, avoiding
+                // a continuous second camera on a phone carried all day.
+                cameraObject.GetComponent<Camera>().enabled = false;
+
+
+                canvasObject.name = "IntegratedHomeCanvas";
+                var canvas = canvasObject.GetComponent<Canvas>();
+                canvas.overrideSorting = true;
+                canvas.sortingOrder = 30;
+                var frame = Require(canvasObject.transform, "SafePortraitFrame");
+                DeleteChildrenExcept(frame, "MainContent");
+                var content = Require(frame, "MainContent");
+                DeleteChildrenExcept(content, "Brand", "Date", "GardenAndGrowth", "BottomNavigation", "HomeTab", "MoodTab");
+                AlignHeaderDate(Require(content, "Date").GetComponent<TMP_Text>());
+                var backdrop = canvasObject.transform.Find("ModalBackdrop");
+                if (backdrop != null) UnityEngine.Object.DestroyImmediate(backdrop.gameObject);
+
+                var home = Require(content, "GardenAndGrowth");
+                var missionButton = Require(home, "GardenAction").GetComponent<Button>();
+                ClearPersistent(missionButton);
+                var shopObject = UnityEngine.Object.Instantiate(missionButton.gameObject, home);
+                shopObject.name = "GardenShopAction";
+                var shopButton = shopObject.GetComponent<Button>();
+                ClearPersistent(shopButton);
+                FullButton(shopButton.GetComponent<RectTransform>());
+                shopButton.GetComponentInChildren<TMP_Text>(true).text = "정원 상점";
+                // Activity remains available once, in the bottom navigation.
+                UnityEngine.Object.DestroyImmediate(missionButton.gameObject);
+
+                var homeTab = Require(content, "HomeTab").GetComponent<Button>();
+                var activityTab = Require(content, "MoodTab").GetComponent<Button>();
+                var settingsObject = UnityEngine.Object.Instantiate(activityTab.gameObject, content);
+                settingsObject.name = "SettingsTab";
+                var settingsTab = settingsObject.GetComponent<Button>();
+                settingsTab.GetComponentInChildren<PrototypeUiIcon>(true).symbol = PrototypeUiIcon.Symbol.Journal;
+                activityTab.name = "ActivityTab";
+                homeTab.GetComponentInChildren<TMP_Text>(true).text = "홈";
+                activityTab.GetComponentInChildren<TMP_Text>(true).text = "미션";
+                settingsTab.GetComponentInChildren<TMP_Text>(true).text = "기록";
+                foreach (var button in new[] { homeTab, activityTab, settingsTab }) ClearPersistent(button);
+                // Match the 624px action/content column. Keep each tab's 192px
+                // touch target, with 16px outer padding and 8px between tabs.
+                var bottomNavigation = Require(content, "BottomNavigation").GetComponent<RectTransform>();
+                bottomNavigation.anchoredPosition = new Vector2(48, 116);
+                bottomNavigation.sizeDelta = new Vector2(624, 106);
+                Tab(homeTab, 64f / 720f, 256f / 720f);
+                Tab(activityTab, 264f / 720f, 456f / 720f);
+                Tab(settingsTab, 464f / 720f, 656f / 720f);
+
+                // The home-owned camera is parked outside the other screens.
+                // Its independent palette needs no continuously active light.
+                var visuals = new GameObject("IntegratedGardenVisuals");
+                SceneManager.MoveGameObjectToScene(visuals, destination);
+                foreach (var item in new[] { garden, cameraObject })
+                    item.transform.SetParent(visuals.transform, true);
+
+                var oldUi = Root(destination, "UiCanvas");
+                var navigation = oldUi.GetComponent<MockupNavigation>();
+                var presenter = oldUi.AddComponent<GardenHomePresenter>();
+                presenter.homeCanvas = canvas;
+                presenter.gardenVisuals = visuals;
+                presenter.oldCamera = Root(destination, "MockupCamera").GetComponent<Camera>();
+                presenter.oldLight = Root(destination, "MoonLight").GetComponent<Light>();
+                presenter.gardenCamera = cameraObject.GetComponent<Camera>();
+                presenter.activity = navigation.activitiesPanel.GetComponent<WeekOneQuestDemo>();
+                presenter.navigation = navigation;
+                presenter.plant = garden.GetComponentInChildren<PrototypePlantView>(true);
+                presenter.gardenRoot = garden.transform;
+                foreach (var layout in canvasObject.GetComponentsInChildren<PrototypeGardenPreviewLayout>(true))
+                    layout.gardenRoot = garden.transform;
+                foreach (var orbit in canvasObject.GetComponentsInChildren<PrototypeIslandDrag>(true))
+                { orbit.focus = new Vector3(0,.08f,0); orbit.ResetView(); }
+                presenter.date = Require(content, "Date").GetComponent<TMP_Text>();
+                presenter.title = Require(home, "Title").GetComponent<TMP_Text>();
+                presenter.guide = Require(home, "Guide").GetComponent<TMP_Text>();
+                presenter.stage = Require(home, "PlantStage").GetComponent<TMP_Text>();
+                presenter.dailyStatus = Require(home, "DailyStatus").GetComponent<TMP_Text>();
+                presenter.missionName = Require(home, "MissionName").GetComponent<TMP_Text>();
+                presenter.homeTabLabel = homeTab.GetComponentInChildren<TMP_Text>(true);
+                presenter.activityTabLabel = activityTab.GetComponentInChildren<TMP_Text>(true);
+                presenter.settingsTabLabel = settingsTab.GetComponentInChildren<TMP_Text>(true);
+                presenter.shopButton = shopButton;
+                presenter.homeTab = homeTab;
+                presenter.activityTab = activityTab;
+                presenter.settingsTab = settingsTab;
+                presenter.progressDots = Enumerable.Range(1, 4).Select(i => Require(home, "GrowthStep_" + i).GetComponent<PrototypeUiSurface>()).ToArray();
+                navigation.home = presenter;
+                if (presenter.plant == null) throw new InvalidOperationException("Prototype plant art is missing.");
+                EditorSceneManager.MarkSceneDirty(destination);
+            }
+            finally
+            {
+                EditorSceneManager.CloseScene(source, true);
+            }
+        }
+
+        static GameObject Root(Scene scene, string name)
+        {
+            var result = scene.GetRootGameObjects().FirstOrDefault(item => item.name == name);
+            if (result == null) throw new InvalidOperationException(name + " missing from " + scene.path);
+            return result;
+        }
+        static Transform Require(Transform root, string path)
+        {
+            var result = root.Find(path);
+            if (result == null) throw new InvalidOperationException(path + " missing under " + root.name);
+            return result;
+        }
+        static void DeleteChildrenExcept(Transform parent, params string[] names)
+        {
+            for (int i = parent.childCount - 1; i >= 0; i--)
+            {
+                var child = parent.GetChild(i);
+                if (!names.Contains(child.name)) UnityEngine.Object.DestroyImmediate(child.gameObject);
+            }
+        }
+        static void ClearPersistent(Button button)
+        {
+            for (int i = button.onClick.GetPersistentEventCount() - 1; i >= 0; i--)
+                UnityEventTools.RemovePersistentListener(button.onClick, i);
+        }
+        static void FullButton(RectTransform rect)
+        {
+            // Source uses a 720px portrait design frame with top-left anchored coordinates.
+            rect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, 624);
+            var position = rect.anchoredPosition;
+            position.x = 48;
+            rect.anchoredPosition = position;
+        }
+        static void Tab(Button button, float left, float right)
+        {
+            var rect = button.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(left, 0);
+            rect.anchorMax = new Vector2(right, 0);
+            rect.pivot = new Vector2(.5f, 0);
+            // Center the 54px tab in the 106px navigation card (bottom 10px).
+            rect.anchoredPosition = new Vector2(0, 36);
+            rect.sizeDelta = new Vector2(0, 54);
+            var icon = button.GetComponentInChildren<PrototypeUiIcon>(true);
+            if (icon != null)
+            {
+                var image = icon.rectTransform;
+                image.anchorMin = image.anchorMax = new Vector2(0, 1);
+                image.pivot = new Vector2(0, 1);
+                image.anchoredPosition = new Vector2(18, -11);
+                image.sizeDelta = new Vector2(32, 32);
+            }
+            var label = button.GetComponentInChildren<TMP_Text>(true);
+            if (label != null)
+            {
+                var textRect = label.rectTransform;
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(60, 0);
+                textRect.offsetMax = new Vector2(-8, 0);
+                label.fontSize = label.fontSizeMin = label.fontSizeMax = 22;
+                label.enableAutoSizing = false;
+                label.alignment = TextAlignmentOptions.MidlineLeft;
+                label.textWrappingMode = TextWrappingModes.NoWrap;
+            }
+        }
+
+        static void AlignHeaderDate(TMP_Text date)
+        {
+            var rect = date.rectTransform;
+            rect.anchorMin = rect.anchorMax = Vector2.one;
+            rect.pivot = Vector2.one;
+            rect.anchoredPosition = new Vector2(-48, -32);
+            rect.sizeDelta = new Vector2(200, 48);
+            date.alignment = TextAlignmentOptions.MidlineRight;
+        }
+    }
+}

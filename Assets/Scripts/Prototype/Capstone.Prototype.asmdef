@@ -1,0 +1,6 @@
+{
+  "name": "Capstone.Prototype",
+  "rootNamespace": "CapstoneDesign.Prototype",
+  "references": ["Unity.TextMeshPro", "UnityEngine.UI", "Unity.InputSystem"],
+  "autoReferenced": true
+}

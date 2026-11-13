@@ -1,0 +1,1293 @@
+using System;
+using System.Collections;
+using System.Globalization;
+using System.Text;
+using CapstoneDesign.Prototype;
+using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
+
+namespace CapstoneDesign.Runtime
+{
+    /// <summary>
+    /// Presents the status-bearing Android platform facade. It intentionally
+    /// never calls SensorManager or Health Connect directly.
+    /// </summary>
+    public sealed class SensorRawDisplay : MonoBehaviour
+    {
+        private const float RefreshSeconds = 0.5f;
+        private const float HealthRefreshSeconds = 60f;
+
+        [SerializeField] public Text output;
+        [SerializeField] public Button startServiceButton;
+        [SerializeField] public Button stopServiceButton;
+        [SerializeField] public Button sensorPermissionButton;
+        [SerializeField] public Button healthPermissionButton;
+        [SerializeField] public Button refreshHealthButton;
+
+        private readonly StringBuilder builder = new StringBuilder(2048);
+        private float nextRefresh;
+        private float nextHealthRefresh;
+        private string lastAction = "Ready";
+        private bool automaticPermissionFlowStarted;
+        private Button debugModeButton;
+        private Button virtualStepButton;
+        private bool prepared;
+        private Text healthStatus;
+        private Text permissionStatus;
+        private Text collectorStatus;
+        private Text collectorDetails;
+        private Text healthActionStatus;
+        private Text missionActionStatus;
+        public Button MissionRefreshButton => refreshHealthButton;
+        public Button AdvanceMissionDayButton { get; private set; }
+        public Text MissionDateStatus { get; private set; }
+        public Button AddTestCoinsButton { get; private set; }
+        public Text TestCoinStatus { get; private set; }
+        // Retain callers of the previous development-only controls while the
+        // product and service now expose the same saved wallet as coins.
+        public Button AddTestNutrientsButton => AddTestCoinsButton;
+        public Text TestNutrientStatus => TestCoinStatus;
+        private Text coinActionStatus;
+        public Button TestToolsToggleButton { get; private set; }
+        public Button MissionResetConfirmButton { get; private set; }
+        private GameObject missionResetConfirmation;
+        private string fullResetRequestId, fullResetSourceId;
+        private Button fullResetCancelButton;
+        private readonly System.Collections.Generic.Dictionary<Selectable,bool> resetBlockedControls
+            = new System.Collections.Generic.Dictionary<Selectable,bool>();
+        private Disclosure testToolsDisclosure, diagnosticsDisclosure;
+        private sealed class Disclosure
+        {
+            public RectTransform Frame, Content;
+            public LayoutElement Height;
+            public CanvasGroup Group;
+            public bool Expanded;
+            public Coroutine Animation;
+        }
+        private Text permissionActionStatus;
+        private Text collectorActionStatus;
+        private GameObject diagnostics;
+        private Button diagnosticsButton;
+        private Text notificationStatus;
+        private Text notificationTimeValue;
+        private Button notificationToggle, notificationPermission, notificationTiming, notificationAdaptive;
+        private GameObject notificationOptions;
+        private ActivityNotificationSettings notificationSettings;
+        private Text notificationActionStatus;
+        private Slider musicVolume;
+        private Text musicVolumeValue;
+        private Slider sfxVolume;
+        private Text sfxVolumeValue;
+        private sealed class SwitchVisual
+        {
+            public Image Track;
+            public RectTransform Thumb;
+            public Text State;
+        }
+        private readonly System.Collections.Generic.Dictionary<Button, SwitchVisual> switches =
+            new System.Collections.Generic.Dictionary<Button, SwitchVisual>();
+        private GardenVisualDebugPage visualDebugPage;
+        private RectTransform settingsDesign;
+        private Vector2 visualDebugScrollPosition;
+        private GameObject visualDebugOrigin;
+        public bool HasOwnPageHeader => settingsDesign != null && gameObject.activeInHierarchy;
+        public bool IsVisualDebugOpen => visualDebugPage != null && visualDebugPage.gameObject.activeSelf;
+        public ScrollRect PrimaryScroll { get; private set; }
+        private WeekOneQuestDemo Loop => transform.root.GetComponentInChildren<WeekOneQuestDemo>(true);
+
+        private void Awake() => PrepareView();
+
+        public void PrepareView()
+        {
+            if (prepared) return;
+            prepared = true;
+            Transform content = ConfigureScrollablePanel();
+
+            Transform reminders = Section(content, "Activity reminders", "알림");
+            notificationToggle = SwitchRow(reminders, "활동 알림", ToggleActivityNotifications);
+            notificationStatus = Copy(reminders, "알림 설정 확인 중", GardenUi.CaptionSize, GardenUi.Muted);
+            notificationOptions = Stack(reminders, "Reminder timing options", 8, 0).gameObject;
+            Divider(notificationOptions.transform);
+            notificationTiming = RowControl(notificationOptions.transform, "알림 시간", () =>
+            {
+                var result=ActivityNotificationBridge.ChooseTime();
+                bool opened=result!=null && result.status=="AVAILABLE";
+                notificationActionStatus.text=opened?"":"시간 선택을 열지 못했어요. 다시 시도해 주세요.";
+                notificationActionStatus.gameObject.SetActive(!opened);
+            });
+            notificationTiming.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-128,0);
+            notificationTimeValue=GardenUi.Label(notificationTiming.transform,"",1,0,0,1,16);
+            notificationTimeValue.fontSize=16;
+            notificationTimeValue.alignment=TextAnchor.MiddleRight;
+            notificationTimeValue.color=GardenUi.Muted;
+            notificationTimeValue.rectTransform.offsetMin=new Vector2(-120,0);
+            notificationTimeValue.rectTransform.offsetMax=new Vector2(-44,0);
+            notificationAdaptive=SwitchRow(notificationOptions.transform,"자동 알림 시간 조정",ToggleAdaptiveReminders);
+            notificationPermission=Control(reminders,"알림 권한 허용",()=>ActivityNotificationBridge.Permission());
+            notificationActionStatus=ActionLine(reminders);
+
+            Transform music = Section(content, "Garden preferences", "정원");
+            BuildMusicVolume(music);
+            BuildSfxVolume(music);
+            Divider(music);
+            RowControl(music, "정원의 시간", OpenVisualDebug);
+            RefreshMusicSetting();
+            RefreshSfxSetting();
+
+            Transform healthCard = Section(content, "Health records", "건강 기록");
+            healthStatus = Copy(healthCard, "건강 기록 확인 중", GardenUi.BodySize, GardenUi.Muted);
+            RowControl(healthCard, "심박 차트 보기", OpenCharts);
+            RowControl(healthCard, "건강 기록 동기화", RefreshHealth);
+            healthActionStatus = ActionLine(healthCard);
+
+            Transform permissions = Section(content, "Permissions", "데이터 접근 권한");
+            permissionStatus = Copy(permissions, "권한 확인 중", GardenUi.BodySize, GardenUi.Muted);
+            PlaceRow(sensorPermissionButton, permissions, "활동 권한");
+            PlaceRow(healthPermissionButton, permissions, "건강 데이터 권한");
+            permissionActionStatus = ActionLine(permissions);
+
+            // Destructive reset and simulation tools never enter a release build's UI.
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            TestToolsToggleButton = RowControl(content, "테스트 도구  +", ToggleTestTools);
+            TestToolsToggleButton.name = "Settings.TestTools";
+            testToolsDisclosure = CreateDisclosure(content, "Test tools disclosure");
+            Transform testTools = testToolsDisclosure.Content;
+            Copy(testTools, "개발·테스트용 · 출시 버전에는 표시되지 않아요.", GardenUi.CaptionSize, GardenUi.Muted);
+            Transform missions = Section(testTools, "Mission controls", "미션 테스트");
+            if (refreshHealthButton == null) refreshHealthButton = RowControl(missions, "전체 초기화", () => { });
+            else PlaceRow(refreshHealthButton, missions, "전체 초기화", false);
+            refreshHealthButton.name = "Settings.ResetAllData";
+            refreshHealthButton.GetComponentInChildren<Text>(true).color = GardenUi.Warning;
+            missionResetConfirmation = Section(missions, "Reset confirmation", "모든 내용을 초기화할까요?", new Color(1f, .95f, .90f)).gameObject;
+            Copy(missionResetConfirmation.transform, "미션·감정·건강 수집 기록, 코인, 식물·사진첩·메모, 정원 가구와 앱 설정을 모두 초기 상태로 되돌려요.\n초기화한 내용은 되돌릴 수 없어요.", GardenUi.BodySize, GardenUi.Ink);
+            Copy(missionResetConfirmation.transform, "휴대폰 건강 앱의 원본 기록과 시스템 권한은 변경하지 않아요.", GardenUi.CaptionSize, GardenUi.Muted);
+            MissionResetConfirmButton = Control(missionResetConfirmation.transform, "전체 초기화하기", () => { }, true);
+            MissionResetConfirmButton.name = "Settings.ConfirmFullReset";
+            GardenUi.Round(MissionResetConfirmButton.GetComponent<Image>(), GardenUi.Warning);
+            fullResetCancelButton = Control(missionResetConfirmation.transform, "취소", CancelMissionReset);
+            fullResetCancelButton.name = "Settings.CancelFullReset";
+            missionResetConfirmation.SetActive(false);
+            Divider(missions);
+            MissionDateStatus = Copy(missions, "", GardenUi.BodySize, GardenUi.Muted);
+            AdvanceMissionDayButton = RowControl(missions, "다음 날로 넘기기", AdvanceMissionDate);
+            missionActionStatus = ActionLine(missions);
+            missionActionStatus.name = "Settings.FullResetStatus";
+
+            Transform gardenTests = Section(testTools, "Garden test controls", "정원 테스트");
+            TestCoinStatus = Copy(gardenTests, "", GardenUi.BodySize, GardenUi.Muted);
+            AddTestCoinsButton = RowControl(gardenTests, "코인 100개 추가", AddTestCoins);
+            AddTestCoinsButton.name = "Settings.AddTestCoins";
+            coinActionStatus = ActionLine(gardenTests);
+            RefreshMissionControls();
+
+            diagnosticsButton = RowControl(testTools, "상세 진단  +", ToggleDiagnostics);
+            diagnosticsDisclosure = CreateDisclosure(testTools, "Detailed diagnostics disclosure");
+            diagnostics = diagnosticsDisclosure.Content.gameObject;
+            Transform collector = Section(diagnostics.transform, "Acceleration collection", "가속도 수집 실험");
+            collectorStatus = Copy(collector, "수집 상태 확인 중", GardenUi.HeadingSize, GardenUi.Green);
+            GardenTypography.SetWeight(collectorStatus, true);
+            collectorDetails = Copy(collector, "", GardenUi.BodySize, GardenUi.Muted);
+            Copy(collector, "매분 5초 · 최대 48시간\n실험 중 Android 필수 상태 알림 표시", GardenUi.BodySize, GardenUi.Muted);
+            Place(startServiceButton, collector, "가속도 수집 켜기", true);
+            Place(stopServiceButton, collector, "가속도 수집 끄기");
+            collectorActionStatus = ActionLine(collector);
+            if (Debug.isDebugBuild || Application.isEditor)
+            {
+                debugModeButton = Control(diagnostics.transform, "걸음 디버그 OFF", ToggleDebugWalk);
+                virtualStepButton = Control(diagnostics.transform, "가상 걸음 +1", AddVirtualStep);
+            }
+            if (output == null) output = Copy(diagnostics.transform, "", GardenUi.CaptionSize);
+            else output.transform.SetParent(diagnostics.transform, false);
+            ConfigureCopy(output, GardenUi.CaptionSize, GardenUi.Ink);
+            output.gameObject.SetActive(true);
+            SetDisclosure(diagnosticsDisclosure, false, false);
+            SetDisclosure(testToolsDisclosure, false, false);
+
+            AddListener(startServiceButton, StartService);
+            AddListener(stopServiceButton, StopService);
+            AddListener(refreshHealthButton, RequestMissionReset);
+#else
+            // Old scenes can still serialize these objects; hide them even when their
+            // development-only builders and callbacks have been removed by compilation.
+            foreach (var control in new Behaviour[] { startServiceButton, stopServiceButton, refreshHealthButton, output })
+                if (control != null) control.gameObject.SetActive(false);
+#endif
+            AddListener(sensorPermissionButton, RequestSensorPermissions);
+            AddListener(healthPermissionButton, RequestHealthPermissions);
+            RefreshText();
+        }
+
+        void RefreshMusicSetting()
+        {
+            RenderMusicVolume(GardenMusicPlayer.Volume);
+        }
+
+        void RenderMusicVolume(float value)
+        {
+            if(musicVolume==null)return;
+            musicVolume.SetValueWithoutNotify(value);
+            musicVolumeValue.text=Mathf.RoundToInt(musicVolume.value*100)+"%";
+        }
+
+        void BuildMusicVolume(Transform parent)
+        {
+            musicVolume=BuildVolumeControl(parent,"Settings.MusicVolume","배경 음악",out musicVolumeValue);
+            RenderMusicVolume(GardenMusicPlayer.Volume);
+            musicVolume.onValueChanged.AddListener(value=>
+            {
+                // uGUI also emits this during Editor layout rebuilds. A preview
+                // must update its label without starting audio or saving settings.
+                if(!Application.isPlaying){RenderMusicVolume(value);return;}
+                GardenMusicPlayer.SetVolume(value);
+                RefreshMusicSetting();
+            });
+        }
+
+        void RefreshSfxSetting() => RenderSfxVolume(GardenSfxPlayer.Volume);
+
+        void RenderSfxVolume(float value)
+        {
+            if(sfxVolume==null)return;
+            sfxVolume.SetValueWithoutNotify(value);
+            sfxVolumeValue.text=Mathf.RoundToInt(sfxVolume.value*100)+"%";
+        }
+
+        void BuildSfxVolume(Transform parent)
+        {
+            sfxVolume=BuildVolumeControl(parent,"Settings.SfxVolume","효과음 음량",out sfxVolumeValue);
+            RefreshSfxSetting();
+            sfxVolume.onValueChanged.AddListener(value=>
+            {
+                // Preview drags and editor rebuilds only render the percentage.
+                if(!Application.isPlaying){RenderSfxVolume(value);return;}
+                GardenSfxPlayer.SetVolume(value);
+                RefreshSfxSetting();
+            });
+            GardenSfxSliderFeedback.Attach(sfxVolume);
+        }
+
+        Slider BuildVolumeControl(Transform parent,string name,string caption,out Text percentage)
+        {
+            var row=GardenUi.Box(parent,name+"Row",0,0,1,0,Color.white);
+            FixedHeight(row,96);
+            var background=row.GetComponent<Image>();GardenUi.Round(background,Color.white);
+            background.raycastTarget=false;
+            GardenThemeSurface.Apply(row,GardenThemeSurface.Style.Paper);
+            var title=GardenUi.Label(row.transform,caption,0,1,1,0,17);
+            title.fontSize=17;
+            title.rectTransform.pivot=new Vector2(.5f,1);
+            title.rectTransform.offsetMin=new Vector2(12,-36);
+            title.rectTransform.offsetMax=new Vector2(-80,-8);
+            percentage=GardenUi.Label(row.transform,"",1,1,0,0,15);
+            percentage.name=name+"Value";percentage.fontSize=15;
+            percentage.alignment=TextAnchor.MiddleRight;percentage.color=GardenUi.Muted;
+            percentage.rectTransform.pivot=new Vector2(1,1);
+            percentage.rectTransform.anchoredPosition=new Vector2(-12,-8);
+            percentage.rectTransform.sizeDelta=new Vector2(64,28);
+
+            var control=GardenUi.Box(row.transform,name,0,0,1,0,Color.clear);
+            var controlRect=(RectTransform)control.transform;
+            controlRect.pivot=new Vector2(.5f,0);controlRect.sizeDelta=new Vector2(-24,44);
+            controlRect.anchoredPosition=new Vector2(0,8);
+            var slider=control.AddComponent<Slider>();
+            slider.minValue=0;slider.maxValue=1;slider.wholeNumbers=false;
+            slider.direction=Slider.Direction.LeftToRight;
+            slider.navigation=new Navigation{mode=Navigation.Mode.Automatic};
+            var track=GardenUi.Box(control.transform,"Volume track",0,.5f,1,0,GardenUi.Pale);
+            var trackRect=(RectTransform)track.transform;
+            trackRect.offsetMin=new Vector2(12,-3);trackRect.offsetMax=new Vector2(-12,3);
+            GardenUi.Round(track.GetComponent<Image>(),GardenUi.Pale);track.GetComponent<Image>().raycastTarget=false;
+            var fill=GardenUi.Box(track.transform,"Volume fill",0,0,1,1,GardenUi.Green);
+            GardenUi.Round(fill.GetComponent<Image>(),GardenUi.Green);fill.GetComponent<Image>().raycastTarget=false;
+            slider.fillRect=(RectTransform)fill.transform;
+            var handleArea=GardenUi.Box(control.transform,"Volume handle area",0,.5f,1,0);
+            ((RectTransform)handleArea.transform).offsetMin=new Vector2(12,-12);
+            ((RectTransform)handleArea.transform).offsetMax=new Vector2(-12,12);
+            var handle=GardenUi.Box(handleArea.transform,"Volume handle",0,0,0,1,GardenUi.Green);
+            var handleRect=(RectTransform)handle.transform;handleRect.sizeDelta=new Vector2(24,0);
+            var handleImage=handle.GetComponent<Image>();GardenUi.Round(handleImage,GardenUi.Green,true);handleImage.raycastTarget=false;
+            slider.handleRect=handleRect;slider.targetGraphic=handleImage;
+            return slider;
+        }
+
+        void RefreshNotificationSettings()
+        {
+            if(notificationStatus==null)return;
+            bool live=AndroidPlatformBridge.InputMode==PlatformInputMode.Live && Application.platform==RuntimePlatform.Android;
+            RenderNotificationSettings(ActivityNotificationBridge.Settings(),live);
+        }
+
+        void RenderNotificationSettings(ActivityNotificationSettings value,bool live)
+        {
+            notificationSettings=value;
+            var n=notificationSettings;
+            bool permission=n.permissionStatus=="AVAILABLE";
+            notificationStatus.text=!live?"예시 모드에서는 알림을 보내지 않아요.":n.enabled && !permission?"기기에서 알림을 허용해 주세요.":n.enabled && n.lastDeliveryStatus=="failed"?"최근 알림의 게시를 확인하지 못했어요. 다시 확인 중이에요.":"";
+            notificationStatus.gameObject.SetActive(notificationStatus.text.Length>0);
+            UpdateSwitch(notificationToggle,n.enabled);
+            notificationTimeValue.text=(n.minuteOfDay/60).ToString("00")+":"+(n.minuteOfDay%60).ToString("00");
+            notificationToggle.interactable=notificationTiming.interactable=notificationAdaptive.interactable=live;
+            notificationPermission.gameObject.SetActive(live && n.enabled && !permission);
+            bool visibilityChanged=notificationOptions.activeSelf!=n.enabled;
+            notificationOptions.SetActive(n.enabled);
+            UpdateSwitch(notificationAdaptive,n.adaptive);
+            if(visibilityChanged && PrimaryScroll!=null)
+                LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+        }
+        void ToggleActivityNotifications()
+        {
+            var n=ActivityNotificationBridge.Settings();
+            if(ApplyNotificationOptions(!n.enabled,n.adaptive) && !n.enabled)ActivityNotificationBridge.Permission();
+            RefreshNotificationSettings();
+        }
+        void ChangeNotificationTime(int minute)
+        {
+            var n=notificationSettings ?? ActivityNotificationBridge.Settings();
+            ApplyNotificationSettings(n.enabled,minute,n.adaptive);
+            RefreshNotificationSettings();
+        }
+        void ToggleAdaptiveReminders()
+        {
+            var n=ActivityNotificationBridge.Settings();
+            ApplyNotificationOptions(n.enabled,!n.adaptive);
+            RefreshNotificationSettings();
+        }
+
+        bool ApplyNotificationSettings(bool enabled,int minute,bool adaptive) =>
+            ReportNotificationSave(ActivityNotificationBridge.Configure(enabled,minute,adaptive));
+
+        bool ApplyNotificationOptions(bool enabled,bool adaptive) =>
+            ReportNotificationSave(ActivityNotificationBridge.ConfigureOptions(enabled,adaptive));
+
+        bool ReportNotificationSave(PlatformActionResult result)
+        {
+            bool saved=result!=null && result.status=="AVAILABLE";
+            notificationActionStatus.text=saved?"":"알림 설정을 저장하지 못했어요. 다시 시도해 주세요.";
+            notificationActionStatus.gameObject.SetActive(!saved);
+            LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+            return saved;
+        }
+
+        private Transform ConfigureScrollablePanel()
+        {
+            var rect = GetComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = rect.offsetMax = Vector2.zero;
+            var background = GetComponent<Image>();
+            if (background != null) { background.color = Color.clear; background.raycastTarget = false; }
+            var oldWidth = GetComponent<GardenContentWidth>();
+            if (oldWidth != null) oldWidth.enabled = false;
+
+            settingsDesign = FigmaMissionUi.Rect(transform, "Settings.Design", 0, 0, 390, 844);
+            var fit = gameObject.AddComponent<FigmaMissionCanvasFit>(); fit.Design = settingsDesign; fit.Fit();
+            FigmaMissionUi.UseGardenShell(settingsDesign.gameObject);
+            var backdrop = settingsDesign.gameObject.AddComponent<Image>(); backdrop.color = GardenSagePalette.Background; backdrop.raycastTarget = true;
+            GardenSettingsLayout.BuildHeader(settingsDesign, "설정", null, null, "Settings");
+            var viewport = FigmaMissionUi.Box(settingsDesign, "Settings viewport", 0, 110, 390, 638, Color.clear);
+            viewport.GetComponent<Image>().raycastTarget = true;
+            viewport.gameObject.AddComponent<RectMask2D>();
+            PrimaryScroll = viewport.gameObject.AddComponent<ScrollRect>();
+            PrimaryScroll.viewport = viewport;
+            PrimaryScroll.horizontal = false;
+            PrimaryScroll.vertical = true;
+            PrimaryScroll.movementType = ScrollRect.MovementType.Clamped;
+            PrimaryScroll.scrollSensitivity = 48;
+            Transform content = Stack(viewport, "Settings content", 16, 24);
+            content.GetComponent<VerticalLayoutGroup>().padding.top = 4;
+            var contentRect = (RectTransform)content;
+            contentRect.anchorMin = new Vector2(0, 1);
+            contentRect.anchorMax = Vector2.one;
+            contentRect.pivot = new Vector2(.5f, 1);
+            contentRect.anchoredPosition = Vector2.zero;
+            contentRect.sizeDelta = Vector2.zero;
+            content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            PrimaryScroll.content = contentRect;
+            GardenUi.AddScrollIndicator(PrimaryScroll);
+            var pageLayout = settingsDesign.gameObject.AddComponent<GardenSettingsLayout>();
+            pageLayout.Viewport = viewport; pageLayout.Content = contentRect; pageLayout.Refresh();
+            return content;
+        }
+
+        private static Transform Stack(Transform parent, string name, int spacing, int padding)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var layout = go.AddComponent<VerticalLayoutGroup>();
+            layout.spacing = spacing;
+            layout.padding = new RectOffset(padding, padding, padding, padding);
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlWidth = layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+            return go.transform;
+        }
+
+        private static void FixedHeight(GameObject item, float height)
+        {
+            var layout = item.GetComponent<LayoutElement>() ?? item.AddComponent<LayoutElement>();
+            layout.minHeight = layout.preferredHeight = height;
+            layout.flexibleHeight = 0;
+        }
+
+        private static void Spacer(Transform parent, float height)
+        {
+            var spacer = new GameObject("Header spacing", typeof(RectTransform));
+            spacer.transform.SetParent(parent, false);
+            FixedHeight(spacer, height);
+        }
+
+        private static Transform Section(Transform parent, string name, string heading, Color? tint = null)
+        {
+            Transform section = Stack(parent, name, 6, 16);
+            var image = section.gameObject.AddComponent<Image>();
+            GardenUi.Round(image, tint ?? Color.white);
+            GardenThemeSurface.Apply(section.gameObject,GardenThemeSurface.Style.Paper);
+            image.raycastTarget = false;
+            if(!string.IsNullOrEmpty(heading))
+            {
+                var plaque=GardenUi.Box(section,"Section title plaque",0,0,1,0);
+                var row=plaque.AddComponent<HorizontalLayoutGroup>();
+                row.padding=new RectOffset(0,0,4,8);row.spacing=8;
+                row.childAlignment=TextAnchor.MiddleLeft;
+                row.childControlWidth=row.childControlHeight=true;
+                row.childForceExpandWidth=row.childForceExpandHeight=false;
+                var symbol=name=="Activity reminders"?PrototypeUiIcon.Symbol.Bell:
+                    name=="Garden preferences"?PrototypeUiIcon.Symbol.Pot:
+                    name=="Health records"?PrototypeUiIcon.Symbol.Heart:
+                    name=="Permissions"?PrototypeUiIcon.Symbol.Lock:PrototypeUiIcon.Symbol.Journal;
+                var icon=GardenUi.Icon(plaque.transform,symbol,0,0,0,0);
+                var iconSize=icon.gameObject.AddComponent<LayoutElement>();
+                iconSize.preferredWidth=iconSize.minWidth=20;iconSize.preferredHeight=iconSize.minHeight=20;
+                var label = Copy(plaque.transform, heading, GardenUi.HeadingSize);
+                label.gameObject.AddComponent<LayoutElement>().flexibleWidth=1;
+                GardenTypography.SetWeight(label, true);
+            }
+            return section;
+        }
+
+        private static void Divider(Transform parent)
+        {
+            var divider=GardenUi.Box(parent,"Row divider",0,0,1,0,GardenUi.Border);
+            divider.GetComponent<Image>().raycastTarget=false;
+            FixedHeight(divider,1);
+        }
+
+        private static Button RowControl(Transform parent,string text,Action action)
+        {
+            var button=GardenUi.Button(parent,text,0,0,1,1,action);
+            PlaceRow(button,parent,text);
+            return button;
+        }
+
+        private static void PlaceRow(Button button,Transform parent,string text,bool disclosure=true)
+        {
+            if(button==null)return;
+            Place(button,parent,text);
+            FixedHeight(button.gameObject,56);
+            GardenUi.Round(button.GetComponent<Image>(),Color.white);
+            GardenThemeSurface.Apply(button.gameObject,GardenThemeSurface.Style.Paper);
+            var colors=button.colors;colors.disabledColor=Color.white;button.colors=colors;
+            var label=button.GetComponentInChildren<Text>(true);
+            label.alignment=TextAnchor.MiddleLeft;
+            label.fontSize=17;
+            label.color=GardenUi.Ink;
+            label.rectTransform.anchorMin=Vector2.zero;
+            label.rectTransform.anchorMax=Vector2.one;
+            label.rectTransform.offsetMin=new Vector2(12,0);
+            label.rectTransform.offsetMax=new Vector2(disclosure?-48:0,0);
+            if(disclosure)
+            {
+                var arrow=GardenUi.Icon(button.transform,CapstoneDesign.Prototype.PrototypeUiIcon.Symbol.Arrow,1,.5f,0,0,GardenUi.Muted);
+                arrow.rectTransform.pivot=new Vector2(1,.5f);
+                arrow.rectTransform.sizeDelta=new Vector2(18,18);
+                arrow.rectTransform.anchoredPosition=new Vector2(-12,0);
+            }
+        }
+
+        private Button SwitchRow(Transform parent,string text,Action action)
+        {
+            var button=GardenUi.Button(parent,text,0,0,1,1,action);
+            PlaceRow(button,parent,text,false);
+            // Keep the complete control inside the paper row's inset rule. The
+            // old right-edge anchor placed the switch on the card border.
+            button.GetComponentInChildren<Text>().rectTransform.offsetMax=new Vector2(-120,0);
+            var state=GardenUi.Label(button.transform,"",1,0,0,1,GardenUi.CaptionSize);
+            state.fontSize=14;
+            state.name="Switch state";
+            state.alignment=TextAnchor.MiddleRight;
+            state.rectTransform.offsetMin=new Vector2(-112,0);
+            state.rectTransform.offsetMax=new Vector2(-64,0);
+            var track=GardenUi.Box(button.transform,"Switch track",1,.5f,0,0);
+            var trackRect=(RectTransform)track.transform;
+            trackRect.pivot=new Vector2(1,.5f);trackRect.sizeDelta=new Vector2(40,22);
+            trackRect.anchoredPosition=new Vector2(-12,0);
+            var trackImage=track.AddComponent<Image>();GardenUi.Round(trackImage,GardenUi.Muted);trackImage.raycastTarget=false;
+            GardenThemeSurface.Apply(track,GardenThemeSurface.Style.ProgressTrack);
+            var thumb=GardenUi.Box(track.transform,"Switch thumb",0,.5f,0,0);
+            var thumbRect=(RectTransform)thumb.transform;thumbRect.pivot=new Vector2(.5f,.5f);thumbRect.sizeDelta=new Vector2(16,16);
+            var thumbImage=thumb.AddComponent<Image>();GardenUi.Round(thumbImage,Color.white);thumbImage.raycastTarget=false;
+            switches.Add(button,new SwitchVisual {Track=trackImage,Thumb=thumbRect,State=state});
+            return button;
+        }
+
+        private void UpdateSwitch(Button button,bool enabled)
+        {
+            if(!switches.TryGetValue(button,out var visual))return;
+            visual.Track.color=enabled?GardenUi.Green:GardenUi.Muted;
+            GardenThemeSurface.Apply(visual.Track.gameObject,enabled?GardenThemeSurface.Style.ProgressFill:GardenThemeSurface.Style.ProgressTrack);
+            float inset=3+visual.Thumb.rect.width*.5f;
+            visual.Thumb.anchoredPosition=new Vector2(enabled?visual.Track.rectTransform.rect.width-inset:inset,0);
+            visual.State.text=enabled?"켜짐":"꺼짐";
+            visual.State.color=GardenUi.Muted;
+        }
+
+        private static Text Copy(Transform parent, string text, int size, Color? color = null)
+        {
+            var label = GardenUi.Label(parent, text, 0, 0, 1, 1, size);
+            ConfigureCopy(label, size, GardenThemeSurface.Foreground(parent, color ?? GardenUi.Ink));
+            return label;
+        }
+
+        private static void ConfigureCopy(Text text, int size, Color color)
+        {
+            text.font = GardenUi.ResolveFont();
+            text.fontSize = Mathf.Max(14, Mathf.RoundToInt(size * 390f / 720f));
+            text.fontStyle = FontStyle.Normal;
+            text.color = color;
+            text.alignment = TextAnchor.UpperLeft;
+            text.lineSpacing = 1.15f;
+            text.resizeTextForBestFit = false;
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            text.raycastTarget = false;
+            var fitter = text.GetComponent<ContentSizeFitter>();
+            if (fitter != null) fitter.enabled = false;
+        }
+
+        private static Button Control(Transform parent, string text, Action action, bool primary = false)
+        {
+            var button = GardenUi.Button(parent, text, 0, 0, 1, 1, action, primary);
+            Place(button, parent, text, primary);
+            return button;
+        }
+
+        private static void Place(Button button, Transform parent, string text, bool primary = false)
+        {
+            if (button == null) return;
+            button.transform.SetParent(parent, false);
+            var layout = button.GetComponent<LayoutElement>() ?? button.gameObject.AddComponent<LayoutElement>();
+            layout.minHeight = layout.preferredHeight = 52;
+            layout.flexibleHeight = 0;
+            var label = button.GetComponentInChildren<Text>(true);
+            label.text = text;
+            label.fontSize = 17;
+            label.resizeTextForBestFit = false;
+            label.alignment = TextAnchor.MiddleCenter;
+            label.rectTransform.anchorMin = new Vector2(.04f, 0);
+            label.rectTransform.anchorMax = new Vector2(.96f, 1);
+            label.rectTransform.offsetMin = label.rectTransform.offsetMax = Vector2.zero;
+            GardenUi.StyleButton(button, primary);
+            GardenSfxButton.Attach(button,GardenSfxButton.CueForLabel(text));
+        }
+
+        public void ToggleDiagnostics()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (diagnosticsDisclosure == null) return;
+            bool expanded = !diagnosticsDisclosure.Expanded;
+            SetDisclosure(diagnosticsDisclosure, expanded, true, diagnosticsButton);
+            diagnosticsButton.GetComponentInChildren<Text>(true).text = expanded ? "상세 진단  −" : "상세 진단  +";
+            if (expanded) RefreshText();
+            RefreshDisclosureSize(testToolsDisclosure);
+#endif
+        }
+
+        public void ToggleTestTools()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            if (testToolsDisclosure == null) return;
+            bool expanded = !testToolsDisclosure.Expanded;
+            if (!expanded) CancelMissionReset();
+            SetDisclosure(testToolsDisclosure, expanded, true, TestToolsToggleButton);
+            TestToolsToggleButton.GetComponentInChildren<Text>(true).text = expanded ? "테스트 도구  −" : "테스트 도구  +";
+            if (expanded) RefreshText();
+#endif
+        }
+
+        private Disclosure CreateDisclosure(Transform parent, string name)
+        {
+            var frame = new GameObject(name, typeof(RectTransform), typeof(LayoutElement), typeof(RectMask2D), typeof(CanvasGroup));
+            frame.transform.SetParent(parent, false);
+            var content = (RectTransform)Stack(frame.transform, name + " content", 8, 0);
+            content.anchorMin = new Vector2(0, 1); content.anchorMax = Vector2.one;
+            content.pivot = new Vector2(.5f, 1); content.anchoredPosition = Vector2.zero; content.sizeDelta = Vector2.zero;
+            content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            return new Disclosure { Frame = (RectTransform)frame.transform, Content = content, Height = frame.GetComponent<LayoutElement>(), Group = frame.GetComponent<CanvasGroup>() };
+        }
+
+        private void SetDisclosure(Disclosure section, bool expanded, bool animate, Button trigger = null)
+        {
+            if (section == null) return;
+            if (section.Animation != null) { StopCoroutine(section.Animation); section.Animation = null; }
+            section.Expanded = expanded;
+            if (!expanded && EventSystem.current != null && EventSystem.current.currentSelectedGameObject != null
+                && EventSystem.current.currentSelectedGameObject.transform.IsChildOf(section.Content))
+                EventSystem.current.SetSelectedGameObject(trigger == null ? null : trigger.gameObject);
+            float start = section.Frame.gameObject.activeSelf ? Mathf.Max(0, section.Height.preferredHeight) : 0;
+            section.Frame.gameObject.SetActive(true);
+            LayoutRebuilder.ForceRebuildLayoutImmediate(section.Content);
+            float target = expanded ? Mathf.Max(0, LayoutUtility.GetPreferredHeight(section.Content)) : 0;
+            section.Group.interactable = section.Group.blocksRaycasts = expanded;
+            if (animate && Application.isPlaying && !FigmaMissionUi.ReducedMotion && gameObject.activeInHierarchy)
+                section.Animation = StartCoroutine(AnimateDisclosure(section, start, target));
+            else FinishDisclosure(section, target);
+        }
+
+        private IEnumerator AnimateDisclosure(Disclosure section, float from, float to)
+        {
+            float elapsed = 0;
+            while (elapsed < .2f)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float t = Mathf.SmoothStep(0, 1, elapsed / .2f);
+                section.Height.minHeight = section.Height.preferredHeight = Mathf.Lerp(from, to, t);
+                section.Group.alpha = section.Expanded ? t : 1 - t;
+                if (section != testToolsDisclosure) RefreshDisclosureSize(testToolsDisclosure);
+                LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+                yield return null;
+            }
+            section.Animation = null;
+            FinishDisclosure(section, to);
+        }
+
+        private void FinishDisclosure(Disclosure section, float height)
+        {
+            section.Height.minHeight = section.Height.preferredHeight = height;
+            section.Group.alpha = section.Expanded ? 1 : 0;
+            section.Frame.gameObject.SetActive(section.Expanded);
+            if (section != testToolsDisclosure) RefreshDisclosureSize(testToolsDisclosure);
+            LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+        }
+
+        private static void RefreshDisclosureSize(Disclosure section)
+        {
+            if (section == null || !section.Expanded || section.Animation != null) return;
+            LayoutRebuilder.ForceRebuildLayoutImmediate(section.Content);
+            section.Height.minHeight = section.Height.preferredHeight = Mathf.Max(0, LayoutUtility.GetPreferredHeight(section.Content));
+        }
+
+        private void OnDisable()
+        {
+            GardenMusicPlayer.SaveVolume();
+            if(Application.isPlaying)GardenSfxPlayer.SaveVolume();
+            foreach (var section in new[] { diagnosticsDisclosure, testToolsDisclosure })
+            {
+                if (section == null || section.Animation == null) continue;
+                StopCoroutine(section.Animation); section.Animation = null;
+                SetDisclosure(section, section.Expanded, false);
+            }
+        }
+
+        public void OpenVisualDebug()
+        {
+            PrepareView();
+            if (IsVisualDebugOpen || !(settingsDesign?.gameObject.activeInHierarchy ?? false)) return;
+            visualDebugScrollPosition = PrimaryScroll.content.anchoredPosition;
+            visualDebugOrigin = EventSystem.current?.currentSelectedGameObject;
+            if (visualDebugPage == null)
+            {
+                var page = GardenUi.Box(transform, "UI debug page", 0, 0, 1, 1, Color.clear);
+                visualDebugPage = page.AddComponent<GardenVisualDebugPage>();
+                visualDebugPage.Build(() => CloseVisualDebug(), () => OpenGardenFromTime(false), () => OpenGardenFromTime(true));
+            }
+            PrimaryScroll.gameObject.SetActive(false);
+            settingsDesign.gameObject.SetActive(false);
+            visualDebugPage.gameObject.SetActive(true);
+        }
+
+        private void OpenGardenFromTime(bool resetView)
+        {
+            if (resetView) transform.root.GetComponentInChildren<GardenHomePresenter>(true)?.ResetView();
+            CloseVisualDebug();
+            transform.root.GetComponent<MockupNavigation>()?.ShowIsland();
+        }
+
+        public bool CloseVisualDebug()
+        {
+            if (!IsVisualDebugOpen) return false;
+            visualDebugPage.gameObject.SetActive(false);
+            settingsDesign.gameObject.SetActive(true);
+            PrimaryScroll.gameObject.SetActive(true);
+            if (visualDebugOrigin != null && visualDebugOrigin.activeInHierarchy) EventSystem.current?.SetSelectedGameObject(visualDebugOrigin);
+            PrimaryScroll.content.anchoredPosition = visualDebugScrollPosition;
+            PrimaryScroll.StopMovement();
+            return true;
+        }
+
+        private void Update()
+        {
+            if (Loop != null && Loop.HasPendingFullReset)
+            {
+                if (Time.unscaledTime >= nextRefresh)
+                {
+                    nextRefresh = Time.unscaledTime + RefreshSeconds;
+                    RefreshMissionControls();
+                }
+                return;
+            }
+            if (Time.unscaledTime >= nextHealthRefresh)
+            {
+                nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
+                AndroidPlatformSnapshot current = AndroidPlatformBridge.GetSettingsSnapshot();
+                if (current.healthConnect?.status == "AVAILABLE")
+                {
+                    PlatformActionResult result = AndroidPlatformBridge.RefreshHealthData();
+                    if (result.ParsedStatus == PlatformStatus.Error)
+                    {
+                        lastAction = Describe(result);
+                    }
+                }
+            }
+
+            if (Time.unscaledTime >= nextRefresh)
+            {
+                nextRefresh = Time.unscaledTime + RefreshSeconds;
+                RefreshText();
+            }
+        }
+
+        public void OnSettingsOpened()
+        {
+            if (Loop != null && Loop.HasPendingFullReset) { RefreshMissionControls(); return; }
+            Loop?.RequestStepSyncSoon();
+            if (Application.platform != RuntimePlatform.Android ||
+                AndroidPlatformBridge.InputMode != PlatformInputMode.Live) return;
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            lastAction = Describe(AndroidPlatformBridge.CaptureDebugSensors());
+#endif
+            AndroidPlatformBridge.RefreshHealthData();
+            nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
+            if (!automaticPermissionFlowStarted)
+            {
+                automaticPermissionFlowStarted = true;
+                AndroidPlatformBridge.StartAutomaticPermissionFlow();
+            }
+            RefreshText();
+        }
+
+        private void OnApplicationFocus(bool focused)
+        {
+            if (Loop != null && Loop.HasPendingFullReset) return;
+            if (focused && Application.platform == RuntimePlatform.Android &&
+                gameObject.activeInHierarchy && AndroidPlatformBridge.InputMode == PlatformInputMode.Live)
+                AndroidPlatformBridge.RefreshHealthData();
+        }
+
+        private void OnDestroy()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            RemoveListener(startServiceButton, StartService);
+            RemoveListener(stopServiceButton, StopService);
+            RemoveListener(refreshHealthButton, RequestMissionReset);
+#endif
+            RemoveListener(sensorPermissionButton, RequestSensorPermissions);
+            RemoveListener(healthPermissionButton, RequestHealthPermissions);
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void StartService()
+        {
+            ShowAction(AndroidPlatformBridge.StartBackgroundSensorService(), "가속도 수집 시작을 요청했어요.", collectorActionStatus);
+            RefreshText();
+        }
+
+        private void StopService()
+        {
+            ShowAction(AndroidPlatformBridge.StopBackgroundSensorService(), "가속도 수집 중지를 요청했어요.", collectorActionStatus);
+            RefreshText();
+        }
+#endif
+
+        private void RequestSensorPermissions()
+        {
+            ShowAction(AndroidPlatformBridge.RequestSensorPermissions(), "활동 권한을 확인해 주세요.", permissionActionStatus);
+            RefreshText();
+        }
+
+        private void RequestHealthPermissions()
+        {
+            HealthConnectSnapshot health = AndroidPlatformBridge.GetSettingsSnapshot().healthConnect;
+            ShowAction(health?.permissionStatus == "PERMISSION_DENIED"
+                ? AndroidPlatformBridge.OpenHealthPermissionSettings()
+                : AndroidPlatformBridge.RequestHealthConnectPermissions(), "건강 데이터 권한을 확인해 주세요.", permissionActionStatus);
+            RefreshText();
+        }
+
+        private void RefreshHealth()
+        {
+            ShowAction(AndroidPlatformBridge.RefreshHealthData(), "건강 기록 새로고침을 요청했어요.", healthActionStatus);
+            Loop?.RequestStepSyncSoon(true,true);
+            nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
+            RefreshText();
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        void RequestMissionReset()
+        {
+            if(Loop==null || !Loop.HasOpenState)return;
+            var state=Loop.Service.Snapshot;
+            fullResetRequestId=Loop.HasPendingFullReset?state.FullResetRequestId:Guid.NewGuid().ToString("N");
+            fullResetSourceId=Loop.HasPendingFullReset?state.FullResetSourceInstallationId:Loop.ResetSourceInstallationId;
+            string request=fullResetRequestId, source=fullResetSourceId;
+            MissionResetConfirmButton.onClick.RemoveAllListeners();
+            MissionResetConfirmButton.onClick.AddListener(()=>ResetAllRecords(request,source));
+            GardenSfxButton.Attach(MissionResetConfirmButton);
+            missionResetConfirmation.SetActive(true);
+            missionActionStatus.gameObject.SetActive(false);
+            RefreshDisclosureSize(testToolsDisclosure);
+            LayoutRebuilder.ForceRebuildLayoutImmediate(PrimaryScroll.content);
+            // Keep the confirmation in view on a phone when the tool sits near
+            // the bottom of a long settings list.
+            var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(PrimaryScroll.content, missionResetConfirmation.transform);
+            float top = -bounds.max.y;
+            float maximum = Mathf.Max(0, PrimaryScroll.content.rect.height - PrimaryScroll.viewport.rect.height);
+            PrimaryScroll.content.anchoredPosition = new Vector2(PrimaryScroll.content.anchoredPosition.x, Mathf.Clamp(top - 16, 0, maximum));
+            PrimaryScroll.velocity = Vector2.zero;
+        }
+
+        void CancelMissionReset()
+        {
+            if(Loop!=null && Loop.HasPendingFullReset)return;
+            fullResetRequestId=fullResetSourceId=null;
+            if (missionResetConfirmation != null) missionResetConfirmation.SetActive(false);
+            RefreshDisclosureSize(testToolsDisclosure);
+            if (PrimaryScroll != null) LayoutRebuilder.MarkLayoutForRebuild(PrimaryScroll.content);
+        }
+
+        void ResetAllRecords(string request,string source)
+        {
+            if (missionResetConfirmation == null || !missionResetConfirmation.activeInHierarchy
+                || request!=fullResetRequestId || source!=fullResetSourceId) return;
+            bool success=Loop!=null && Loop.ResetAllData(request,source);
+            if(missionActionStatus!=null)
+            {
+                missionActionStatus.text=Loop?.FullResetStatusText ?? "초기화하지 못했어요. 다시 시도해 주세요.";
+                missionActionStatus.gameObject.SetActive(true);
+            }
+            if (success) CancelMissionReset();
+            RefreshMissionControls();
+        }
+
+        void AdvanceMissionDate()
+        {
+            bool success=Loop!=null && Loop.AdvanceMissionDay();
+            if(missionActionStatus!=null)
+            {
+                missionActionStatus.text=success?"미션 날짜를 하루 넘겼어요.":"날짜를 넘기지 못했어요. 다시 시도해 주세요.";
+                missionActionStatus.gameObject.SetActive(true);
+            }
+            RefreshMissionControls();
+        }
+
+        void AddTestCoins()
+        {
+            bool success = Loop != null && Loop.AddTestCoins();
+            coinActionStatus.text = success ? "코인 100개를 추가했어요." : "추가하지 못했어요. 다시 시도해 주세요.";
+            coinActionStatus.gameObject.SetActive(true);
+            RefreshMissionControls();
+        }
+#endif
+
+        void RefreshMissionControls()
+        {
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            var loop=Loop;bool ready=loop!=null && loop.HasOpenState;
+            bool pending=ready && loop.HasPendingFullReset;
+            if(ready && !pending && fullResetRequestId!=null && loop.Service.Snapshot.FullResetRequestId==fullResetRequestId)
+            {
+                if(missionActionStatus!=null)
+                {
+                    missionActionStatus.text=loop.FullResetStatusText;
+                    missionActionStatus.gameObject.SetActive(true);
+                }
+                CancelMissionReset();
+            }
+            if(pending && missionActionStatus!=null)
+            {
+                missionActionStatus.text=loop.FullResetStatusText;
+                missionActionStatus.gameObject.SetActive(true);
+            }
+            if(MissionDateStatus!=null)MissionDateStatus.text="미션 날짜 · "+(ready?loop.MissionDateLabel:"확인 중");
+            if(refreshHealthButton!=null)refreshHealthButton.interactable=ready;
+            if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready && !pending;
+            if(MissionResetConfirmButton!=null)MissionResetConfirmButton.interactable=ready;
+            if(MissionResetConfirmButton!=null)MissionResetConfirmButton.GetComponentInChildren<Text>().text=pending?"초기화 다시 시도":"전체 초기화하기";
+            if(fullResetCancelButton!=null)fullResetCancelButton.interactable=!pending;
+            if(AddTestCoinsButton!=null)AddTestCoinsButton.interactable=ready && !pending;
+            if(TestCoinStatus!=null)TestCoinStatus.text="보유 코인 · "+(ready?loop.Service.CoinBalance+"개":"확인 중");
+            if(pending)
+            {
+                foreach(var control in GetComponentsInChildren<Selectable>(true))
+                {
+                    if(control==MissionResetConfirmButton || control is Scrollbar)continue;
+                    if(!resetBlockedControls.ContainsKey(control))resetBlockedControls.Add(control,control.interactable);
+                    control.interactable=false;
+                }
+            }
+            else if(resetBlockedControls.Count>0)
+            {
+                foreach(var item in resetBlockedControls)if(item.Key!=null)item.Key.interactable=item.Value;
+                resetBlockedControls.Clear();
+                if(AdvanceMissionDayButton!=null)AdvanceMissionDayButton.interactable=ready;
+                if(AddTestCoinsButton!=null)AddTestCoinsButton.interactable=ready;
+                if(fullResetCancelButton!=null)fullResetCancelButton.interactable=true;
+            }
+            RefreshDisclosureSize(testToolsDisclosure);
+#endif
+        }
+
+        private void OpenCharts()
+        {
+            ShowAction(AndroidPlatformBridge.OpenSensorHistory(), "심박 차트를 열었어요.", healthActionStatus);
+            RefreshText();
+        }
+
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+        private void ToggleDebugWalk()
+        {
+            if(Loop?.ToggleDebugWalk()==true)lastAction="DEBUG 걸음 모드를 변경했어요";
+            RefreshText();
+        }
+
+        private void AddVirtualStep()
+        {
+            if(Loop?.AddVirtualDebugStep()==true)lastAction="가상 걸음 +1 저장됨";
+            RefreshText();
+        }
+#endif
+
+        private void RefreshText()
+        {
+            RefreshMissionControls();
+            if (Loop != null && Loop.HasPendingFullReset) return;
+            RefreshMusicSetting();
+            RefreshSfxSetting();
+            RefreshNotificationSettings();
+            using var timing = UiPerformanceProbe.Measure("Settings.RefreshText");
+            AndroidPlatformSnapshot snapshot = diagnostics != null && diagnostics.activeInHierarchy
+                ? AndroidPlatformBridge.GetSnapshot() : AndroidPlatformBridge.GetSettingsSnapshot();
+            HealthConnectSnapshot health = snapshot.healthConnect ?? new HealthConnectSnapshot();
+            RuntimePermissionSnapshot permissions = snapshot.runtimePermissions ?? new RuntimePermissionSnapshot();
+            DailyAccelerationSnapshot daily = snapshot.dailyAcceleration ?? new DailyAccelerationSnapshot();
+            RefreshSummary(snapshot, health, permissions, daily);
+            // Closed diagnostics need neither formatted raw data nor the saved
+            // state clone used by DebugWalkSummary. Refresh immediately on expand.
+            if (diagnostics == null || !diagnostics.activeInHierarchy || output == null) return;
+
+            if(debugModeButton!=null)
+            {
+                bool enabled=Loop?.DebugWalkEnabled==true;
+                var label=debugModeButton.GetComponentInChildren<Text>(true);
+                if(label!=null)label.text=enabled?"걸음 디버그 ON":"걸음 디버그 OFF";
+                if(virtualStepButton!=null)
+                {
+                    virtualStepButton.interactable=enabled;
+                    virtualStepButton.GetComponentInChildren<Text>(true).color=GardenThemeSurface.Foreground(virtualStepButton.transform,enabled?GardenUi.Green:GardenUi.Muted);
+                }
+            }
+            AndroidDeviceSnapshot device = snapshot.device ?? new AndroidDeviceSnapshot();
+            SensorServiceSnapshot service = snapshot.sensorService ?? new SensorServiceSnapshot();
+            builder.Length = 0;
+            builder.AppendLine("멘토링 데모 · 정식 출시 기능 아님");
+            if(Loop!=null)builder.AppendLine(Loop.DebugWalkSummary);
+            builder.AppendLine("가속도 실험을 수동으로 켜면 Android 수집 알림이 표시돼요.\n");
+            builder.Append("가속도 수집: ").AppendLine(daily.status == "RUNNING" ? "수집 중" :
+                daily.status == "STOPPED" ? "중지됨" : daily.status == "INTERRUPTED" ? "상태 갱신 끊김 · 수집 확인 필요" : "수집 상태 기록 없음");
+            if (!string.IsNullOrEmpty(daily.reason)) builder.Append("상태 사유: ").AppendLine(DailyReason(daily.reason));
+            builder.Append("마지막 저장: ").AppendLine(FormatInstant(daily.lastWriteEpochMs));
+            builder.AppendLine("매분 5초 · 최대 48시간 · 화면 꺼짐 중에도 배터리를 사용해요.\n");
+            builder.AppendLine("DEVICE");
+            builder.Append(device.manufacturer).Append(' ').AppendLine(device.model);
+            builder.Append("Android ").Append(device.androidVersion).Append(" (API ").Append(device.androidApi).AppendLine(")");
+            builder.Append("App ").Append(device.appVersion).Append(" | Unity ").AppendLine(device.unityVersion);
+            builder.Append("Input ").AppendLine(snapshot.inputMode);
+
+            builder.AppendLine("\nPLATFORM");
+            AppendStatus("Health Connect", health.status);
+            AppendStatus("Samsung Health app", health.samsungHealthStatus);
+            AppendStatus("Raw debug capture", service.running ? "AVAILABLE/SAMPLING" : service.serviceStatus);
+            AppendStatus("Samsung-origin data in Health Connect", health.watchData?.status ?? "NO_DATA");
+            builder.AppendLine("Heart chart: hourly means from Health Connect. Trial On/Off controls acceleration separately.");
+            if (health.permissionStatus == "PERMISSION_REQUIRED" || health.permissionStatus == "PERMISSION_DENIED")
+                builder.AppendLine("건강 데이터 권한이 필요해요. 위의 데이터 접근 권한에서 확인해 주세요.");
+            else if (health.watchData?.status == "NO_DATA")
+                builder.AppendLine("No Samsung data yet: Samsung Health > Settings > Health Connect, allow sharing, then sync");
+            builder.AppendLine("Watch direct connection: NOT_CHECKED");
+            builder.Append("Last query success: ").AppendLine(FormatInstant(health.lastSuccessfulRefreshEpochMs));
+            AppendStatus("Activity Permission", permissions.activityRecognition);
+            AppendStatus("Notification", permissions.notifications);
+
+            builder.AppendLine("\nRAW SENSOR (2-second capture when Settings opens)");
+            AppendSensor(service, "ACCELEROMETER", "Accel");
+            AppendSensor(service, "GYROSCOPE", "Gyro");
+            AppendSensor(service, "GRAVITY", "Gravity");
+            AppendSensor(service, "LINEAR_ACCELERATION", "Linear Accel");
+            AppendSensor(service, "PRESSURE", "Pressure");
+            AppendSensor(service, "STEP_COUNTER", "Step Counter");
+            builder.Append("Last Event: ").AppendLine(FormatAge(service.lastEventEpochMs));
+            builder.Append("Dropped: ").Append(service.droppedPendingSamples).Append(" | malformed tail: ").Append(service.malformedTailLines).AppendLine();
+            builder.Append("Buffer: ").Append(service.sampleCount)
+                .Append(" memory / ").Append(service.persistedSampleCount).AppendLine(" persisted");
+
+            builder.AppendLine("\nHEALTH");
+            AppendHealth("Steps (preferred source)", health.steps);
+            AppendHealth("Steps (Samsung only)", health.samsungSteps);
+            AppendHealth("Sleep session length", health.sleep);
+            AppendHealth("Heart Rate", health.heartRate);
+            AppendHealth("Exercise", health.exercise);
+            builder.Append("Permissions: ").Append(health.permissionStatus)
+                .Append(" (").Append(health.grantedPermissionCount).Append('/')
+                .Append(health.requiredPermissionCount).AppendLine(")");
+
+            builder.Append("\nACTION: ").Append(lastAction);
+            if (!string.IsNullOrEmpty(snapshot.message))
+            {
+                builder.Append("\nBRIDGE: ").Append(snapshot.status).Append(' ').Append(snapshot.message);
+            }
+            output.text = builder.ToString();
+            RefreshDisclosureSize(diagnosticsDisclosure);
+            RefreshDisclosureSize(testToolsDisclosure);
+        }
+
+        private void RefreshSummary(AndroidPlatformSnapshot snapshot, HealthConnectSnapshot health,
+            RuntimePermissionSnapshot permissions, DailyAccelerationSnapshot daily)
+        {
+            bool simulated = snapshot.inputMode == "MOCK" || snapshot.inputMode == "REPLAY";
+            string mode = snapshot.inputMode == "MOCK" ? "예시" : "재생";
+            string healthSummary;
+            bool healthNeedsAttention = false;
+            if (health.refreshing) healthSummary = "건강 기록 새로고침 중";
+            else if (health.permissionStatus == "PERMISSION_DENIED" || health.permissionStatus == "PERMISSION_REQUIRED")
+            {
+                healthSummary = "건강 데이터 권한 필요";
+                healthNeedsAttention = true;
+            }
+            else if (health.status == "STALE")
+            {
+                healthSummary = "기록 갱신 필요";
+                healthNeedsAttention = true;
+            }
+            else if (health.status == "ERROR")
+            {
+                healthSummary = "건강 기록 조회 실패";
+                healthNeedsAttention = true;
+            }
+            else if (health.status == "DISCONNECTED")
+            {
+                healthSummary = "건강 데이터 연결 끊김";
+                healthNeedsAttention = true;
+            }
+            else if (health.status == "PARTIAL") healthSummary = "일부 건강 기록만 확인됨";
+            else if (health.status == "NO_DATA") healthSummary = "동기화된 기록 없음";
+            else if (simulated) healthSummary = "건강 기록";
+            else if (health.status != "AVAILABLE")
+            {
+                healthSummary = "건강 데이터 연결 필요";
+                healthNeedsAttention = true;
+            }
+            else healthSummary = health.lastSuccessfulRefreshEpochMs > 0 ? "기록 연결됨" : "동기화된 기록 없음";
+            if (simulated) healthSummary = mode + " · " + healthSummary;
+            else if (!health.refreshing && health.lastSuccessfulRefreshEpochMs > 0)
+                healthSummary += " · " + CompactInstant(health.lastSuccessfulRefreshEpochMs) + " 확인";
+            healthStatus.text = healthSummary;
+            healthStatus.color = healthNeedsAttention ? GardenUi.Warning : GardenUi.Muted;
+            permissionStatus.text = simulated
+                ? mode + " 모드 · 실제 권한 사용 안 함"
+                : "활동 " + PermissionLabel(permissions.activityRecognition) +
+                    " · 건강 데이터 " + PermissionLabel(health.permissionStatus);
+            string collectorSummary = daily.status == "RUNNING" ? "수집 중" :
+                daily.status == "STOPPED" ? "수집 중지됨" : daily.status == "INTERRUPTED" ? "수집 상태 확인 필요" : "수집 기록 없음";
+            if (daily.lastWriteEpochMs > 0)
+                collectorSummary += " · " + CompactInstant(daily.lastWriteEpochMs) + " 저장";
+            // Assign once so an unchanged summary does not dirty text/layout twice.
+            if (collectorStatus != null)
+            {
+                collectorStatus.text = collectorSummary;
+                collectorStatus.color = daily.status == "INTERRUPTED" ? GardenUi.Warning : GardenUi.Green;
+            }
+            bool explainStop = !string.IsNullOrEmpty(daily.reason) && daily.reason != "USER_START" &&
+                daily.reason != "USER_STOP" && daily.reason != "PROCESS_RESTART" && daily.reason != "NO_STATUS_RECORD";
+            if (collectorDetails != null)
+            {
+                collectorDetails.text = explainStop ? DailyReason(daily.reason) : string.Empty;
+                collectorDetails.gameObject.SetActive(explainStop);
+            }
+        }
+
+        private static Text ActionLine(Transform parent)
+        {
+            var label = Copy(parent, "", GardenUi.BodySize, GardenUi.Green);
+            label.gameObject.SetActive(false);
+            return label;
+        }
+
+        private void ShowAction(PlatformActionResult result, string message, Text label)
+        {
+            lastAction = Describe(result);
+            if (result != null && result.ParsedStatus == PlatformStatus.Available)
+            {
+                label.text = string.Empty;
+                label.gameObject.SetActive(false);
+                return;
+            }
+            string actionMessage;
+            if (result == null || result.ParsedStatus == PlatformStatus.Error)
+                actionMessage = "요청을 완료하지 못했어요.\n잠시 뒤 다시 시도해 주세요.";
+            else if (result.ParsedStatus == PlatformStatus.Unsupported || result.ParsedStatus == PlatformStatus.ServiceUnavailable)
+                actionMessage = "현재 기기에서는 이 기능을 사용할 수 없어요.";
+            else actionMessage = message;
+            label.text = actionMessage;
+            label.gameObject.SetActive(true);
+        }
+
+        private static string PermissionLabel(string status)
+        {
+            switch (status)
+            {
+                case "GRANTED":
+                case "AVAILABLE": return "허용";
+                case "PERMISSION_DENIED":
+                case "DENIED": return "허용 필요";
+                case "PERMISSION_REQUIRED": return "확인 필요";
+                case "UNSUPPORTED": return "지원 안 함";
+                default: return "확인 전";
+            }
+        }
+
+        private static string CompactInstant(long epochMs)
+        {
+            try
+            {
+                var instant = DateTimeOffset.FromUnixTimeMilliseconds(epochMs).ToLocalTime();
+                return instant.ToString(instant.Date == DateTimeOffset.Now.Date ? "HH:mm" : "M/d HH:mm");
+            }
+            catch (ArgumentOutOfRangeException) { return "시간 확인 필요"; }
+        }
+
+        private static string DailyReason(string reason)
+        {
+            switch (reason)
+            {
+                case "USER_START": return "사용자가 수집 시작";
+                case "USER_STOP": return "사용자가 수집 중지";
+                case "DURATION_LIMIT": return "48시간 수집 완료 · 다시 켜면 새 수집 시작";
+                case "LOW_BATTERY": return "미연결 상태에서 배터리 20% 미만 · 충전 후 다시 켜세요";
+                case "WRITE_FAILED": return "기록 저장 실패 · 저장 공간 확인 필요";
+                case "SENSOR_UNAVAILABLE": return "가속도 센서 없음";
+                case "SENSOR_REGISTRATION_FAILED": return "센서 시작 실패 · 권한 확인 후 다시 켜세요";
+                case "PROCESS_RESTART": return "서비스 재시작 후 수집 재개";
+                case "SERVICE_DESTROYED": return "서비스 종료 · 다시 켜면 수집 재개";
+                case "HEARTBEAT_EXPIRED": return "2분 이상 상태 갱신 없음 · 다시 켜서 확인하세요";
+                case "NO_STATUS_RECORD": return "이전 버전에는 중단 사유가 기록되지 않았어요";
+                default: return reason;
+            }
+        }
+
+        private void AppendSensor(SensorServiceSnapshot service, string key, string label)
+        {
+            SensorCapabilitySnapshot sensor = FindSensor(service, key);
+            builder.Append(label).Append(": ");
+            if (sensor == null)
+            {
+                builder.AppendLine("NO_DATA");
+                return;
+            }
+
+            builder.Append(sensor.status);
+            if (sensor.values != null && sensor.values.Length > 0)
+            {
+                builder.Append(" [");
+                for (int index = 0; index < sensor.values.Length; index++)
+                {
+                    if (index > 0) builder.Append(", ");
+                    builder.Append(sensor.values[index].ToString("0.###", CultureInfo.InvariantCulture));
+                }
+                builder.Append(']');
+            }
+            builder.AppendLine();
+        }
+
+        private void AppendHealth(string label, HealthMetricSnapshot metric)
+        {
+            metric = metric ?? new HealthMetricSnapshot();
+            builder.Append(label).Append(": ").Append(metric.status);
+            if (metric.hasValue)
+            {
+                builder.Append(" | ").Append(metric.displayValue);
+                if (!string.IsNullOrEmpty(metric.source)) builder.Append(" | ").Append(metric.source);
+                builder.Append(" | measured ").Append(metric.measuredAtEpochMs>0?FormatAge(metric.measuredAtEpochMs):"not supplied");
+            }
+            builder.Append(" | query ").Append(metric.queryComplete ? "complete" : "incomplete");
+            builder.AppendLine();
+            builder.Append("  Window: ").Append(FormatInstant(metric.queryStartEpochMs)).Append(" ~ ")
+                .Append(FormatInstant(metric.queryEndEpochMs)).Append(" ").AppendLine(metric.queryTimeZone);
+            builder.Append("  Filter: ").Append(metric.sourceFilter).Append(" | queried ")
+                .AppendLine(FormatInstant(metric.lastUpdatedEpochMs));
+            if(metric.measuredAtEpochMs>0)builder.Append("  Measured: ").AppendLine(FormatInstant(metric.measuredAtEpochMs));
+            if(metric.sourcePackages!=null && metric.sourcePackages.Length>0)
+                builder.Append("  Sources: ").AppendLine(string.Join(", ",metric.sourcePackages));
+            if(!string.IsNullOrEmpty(metric.sourceBreakdown))
+                builder.Append("  Candidate totals (not added): ").AppendLine(metric.sourceBreakdown);
+        }
+
+        private void AppendStatus(string label, string status)
+        {
+            builder.Append(label).Append(": ").AppendLine(string.IsNullOrEmpty(status) ? "NO_DATA" : status);
+        }
+
+        private static SensorCapabilitySnapshot FindSensor(SensorServiceSnapshot service, string key)
+        {
+            if (service?.sensors == null) return null;
+            for (int index = 0; index < service.sensors.Length; index++)
+            {
+                if (service.sensors[index]?.key == key) return service.sensors[index];
+            }
+            return null;
+        }
+
+        private static string FormatInstant(long epochMs)
+        {
+            if(epochMs<=0)return "not supplied";
+            try { return DateTimeOffset.FromUnixTimeMilliseconds(epochMs).ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss zzz"); }
+            catch(ArgumentOutOfRangeException) { return "invalid timestamp"; }
+        }
+
+        private static string FormatAge(long epochMs)
+        {
+            if (epochMs <= 0) return "never";
+            long seconds = Math.Max(0L, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - epochMs) / 1000L;
+            if (seconds < 60) return seconds + " sec ago";
+            if (seconds < 3600) return seconds / 60 + " min ago";
+            if (seconds < 86400) return seconds / 3600 + " hr ago";
+            return seconds / 86400 + " day ago";
+        }
+
+        private static string Describe(PlatformActionResult result)
+        {
+            if (result == null) return "ERROR: empty result";
+            return result.status + (string.IsNullOrEmpty(result.message) ? string.Empty : ": " + result.message);
+        }
+
+        private static void AddListener(Button button, UnityEngine.Events.UnityAction action)
+        {
+            if (button != null) button.onClick.AddListener(action);
+        }
+
+        private static void RemoveListener(Button button, UnityEngine.Events.UnityAction action)
+        {
+            if (button != null) button.onClick.RemoveListener(action);
+        }
+    }
+}
