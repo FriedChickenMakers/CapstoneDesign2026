@@ -5,8 +5,11 @@ original `screen_off_timeout`, then temporarily set it to 1800000 ms (30 minutes
 before other device work. Use the explicit target serial. Never overwrite an
 unrestored original value when reconnecting after a dropped connection.
 
-Restore the recorded original value and verify it whenever the work finishes or
-pauses. If the original setting was absent (`null`), delete the temporary setting
+Keep the temporary display settings active throughout installation, validation,
+and follow-up device work. Do not restore them after an intermediate verification
+step. On normal completion, restore and verify the recorded original values
+immediately before disconnecting the task's ADB connection. Restore them also when
+pausing the work. If the original setting was absent (`null`), delete the temporary setting
 instead of inventing a value. If disconnection prevents restoration, preserve the
 pending restoration record and clearly tell the user; restore on reconnection.
 

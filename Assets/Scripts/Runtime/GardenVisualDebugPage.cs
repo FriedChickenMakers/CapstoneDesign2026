@@ -19,6 +19,7 @@ namespace CapstoneDesign.Runtime
             var fit = gameObject.AddComponent<FigmaMissionCanvasFit>(); fit.Design = design; fit.Fit();
             FigmaMissionUi.UseGardenShell(design.gameObject);
             var backdrop = design.gameObject.AddComponent<Image>(); backdrop.color = GardenSagePalette.Background; backdrop.raycastTarget = true;
+            design.gameObject.AddComponent<QaLayoutTelemetry>().ScreenId="garden-time";
             GardenSettingsLayout.BuildHeader(design, "정원의 시간", "‹ 설정", close, "GardenTime");
             var viewport = FigmaMissionUi.Box(design, "UI debug scroll", 0, 110, 390, 480, Color.clear);
             viewport.GetComponent<Image>().raycastTarget = true; viewport.gameObject.AddComponent<RectMask2D>();

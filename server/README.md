@@ -380,3 +380,22 @@ cohort or evidence of clinical or personalization benefit.
 See the linked plan for the factual written-notice draft, including recommendation
 features, local-only health/free-text data, retention limits and operator fields
 that have not yet been assigned.
+
+
+## Extended measurement metadata and QA cohorts (2026-11-14)
+
+Schema 2 adds immutable per-event `telemetry` classification/context and bounded
+`details` for activity lifecycle, confirmed practice steps, and QA-only UI layout.
+Schema 1 and old events without extensions remain accepted. Absence means legacy
+unknown classification, never inferred participant or QA. UI labels, input text,
+images and raw sensor/health data are not included. See
+[the field and debug-mode guide](../docs/DEBUG_TELEMETRY_20261114.md).
+
+`measurement_receipts` records the first acceptance time of new observations;
+retries cannot change it. `measurement_transport` stores the latest collection-wide
+queue/retry snapshot. Retention and withdrawal remove both alongside their source
+data, including managed backup scrubbing. These tables do not backfill historical
+receipt times. The analyzer CLI defaults to `--cohort participant`; use `qa`,
+`legacy`, or explicit `all` when appropriate. Mixed-classification lifecycle flows
+are excluded from cohort-specific funnels, and QA legacy-model events are excluded
+from server fitting. No clinical or causal effect is inferred.

@@ -25,6 +25,7 @@ namespace CapstoneDesign.Runtime
             notice.name="Focus.SaveNotice";
             var mobile=design.gameObject.AddComponent<FocusMobilePageLayout>();mobile.Page=key;mobile.Navigation=navigation;mobile.Notice=notice;
             design.gameObject.AddComponent<FocusKeyboardNavigation>();
+            design.gameObject.AddComponent<QaLayoutTelemetry>().ScreenId=key;
             return design;
         }
         void FigmaHeader(Transform p,string title,string subtitle,GardenThemeSurface.Tone tone=GardenThemeSurface.Tone.Default)

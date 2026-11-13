@@ -138,14 +138,14 @@ namespace CapstoneDesign.EditorTools
                 report.checks.Add(name + ": summary/progress/state preserved");
             }
             Check("shop-wallet-unchosen", ui.ShowShop, service.CoinBalance.ToString("N0") + " 코인", false);
-            Check("course-summary-unchosen-placement", () => ui.PreviewEnvironment("environment:E01"), "코인 0  ·  아직 선택한 코스가 없어요.", false);
+            // The incoming shop now uses a purchase sheet; it no longer duplicates course progress.
             foreach (string program in new[] { "2w", "4w", "8w" })
             {
                 Require(service.SelectMbctProgram(program), service.LastError);
                 int weeks = MbctPolicy.ProgramWeeks(program), total = FocusMissionPolicy.TotalPracticesFor(program);
                 string expected = "코인 0  ·  " + weeks + "주 코스 0 / " + total;
                 Check("shop-wallet-" + program, ui.ShowShop, service.CoinBalance.ToString("N0") + " 코인", false);
-                Check("course-summary-" + program + "-placement", () => ui.PreviewEnvironment("environment:E01"), expected, false);
+
             }
         }
 
@@ -210,6 +210,8 @@ namespace CapstoneDesign.EditorTools
 
         static void CaptureMissions()
         {
+            using var gate = new DebugValidationScope(true);
+            Require(DebugAccess.Enter(), "Synthetic debug gate could not open.");
             using var service = Scene(out var nav, out var ui, out var clock);
             Require(service.SelectMbctProgram("8w"), service.LastError);
             int count = 0;

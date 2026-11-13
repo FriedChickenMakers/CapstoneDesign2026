@@ -17,17 +17,19 @@ namespace CapstoneDesign.EditorTools
         public static void Run(FocusMissionValidation.Report report,Action<bool,string> check,bool capture)
         {
             foreach(var size in new[]{new Vector2Int(360,640),new Vector2Int(390,844),new Vector2Int(1200,2000)})
+            using(var gate=new DebugValidationScope(true))
             using(var f=new FocusMissionValidation.Fixture(report,true,chooseCourse:false))
             {
                 f.Resize(size.x,size.y);Settle(f.Ui.transform.root);
                 var bar=f.Ui.GetComponentsInChildren<MissionBottomNavigation>(false).Single();
-                var launcher=f.Ui.GetComponentsInChildren<Button>(false).Single(b=>b.name=="Focus.DebugLauncher");
+                check(!f.Ui.GetComponentsInChildren<Button>(false).Any(b=>b.name=="Focus.DebugLauncher"),"Course picker has no unprotected debug launcher.");
                 CheckBadgeStates(f,bar,check,capture && size==new Vector2Int(390,844));
                 CheckBar(bar,Bounds,check,"Initial course picker "+size);
-                check(Bounds((RectTransform)launcher.transform).yMin>=Bounds((RectTransform)bar.transform).yMax+1,
-                    "Initial course-picker development control stays entirely above the inset shelf.");
+
                 f.Capture("qa-navigation-course-picker-"+size.x+"x"+size.y,capture);
-                f.ClickControl(launcher);check(f.Ui.CurrentScreen=="mission-debug-picker","Development launcher remains reachable.");
+                var settings=f.OpenMissionSettings();f.ClickControl(settings.TestToolsToggleButton);
+                f.ClickControl(settings.GetComponentsInChildren<Button>(false).Single(b=>b.name=="Settings.MissionDemo"));
+                check(f.Ui.CurrentScreen=="mission-debug-picker","Authorized settings launcher remains reachable.");
                 f.Click("Focus.DebugPickerClose");check(f.Ui.CurrentScreen=="focus-programs","Closing the picker preserves the unselected course state.");
             }
             foreach(var size in new[]{new Vector2Int(360,640),new Vector2Int(390,844),new Vector2Int(1200,2000)})
@@ -168,6 +170,9 @@ namespace CapstoneDesign.EditorTools
                 bool selected=bar.ActiveTab==names[i];
                 var expectedStyle=selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf;
                 check(face.style==expectedStyle,context+": selected tabs retain the common selected style while other tab faces retain their existing styles.");
+                if(!selected)
+                    check(!face.SageAppearance&&!face.CombineAppearance&&face.mainTexture==Resources.Load<Texture2D>("UI/Textures/LeafSet024LitNavigation"),
+                        context+": every unselected tab uses the approved leaf texture regardless of parent page theme.");
                 if(selected&&i==0)
                 {
                     check(face.SageAppearance&&face.mainTexture!=Resources.Load<Texture2D>("UI/Textures/LeafSet024LitNavigation")

@@ -11,33 +11,16 @@ namespace CapstoneDesign.Runtime
         {
             get
             {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 return missionDebugOriginalService != null;
-#else
-                return false;
-#endif
             }
         }
 
-        void BuildMissionDebugLauncher(Transform root)
-        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            var layout = root.GetComponent<FocusMobilePageLayout>();
-            if (layout != null) layout.BottomInset = Math.Max(layout.BottomInset, 48);
-            var button = FigmaMissionUi.Button(root, "P/M 테스트", 272, 716, 94, 44,
-                ShowMissionDebugPicker, Color.white, FigmaMissionUi.Green, 13);
-            button.name = "Focus.DebugLauncher";
-            var rect = (RectTransform)button.transform;
-            rect.anchorMin = rect.anchorMax = new Vector2(1, 0);
-            rect.pivot = new Vector2(.5f, .5f);
-            rect.anchoredPosition = new Vector2(-71, MissionBottomNavigation.ReservedHeight + 24);
-#endif
-        }
+        // Debug tools have one protected entry in Settings.
+        void BuildMissionDebugLauncher(Transform root) { }
 
         public void ShowMissionDebugPicker()
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (!opened || presentingPracticeGrowthSession != null) return;
+            if (!DebugAccess.Enabled || !opened || presentingPracticeGrowthSession != null) return;
             RestoreMissionDebug();
             if (!SaveActivePracticeDraft()) return;
             ClearMissionDebugPresentation();
@@ -56,13 +39,11 @@ namespace CapstoneDesign.Runtime
                 ShowHome();
             }).name = "Focus.DebugPickerClose";
             FocusEnter(root);
-#endif
         }
 
         public void StartMissionDebug(string code)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (!opened || presentingPracticeGrowthSession != null) return;
+            if (!DebugAccess.Enabled || !opened || presentingPracticeGrowthSession != null) return;
             var mission = FocusMissionCatalog.Find((code ?? "").Trim().ToUpperInvariant());
             if (mission == null) return;
             RestoreMissionDebug();
@@ -86,6 +67,7 @@ namespace CapstoneDesign.Runtime
                 missionDebugOriginalSession = originalSession;
                 missionDebugOriginalError = originalError;
                 Service = candidate;
+                if(Application.isPlaying)Service.CaptureMeasurementContext=()=>TelemetryMeasurementContext.Capture(true);
                 candidate = null; // The presenter now owns only this temporary service.
                 preview = true;
                 mode = "MOCK";
@@ -104,6 +86,7 @@ namespace CapstoneDesign.Runtime
                     guidedResumeClock = false;
                 }
                 ShowFocusPractice();
+                ObserveOptionalRecommendation(true);
             }
             catch (Exception exception)
             {
@@ -118,12 +101,10 @@ namespace CapstoneDesign.Runtime
                     notice.transform.SetAsLastSibling();
                 }
             }
-#endif
         }
 
         public void RestoreMissionDebug(bool refreshGarden = true)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (!IsMissionDebugActive) return;
             var sandbox = Service;
             try { ClearMissionDebugPresentation(); }
@@ -144,10 +125,8 @@ namespace CapstoneDesign.Runtime
                 sandbox?.Dispose();
             }
             if (refreshGarden && this != null && opened && gameObject.activeInHierarchy) UpdateGarden();
-#endif
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
         GardenStateService missionDebugOriginalService;
         bool missionDebugOriginalPreview;
         string missionDebugOriginalMode, missionDebugOriginalSession, missionDebugOriginalError;
@@ -251,6 +230,7 @@ namespace CapstoneDesign.Runtime
                 }
                 EnsureMissionDebugGrowingPlant(service);
                 targetSession = "mission-debug-" + target.Code + "-" + Guid.NewGuid().ToString("N");
+                if(Application.isPlaying)service.CaptureMeasurementContext=()=>TelemetryMeasurementContext.Capture(true);
                 RequireMissionDebug(service.BeginFocusSession(targetSession, target.Id, targetOrder, false,
                     target.Role == FocusMissionCatalog.BasicRole ? "8w" : null), service);
                 string createdSessionId = targetSession;
@@ -320,6 +300,5 @@ namespace CapstoneDesign.Runtime
             public void Save(GardenState candidate) => saved = StateCodec.Clone(candidate);
             public void Dispose() => saved = null;
         }
-#endif
     }
 }

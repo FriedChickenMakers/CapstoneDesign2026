@@ -35,7 +35,15 @@ namespace CapstoneDesign.Runtime
             visibility.Viewport=viewport;
             visibility.OnVisible=()=>
             {
-                if(string.IsNullOrEmpty(snapshot.ShownUtc))snapshot.ShownUtc=Service.CurrentUtc.ToString("o");
+                if(string.IsNullOrEmpty(snapshot.ShownUtc))
+                {
+                    snapshot.ShownUtc=Service.CurrentUtc.ToString("o");
+                    if(!preview && Application.isPlaying)
+                    {
+                        snapshot.MeasurementMetadata=JsonUtility.ToJson(TelemetryMeasurementContext.Current());
+                        snapshot.MeasurementOccurredUtcMs=DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    }
+                }
                 if(!preview && Application.isPlaying)PersonalizationClient.Instance.RecordMeasuredFocusExposure(snapshot);
             };
             return visibility;
@@ -101,6 +109,10 @@ namespace CapstoneDesign.Runtime
             var body = FigmaMissionUi.Rect(root, "MissionHome.Content", 0, 104, 390, 600);
             pageViewport = null;
             var card = FigmaMissionUi.Box(body, "기본 미션", 24, 8, 342, 220, FigmaMissionUi.Green, 24);
+            // Restore the approved broad-leaf card only; child buttons retain the incoming theme.
+            var cardFace = GardenThemeSurface.Apply(card.gameObject, GardenThemeSurface.Style.Primary);
+            cardFace.SetSageAppearance(false);
+            cardFace.SetCombineAppearance(false);
             var icon = FigmaMissionUi.Asset(card, "FocusMissions/Main/basic-leaf", 24, 20, 24, 24);
             string courseLabel = active != null && (!FocusMissionPolicy.IsFocus(active) || FocusMissionPolicy.ProgramFor(active) != program)
                 ? (FocusMissionPolicy.IsFocus(active) ? FocusProgramTitle(FocusMissionPolicy.ProgramFor(active)) : "이전 미션 이어가기")

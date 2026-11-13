@@ -166,21 +166,25 @@ internal object MeasurementUpload {
                     // One retry of exactly the same batch, never a regenerated event or key.
                     reply = transport(registration, body)
                 }
-                if (reply.status !in 200..299) return@synchronized Outcome.RETRY
-                val accepted = JSONObject(reply.body).getJSONArray("accepted_event_ids")
+                if (reply.status !in 200..299) {
+                    DebugTelemetry.transport(context, if(reply.status==401) "auth" else if(reply.status>=500) "server" else "client")
+                    return@synchronized Outcome.RETRY
+                }
+                val accepted = try { JSONObject(reply.body).getJSONArray("accepted_event_ids") }
+                    catch (_: Exception) { DebugTelemetry.transport(context,"ack"); return@synchronized Outcome.RETRY }
                 val ids = (0 until accepted.length()).map { accepted.getString(it) }.toSet()
-                require(sent.containsAll(ids)) { "Unsent acknowledgement" }
+                if (!sent.containsAll(ids)) { DebugTelemetry.transport(context,"ack"); return@synchronized Outcome.RETRY }
                 if (stopped()) return@synchronized Outcome.RETRY
                 if (!NativeLocalReset.current(context, epoch) || enrollment(context) != registration || !live(context))
                     return@synchronized Outcome.INACTIVE
                 val ack = JSONObject(MeasurementTelemetry.acknowledge(context, registration.binding,
                     batch.getString("collection_id"), accepted.toString(), JSONArray(sent.toList()).toString()))
-                if (!ack.optBoolean("ok")) return@synchronized Outcome.RETRY
-                if (ids.size < sent.size) return@synchronized Outcome.RETRY
-                if (events.length() < 100) return@synchronized Outcome.COMPLETE
+                if (!ack.optBoolean("ok") || ids.size < sent.size) { DebugTelemetry.transport(context,"ack"); return@synchronized Outcome.RETRY }
+                DebugTelemetry.transport(context,"none")
+                if (events.length() < 100 && batch.optLong("complete_through_utc_ms",0)>0) return@synchronized Outcome.COMPLETE
             }
             Outcome.RETRY // Bound each run; remaining batches survive and retry with backoff.
-        } catch (_: Exception) { Outcome.RETRY }
+        } catch (_: Exception) { DebugTelemetry.transport(context,"network"); Outcome.RETRY }
     }
 }
 

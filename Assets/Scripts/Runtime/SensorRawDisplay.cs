@@ -13,7 +13,7 @@ namespace CapstoneDesign.Runtime
     /// Presents the status-bearing Android platform facade. It intentionally
     /// never calls SensorManager or Health Connect directly.
     /// </summary>
-    public sealed class SensorRawDisplay : MonoBehaviour
+    public sealed partial class SensorRawDisplay : MonoBehaviour
     {
         private const float RefreshSeconds = 0.5f;
         private const float HealthRefreshSeconds = 60f;
@@ -131,7 +131,7 @@ namespace CapstoneDesign.Runtime
             BuildMusicVolume(music);
             BuildSfxVolume(music);
             Divider(music);
-            RowControl(music, "정원의 시간", OpenVisualDebug);
+
             RefreshMusicSetting();
             RefreshSfxSetting();
 
@@ -147,13 +147,12 @@ namespace CapstoneDesign.Runtime
             PlaceRow(healthPermissionButton, permissions, "건강 데이터 권한");
             permissionActionStatus = ActionLine(permissions);
 
-            // Destructive reset and simulation tools never enter a release build's UI.
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            TestToolsToggleButton = RowControl(content, "테스트 도구  +", ToggleTestTools);
+            // Presentation tools are available in release builds behind the local gate.
+            TestToolsToggleButton = SwitchRow(content, "디버그 모드", RequestDebugTools);
             TestToolsToggleButton.name = "Settings.TestTools";
             testToolsDisclosure = CreateDisclosure(content, "Test tools disclosure");
             Transform testTools = testToolsDisclosure.Content;
-            Copy(testTools, "개발·테스트용 · 출시 버전에는 표시되지 않아요.", GardenUi.CaptionSize, GardenUi.Muted);
+            BuildDebugAccessControls(content,testTools);
             Transform missions = Section(testTools, "Mission controls", "미션 테스트");
             if (refreshHealthButton == null) refreshHealthButton = RowControl(missions, "전체 초기화", () => { });
             else PlaceRow(refreshHealthButton, missions, "전체 초기화", false);
@@ -192,27 +191,19 @@ namespace CapstoneDesign.Runtime
             Place(startServiceButton, collector, "가속도 수집 켜기", true);
             Place(stopServiceButton, collector, "가속도 수집 끄기");
             collectorActionStatus = ActionLine(collector);
-            if (Debug.isDebugBuild || Application.isEditor)
-            {
-                debugModeButton = Control(diagnostics.transform, "걸음 디버그 OFF", ToggleDebugWalk);
-                virtualStepButton = Control(diagnostics.transform, "가상 걸음 +1", AddVirtualStep);
-            }
+            debugModeButton = Control(diagnostics.transform, "걸음 디버그 OFF", ToggleDebugWalk);
+            virtualStepButton = Control(diagnostics.transform, "가상 걸음 +1", AddVirtualStep);
             if (output == null) output = Copy(diagnostics.transform, "", GardenUi.CaptionSize);
             else output.transform.SetParent(diagnostics.transform, false);
             ConfigureCopy(output, GardenUi.CaptionSize, GardenUi.Ink);
             output.gameObject.SetActive(true);
             SetDisclosure(diagnosticsDisclosure, false, false);
-            SetDisclosure(testToolsDisclosure, false, false);
+            SetDisclosure(testToolsDisclosure, DebugAccess.Enabled, false);
+            RefreshDebugAccess();
 
             AddListener(startServiceButton, StartService);
             AddListener(stopServiceButton, StopService);
             AddListener(refreshHealthButton, RequestMissionReset);
-#else
-            // Old scenes can still serialize these objects; hide them even when their
-            // development-only builders and callbacks have been removed by compilation.
-            foreach (var control in new Behaviour[] { startServiceButton, stopServiceButton, refreshHealthButton, output })
-                if (control != null) control.gameObject.SetActive(false);
-#endif
             AddListener(sensorPermissionButton, RequestSensorPermissions);
             AddListener(healthPermissionButton, RequestHealthPermissions);
             RefreshText();
@@ -381,6 +372,7 @@ namespace CapstoneDesign.Runtime
             if (oldWidth != null) oldWidth.enabled = false;
 
             settingsDesign = FigmaMissionUi.Rect(transform, "Settings.Design", 0, 0, 390, 844);
+            settingsDesign.gameObject.AddComponent<QaLayoutTelemetry>().ScreenId="settings";
             var fit = gameObject.AddComponent<FigmaMissionCanvasFit>(); fit.Design = settingsDesign; fit.Fit();
             FigmaMissionUi.UseGardenShell(settingsDesign.gameObject);
             var backdrop = settingsDesign.gameObject.AddComponent<Image>(); backdrop.color = GardenSagePalette.Background; backdrop.raycastTarget = true;
@@ -594,27 +586,15 @@ namespace CapstoneDesign.Runtime
 
         public void ToggleDiagnostics()
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (diagnosticsDisclosure == null) return;
+            if (!DebugAccess.Enabled || diagnosticsDisclosure == null) return;
             bool expanded = !diagnosticsDisclosure.Expanded;
             SetDisclosure(diagnosticsDisclosure, expanded, true, diagnosticsButton);
             diagnosticsButton.GetComponentInChildren<Text>(true).text = expanded ? "상세 진단  −" : "상세 진단  +";
             if (expanded) RefreshText();
             RefreshDisclosureSize(testToolsDisclosure);
-#endif
         }
 
-        public void ToggleTestTools()
-        {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-            if (testToolsDisclosure == null) return;
-            bool expanded = !testToolsDisclosure.Expanded;
-            if (!expanded) CancelMissionReset();
-            SetDisclosure(testToolsDisclosure, expanded, true, TestToolsToggleButton);
-            TestToolsToggleButton.GetComponentInChildren<Text>(true).text = expanded ? "테스트 도구  −" : "테스트 도구  +";
-            if (expanded) RefreshText();
-#endif
-        }
+        public void ToggleTestTools() => RequestDebugTools();
 
         private Disclosure CreateDisclosure(Transform parent, string name)
         {
@@ -693,7 +673,7 @@ namespace CapstoneDesign.Runtime
         public void OpenVisualDebug()
         {
             PrepareView();
-            if (IsVisualDebugOpen || !(settingsDesign?.gameObject.activeInHierarchy ?? false)) return;
+            if (!DebugAccess.Enabled || IsVisualDebugOpen || !(settingsDesign?.gameObject.activeInHierarchy ?? false)) return;
             visualDebugScrollPosition = PrimaryScroll.content.anchoredPosition;
             visualDebugOrigin = EventSystem.current?.currentSelectedGameObject;
             if (visualDebugPage == null)
@@ -764,9 +744,7 @@ namespace CapstoneDesign.Runtime
             Loop?.RequestStepSyncSoon();
             if (Application.platform != RuntimePlatform.Android ||
                 AndroidPlatformBridge.InputMode != PlatformInputMode.Live) return;
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             lastAction = Describe(AndroidPlatformBridge.CaptureDebugSensors());
-#endif
             AndroidPlatformBridge.RefreshHealthData();
             nextHealthRefresh = Time.unscaledTime + HealthRefreshSeconds;
             if (!automaticPermissionFlowStarted)
@@ -787,28 +765,26 @@ namespace CapstoneDesign.Runtime
 
         private void OnDestroy()
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             RemoveListener(startServiceButton, StartService);
             RemoveListener(stopServiceButton, StopService);
             RemoveListener(refreshHealthButton, RequestMissionReset);
-#endif
             RemoveListener(sensorPermissionButton, RequestSensorPermissions);
             RemoveListener(healthPermissionButton, RequestHealthPermissions);
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
         private void StartService()
         {
+            if(!DebugAccess.Enabled)return;
             ShowAction(AndroidPlatformBridge.StartBackgroundSensorService(), "가속도 수집 시작을 요청했어요.", collectorActionStatus);
             RefreshText();
         }
 
         private void StopService()
         {
+            if(!DebugAccess.Enabled)return;
             ShowAction(AndroidPlatformBridge.StopBackgroundSensorService(), "가속도 수집 중지를 요청했어요.", collectorActionStatus);
             RefreshText();
         }
-#endif
 
         private void RequestSensorPermissions()
         {
@@ -833,9 +809,9 @@ namespace CapstoneDesign.Runtime
             RefreshText();
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
         void RequestMissionReset()
         {
+            if(!DebugAccess.Enabled)return;
             if(Loop==null || !Loop.HasOpenState)return;
             var state=Loop.Service.Snapshot;
             fullResetRequestId=Loop.HasPendingFullReset?state.FullResetRequestId:Guid.NewGuid().ToString("N");
@@ -868,6 +844,7 @@ namespace CapstoneDesign.Runtime
 
         void ResetAllRecords(string request,string source)
         {
+            if(!DebugAccess.Enabled)return;
             if (missionResetConfirmation == null || !missionResetConfirmation.activeInHierarchy
                 || request!=fullResetRequestId || source!=fullResetSourceId) return;
             bool success=Loop!=null && Loop.ResetAllData(request,source);
@@ -882,6 +859,7 @@ namespace CapstoneDesign.Runtime
 
         void AdvanceMissionDate()
         {
+            if(!DebugAccess.Enabled)return;
             bool success=Loop!=null && Loop.AdvanceMissionDay();
             if(missionActionStatus!=null)
             {
@@ -893,16 +871,15 @@ namespace CapstoneDesign.Runtime
 
         void AddTestCoins()
         {
+            if(!DebugAccess.Enabled)return;
             bool success = Loop != null && Loop.AddTestCoins();
             coinActionStatus.text = success ? "코인 100개를 추가했어요." : "추가하지 못했어요. 다시 시도해 주세요.";
             coinActionStatus.gameObject.SetActive(true);
             RefreshMissionControls();
         }
-#endif
 
         void RefreshMissionControls()
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             var loop=Loop;bool ready=loop!=null && loop.HasOpenState;
             bool pending=ready && loop.HasPendingFullReset;
             if(ready && !pending && fullResetRequestId!=null && loop.Service.Snapshot.FullResetRequestId==fullResetRequestId)
@@ -945,7 +922,6 @@ namespace CapstoneDesign.Runtime
                 if(fullResetCancelButton!=null)fullResetCancelButton.interactable=true;
             }
             RefreshDisclosureSize(testToolsDisclosure);
-#endif
         }
 
         private void OpenCharts()
@@ -954,19 +930,19 @@ namespace CapstoneDesign.Runtime
             RefreshText();
         }
 
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
         private void ToggleDebugWalk()
         {
+            if(!DebugAccess.Enabled)return;
             if(Loop?.ToggleDebugWalk()==true)lastAction="DEBUG 걸음 모드를 변경했어요";
             RefreshText();
         }
 
         private void AddVirtualStep()
         {
+            if(!DebugAccess.Enabled)return;
             if(Loop?.AddVirtualDebugStep()==true)lastAction="가상 걸음 +1 저장됨";
             RefreshText();
         }
-#endif
 
         private void RefreshText()
         {

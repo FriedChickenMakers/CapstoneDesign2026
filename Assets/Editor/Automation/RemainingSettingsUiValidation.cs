@@ -20,6 +20,7 @@ namespace CapstoneDesign.EditorTools
         {
             AndroidPlatformBridge.UseMockProvider();
             foreach (var size in new[] { new Vector2Int(320,568), new Vector2Int(390,844), new Vector2Int(1200,2000) })
+            using (var gate = new DebugValidationScope(true))
             using (var f = new FocusMissionValidation.Fixture(report, true))
             {
                 f.Resize(size.x, size.y);
@@ -110,6 +111,7 @@ namespace CapstoneDesign.EditorTools
                 check(!settings.MissionResetConfirmButton.gameObject.activeInHierarchy, at + "cancel retains all records and closes confirmation.");
                 f.ClickControl(settings.TestToolsToggleButton); Settle(settings);
 
+                f.ClickControl(settings.TestToolsToggleButton); Settle(settings);
                 var timeEntry = settings.GetComponentsInChildren<Button>(false).Single(button =>
                     button.GetComponentInChildren<Text>()?.text == "정원의 시간");
                 f.ClickControl(timeEntry);

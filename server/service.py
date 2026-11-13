@@ -63,8 +63,13 @@ def finite_number(value, minimum, maximum):
 def validate_event(event, now_ms):
     required = {"event_id", "decision_id", "kind", "occurred_utc_ms", "utc_offset_minutes",
                 "activity_id", "policy_id", "app_version", "content_version", "features"}
-    if not isinstance(event, dict) or set(event) != required:
+    if not isinstance(event, dict) or set(event) not in (required,required | {"classification"}):
         raise ApiError(400, "event_fields")
+    classification=event.get("classification")
+    if classification is not None and (not isinstance(classification,dict) or set(classification)!={"classified","qa","debug"}
+        or any(type(classification[k]) is not bool for k in classification)
+        or not classification["classified"] and (classification["qa"] or classification["debug"])):
+        raise ApiError(400,"event_classification")
     if not identifier(event["event_id"]) or not identifier(event["decision_id"]):
         raise ApiError(400, "event_identity")
     if not isinstance(event["kind"], str) or event["kind"] not in KINDS:
@@ -135,6 +140,10 @@ class EventService:
                     notification_id TEXT NOT NULL, occurred INTEGER NOT NULL, payload TEXT NOT NULL,
                     PRIMARY KEY(subject, event_id));
                 CREATE INDEX IF NOT EXISTS measurements_occurred ON measurements(occurred);
+                CREATE TABLE IF NOT EXISTS measurement_receipts (
+                    subject TEXT NOT NULL, event_id TEXT NOT NULL, received INTEGER NOT NULL, PRIMARY KEY(subject,event_id));
+                CREATE TABLE IF NOT EXISTS measurement_transport (
+                    subject TEXT NOT NULL, collection_id TEXT NOT NULL, updated INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(subject,collection_id));
                 CREATE TABLE IF NOT EXISTS measurement_quality (
                     subject TEXT NOT NULL, collection_id TEXT NOT NULL, dropped INTEGER NOT NULL,
                     expired INTEGER NOT NULL, storage_error INTEGER NOT NULL, updated INTEGER NOT NULL,
@@ -164,6 +173,8 @@ class EventService:
         removed = db.execute("DELETE FROM events WHERE occurred < ?", (now_ms - 90 * 86400000,)).rowcount
         removed += db.execute("DELETE FROM measurements WHERE occurred < ?", (now_ms - 90 * 86400000,)).rowcount
         db.execute("DELETE FROM measurement_quality WHERE updated < ?", (now_ms - 90 * 86400000,))
+        db.execute("DELETE FROM measurement_transport WHERE updated < ?", (now_ms - 90 * 86400000,))
+        db.execute("DELETE FROM measurement_receipts WHERE NOT EXISTS (SELECT 1 FROM measurements m WHERE m.subject=measurement_receipts.subject AND m.event_id=measurement_receipts.event_id)")
         return removed
 
     def purge_expired(self):
@@ -227,6 +238,8 @@ class EventService:
                 db.execute("DELETE FROM events WHERE subject=?", (subject,))
                 db.execute("DELETE FROM measurements WHERE subject=?", (subject,))
                 db.execute("DELETE FROM measurement_quality WHERE subject=?", (subject,))
+                db.execute("DELETE FROM measurement_receipts WHERE subject=?", (subject,))
+                db.execute("DELETE FROM measurement_transport WHERE subject=?", (subject,))
                 db.execute("INSERT OR IGNORE INTO revoked VALUES (?)", (subject,))
                 self.automatic_enrollments.revoke(db, hashlib.sha256(authorization[7:].encode()).digest(), subject)
                 # Tombstone prevents late retries from recreating erased records.
@@ -256,7 +269,9 @@ class EventService:
                 validate_event(event, now_ms)
             accepted = []
             for event in events:
-                encoded = canonical(event)
+                normalized=dict(event)
+                if not (event.get("classification") or {}).get("classified"):normalized.pop("classification",None)
+                encoded = canonical(normalized)
                 previous = db.execute("SELECT payload FROM events WHERE subject=? AND event_id=?",
                                       (subject, event["event_id"])).fetchone()
                 if previous and previous[0] != encoded:

@@ -24,7 +24,7 @@ internal object NativeLocalReset {
             androidx.work.WorkManager.getInstance(context).pruneWork().result.get(250,java.util.concurrent.TimeUnit.MILLISECONDS)
             MeasurementTelemetry.resetLocalData(context)
             MissionPhotoController.resetLocalData(context)
-            listOf("capstone_platform_permission_state", "daily_acceleration_trial").forEach {
+            listOf("capstone_platform_permission_state", "daily_acceleration_trial", "capstone_debug_telemetry").forEach {
                 check(context.getSharedPreferences(it, Context.MODE_PRIVATE).edit().clear().commit()) { "Preference cleanup failed" }
             }
             context.getSystemService(NotificationManager::class.java).apply { cancel(2601); cancel(2603) }

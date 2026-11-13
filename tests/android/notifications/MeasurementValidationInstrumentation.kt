@@ -38,6 +38,7 @@ class MeasurementValidationInstrumentation : Instrumentation() {
             if (phase == "produce") {
                 MeasurementTelemetry.configure(ctx,"",false,0)
                 verify("collection off has no export", JSONObject(MeasurementTelemetry.batch(ctx,binding)).length()==0)
+                DebugTelemetry.configure(ctx,true,true,"a7-native-qa-v2")
                 val since=System.currentTimeMillis()
                 verify("explicit consent persists", JSONObject(MeasurementTelemetry.configure(ctx,binding,true,since)).getBoolean("ok"))
                 val p=ctx.getSharedPreferences("garden_activity_notifications",Context.MODE_PRIVATE)
@@ -64,6 +65,18 @@ class MeasurementValidationInstrumentation : Instrumentation() {
                 verify("preconsent activity excluded",!JSONObject(MeasurementTelemetry.activity(ctx,"activity_selected","b".repeat(32),"course:MBCT01",since-1,0)).getBoolean("ok"))
                 MeasurementTelemetry.activity(ctx,"activity_selected","b".repeat(32),"course:MBCT01",System.currentTimeMillis(),0)
                 verify("postconsent activity recorded",events().length()==4)
+                val visitDeadline=SystemClock.elapsedRealtime()+5000
+                while(!JSONObject(MeasurementAppVisits.current()).optBoolean("foreground") && SystemClock.elapsedRealtime()<visitDeadline)SystemClock.sleep(30)
+                val linked=DebugTelemetry.context(ctx)
+                verify("actual notification opens a foreground visit",linked.getString("visit_id").isNotEmpty())
+                verify("notification click links to visit",linked.getString("source_notification_id")==click.getString("notification_id"))
+                verify("QA build and OS stamped",linked.getBoolean("classified") && linked.getBoolean("qa") && linked.getBoolean("debug")
+                    && linked.getString("build_id")=="a7-native-qa-v2" && linked.getInt("os_api")==android.os.Build.VERSION.SDK_INT)
+                verify("linked visit enqueued",JSONObject(MeasurementTelemetry.appSession(ctx,linked.getString("visit_id"))).getBoolean("ok"))
+                val frozen=events().toString()
+                DebugTelemetry.configure(ctx,true,false,"a7-native-qa-v2")
+                verify("QA toggle preserves previously queued events",events().toString()==frozen)
+
                 for ((decision, session, actual) in listOf(Triple("c".repeat(32), "d".repeat(32), "free-mission:M17"),
                                                           Triple("e".repeat(32), "f".repeat(32), "free-mission:M02"))) {
                     for (kind in listOf("shown", "selected", "started", "completed")) {
@@ -90,7 +103,7 @@ class MeasurementValidationInstrumentation : Instrumentation() {
                 val originalEvents=JSONObject(File(out,"pending.json").readText()).getJSONArray("events")
                 val first=batch();val a=first.getJSONArray("events")
                 verify("new process reads original consent collection",first.getString("collection_id")==expected.getString("collection"))
-                verify("process restart preserves exact pending events",a.length()==12 && ids(a)==expected.getString("ids") && a.toString()==originalEvents.toString())
+                verify("process restart preserves exact pending events",a.length()==13 && ids(a)==expected.getString("ids") && a.toString()==originalEvents.toString())
                 verify("full snapshot has measurement watermark",first.getLong("complete_through_utc_ms")>0)
                 MeasurementTelemetry.acknowledge(ctx,binding,first.getString("collection_id"),ids(a),ids(a))
                 verify("ack clears pending durable outbox",events().length()==0)

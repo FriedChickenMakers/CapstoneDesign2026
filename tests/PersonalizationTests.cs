@@ -128,7 +128,15 @@ static class PersonalizationTests
         {
             var file=new FileEventQueueStore(Path.Combine(directory,"events.xml"));var persistent=new EventQueue(file);
             persistent.Bind("file-synthetic-enrollment");persistent.SetConsent(true,now);persistent.Add(Event(now));
-            Check(new EventQueue(file).Count==1,"Atomic file round trip");persistent.SetConsent(false);
+            Check(new EventQueue(file).Count==1,"Atomic file round trip");
+            var qaEvent=Event(now);qaEvent.classification=new BehaviorClassification{classified=true,qa=true,debug=true};
+            Check(persistent.Add(qaEvent),"QA model event persisted");qaEvent.classification.qa=false;
+            persistent=new EventQueue(file);var frozen=persistent.Batch(now).Single(e=>e.event_id==qaEvent.event_id);
+            Check(frozen.classification.classified && frozen.classification.qa && frozen.classification.debug,"QA classification survives source mutation and disk restart");
+            frozen.classification.qa=false;
+            Check(persistent.Batch(now).Single(e=>e.event_id==qaEvent.event_id).classification.qa,"Batch classification is a defensive snapshot");
+            Check(!persistent.Add(qaEvent) && persistent.Batch(now).Single(e=>e.event_id==qaEvent.event_id).classification.qa,"Replay cannot rewrite QA choice");
+            persistent.SetConsent(false);
             Check(new EventQueue(file).DeletePending,"Atomic withdrawal survives reload");
             File.WriteAllText(Path.Combine(directory,"events.xml"),"not XML");
             Throws(()=>new EventQueue(file),"Corruption must fail closed");

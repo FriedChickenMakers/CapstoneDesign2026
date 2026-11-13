@@ -215,7 +215,7 @@ namespace CapstoneDesign.Runtime
             try
             {
                 var now = DateTimeOffset.Now;
-                return queue.Add(new BehaviorEvent { event_id=Guid.NewGuid().ToString("N"), decision_id=decisionId, kind=kind,
+                return queue.Add(new BehaviorEvent { classification=new BehaviorClassification{classified=true,qa=DebugAccess.Qa,debug=DebugAccess.Enabled},event_id=Guid.NewGuid().ToString("N"), decision_id=decisionId, kind=kind,
                     occurred_utc_ms=now.ToUnixTimeMilliseconds(), utc_offset_minutes=(int)now.Offset.TotalMinutes,
                     activity_id=activityId, policy_id=policyId, app_version=Application.version, content_version="courses-v1", features=features });
             }
@@ -232,11 +232,16 @@ namespace CapstoneDesign.Runtime
         }
         void RecordSessionEvent(LocalState.ActivitySession session,string kind,DateTimeOffset occurred)
         {
+            var stamp=kind=="activity_started"?session.StartedMeasurement:session.EndedMeasurement;
+            if(stamp!=null && stamp.RecordedUtcMs>0)occurred=DateTimeOffset.FromUnixTimeMilliseconds(stamp.RecordedUtcMs);
             if(occurred<DateTimeOffset.UtcNow.AddDays(-90))return;
             var context=session.Recommendation;
             try
             {
-                queue.Add(new BehaviorEvent {event_id=EventQueue.Fingerprint(session.SessionId,kind).Substring(0,32),
+                var measured=stamp==null?null:JsonUtility.FromJson<TelemetryMeasurementContext.Context>(stamp.Metadata);
+                var classification=measured==null?new BehaviorClassification{classified=context.MeasurementClassified,qa=context.MeasurementQa,debug=context.MeasurementDebug}:
+                    new BehaviorClassification{classified=measured.classified,qa=measured.qa,debug=measured.debug};
+                queue.Add(new BehaviorEvent {classification=classification,event_id=EventQueue.Fingerprint(session.SessionId,kind).Substring(0,32),
                     decision_id=context.DecisionId,kind=kind,activity_id=session.MissionId,policy_id=context.PolicyId,
                     features=context.Features,app_version=context.AppVersion,content_version="courses-v1",
                     occurred_utc_ms=occurred.ToUnixTimeMilliseconds(),utc_offset_minutes=context.UtcOffsetMinutes});
@@ -250,6 +255,7 @@ namespace CapstoneDesign.Runtime
             if(Time.unscaledTime>=nextMeasurementSync)
             {
                 nextMeasurementSync=Time.unscaledTime+3;
+                if(!DebugAccess.SynchronizeNative())return;
                 if(SynchronizeMeasurementConsent()) { RecordMeasuredAppVisit(); RetryMeasuredFocusExposures(); }
             }
             if(!CollectionContextAllowed)return;

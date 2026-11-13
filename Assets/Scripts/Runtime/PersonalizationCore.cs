@@ -27,8 +27,10 @@ namespace CapstoneDesign.Runtime.Personalization
     }
     // Fixed, bounded numeric features only. No free text, raw health values or
     // device identifiers belong in this contract.
+    [Serializable] public sealed class BehaviorClassification { public bool classified,qa,debug; }
     [Serializable] public sealed class BehaviorEvent
     {
+        public BehaviorClassification classification = new BehaviorClassification();
         public string event_id, decision_id, kind, activity_id, policy_id, app_version, content_version;
         public long occurred_utc_ms;
         public int utc_offset_minutes;
@@ -132,7 +134,7 @@ namespace CapstoneDesign.Runtime.Personalization
                 || state.DeletePending && state.EnrollmentRevoked)
                 throw new InvalidDataException("Event queue invalid; preserved without upload.");
         }
-        static BehaviorEvent Clone(BehaviorEvent e) => new BehaviorEvent { event_id=e.event_id, decision_id=e.decision_id,
+        static BehaviorEvent Clone(BehaviorEvent e) => new BehaviorEvent { classification=e.classification==null?new BehaviorClassification():new BehaviorClassification{classified=e.classification.classified,qa=e.classification.qa,debug=e.classification.debug}, event_id=e.event_id, decision_id=e.decision_id,
             kind=e.kind, activity_id=e.activity_id, policy_id=e.policy_id, app_version=e.app_version, content_version=e.content_version,
             occurred_utc_ms=e.occurred_utc_ms, utc_offset_minutes=e.utc_offset_minutes, features=(float[])e.features.Clone() };
         EventQueueState Copy() => new EventQueueState { Enabled=state.Enabled, DeletePending=state.DeletePending,

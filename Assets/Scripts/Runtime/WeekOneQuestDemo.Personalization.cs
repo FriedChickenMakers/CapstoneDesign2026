@@ -27,7 +27,7 @@ namespace CapstoneDesign.Runtime
             {
                 exposure?.ReportVisible();
                 var context=canCollect && PersonalizationClient.Instance.Consented?new RecommendationContext {
-                    DecisionId=decision,PolicyId=ranked.PolicyId,AppVersion=Application.version,UtcOffsetMinutes=(int)DateTimeOffset.Now.Offset.TotalMinutes,Features=ranked.Features}:null;
+                    MeasurementClassified=true,MeasurementQa=DebugAccess.Qa,MeasurementDebug=DebugAccess.Enabled,DecisionId=decision,PolicyId=ranked.PolicyId,AppVersion=Application.version,UtcOffsetMinutes=(int)DateTimeOffset.Now.Offset.TotalMinutes,Features=ranked.Features}:null;
                 SelectMission(mission,context);
             },PrototypeUiIcon.Symbol.Leaf);
             exposure=row.gameObject.AddComponent<RecommendationExposure>();
@@ -35,13 +35,13 @@ namespace CapstoneDesign.Runtime
         }
         void ObserveOptionalRecommendation(bool force=false)
         {
-            if(!opened || preview || !Application.isPlaying || (!force && Time.unscaledTime<nextOptionalObservation))return;
+            if(!opened || preview && !IsMissionDebugActive || !Application.isPlaying || (!force && Time.unscaledTime<nextOptionalObservation))return;
             nextOptionalObservation=Time.unscaledTime+3;
             var client=PersonalizationClient.Instance;
             if(!client.Consented && !client.MeasurementConsented)return;
-            foreach(var session in Service.Snapshot.Sessions)
+            foreach(var session in Service.Snapshot.Sessions.Where(s=>!IsMissionDebugActive || s.SessionId==sessionId))
             {
-                client.RecordSession(session);
+                if(!IsMissionDebugActive)client.RecordSession(session);
                 client.RecordMeasuredSession(session);
             }
         }

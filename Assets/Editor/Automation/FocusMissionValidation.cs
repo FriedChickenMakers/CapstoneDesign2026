@@ -497,6 +497,7 @@ namespace CapstoneDesign.EditorTools
 
         static void SettingsMissionControls(Report report, bool capture)
         {
+            using(var gate=new DebugValidationScope(true))
             using(var f=new Fixture(report,true))
             {
                 f.Click("기본 미션 시작하기"); f.Click("Focus.IconAction");
@@ -583,6 +584,7 @@ namespace CapstoneDesign.EditorTools
                     InstallationId = "synthetic-test-nutrient-ui", Nutrient = 35, GardenXp = 9, LegacyGrowth = .2f };
                 GardenPlantVisuals.Sync(seeded);
                 var store = new MemoryStore(); store.Save(seeded);
+                using (var gate = new DebugValidationScope(true))
                 using (var f = new Fixture(report, true, seededStore: store))
                 {
                     f.Resize(size.x, size.y);
@@ -1082,6 +1084,21 @@ namespace CapstoneDesign.EditorTools
                 var bounds = RectTransformUtility.CalculateRelativeRectTransformBounds(scroll.viewport, graphic.rectTransform);
                 Assert(bounds.min.y >= scroll.viewport.rect.yMin - 1 && bounds.max.y <= scroll.viewport.rect.yMax + 1,
                     "Scrolled health graph is still clipped by its viewport.");
+            }
+            // Test the initial visible hit area; unlike Click(), never auto-scroll.
+            public void AssertVisibleHitArea(Button button)
+            {
+                Layout(); PrepareRaycastGraphics();
+                var rect=(RectTransform)button.transform;var r=rect.rect;
+                foreach(var point in new[] {r.center,new Vector2(r.center.x,r.yMin+4),new Vector2(r.center.x,r.yMax-4),
+                    new Vector2(r.xMin+4,r.center.y),new Vector2(r.xMax-4,r.center.y)})
+                {
+                    var screenPoint=RectTransformUtility.WorldToScreenPoint(camera,rect.TransformPoint(point));
+                    var hit=RaycastFixture(new PointerEventData(pointerContext){position=screenPoint}).FirstOrDefault();
+                    Assert(hit.gameObject!=null && hit.gameObject.GetComponentInParent<Button>()==button,
+                        "Initial button edge is clipped or blocked: "+button.name+" at "+point);
+                    report.raycastChecks++;
+                }
             }
             void AssertRaycastTarget(Button button)
             {

@@ -135,6 +135,13 @@ namespace CapstoneDesign.Runtime.LocalState
         }
     }
     public enum ParticipationState { Selected, InProgress, Paused, Ended, RewardCommitted }
+    [Serializable]
+    public sealed class MeasurementStamp
+    {
+        public string Metadata, EntrySource;
+        public long RecordedUtcMs;
+        public MeasurementStamp Copy() => (MeasurementStamp)MemberwiseClone();
+    }
     public sealed class FocusStepRecord
     {
         public string PlanActivity, PlanTimePeriod, PlanNote;
@@ -145,7 +152,8 @@ namespace CapstoneDesign.Runtime.LocalState
         public int RecommendedSeconds;
         public bool Skipped;
         public int ElapsedSeconds;
-        internal FocusStepRecord Copy() => (FocusStepRecord)MemberwiseClone();
+        public MeasurementStamp Measurement;
+        internal FocusStepRecord Copy() { var copy=(FocusStepRecord)MemberwiseClone();copy.Measurement=Measurement?.Copy();return copy; }
     }
     public static class FocusMissionPolicy
     {
@@ -232,20 +240,23 @@ namespace CapstoneDesign.Runtime.LocalState
     }
     public sealed class RecommendationContext
     {
+        public bool MeasurementClassified, MeasurementQa, MeasurementDebug;
         public int UtcOffsetMinutes;
         public string DecisionId, PolicyId, AppVersion;
         public float[] Features;
-        internal RecommendationContext Copy() => new RecommendationContext {DecisionId=DecisionId,PolicyId=PolicyId,AppVersion=AppVersion,UtcOffsetMinutes=UtcOffsetMinutes,Features=Features==null?null:(float[])Features.Clone()};
+        internal RecommendationContext Copy() => new RecommendationContext {MeasurementClassified=MeasurementClassified,MeasurementQa=MeasurementQa,MeasurementDebug=MeasurementDebug,DecisionId=DecisionId,PolicyId=PolicyId,AppVersion=AppVersion,UtcOffsetMinutes=UtcOffsetMinutes,Features=Features==null?null:(float[])Features.Clone()};
     }
     // The recommendation actually visible before this selection; no free-text or health inputs.
     public sealed class FocusRecommendationExposure
     {
-        public string DecisionId, MissionId, PolicyId, Reason, ShownUtc;
+        public string DecisionId, MissionId, PolicyId, Reason, ShownUtc, MeasurementMetadata;
+        public long MeasurementOccurredUtcMs;
         internal FocusRecommendationExposure Copy() => (FocusRecommendationExposure)MemberwiseClone();
     }
     public sealed class ActivitySession
     {
-        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); copy.FocusRecommendationExposure=FocusRecommendationExposure?.Copy();copy.Photo=Photo?.Copy();return copy; }
+        internal ActivitySession Copy() { var copy=(ActivitySession)MemberwiseClone(); copy.Answers=Answers?.Select(a=>a?.Copy()).ToList(); copy.Recommendation=Recommendation?.Copy(); copy.FocusStepRecords=FocusStepRecords?.Select(r=>r?.Copy()).ToList(); copy.FocusRecommendationExposure=FocusRecommendationExposure?.Copy();copy.Photo=Photo?.Copy();copy.SelectedMeasurement=SelectedMeasurement?.Copy();copy.StartedMeasurement=StartedMeasurement?.Copy();copy.EndedMeasurement=EndedMeasurement?.Copy();return copy; }
+        public MeasurementStamp SelectedMeasurement, StartedMeasurement, EndedMeasurement;
         public MissionPhoto Photo;
         public bool PhotoPromptHandled;
         public string PendingPhotoId, PendingPhotoTarget;
@@ -1155,6 +1166,33 @@ namespace CapstoneDesign.Runtime.LocalState
             RequireOpen();
             if(state.FullResetPending)throw new InvalidOperationException("전체 초기화가 진행 중이에요. 초기화를 다시 시도해 주세요.");
         }
+        // Injected by the live presenter; pure domain fixtures leave it unset.
+        public Func<MeasurementStamp> CaptureMeasurementContext;
+        void StampMeasurements(GardenState next)
+        {
+            if(CaptureMeasurementContext==null)return;
+            foreach(var session in next.Sessions)
+            {
+                var before=state.Sessions.FirstOrDefault(s=>s.SessionId==session.SessionId);
+                Func<MeasurementStamp> capture=()=>
+                {
+                    var stamp=CaptureMeasurementContext();
+                    if(stamp==null)return null;
+                    stamp=stamp.Copy();
+                    if(stamp.EntrySource!="demo")stamp.EntrySource=session.FocusSupport?"alternative":session.FocusReview?"review":
+                        session.FocusRecommendationExposure!=null || session.Recommendation!=null?"recommendation":
+                        FocusMissionPolicy.RoleFor(session)==FocusMissionCatalog.BasicRole?"course":"direct";
+                    return stamp;
+                };
+                if(before==null)session.SelectedMeasurement=capture();
+                if(!string.IsNullOrEmpty(session.StartedUtc) && string.IsNullOrEmpty(before?.StartedUtc))session.StartedMeasurement=capture();
+                if((session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended)
+                    && before?.Status!=session.Status)session.EndedMeasurement=capture();
+                foreach(var step in session.FocusStepRecords??new List<FocusStepRecord>())
+                    if(!string.IsNullOrEmpty(step.ConfirmedUtc) && string.IsNullOrEmpty(before?.FocusStepRecords?.FirstOrDefault(r=>r.Step==step.Step)?.ConfirmedUtc))
+                        step.Measurement=capture();
+            }
+        }
         bool Change(Action<GardenState> mutation)
         {
             lock (gate)
@@ -1163,7 +1201,7 @@ namespace CapstoneDesign.Runtime.LocalState
                 try
                 {
                     RequireReady();
-                    var next = StateCodec.Clone(state); mutation(next); CameraMissionPolicy.Reconcile(next);CombinedPlants.CaptureCurrent(next,Now,CycleFor(next));StateCodec.Validate(next); store.Save(next); state = next; LastError = null; return true;
+                    var next = StateCodec.Clone(state); mutation(next); StampMeasurements(next); CameraMissionPolicy.Reconcile(next);CombinedPlants.CaptureCurrent(next,Now,CycleFor(next));StateCodec.Validate(next); store.Save(next); state = next; LastError = null; return true;
                 }
                 catch (Exception ex) { LastError = ex.Message; return false; }
             }
@@ -2288,11 +2326,9 @@ namespace CapstoneDesign.Runtime.LocalState
                 WeeklyPlants.AddMemory(next,next.PlantCollection.ActiveId,MemoryRecordKind.Experience,id,Now,RecordOffset);
             });
         }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        // Explicit test-tool action; use the same atomic wallet save as gameplay.
+        // Protected UI is responsible for authorization; keep the wallet operation atomic.
         public bool AddTestCoins() => Change(next => next.Coins = checked(next.Coins + 100));
         public bool AddTestNutrients() => AddTestCoins();
-#endif
 
         public bool EnableDebugWalk()
         {

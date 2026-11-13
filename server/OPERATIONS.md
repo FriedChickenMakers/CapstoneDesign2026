@@ -1,5 +1,28 @@
 # Isolated QA telemetry service operations
 
+## Extended telemetry deployed on 2026-11-14 KST
+
+The final source release `qa-debug-20261114-v3` accepts both legacy measurement
+batches and immutable QA/context extensions. API and maintenance working directories
+were switched through dedicated `zz-debug-telemetry.conf` drop-ins. Existing proxy,
+firewall, registration keys, manual mappings and participant rows were preserved.
+An online SQLite backup, integrity/count evidence and original drop-ins were saved
+privately before switching. Rollback removes only this operation's drop-ins,
+reloads systemd and restarts the API; never overwrite the current database with the
+old snapshot.
+
+The final ARM64/Python 3.8 source passed **97 server tests**. External HTTPS passed
+**14 synthetic checks** covering v1/v2 acceptance, retry identity, frozen QA,
+unchanged first receipt, transport storage and withdrawal cleanup. Synthetic
+measurements and receipt/transport rows were removed afterward. API/proxy and the
+maintenance timer remained active/enabled; database integrity was `ok`. Existing
+measurements and behavior rows were unchanged by the smoke test. These checks are
+server evidence; Android installation and real-device collection are separate.
+
+Historic observations without a stored receipt time remain unknown, including on
+replay. New observations receive an immutable first server receipt timestamp.
+See [debug and measurement behavior](../docs/DEBUG_TELEMETRY_20261114.md).
+
 ## Automatic registration deployed on 2026-11-10
 
 The frozen source release `qa-auto-20261110-7249cb5ad7c1` now serves

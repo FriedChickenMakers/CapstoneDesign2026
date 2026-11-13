@@ -83,10 +83,16 @@ def maintain(database, directory, now=None, keep_days=7):
                     backup.execute("INSERT OR IGNORE INTO revoked_enrollment_tokens VALUES (?, ?)", (digest, subject))
                 for subject in revoked:
                     backup.execute("INSERT OR IGNORE INTO revoked VALUES (?)", (subject,))
-                    for table in ("events", "measurements", "measurement_quality"):
+                    for table in ("events", "measurements", "measurement_quality", "measurement_receipts", "measurement_transport"):
+                        if table not in {r[0] for r in backup.execute("SELECT name FROM sqlite_master WHERE type='table'")}: continue
                         scrubbed += backup.execute("DELETE FROM " + table + " WHERE subject=?", (subject,)).rowcount
                 for table, field in (("events", "occurred"), ("measurements", "occurred"), ("measurement_quality", "updated")):
                     scrubbed += backup.execute("DELETE FROM " + table + " WHERE " + field + " < ?", (cutoff,)).rowcount
+                tables={r[0] for r in backup.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                if "measurement_receipts" in tables:
+                    backup.execute("DELETE FROM measurement_receipts WHERE NOT EXISTS (SELECT 1 FROM measurements m WHERE m.subject=measurement_receipts.subject AND m.event_id=measurement_receipts.event_id)")
+                if "measurement_transport" in tables:
+                    backup.execute("DELETE FROM measurement_transport WHERE updated < ?",(cutoff,))
                 if backup.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                     raise RuntimeError("Managed backup integrity check failed")
         descriptor = os.open(str(directory), os.O_RDONLY)

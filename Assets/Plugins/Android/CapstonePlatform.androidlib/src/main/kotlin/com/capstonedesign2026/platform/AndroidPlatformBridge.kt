@@ -339,6 +339,18 @@ object AndroidPlatformBridge {
     fun getWalkingAchievementJson(): String = appContext?.let { MissionRewardNotifications.achievement(it) } ?: "{}"
 
     @JvmStatic
+    fun configureDebugTelemetry(enabled: Boolean, qa: Boolean, build: String): String =
+        appContext?.let { DebugTelemetry.configure(it,enabled,qa,build) } ?: "{}"
+    @JvmStatic
+    fun getMeasurementContext(): String = appContext?.let { DebugTelemetry.context(it).toString() } ?: "{}"
+    @JvmStatic
+    fun recordMeasurementTransport(category: String) { appContext?.let { DebugTelemetry.transport(it,category) } }
+    @JvmStatic
+    fun recordDetailedMeasurement(kind: String, session: String, activity: String, at: Long, offset: Int,
+                                  metadata: String, details: String, discriminator: String): String =
+        if(inputMode=="LIVE")appContext?.let { MeasurementTelemetry.detailed(it,kind,session,activity,at,offset,metadata,details,discriminator) } ?: "{}" else "{}"
+
+    @JvmStatic
     fun suspendMeasurements(): String = MeasurementTelemetry.suspend()
     @JvmStatic
     fun configureMeasurements(binding: String, enabled: Boolean, since: Long): String =
@@ -348,6 +360,10 @@ object AndroidPlatformBridge {
     fun recordMeasuredFocusRecommendation(kind: String, decision: String, session: String, recommended: String, actual: String,
                                          policy: String, reason: String, occurred: Long, offset: Int): String =
         if (inputMode == "LIVE") appContext?.let { MeasurementTelemetry.focusRecommendation(it, kind, decision, session, recommended, actual, policy, reason, occurred, offset) } ?: "{}" else "{}"
+    @JvmStatic
+    fun recordMeasuredFocusRecommendationV2(kind: String, decision: String, session: String, recommended: String, actual: String,
+                                           policy: String, reason: String, occurred: Long, offset: Int, metadata: String): String =
+        if(inputMode=="LIVE")appContext?.let { MeasurementTelemetry.focusRecommendation(it,kind,decision,session,recommended,actual,policy,reason,occurred,offset,metadata) } ?: "{}" else "{}"
     @JvmStatic
     fun getMeasurementBatch(binding: String): String = appContext?.let { MeasurementTelemetry.batch(it, binding) } ?: "{}"
 

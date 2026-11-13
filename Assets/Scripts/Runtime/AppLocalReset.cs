@@ -29,7 +29,10 @@ namespace CapstoneDesign.Runtime
                     string path = Path.Combine(Application.persistentDataPath, name);
                     if (File.Exists(path)) File.Delete(path);
                 }
-                PlayerPrefs.DeleteAll(); PlayerPrefs.Save();
+                bool debugAuthorized=DebugAccess.Authorized;
+                PlayerPrefs.DeleteAll();
+                if(debugAuthorized)PlayerPrefs.SetInt("capstone.debug.authorized.v1",1);
+                PlayerPrefs.Save();
                 GardenMusicPlayer.RestoreInitialSettings();
                 GardenSfxPlayer.RestoreInitialSettings();
                 GardenVisualClock.UseSystemTime();

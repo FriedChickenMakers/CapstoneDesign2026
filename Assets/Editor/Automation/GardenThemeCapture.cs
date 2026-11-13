@@ -214,6 +214,10 @@ namespace CapstoneDesign.EditorTools
             {
                 var sensor = nav.GetComponentInChildren<SensorRawDisplay>(true);
                 sensor.PrepareView(); nav.ShowSettings();
+                // A background garden refresh must not resurrect its coin HUD over settings.
+                nav.home.RefreshFromState();
+                var coin=nav.home.homeCanvas.GetComponentsInChildren<Transform>(true).Single(t=>t.name=="Garden coin balance icon");
+                Require(!coin.gameObject.activeInHierarchy,"Garden coin leaked over settings after refresh.");
                 sensor.SendMessage("RefreshText", SendMessageOptions.RequireReceiver);
                 if (name == "settings-toggle-off")
                 {

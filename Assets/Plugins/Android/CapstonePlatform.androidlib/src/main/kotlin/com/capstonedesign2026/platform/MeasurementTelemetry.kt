@@ -53,12 +53,13 @@ internal object MeasurementTelemetry {
         .put("utc_offset_minutes", r.offset).put("scheduled_utc_ms", r.scheduled).put("policy_id", r.policy)
         .put("preferred_minute", r.preferred).put("effective_minute", r.effective).put("learned_samples", r.samples)
         .put("reason", r.reason).put("activity_id", r.activity).put("app_version", r.appVersion).put("dataset", r.dataset)
+        .apply { r.telemetry?.let { put("telemetry",JSONObject(it)) }; r.details?.let { put("details",JSONObject(it)) } }
         .apply { if (r.kind.startsWith("focus_recommendation_")) put("decision_id", r.decisionId).put("recommended_activity_id", r.recommendedActivity) }
     private fun readRecord(j: JSONObject) = MeasurementRecord(j.getString("event_id"), j.getString("notification_id"),
         j.getString("session_key"), j.getString("kind"), j.getLong("occurred_utc_ms"), j.getLong("elapsed_ms"),
         j.getInt("boot_count"), j.getInt("utc_offset_minutes"), j.getLong("scheduled_utc_ms"), j.getString("policy_id"),
         j.getInt("preferred_minute"), j.getInt("effective_minute"), j.getInt("learned_samples"), j.getString("reason"),
-        j.getString("activity_id"), j.getString("app_version"), j.getString("dataset"), j.optString("decision_id", ""), j.optString("recommended_activity_id", ""))
+        j.getString("activity_id"), j.getString("app_version"), j.getString("dataset"), j.optString("decision_id", ""), j.optString("recommended_activity_id", ""), j.optJSONObject("telemetry")?.toString(), j.optJSONObject("details")?.toString())
     private fun get(context: Context): MeasurementBuffer {
         val file = stateFile(context)
         if (buffer != null && location == file.path) return buffer!!
@@ -110,7 +111,7 @@ internal object MeasurementTelemetry {
     private fun base(context: Context, kind: String, at: Long) = MeasurementRecord(id(), kind = kind, occurred = at,
         elapsed = SystemClock.elapsedRealtime(), boot = Settings.Global.getInt(context.contentResolver, Settings.Global.BOOT_COUNT, -1),
         offset = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).offset.totalSeconds / 60,
-        appVersion = version(context), dataset = dataset)
+        appVersion = version(context), dataset = dataset, telemetry = DebugTelemetry.context(context).toString())
     /** Called only after the application's durable reset transaction has started.
      * AtomicFile.openRead restores legacy .bak, so delete every generation instead
      * of decoding/replacing a possibly corrupt outbox via the withdrawal protocol. */
@@ -154,7 +155,7 @@ internal object MeasurementTelemetry {
         try {
             val state = get(context).state
             if (suspended || !state.enabled) return ""
-            JSONObject().put("id", key(state.collection + identity)).put("collection", state.collection)
+            JSONObject().put("telemetry",DebugTelemetry.context(context)).put("id", key(state.collection + identity)).put("collection", state.collection)
                 .put("scheduled", scheduled).put("policy", policy).put("preferred", preferred)
                 .put("effective", effective).put("samples", samples).toString()
         } catch (_: Exception) { latchError(context); "" }
@@ -165,10 +166,12 @@ internal object MeasurementTelemetry {
             val b = get(context); val t = JSONObject(ticket)
             if (suspended || !b.state.enabled || b.state.collection != t.getString("collection")) return@synchronized
             val nid = t.getString("id")
+            if(kind=="notification_opened")DebugTelemetry.opened(nid)
             // First accepted post/click wins. Retry/duplicate taps do not alter its timestamp.
             val r = base(context, kind, at).copy(eventId = key(nid + kind + reason), notificationId = nid,
                 scheduled = t.getLong("scheduled"), policy = t.getString("policy"), preferred = t.getInt("preferred"),
-                effective = t.getInt("effective"), samples = t.getInt("samples"), reason = reason)
+                effective = t.getInt("effective"), samples = t.getInt("samples"), reason = reason,
+                telemetry = if(t.has("telemetry"))DebugTelemetry.context(context).toString() else null)
             b.add(r, at)
             MeasurementUpload.schedule(context)
         } catch (_: Exception) { latchError(context) }
@@ -180,7 +183,7 @@ internal object MeasurementTelemetry {
             require(sessionKey.matches(Regex("[a-f0-9]{32}")) && activity.matches(Regex("(?:course:MBCT(?:2W|4W)?[0-9]{2}|course:P(?:0[1-9]|1[0-9]|2[0-8])|free-mission:M(?:0[1-9]|1[0-7]))")))
             val b = get(context)
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + sessionKey + kind), sessionKey = sessionKey,
-                activity = activity, elapsed = -1, boot = -1, offset = offset) // recovered wall time, never fabricated monotonic time
+                activity = activity, elapsed = -1, boot = -1, offset = offset, telemetry = null) // recovered wall time, never fabricated monotonic time
             val added = b.add(r, System.currentTimeMillis())
             if (added) MeasurementUpload.schedule(context)
             JSONObject().put("ok", added).toString()
@@ -190,7 +193,7 @@ internal object MeasurementTelemetry {
     // codes only; the recommended activity can differ from the actual selection.
     fun focusRecommendation(context: Context, kind: String, decision: String, session: String,
                             recommended: String, actual: String, policy: String, reason: String,
-                            at: Long, offset: Int): String = synchronized(this) {
+                            at: Long, offset: Int, metadata: String? = null): String = synchronized(this) {
         fun failed(reason: String) = JSONObject().put("ok", false).put("failure", reason).toString()
         if (suspended) return failed("suspended")
         try {
@@ -215,7 +218,7 @@ internal object MeasurementTelemetry {
             if (at > now + 300000) return failed("clock-ahead")
             val r = base(context, kind, at).copy(eventId = key(b.state.collection + decision + session + kind),
                 sessionKey = session, decisionId = decision, recommendedActivity = recommended, activity = actual,
-                policy = policy, reason = reason, elapsed = -1, boot = -1, offset = offset)
+                policy = policy, reason = reason, elapsed = -1, boot = -1, offset = offset, telemetry=metadata)
             if (b.add(r, now)) { MeasurementUpload.schedule(context); "{\"ok\":true}" } else failed("capacity")
         } catch (_: Exception) { latchError(context); failed("storage") }
     }
@@ -239,15 +242,41 @@ internal object MeasurementTelemetry {
         } catch (_: Exception) { latchError(context); failed("storage") }
     }
 
+    fun detailed(context: Context, kind: String, session: String, activity: String, at: Long, offset: Int,
+                 metadata: String, details: String, discriminator: String): String = synchronized(this) {
+        try {
+            if(suspended || NativeLocalReset.pending(context))return "{\"ok\":false}"
+            require(kind in setOf("activity_selected","activity_started","activity_completed","activity_ended","practice_step","ui_layout"))
+            require(session.matches(Regex("[a-f0-9]{32}")) && discriminator.matches(Regex("[A-Za-z0-9._-]{0,80}")))
+            require(metadata.length<=2048 && details.length<=8192)
+            val t=JSONObject(metadata); val d=JSONObject(details)
+            if(kind=="ui_layout")require(t.getBoolean("qa") && DebugTelemetry.context(context).getBoolean("qa"))
+            val b=get(context)
+            val r=base(context,kind,at).copy(eventId=key(b.state.collection+session+kind+discriminator),
+                sessionKey=session,activity=activity,elapsed=if(kind=="ui_layout")SystemClock.elapsedRealtime() else -1,
+                boot=if(kind=="ui_layout")Settings.Global.getInt(context.contentResolver,Settings.Global.BOOT_COUNT,-1) else -1,
+                offset=offset,telemetry=t.toString(),details=d.toString())
+            val added=b.add(r,System.currentTimeMillis())
+            if(added)MeasurementUpload.schedule(context)
+            JSONObject().put("ok",added).toString()
+        } catch (_:Exception){latchError(context);"{\"ok\":false}"}
+    }
+
     fun batch(context: Context, binding: String): String = synchronized(this) {
         try {
             val b = get(context)
             if (suspended || !b.state.enabled || b.state.binding != binding) return "{}"
             val snapshot = b.batchSnapshot(System.currentTimeMillis())
-            JSONObject().put("schema_version", 1).put("consent_version", 2).put("collection_id", b.state.collection)
+            var bytes=1024
+            val sending=snapshot.events.takeWhile { record ->
+                bytes+=recordJson(record).toString().toByteArray(Charsets.UTF_8).size+1
+                bytes<=96*1024
+            }
+            JSONObject().put("schema_version", 2).put("consent_version", 2).put("collection_id", b.state.collection)
                 .put("dropped_attempts", b.state.dropped).put("expired_events", b.state.expired).put("storage_error", error)
-                .put("complete_through_utc_ms", snapshot.completeThrough)
-                .put("events", JSONArray().apply { snapshot.events.forEach { put(recordJson(it)) } }).toString()
+                .put("complete_through_utc_ms", if(sending.size==snapshot.events.size)snapshot.completeThrough else 0)
+                .put("transport",DebugTelemetry.quality(context,b.state,System.currentTimeMillis()))
+                .put("events", JSONArray().apply { sending.forEach { put(recordJson(it)) } }).toString()
         } catch (_: Exception) { latchError(context); "{}" }
     }
     fun acknowledge(context: Context, binding: String, collection: String, accepted: String, sent: String): String = synchronized(this) {

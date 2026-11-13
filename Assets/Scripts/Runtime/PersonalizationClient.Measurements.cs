@@ -112,19 +112,23 @@ namespace CapstoneDesign.Runtime
         public void RecordMeasuredSession(ActivitySession session)
         {
             if(!MeasurementConsented || !DateTimeOffset.TryParse(session.SelectedUtc,out var selected)
-                || selected.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs || !SynchronizeMeasurementConsent())return;
-            RecordMeasuredActivity(session,"activity_selected",selected);
+                || (session.SelectedMeasurement?.RecordedUtcMs??selected.ToUnixTimeMilliseconds())<queue.MeasurementConsentUtcMs || !SynchronizeMeasurementConsent())return;
+            RecordMeasuredActivity(session,"activity_selected",selected,session.SelectedMeasurement);
+            foreach(var step in session.FocusStepRecords)
+                if(step.Measurement!=null && DateTimeOffset.TryParse(step.ConfirmedUtc,out var confirmed))
+                    RecordMeasuredActivity(session,"practice_step",confirmed,step.Measurement,step);
             RecordMeasuredFocusSession(session);
-            if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredActivity(session,"activity_started",started);
+            if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredActivity(session,"activity_started",started,session.StartedMeasurement);
             if((session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended)
                 && DateTimeOffset.TryParse(session.EndedUtc,out var ended))
-                RecordMeasuredActivity(session,session.Status==ParticipationState.RewardCommitted?"activity_completed":"activity_ended",ended);
+                RecordMeasuredActivity(session,session.Status==ParticipationState.RewardCommitted?"activity_completed":"activity_ended",ended,session.EndedMeasurement);
         }
         public bool RecordMeasuredFocusExposure(FocusRecommendationExposure exposure)
         {
             if(exposure==null || !MeasurementConsented || !CollectionContextAllowed
                 || !DateTimeOffset.TryParse(exposure.ShownUtc,out var shown)
-                || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs)return false;
+                || (exposure.MeasurementOccurredUtcMs>0?exposure.MeasurementOccurredUtcMs:shown.ToUnixTimeMilliseconds())<queue.MeasurementConsentUtcMs)return false;
+            if(exposure.MeasurementOccurredUtcMs>0)shown=DateTimeOffset.FromUnixTimeMilliseconds(exposure.MeasurementOccurredUtcMs);
             if(pendingFocusExposures.TryGetValue(exposure.DecisionId,out var pending))
             {
                 if(pending.Binding!=MeasurementBinding)pendingFocusExposures.Remove(exposure.DecisionId);
@@ -154,8 +158,10 @@ namespace CapstoneDesign.Runtime
             int attempted=0;
             foreach(var item in pendingFocusExposures.ToArray())
             {
-                if(item.Value.Binding!=MeasurementBinding || !DateTimeOffset.TryParse(item.Value.Exposure.ShownUtc,out var shown)
-                    || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs || shown<DateTimeOffset.UtcNow.AddDays(-90))
+                var exposure=item.Value.Exposure;
+                long occurred=exposure.MeasurementOccurredUtcMs;
+                if(occurred<=0 && DateTimeOffset.TryParse(exposure.ShownUtc,out var parsed))occurred=parsed.ToUnixTimeMilliseconds();
+                if(item.Value.Binding!=MeasurementBinding || occurred<queue.MeasurementConsentUtcMs || occurred<DateTimeOffset.UtcNow.AddDays(-90).ToUnixTimeMilliseconds())
                 {pendingFocusExposures.Remove(item.Key);continue;}
                 if(item.Value.Terminal || Time.unscaledTime<item.Value.NextAttempt)continue;
                 if(attempted++>=8)break; // Bound main-thread JNI/disk work per update.
@@ -168,29 +174,58 @@ namespace CapstoneDesign.Runtime
             // This snapshot was stored only after an actual visible card. Replaying
             // that exact evidence is safe; never substitute selection/start time.
             if(exposure==null || !DateTimeOffset.TryParse(exposure.ShownUtc,out var shown)
-                || shown.ToUnixTimeMilliseconds()<queue.MeasurementConsentUtcMs)return;
+                || (exposure.MeasurementOccurredUtcMs>0?exposure.MeasurementOccurredUtcMs:shown.ToUnixTimeMilliseconds())<queue.MeasurementConsentUtcMs)return;
             RecordMeasuredFocusExposure(exposure);
             string key=EventQueue.Fingerprint(session.SessionId,"measurement").Substring(0,32);
-            if(DateTimeOffset.TryParse(session.SelectedUtc,out var selected))RecordMeasuredFocus(exposure,"focus_recommendation_selected",key,session.MissionId,selected);
-            if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredFocus(exposure,"focus_recommendation_started",key,session.MissionId,started);
+            if(DateTimeOffset.TryParse(session.SelectedUtc,out var selected))RecordMeasuredFocus(exposure,"focus_recommendation_selected",key,session.MissionId,selected,session.SelectedMeasurement);
+            if(DateTimeOffset.TryParse(session.StartedUtc,out var started))RecordMeasuredFocus(exposure,"focus_recommendation_started",key,session.MissionId,started,session.StartedMeasurement);
             if((session.Status==ParticipationState.RewardCommitted || session.Status==ParticipationState.Ended)
                 && DateTimeOffset.TryParse(session.EndedUtc,out var ended))
-                RecordMeasuredFocus(exposure,session.Status==ParticipationState.RewardCommitted?"focus_recommendation_completed":"focus_recommendation_ended",key,session.MissionId,ended);
+                RecordMeasuredFocus(exposure,session.Status==ParticipationState.RewardCommitted?"focus_recommendation_completed":"focus_recommendation_ended",key,session.MissionId,ended,session.EndedMeasurement);
         }
-        MeasurementResult RecordMeasuredFocus(FocusRecommendationExposure exposure,string kind,string session,string actual,DateTimeOffset at)
+        MeasurementResult RecordMeasuredFocus(FocusRecommendationExposure exposure,string kind,string session,string actual,DateTimeOffset at,MeasurementStamp stamp=null)
         {
+            if(kind=="focus_recommendation_shown" && exposure.MeasurementOccurredUtcMs>0)at=DateTimeOffset.FromUnixTimeMilliseconds(exposure.MeasurementOccurredUtcMs);
+            else if(stamp!=null && stamp.RecordedUtcMs>0)at=DateTimeOffset.FromUnixTimeMilliseconds(stamp.RecordedUtcMs);
             try
             {
-                return JsonUtility.FromJson<MeasurementResult>(MeasurementCall("recordMeasuredFocusRecommendation",kind,exposure.DecisionId,session,exposure.MissionId,actual,
-                    exposure.PolicyId,exposure.Reason,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes));
+                if(kind=="focus_recommendation_shown"?string.IsNullOrEmpty(exposure.MeasurementMetadata):stamp==null)
+                    return JsonUtility.FromJson<MeasurementResult>(MeasurementCall("recordMeasuredFocusRecommendation",kind,exposure.DecisionId,session,exposure.MissionId,actual,
+                        exposure.PolicyId,exposure.Reason,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes));
+                return JsonUtility.FromJson<MeasurementResult>(MeasurementCall("recordMeasuredFocusRecommendationV2",kind,exposure.DecisionId,session,exposure.MissionId,actual,
+                    exposure.PolicyId,exposure.Reason,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes,
+                    kind=="focus_recommendation_shown"?(exposure.MeasurementMetadata??TelemetryMeasurementContext.Frozen(null)):TelemetryMeasurementContext.Frozen(stamp)));
             }
             catch(Exception) {return null;}
         }
-        void RecordMeasuredActivity(ActivitySession session,string kind,DateTimeOffset at)
+        void RecordMeasuredActivity(ActivitySession session,string kind,DateTimeOffset at,MeasurementStamp stamp,FocusStepRecord step=null)
         {
-            // Catalog ID and a hashed session key only; never mood, note or health records.
-            MeasurementCall("recordMeasuredActivity",kind,EventQueue.Fingerprint(session.SessionId,"measurement").Substring(0,32),
-                session.MissionId,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes);
+            if(stamp!=null && stamp.RecordedUtcMs>0)at=DateTimeOffset.FromUnixTimeMilliseconds(stamp.RecordedUtcMs);
+            if(stamp==null)
+            {
+                // A save created before classification existed is legacy evidence.
+                MeasurementCall("recordMeasuredActivity",kind,EventQueue.Fingerprint(session.SessionId,"measurement").Substring(0,32),
+                    session.MissionId,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes);
+                return;
+            }
+            MeasurementCall("recordDetailedMeasurement",kind,EventQueue.Fingerprint(session.SessionId,"measurement").Substring(0,32),
+                session.MissionId,at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes,TelemetryMeasurementContext.Frozen(stamp),
+                JsonUtility.ToJson(TelemetryMeasurementContext.Details(session,stamp,kind,step)),step==null?"":step.Step.ToString());
+        }
+        public bool RecordLayout(string screen,string details,string signature)
+        {
+            if(!MeasurementConsented || !CollectionContextAllowed || !DebugAccess.Qa || !SynchronizeMeasurementConsent())return false;
+            var at=DateTimeOffset.Now;
+            var context=TelemetryMeasurementContext.Current();
+            var result=JsonUtility.FromJson<MeasurementResult>(MeasurementCall("recordDetailedMeasurement","ui_layout",
+                appVisitKey,"",at.ToUnixTimeMilliseconds(),(int)at.Offset.TotalMinutes,JsonUtility.ToJson(context),details,signature));
+            return result?.ok==true;
+        }
+        static void TransportResult(string category)
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try{using(var bridge=new AndroidJavaClass("com.capstonedesign2026.platform.AndroidPlatformBridge"))bridge.CallStatic("recordMeasurementTransport",category);}catch(Exception){}
+#endif
         }
         IEnumerator SynchronizeMeasurements()
         {
@@ -209,7 +244,7 @@ namespace CapstoneDesign.Runtime
                 yield return request.SendWebRequest();
                 if(generation!=localResetGeneration || localResetBlocked)yield break;
                 if(!MeasurementConsented || binding!=MeasurementBinding)yield break;
-                if(request.result!=UnityWebRequest.Result.Success) {status="알림·활동 측정 전송 대기";yield break;}
+                if(request.result!=UnityWebRequest.Result.Success) {TransportResult(request.responseCode==401?"auth":request.responseCode>=500?"server":request.responseCode>=400?"client":"network");status="알림·활동 측정 전송 대기";yield break;}
                 try
                 {
                     var ack=JsonUtility.FromJson<BehaviorAcknowledgement>(request.downloadHandler.text);
@@ -218,8 +253,9 @@ namespace CapstoneDesign.Runtime
                     Func<string[],string> ids=values=>"["+string.Join(",",values.Select(v=>"\""+v+"\""))+ "]";
                     var result=JsonUtility.FromJson<MeasurementResult>(MeasurementCall("acknowledgeMeasurements",binding,batch.collection_id,ids(ack.accepted_event_ids),ids(sent)));
                     if(result==null || !result.ok)throw new InvalidOperationException();
+                    TransportResult("none");
                 }
-                catch(Exception) {status="측정 전송 확인 저장 대기";}
+                catch(Exception) {TransportResult("ack");status="측정 전송 확인 저장 대기";}
             }
         }
     }

@@ -22,7 +22,7 @@ WINDOW_MS = 24 * 60 * 60 * 1000
 def examples(events, as_of_ms):
     grouped = {}
     for subject, event in events:
-        if event["occurred_utc_ms"] <= as_of_ms:
+        if event["occurred_utc_ms"] <= as_of_ms and not (event.get("classification") or {}).get("qa",False):
             grouped.setdefault((subject, event["decision_id"]), []).append(event)
     rows = []
     for (subject, _decision), values in sorted(grouped.items()):

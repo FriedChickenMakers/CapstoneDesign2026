@@ -155,8 +155,28 @@ def analyze_focus_recommendations(records, quality, as_of, dataset, window=DAY):
                 limitation="Version groups are descriptive. Missing exposure, partial upload, clock/lifecycle inconsistency and collection loss are excluded from rates; direct starts are unattributed.")
 
 
-def analyze(records, quality, as_of, dataset, window=DAY):
+def event_cohort(event):
+    t=event.get("telemetry") or {}
+    return ("qa" if t.get("qa") else "participant") if t.get("classified") is True else "legacy"
+
+
+def analyze(records, quality, as_of, dataset, window=DAY, cohort="all"):
+    if cohort not in ("all","qa","participant","legacy"): raise ValueError("Invalid cohort")
     records = list(records)
+    eligible=[r for r in records if r[2]["dataset"]==dataset and as_of-90*DAY<=r[2]["occurred_utc_ms"]<=as_of]
+    counts={name:sum(event_cohort(e)==name for _,_,e in eligible) for name in ("qa","participant","legacy")}
+    identities={}
+    def identity(subject,event):
+        if event.get("notification_id"):return (subject,"notification",event["notification_id"])
+        if event.get("decision_id"):return (subject,"decision",event["decision_id"])
+        if event.get("session_key") and event["kind"] in ("activity_selected","activity_started","activity_completed","activity_ended","practice_step"):
+            return (subject,"activity",event["session_key"])
+        return None
+    for subject,_,event in eligible:
+        key=identity(subject,event)
+        if key:identities.setdefault(key,set()).add(event_cohort(event))
+    mixed={key for key,values in identities.items() if len(values)>1}
+    records = [r for r in records if cohort=="all" or event_cohort(r[2])==cohort and identity(r[0],r[2]) not in mixed]
     groups, sessions = {}, {}
     for subject, collection, e in records:
         if e["dataset"] != dataset or not as_of - 90*DAY <= e["occurred_utc_ms"] <= as_of:
@@ -249,6 +269,23 @@ def analyze(records, quality, as_of, dataset, window=DAY):
     report["focus_recommendation_participants"] = len(focus_subjects)
     report["participants"] = len(focus_subjects | {r["subject"] for r in rows} | {subject for subject,_ in sessions}
                                  | {r["subject"] for r in report["app_sessions"]["cohorts"]})
+    report["cohort"]=cohort
+    report["excluded_mixed_cohort_flows"]=len(mixed) if cohort!="all" else 0
+    report["available_cohort_events"]=counts
+    report["limitations"].append("QA is frozen per event; legacy events have unknown classification. Installation subjects are not a count of people. Mixed cohorts must not be pooled for participant claims.")
+    completed=[e for _,_,e in records if e["dataset"]==dataset and e["kind"]=="activity_completed" and e.get("details")
+               and as_of-90*DAY<=e["occurred_utc_ms"]<=as_of]
+    report["practice_details"]={"completed_sessions":len(completed),
+        "active_seconds":[e["details"]["active_seconds"] for e in completed],
+        "recommended_seconds":[e["details"]["recommended_seconds"] for e in completed],
+        "shortened_sessions":sum(e["details"]["completion_mode"]=="too_long" for e in completed),
+        "entry_sources":{name:sum(e["details"]["entry_source"]==name for e in completed)
+                         for name in sorted({e["details"]["entry_source"] for e in completed})},
+        "content_versions":sorted({e["details"]["content_version"] for e in completed}),
+        "explicit_visit_links":sum(bool(e.get("telemetry",{}).get("visit_id")) for e in completed),
+        "explicit_notification_links":sum(bool(e.get("telemetry",{}).get("source_notification_id")) for e in completed)}
+    diagnostics=[e for _,_,e in records if e["dataset"]==dataset and e["kind"]=="ui_layout" and as_of-90*DAY<=e["occurred_utc_ms"]<=as_of]
+    report["qa_layout"]={"snapshots":len(diagnostics),"clipped_controls":sum(c["visibility"]!="visible" for e in diagnostics for c in e["details"]["controls"])}
     return report, rows
 
 
@@ -306,6 +343,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--database",required=True);parser.add_argument("--output-dir",required=True)
     parser.add_argument("--as-of-ms",type=int,required=True);parser.add_argument("--dataset",choices=("live","synthetic"),required=True)
+    parser.add_argument("--cohort",choices=("participant","qa","legacy","all"),default="participant")
     parser.add_argument("--window-hours",type=int,default=24);parser.add_argument("--no-plots",action="store_true")
     args=parser.parse_args()
     if not 1<=args.window_hours<=168:parser.error("window-hours must be 1–168")
@@ -317,7 +355,23 @@ def main():
         watermark_column = "complete_through" if has_watermark else "0"
         quality={(s,c):dict(dropped=d,expired=e,storage_error=f,updated=t,complete_through=w)
                  for s,c,d,e,f,t,w in db.execute("SELECT subject,collection_id,dropped,expired,storage_error,updated,"+watermark_column+" FROM measurement_quality")}
-    report,rows=analyze(records,quality,args.as_of_ms,args.dataset,args.window_hours*3600000)
+    report,rows=analyze(records,quality,args.as_of_ms,args.dataset,args.window_hours*3600000,args.cohort)
+    with sqlite3.connect("file:"+quote(str(Path(args.database).resolve()))+"?mode=ro",uri=True) as db:
+        tables={r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if "measurement_receipts" in tables:
+            received={(s,e):t for s,e,t in db.execute("SELECT subject,event_id,received FROM measurement_receipts")}
+            lag=[received[(s,e["event_id"])]-e["occurred_utc_ms"] for s,c,e in records
+                 if e["dataset"]==args.dataset and (args.cohort=="all" or event_cohort(e)==args.cohort)
+                 and args.as_of_ms-90*DAY<=e["occurred_utc_ms"]<=args.as_of_ms and (s,e["event_id"]) in received]
+            report["delivery"]={"received_events":len(lag),"negative_clock_deltas":sum(v<0 for v in lag),
+                                "first_receipt_wall_delay_ms":lag,"limitation":"Wall-clock differences include clock skew and replay; not network latency alone."}
+        if "measurement_transport" in tables:
+            selected_collections={(s,c) for s,c,e in records if e["dataset"]==args.dataset
+                                  and (args.cohort=="all" or event_cohort(e)==args.cohort)
+                                  and args.as_of_ms-90*DAY<=e["occurred_utc_ms"]<=args.as_of_ms}
+            report["transport"]=[dict(updated_utc_ms=t,**json.loads(p)) for s,c,t,p in db.execute("SELECT subject,collection_id,updated,payload FROM measurement_transport")
+                                 if (s,c) in selected_collections]
+            report["transport_scope"]="Latest collection-wide queue health for collections with selected cohort events; may include other QA states and is not a cohort-specific failure rate."
     (out/"summary.json").write_text(json.dumps(report,indent=2,ensure_ascii=False)+"\n")
     with (out/"notification-pairs.csv").open("w",newline="") as f:
         if rows:

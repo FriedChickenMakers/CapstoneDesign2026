@@ -567,7 +567,7 @@ namespace CapstoneDesign.Runtime
             if (date != null) date.text = CurrentDateText();
             if (title != null) title.text = hasCurrent?CurrentPlantName(RenderedRecipe):"새 식물을 기다려요";
             if (guide != null) guide.text = saved.Coins.ToString("N0");
-            if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(true);
+            if(coinBalanceIcon!=null)coinBalanceIcon.gameObject.SetActive(IsGardenVisible);
             LayoutCoinBalance();
             if (stage != null) stage.text = shownPlant?.Completed==true ? "완성 · 사진첩 보관"
                 :hasCurrent?new[] { "작은 씨앗", "새싹", "봉오리", "꽃이 피었어요" }[visualStage]:"다음 실습을 기다려요";

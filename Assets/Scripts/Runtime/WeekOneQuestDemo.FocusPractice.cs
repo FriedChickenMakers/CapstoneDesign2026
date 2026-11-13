@@ -548,7 +548,6 @@ namespace CapstoneDesign.Runtime
             }
             string message = mission.Code == "M03" ? "물 마시기 완료" : mission.Code == "P10" ? "잠시 숨을 골랐어요" : mission.Code == "P23" ? "한입을 느꼈어요" : mission.Code == "P25" ? "전할 말을 확인했어요" : "오늘의 실천을 남겼어요";
             FigmaMissionUi.Label(root, message, 45, 613.5f, 300, 36, 24, accent, true, TextAnchor.MiddleCenter);
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (IsMissionDebugActive)
             {
                 FigmaMissionUi.Label(root, "테스트 결과 · 실제 기록에 반영되지 않아요", 24, 662, 342, 28, 14, FocusMuted(mission));
@@ -557,7 +556,6 @@ namespace CapstoneDesign.Runtime
                 FocusEnter(root);
                 return;
             }
-#endif
             if (plantCompleted)
                 FigmaMissionUi.Button(root, "사진첩으로", 24, 756, 166, 58, ShowPlantAlbum, accent, Color.white, 18).name = "Focus.PlantAlbum";
             FigmaMissionUi.Button(root, "정원으로", plantCompleted ? 200 : 24, 756, plantCompleted ? 166 : 342, 58,
@@ -573,9 +571,7 @@ namespace CapstoneDesign.Runtime
 
         string FocusPracticeContext(string regular)
         {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
             if (IsMissionDebugActive) return "테스트 · 실제 기록에 미반영";
-#endif
             return regular;
         }
 

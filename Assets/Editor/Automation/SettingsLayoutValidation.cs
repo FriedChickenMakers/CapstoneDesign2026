@@ -140,7 +140,7 @@ namespace CapstoneDesign.EditorTools
                 Require(label.preferredHeight <= label.rectTransform.rect.height + 1 && state.preferredHeight <= state.rectTransform.rect.height + 1, name + ": switch label is clipped");
                 switches++;
             }
-            Require(switches == (enabled ? 2 : 1), name + ": expected only visible notification switches");
+            Require(switches == (enabled ? 2 : 1) + 1 + (DebugAccess.Enabled ? 1 : 0), name + ": expected notification switches plus the debug gate and authorized QA choice");
             var music = (Slider)typeof(SensorRawDisplay).GetField("musicVolume", Hidden).GetValue(sensor);
             var musicValue = (Text)typeof(SensorRawDisplay).GetField("musicVolumeValue", Hidden).GetValue(sensor);
             var musicRow = (RectTransform)music.transform.parent;

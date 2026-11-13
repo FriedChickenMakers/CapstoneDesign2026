@@ -43,6 +43,7 @@ namespace CapstoneDesign.EditorTools
                 unityVersion=Application.unityVersion, environment="Explicit edit-mode preview; synthetic in-memory/domain state and isolated writer-lock failures; no device, native reminders, networking or real preferences changed" };
             try
             {
+                Run("Timed practice holds the screen awake and releases it on every stop path", ScreenAwake);
                 Run("Saved photo has one image, one deletion control and one deletion effect", PhotoRecord);
                 Run("Valid base-plus-photo reward is shown and invalid photo-only state is rejected", PhotoRewardContract);
                 Run("Guided timer modal pauses, cancel resumes, shortened completion preserves actual time", GuidedAdjustment);
@@ -100,6 +101,58 @@ namespace CapstoneDesign.EditorTools
             Check(f.Service.RegisterPhoto(id,photo),f.Service.LastError);
             return photo;
         }
+        static void ScreenAwake()
+        {
+            int original = Screen.sleepTimeout;
+            var firstObject = new GameObject("Synthetic timer one");
+            var secondObject = new GameObject("Synthetic timer two");
+            try
+            {
+                var first = firstObject.AddComponent<FocusPracticeClock>();
+                var second = secondObject.AddComponent<FocusPracticeClock>();
+                first.StartPractice = () => false;
+                first.Initialize();
+                first.ToggleRunning();
+                Check(!first.Running && Screen.sleepTimeout == original, "Rejected start preserves timeout.");
+                first.StartPractice = () => true;
+                first.ToggleRunning();
+                Check(first.Running && Screen.sleepTimeout == SleepTimeout.NeverSleep, "Running timer keeps screen awake.");
+                second.Initialize();
+                second.ToggleRunning();
+                first.Pause();
+                Check(Screen.sleepTimeout == SleepTimeout.NeverSleep, "Another active timer retains the wake request.");
+                second.Pause();
+                Check(Screen.sleepTimeout == original, "Last pause restores the previous timeout.");
+                first.Persist = elapsed => false;
+                first.ToggleRunning();
+                Check(!first.Running && Screen.sleepTimeout == original, "Failed save releases the wake request.");
+                first.Persist = null;
+                first.ToggleRunning();
+                firstObject.SetActive(false);
+                typeof(FocusPracticeClock).GetMethod("OnDisable", Private).Invoke(first, null); // Edit-mode fixtures dispatch runtime callbacks explicitly.
+                Check(!first.Running && Screen.sleepTimeout == original, "Leaving the timer restores timeout.");
+                firstObject.SetActive(true);
+                Check(!first.Running && Screen.sleepTimeout == original, "Re-enabled timer waits for explicit resume.");
+                first.ToggleRunning();
+                first.SendMessage("OnApplicationPause", true);
+                Check(!first.Running && Screen.sleepTimeout == original, "App pause releases the wake request.");
+                first.ToggleRunning();
+                first.SendMessage("OnApplicationFocus", false);
+                Check(!first.Running && Screen.sleepTimeout == original, "Focus loss releases the wake request.");
+                first.ToggleRunning();
+                typeof(FocusPracticeClock).GetMethod("OnDisable", Private).Invoke(first, null);
+                UnityEngine.Object.DestroyImmediate(firstObject);
+                Check(Screen.sleepTimeout == original, "Destroying the timer restores timeout.");
+            }
+            finally
+            {
+                if (firstObject != null) { firstObject.SendMessage("OnDisable"); UnityEngine.Object.DestroyImmediate(firstObject); }
+                typeof(FocusPracticeClock).GetMethod("OnDisable", Private).Invoke(secondObject.GetComponent<FocusPracticeClock>(), null);
+                UnityEngine.Object.DestroyImmediate(secondObject);
+                Screen.sleepTimeout = original;
+            }
+        }
+
         static void PhotoRecord()
         {
             using(var f=new FocusMissionValidation.Fixture(report))
@@ -166,52 +219,75 @@ namespace CapstoneDesign.EditorTools
         }
         static void GuidedTimerBounds()
         {
-            foreach (var size in new[] { new Vector2Int(360,640), new Vector2Int(390,844) })
+            foreach (var size in new[] { new Vector2Int(320,568), new Vector2Int(360,600), new Vector2Int(360,640), new Vector2Int(390,844) })
             using (var f = new FocusMissionValidation.Fixture(report))
             {
                 f.Resize(size.x,size.y);
-                Check(f.Service.SelectMbctProgram("8w") && f.Service.BeginFocusSession("timer-layout","P01",1),f.Service.LastError);
-                f.Invoke("SelectFocusSession","timer-layout");
-                for (int i=0;i<8 && f.Ui.GetComponentInChildren<FocusPracticeClock>(false)==null;i++) f.Click("Focus.IconAction");
-                var clock=f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
-                Check(clock!=null && clock.Running,"Synthetic timer begins through its real guide controls.");
-                var layout=f.Ui.GetComponentInChildren<FocusGuidedSlideLayout>(false);
-                int coins=f.Service.CoinBalance,growth=f.Service.Snapshot.PracticeGrowthRecords.Count;
-                void Inspect(string state)
+                Check(f.Service.SelectMbctProgram("8w"),f.Service.LastError);
+                for (int order=1;order<=7;order++)
                 {
-                    Canvas.ForceUpdateCanvases();layout.Refresh();Canvas.ForceUpdateCanvases();
-                    Check(Mathf.Abs(layout.Content.anchoredPosition.y)<.1f,"Timer starts at the top; no reveal/scroll may hide a clipped control.");
-                    foreach (string name in new[] {"Focus.TimerToggle","Guided.ReflectionToggle","Focus.TooLong"})
+                    for(int day=0;day<14 && FocusMissionPolicy.Availability(f.Service.Snapshot,"8w")!=null;day++)
+                    { f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);Check(f.Service.RefreshCycle(Array.Empty<string>()),f.Service.LastError); }
+                    string code="P"+order.ToString("00"), id="timer-layout-"+code;
+                    Check(f.Service.BeginFocusSession(id,code,order,program:"8w"),f.Service.LastError);
+                    f.Invoke("SelectFocusSession",id);
+                    for (int i=0;i<8 && f.Ui.GetComponentInChildren<FocusPracticeClock>(false)==null;i++) f.Click("Focus.IconAction");
+                    var clock=f.Ui.GetComponentInChildren<FocusPracticeClock>(false);
+                    Check(clock!=null && clock.Running,"Synthetic timer begins through its real guide controls.");
+                    var layout=f.Ui.GetComponentInChildren<FocusGuidedSlideLayout>(false);
+                    int coins=f.Service.CoinBalance,growth=f.Service.Snapshot.PracticeGrowthRecords.Count;
+                    void Inspect(string state)
                     {
-                        var button=Button(f.Ui,name);
-                        var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.Viewport,button.transform);
-                        var visible=layout.Viewport.rect;
-                        Check(bounds.min.x>=visible.xMin-.5f && bounds.max.x<=visible.xMax+.5f
-                            && bounds.min.y>=visible.yMin-.5f && bounds.max.y<=visible.yMax+.5f,
-                            name+" is fully visible before scrolling on "+size+" / "+state);
-                        Check(((RectTransform)button.transform).rect.height>=48,"Timer action retains its full touch height.");
+                        Canvas.ForceUpdateCanvases();layout.Refresh();Canvas.ForceUpdateCanvases();
+                        Check(Mathf.Abs(layout.Content.anchoredPosition.y)<.1f,"Timer starts at the top; no reveal/scroll may hide a clipped control.");
+                        foreach (string name in new[] {"Focus.TimerToggle","Guided.ReflectionToggle","Focus.TooLong"})
+                        {
+                            var button=Button(f.Ui,name);
+                            var bounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.Viewport,button.transform);
+                            var visible=layout.Viewport.rect;
+                            Check(bounds.min.x>=visible.xMin-.5f && bounds.max.x<=visible.xMax+.5f
+                                && bounds.min.y>=visible.yMin-.5f && bounds.max.y<=visible.yMax+.5f,
+                                code+" / "+name+" is fully visible before scrolling on "+size+" / "+state);
+                            Check(((RectTransform)button.transform).rect.height>=48,"Timer action retains its full touch height.");
+                            f.AssertVisibleHitArea(button);
+                        }
+                        var copyBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Copy.transform);
+                        var iconBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Icon);
+                        Check(iconBounds.max.y<=copyBounds.min.y-8,"Compact timer illustration does not overlap the instruction.");
+                        if (layout.Notice.gameObject.activeSelf)
+                        {
+                            var viewportBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Viewport);
+                            var noticeBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Notice.transform);
+                            Check(viewportBounds.min.y>=noticeBounds.max.y-.5f,"Timer actions remain above the save error notice.");
+                        }
+                        f.Capture("qa-timer-visible-"+code+"-"+state+"-"+size.x+"x"+size.y,capture);
                     }
-                    var copyBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Copy.transform);
-                    var iconBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Icon);
-                    Check(iconBounds.max.y<=copyBounds.min.y-8,"Compact timer illustration does not overlap the instruction.");
-                    if (layout.Notice.gameObject.activeSelf)
+                    // Reproduce the old 86-point reservation without scrolling the controls
+                    // into view. The third button reaches y=146 and must be detected as clipped.
+                    if(code=="P03" && size==new Vector2Int(360,640))
                     {
-                        var viewportBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Viewport);
-                        var noticeBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.transform,layout.Notice.transform);
-                        Check(viewportBounds.min.y>=noticeBounds.max.y-.5f,"Timer actions remain above the save error notice.");
+                        layout.KeepAnswersVisible=false;layout.MinimumAnswerHeight=86;layout.Refresh();Canvas.ForceUpdateCanvases();
+                        var previousBounds=RectTransformUtility.CalculateRelativeRectTransformBounds(layout.Viewport,Button(f.Ui,"Focus.TooLong").transform);
+                        Check(previousBounds.min.y<layout.Viewport.rect.yMin-1,"Old reservation reproduces the reported lower-edge clipping.");
+                        f.Capture("qa-timer-old-reservation-P03-360x640",capture);
+                        layout.KeepAnswersVisible=true;layout.MinimumAnswerHeight=layout.ContentHeight;layout.Refresh();
                     }
-                    f.Capture("qa-timer-visible-"+state+"-"+size.x+"x"+size.y,capture);
+                    Inspect("normal");
+                    clock.ElapsedSeconds=7;f.Clock.UtcNow=f.Clock.UtcNow.AddSeconds(7);f.Store.FailNextSaves=1;
+                    Check(!clock.Flush() && layout.Notice.gameObject.activeSelf,"An actual synthetic save failure shows its notice.");
+                    Inspect("save-error");
+                    f.Click("Focus.TooLong");
+                    Check(!clock.Running,"The visible short-phone shortening action opens its real pause modal.");
+                    f.Click("Focus.AdjustmentCancel");
+                    Check(clock.Running,"Cancel resumes the timer after the failed save is retried.");
+                    Check(f.Service.CoinBalance==coins && f.Service.Snapshot.PracticeGrowthRecords.Count==growth,
+                        "Layout and cancelled shortening do not complete or reward the mission.");
+                    f.Click("Focus.TooLong");f.Click("Focus.AdjustmentConfirm");
+                    if(f.Ui.CurrentScreen=="focus-photo")f.Click("Photo.Skip");
+                    Check(Session(f.Service,id).Status==ParticipationState.RewardCommitted,"Fixture advances through the real completion path: "+code+" / "+f.Service.LastError);
+                    f.Clock.UtcNow=f.Clock.UtcNow.AddDays(1);
+                    Check(f.Service.RefreshCycle(Array.Empty<string>()),f.Service.LastError);
                 }
-                Inspect("normal");
-                clock.ElapsedSeconds=7;f.Clock.UtcNow=f.Clock.UtcNow.AddSeconds(7);f.Store.FailNextSaves=1;
-                Check(!clock.Flush() && layout.Notice.gameObject.activeSelf,"An actual synthetic save failure shows its notice.");
-                Inspect("save-error");
-                f.Click("Focus.TooLong");
-                Check(!clock.Running,"The visible short-phone shortening action opens its real pause modal.");
-                f.Click("Focus.AdjustmentCancel");
-                Check(clock.Running,"Cancel resumes the timer after the failed save is retried.");
-                Check(f.Service.CoinBalance==coins && f.Service.Snapshot.PracticeGrowthRecords.Count==growth,
-                    "Layout and cancelled shortening do not complete or reward the mission.");
             }
         }
         static void SkipBasic()

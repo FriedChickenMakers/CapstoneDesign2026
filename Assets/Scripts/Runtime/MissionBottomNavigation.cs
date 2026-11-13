@@ -79,7 +79,9 @@ namespace CapstoneDesign.Runtime
                 bool selectedHome=selected&&i==0;
                 buttons[i].GetComponent<Image>().color=Color.clear;
                 var face=GardenThemeSurface.Apply(buttons[i].gameObject,selected?GardenThemeSurface.Style.Home:GardenThemeSurface.Style.NavigationLeaf);
-                if(selectedHome)face.SetSageAppearance(true);
+                // Shared navigation must not inherit the page's flat Sage surface.
+                if(!selected){face.SetSageAppearance(false);face.SetCombineAppearance(false);}
+                else if(selectedHome)face.SetSageAppearance(true);
                 Color selectedInk=selectedHome||GardenThemeSurface.IsSageScope(transform)?GardenSagePalette.Ink:new Color32(35,76,54,255);
                 captions[i].color=selected?selectedInk:Color.white;
                 icons[i].color=selected?selectedInk:Color.white;

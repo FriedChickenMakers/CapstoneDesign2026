@@ -31,6 +31,7 @@ namespace CapstoneDesign.EditorTools
             report = new FocusMissionValidation.Report { runId = "remaining-ui", utc = DateTimeOffset.UtcNow.ToString("O"),
                 unityVersion = Application.unityVersion, environment = "Memory stores, synthetic preview scenes and rendered UI; no real saves, native permissions or physical input" };
             assertions = 0;
+            var debugScope=new DebugValidationScope(true);
             try
             {
                 foreach (var size in new[] { new Vector2Int(320, 568), new Vector2Int(390, 844), new Vector2Int(1200, 2000) })
@@ -56,6 +57,7 @@ namespace CapstoneDesign.EditorTools
             }
             finally
             {
+                debugScope.Dispose();
                 report.checks.Add(new FocusMissionValidation.CheckResult { name = "assertions", status = "info", detail = assertions.ToString() });
                 File.WriteAllText(Path.Combine(output, "report.json"), JsonUtility.ToJson(report, true));
                 Environment.SetEnvironmentVariable("CAPSTONE_ARTIFACTS", previous);

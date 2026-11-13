@@ -16,9 +16,7 @@ namespace CapstoneDesign.Runtime
         {
             get
             {
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
                 if (IsMissionDebugActive) return missionDebugOriginalService.Snapshot.InstallationId;
-#endif
                 return opened ? Service.Snapshot.InstallationId : null;
             }
         }

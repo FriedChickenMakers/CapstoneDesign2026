@@ -75,6 +75,7 @@ namespace CapstoneDesign.Runtime
                     Application.persistentDataPath,mode,Application.isEditor,EditorSaveOverride) : null;
                 Service = injected ?? new GardenStateService(new FileStateStore(persistentStateFile), new SystemClock(), Balance,
                     GardenStatePaths.ShouldMigrateLegacy(Application.isEditor,mode) ? ReadLegacy() : new LegacySnapshot());
+                if(Application.isPlaying)Service.CaptureMeasurementContext=()=>TelemetryMeasurementContext.Capture(IsMissionDebugActive);
                 opened=Service.Open();
                 if (!opened) error=Service.LastError;
                 else if (!Service.HasPendingFullReset) { RefreshCycle(); sessionId=Service.Snapshot.Sessions.LastOrDefault(s=>s.Status==ParticipationState.InProgress || s.Status==ParticipationState.Paused || s.Status==ParticipationState.Selected)?.SessionId; }
@@ -117,8 +118,8 @@ namespace CapstoneDesign.Runtime
                 PollFullResetRecovery();
                 return;
             }
-            if (IsMissionDebugActive) return;
             ObserveOptionalRecommendation();
+            if (IsMissionDebugActive) return;
             TickRecordHeartRefresh();
             TickWalkingPersonalization();
             TickMissionNotifications();
@@ -750,7 +751,7 @@ namespace CapstoneDesign.Runtime
         static GameObject CreateVisitor(string id) => GardenSceneModels.CreateVisitor(id);
         public string CurrentScreen => screen;
 
-        public bool DebugWalkEnabled => opened && Service.Snapshot.DebugWalkPeriods.Any(p=>string.IsNullOrEmpty(p.EndedUtc));
+        public bool DebugWalkEnabled => DebugAccess.Enabled && opened && Service.Snapshot.DebugWalkPeriods.Any(p=>string.IsNullOrEmpty(p.EndedUtc));
         public string DebugWalkSummary
         {
             get
@@ -763,14 +764,12 @@ namespace CapstoneDesign.Runtime
                     "개 · 다음 보상 "+((p.RealStepHighWater+p.VirtualSteps)%10)+"/10\n"+stepQueryStatus;
             }
         }
-#if UNITY_EDITOR || DEVELOPMENT_BUILD
-        public bool AddTestCoins() => opened && Apply(Service.AddTestCoins());
+        public bool AddTestCoins() => DebugAccess.Enabled && opened && Apply(Service.AddTestCoins());
         public bool AddTestNutrients() => AddTestCoins();
-#endif
 
         public bool ToggleDebugWalk()
         {
-            if(!opened)return false;
+            if(!DebugAccess.Enabled || !opened)return false;
             bool wasEnabled=DebugWalkEnabled;
             if(!Apply(wasEnabled?Service.DisableDebugWalk():Service.EnableDebugWalk()))return false;
             RequestStepSyncSoon(wasEnabled,wasEnabled);

@@ -14,6 +14,29 @@ namespace CapstoneDesign.Runtime
         public Func<int,bool> Persist;
         public Func<bool> StartPractice;public Action StateChanged;public bool PreviouslyStarted;
         float fraction,sinceSave;bool running,started;
+        static readonly HashSet<FocusPracticeClock> awakeClocks = new HashSet<FocusPracticeClock>();
+        static int previousSleepTimeout;
+
+        void UpdateScreenAwake()
+        {
+            if (running && isActiveAndEnabled)
+            {
+                if (awakeClocks.Count == 0) previousSleepTimeout = Screen.sleepTimeout;
+                awakeClocks.Add(this);
+                Screen.sleepTimeout = SleepTimeout.NeverSleep;
+            }
+            else if (awakeClocks.Remove(this) && awakeClocks.Count == 0)
+            {
+                Screen.sleepTimeout = previousSleepTimeout;
+            }
+        }
+
+        void OnDisable()
+        {
+            running = false;
+            UpdateScreenAwake();
+        }
+
         public bool Running=>running;public bool HasStarted=>started;
         public void Initialize(){started=PreviouslyStarted||StartPractice==null&&ElapsedSeconds>0;if(Toggle!=null)Toggle.onClick.AddListener(ToggleRunning);Refresh();}
         void Update()
@@ -33,6 +56,7 @@ namespace CapstoneDesign.Runtime
         void OnApplicationFocus(bool focused){if(!focused)Pause();}
         void Refresh()
         {
+            UpdateScreenAwake();
             if(Label!=null)Label.text=started?(running?"집중 중 · ":"잠시 멈춤 · ")+(ElapsedSeconds<RecommendedSeconds?Format(RecommendedSeconds-ElapsedSeconds)+" 남음":"추천 시간 지남")+" · 수행 "+Format(ElapsedSeconds):"추천 "+Format(RecommendedSeconds)+" · 편한 만큼 해요";
             StateChanged?.Invoke();
             if(Toggle!=null){var label=Toggle.GetComponentInChildren<Text>();if(label!=null)label.text=running?"잠시 쉬기":started?"이어서 집중":"집중 시작";}
